@@ -45,17 +45,13 @@
 // The per-run answer is written to the CSV as ir_inner_capped / ir_inner_relres /
 // ir_inner_best_relres / ir_inner_best_iter.
 //
-// Warm-start ablation knobs (added 2026-07-30; irlsq_reg mode):
-//   [ir_warm_start] 1 => IterRefineLSQ starts from the sketch-and-solve x0 (computed
-//                   with Blendenpik's own init machinery) instead of x0 = 0, via the
-//                   shift trick x = x0 + dx. Default 0 (x0 = 0, per collaborator
-//                   request 2026-06-09).
-//   [bp_warm_start] 0 => Blendenpik's LSQR starts from zero instead of its
-//                   sketch-and-solve x0. Default 1 (its published configuration).
-// Together they form the 2x2 that separates initialization from preconditioner
-// quality: at kc1e10 Blendenpik beat every Q-less QR method by 4-5 orders of
-// FORWARD error while the preconditioners measured equally healthy -- these knobs
-// decide whether that gap is the x0 policy or the method.
+// Warm-start policy (2026-08-05, Max; supersedes the 07-30 2x2 ablation knobs):
+// the sketch-and-solve x0 warm start is Blendenpik-only. Method mask bit 32 runs
+// TWO variants -- "Blendenpik" (its own warm start, the published configuration)
+// and "Blendenpik_cold" (x0 = 0) -- and IterRefineLSQ always starts from x0 = 0
+// (per collaborator request 2026-06-09). The former [ir_warm_start] and
+// [bp_warm_start] CLI knobs are removed; the 07-30 2x2 that motivated them is
+// answered (warm x0 = Blendenpik's forward-error edge, see the 07-30 session log).
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -208,8 +204,8 @@ struct bench_result {
 // diagnostic sweep separate those two effects without a rebuild.
 static int    g_ir_max_inner = 200;    // <= 0 => keep the IterRefineLSQ default
 static double g_ir_inner_tol = -1.0;   // <  0 => eps^0.85 in the working precision
-static bool   g_ir_warm_start = false; // IterRefineLSQ from sketch-and-solve x0 (irlsq_reg)
-static bool   g_bp_warm_start = true;  // Blendenpik's own warm start (0 = ablate to x0=0)
+// (g_ir_warm_start / g_bp_warm_start removed 2026-08-05: IR methods are always
+//  cold; Blendenpik runs as two mask-32 variants, warm and cold.)
 
 // Summarize an IterRefineLSQ run's inner-CG behavior into the CSV fields.
 //
@@ -579,7 +575,10 @@ static int run_benchmark_inner(
     if (method_mask & 4)   selected_algs.push_back("sCholQR3");
     if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
     if (method_mask & 16)  selected_algs.push_back("CholQR2");
-    if (method_mask & 32)  selected_algs.push_back("Blendenpik");
+    if (method_mask & 32) {
+        selected_algs.push_back("Blendenpik");        // its own sketch-and-solve warm start
+        selected_algs.push_back("Blendenpik_cold");   // same solver, x0 = 0
+    }
 
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
@@ -600,7 +599,12 @@ static int run_benchmark_inner(
 
     T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
 
-    // Warmup (CQRRT_linop)
+    // Warmup (CQRRT_linop), plus the solve path: the build warmup already
+    // applies A_op repeatedly, but the timed IterRefineLSQ also exercises the
+    // TRSM preconditioner path and LSQR's vector work, whose one-time costs
+    // (thread pools, first-touch pages) otherwise land inside the FIRST
+    // method's timed solve (2026-08-05 yellow-bar finding). CPU warmup only,
+    // distinct from the x0 warm-start ablation.
     std::cout << "Running warmup... " << std::flush;
     {
         auto warm_state = run_states[0];
@@ -608,7 +612,16 @@ static int run_benchmark_inner(
         RandLAPACK::CQRRT_linops<T, RNG> warm_algo(false, tol, false);
         warm_algo.nnz = sketch_nnz;
         warm_algo.block_size = block_size;
-        warm_algo.call(A_op, R_warm, n, d_factor, warm_state);
+        int warm_status = warm_algo.call(A_op, R_warm, n, d_factor, warm_state);
+        if (b_ptr) {
+            T* x_wu = new T[n]();
+            int it_wu = 0; long lt_wu[4] = {0};
+            RandLAPACK::lsqr<T>(A_op, m, n,
+                (warm_status == 0) ? R_warm : nullptr,
+                (warm_status == 0) ? n : (int64_t)0,
+                b_ptr->data(), x_wu, tol, tol, 5, it_wu, lt_wu);
+            delete[] x_wu;
+        }
         delete[] R_warm;
     }
     std::cout << "done\n\n";
@@ -665,13 +678,13 @@ static int run_benchmark_inner(
             // ---- QR dispatch (lifted verbatim from CQRRT_linop_irlsq.cc; +Blendenpik) ----
             std::cout << "[Run " << run_idx << ", " << alg_name << "] QR ... " << std::flush;
             RandLAPACK::PeakRSSTracker mem; mem.start();
-            if (alg_name == "Blendenpik") {
+            if (alg_name.rfind("Blendenpik", 0) == 0) {
                 // Independent sketch-and-precondition LSQ solver: sketch -> QR -> LSQR.
                 // Produces x_ls directly (no mu, no IR-LSQ). R_out holds the sketch R factor
                 // used for the Q = A R^{-1} orthogonality check.
                 RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, tol);
                 bp.nnz = sketch_nnz;
-                bp.warm_start = g_bp_warm_start;
+                bp.warm_start = (alg_name == "Blendenpik");   // "_cold" => x0 = 0
                 // Match the inner-solve budget the Q-less QR methods get from the IR
                 // driver (max_inner per step x 2 steps), so the comparison is not
                 // decided by an accidental cap difference.
@@ -767,7 +780,7 @@ static int run_benchmark_inner(
             // ---- IR-LSQ post-processing ----
             {
                 const std::vector<T>& b = *b_ptr;
-                if (alg_name == "Blendenpik") {
+                if (alg_name.rfind("Blendenpik", 0) == 0) {
                     // x_ls was already computed by Blendenpik's own LSQR above; no IR-LSQ.
                     std::cout << ". LSQR ... " << std::flush;
                     res.ir_total_us         = blendenpik_lsqr_us;
@@ -1228,8 +1241,7 @@ static void write_irlsq_reg_results(
         << "# method_mask=" << method_mask << "\n"
         << "# kappa_target=" << kappa_target << " mu=" << mu << "\n"
         << "# precond_prec=" << precond_prec << " solve_prec=" << solve_prec << "\n"
-        << "# ir_warm_start=" << (g_ir_warm_start ? 1 : 0)
-        << " bp_warm_start=" << (g_bp_warm_start ? 1 : 0) << "\n"
+        << "# blendenpik=warm+cold (IR methods always cold x0; 2026-08-05 policy)\n"
         << "# A_hat = [A; mu*I];  R = chol(A^T A + mu^2 I) built in precond_prec,\n"
         << "#   used as right preconditioner for IterRefineLSQ run in solve_prec.\n"
 #ifdef _OPENMP
@@ -1303,7 +1315,10 @@ static int run_irlsq_reg(
     if (method_mask & 4)   selected_algs.push_back("sCholQR3");
     if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
     if (method_mask & 16)  selected_algs.push_back("CholQR2");
-    if (method_mask & 32)  selected_algs.push_back("Blendenpik");   // independent sketch+QR+LSQR
+    if (method_mask & 32) {   // independent sketch+QR+LSQR, warm + cold variants
+        selected_algs.push_back("Blendenpik");
+        selected_algs.push_back("Blendenpik_cold");
+    }
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
         return 1;
@@ -1404,12 +1419,27 @@ static int run_irlsq_reg(
     for (int64_t r = 0; r < num_runs; ++r) { run_states[r] = main_state; if (r > 0) run_states[r].key.incr(r); }
 
     // Warmup the precond-chain CQRRT on A_hat (warms the L^{-1} K V chain, the
-    // augmented Gram, and the blocked sketch overload).
+    // augmented Gram, and the blocked sketch overload), then the SOLVE chain:
+    // the timed IR-LSQ runs LSQR on J_Ts with a TRSM preconditioner, and before
+    // 2026-08-05 its thread pools / first-touch pages were paid inside the FIRST
+    // method's timed solve, which at 4-7 inner iterations is the same magnitude
+    // as the whole solve (the yellow-bar finding). A few untimed LSQR iterations
+    // on J_Ts (with the warmup R when usable) close that gap. This is a CPU
+    // warmup, distinct from Blendenpik's x0 warm start.
     std::cout << "Running warmup... " << std::flush;
     { auto ws = run_states[0]; P_precond* Rw = new P_precond[n * n]();
       RandLAPACK::CQRRT_linops<P_precond, RNG> warm(false, tol_P);
       warm.nnz = sketch_nnz; warm.block_size = block_size;
-      warm.call(A_hat_Pp, Rw, n, (P_precond)d_factor, ws); delete[] Rw; }
+      int warm_status = warm.call(A_hat_Pp, Rw, n, (P_precond)d_factor, ws);
+      T_solve* Rw_T = new T_solve[n * n];
+      if (warm_status == 0)
+          for (int64_t i = 0; i < n * n; ++i) Rw_T[i] = (T_solve)Rw[i];
+      T_solve* x_wu = new T_solve[n]();
+      int it_wu = 0; long lt_wu[4] = {0};
+      RandLAPACK::lsqr<T_solve>(J_Ts, m, n,
+          (warm_status == 0) ? Rw_T : nullptr, (warm_status == 0) ? n : (int64_t)0,
+          b.data(), x_wu, tol_T, tol_T, 5, it_wu, lt_wu);
+      delete[] Rw; delete[] Rw_T; delete[] x_wu; }
     std::cout << "done\n";
 
     std::vector<bench_result<T_solve>> all_results;
@@ -1429,7 +1459,7 @@ static int run_irlsq_reg(
 
             std::fill(R_P, R_P + n * n, (P_precond)0);
             auto state = run_states[run_idx];
-            const bool is_bp = (alg_name == "Blendenpik");
+            const bool is_bp = (alg_name.rfind("Blendenpik", 0) == 0);
             long bp_lsqr_us = 0; int bp_lsqr_iters = 0;
 
             std::cout << "[Run " << run_idx << ", " << alg_name << "] QR(" << precond_prec_str
@@ -1440,7 +1470,7 @@ static int run_irlsq_reg(
                 // no augmented A_hat): sketch -> Householder QR -> LSQR, producing x_ls directly.
                 RandLAPACK::Blendenpik_linops<T_solve, RNG> bp(true, tol_T);
                 bp.nnz = sketch_nnz;
-                bp.warm_start = g_bp_warm_start;
+                bp.warm_start = (alg_name == "Blendenpik");   // "_cold" => x0 = 0
                 // Same inner-solve budget as the IR methods (see the irlsq path).
                 bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * 2;
                 std::fill(x_ls, x_ls + n, (T_solve)0);
@@ -1517,44 +1547,18 @@ static int run_irlsq_reg(
                 res.ir_outer_iters       = 1;
                 res.ir_inner_iters_total = bp_lsqr_iters;   // LSQR iters in the CG-iters slot
             } else {
-                std::cout << ". IR-LSQ(" << solve_prec_str
-                          << (g_ir_warm_start ? ", warm x0" : "") << ") ... " << std::flush;
+                std::cout << ". IR-LSQ(" << solve_prec_str << ") ... " << std::flush;
                 auto ls_t0 = steady_clock::now();
-                // Warm start (2026-07-30 ablation): x0 = sketch-and-solve solution,
-                // computed with Blendenpik's own init machinery so it is the exact
-                // same x0 Blendenpik uses. IR then solves for the correction dx
-                // against r0 = b - J x0 and we return x = x0 + dx (shift trick,
-                // as rl_blendenpik.hh does around rl_lsqr). The x0 build cost is
-                // deliberately inside ir_total_us: it is part of this variant's solve.
-                std::vector<T_solve> x0_ws, r_ws;
-                const T_solve* ir_rhs = b.data();
-                if (g_ir_warm_start) {
-                    auto ws_t0 = steady_clock::now();
-                    x0_ws.assign(n, (T_solve)0); r_ws.assign(m, (T_solve)0);
-                    auto ws_state = run_states[run_idx];
-                    RandLAPACK::Blendenpik_linops<T_solve, RNG> ss(false, tol_T);
-                    ss.nnz = sketch_nnz; ss.init_only = true;
-                    int ss_status = ss.call(J_Ts, b.data(), m, x0_ws.data(), n,
-                                            (T_solve)d_factor, ws_state);
-                    if (ss_status != 0) {
-                        std::cerr << "Warning: sketch-and-solve x0 failed (status "
-                                  << ss_status << "); falling back to x0 = 0\n";
-                        x0_ws.assign(n, (T_solve)0);
-                    }
-                    J_Ts(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                         m, 1, n, (T_solve)1.0, x0_ws.data(), n, (T_solve)0.0, r_ws.data(), m);
-                    for (int64_t i = 0; i < m; ++i) r_ws[i] = b[i] - r_ws[i];
-                    ir_rhs = r_ws.data();
-                    res.ir_setup_us = duration_cast<microseconds>(steady_clock::now() - ws_t0).count();
-                }
+                // Always cold (2026-08-05 policy): the sketch-and-solve x0 warm-start
+                // ablation that lived here is removed -- warm x0 is Blendenpik-only
+                // now (see the CLI comment block). ir_setup_us stays in the CSV
+                // schema and is always 0 for IR methods.
                 std::fill(x_ls, x_ls + n, (T_solve)0.0);
                 RandLAPACK::IterRefineLSQ<T_solve> ir(
                     (g_ir_inner_tol > 0) ? (T_solve)g_ir_inner_tol : tol_T,
                     (g_ir_max_inner > 0) ? g_ir_max_inner : 200,
                     2, true, false);
-                int ir_status = ir.call(J_Ts, R_T, n, ir_rhs, m, x_ls, n);
-                if (g_ir_warm_start)
-                    blas::axpy(n, (T_solve)1.0, x0_ws.data(), 1, x_ls, 1);
+                int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
                 auto ls_t1 = steady_clock::now();
                 if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
                 res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
@@ -1701,9 +1705,16 @@ int run_benchmark(int argc, char* argv[]) {
     // ir_max_inner <= 0 keeps the 200 default; ir_inner_tol < 0 keeps eps^0.85.
     g_ir_max_inner = (int)opt_long(11, 200);
     g_ir_inner_tol = opt_double(12, -1.0);
-    // Warm-start ablation (2026-07-30); see the usage comment at the top of the file.
-    g_ir_warm_start = (opt_long(13, 0) != 0);
-    g_bp_warm_start = (opt_long(14, 1) != 0);
+    // Positions 13/14 were the 07-30 warm-start ablation knobs, removed 2026-08-05
+    // (warm x0 is Blendenpik-only; both Blendenpik variants always run). Reject
+    // rather than ignore, so a stale job script fails loudly instead of silently
+    // running a different experiment than it encodes.
+    if (argc > dfactor_idx + 13) {
+        std::cerr << "Error: [ir_warm_start]/[bp_warm_start] CLI knobs were removed "
+                     "2026-08-05 (Blendenpik-only warm start, both variants always run). "
+                     "Regenerate the job scripts.\n";
+        return 1;
+    }
 
     if (mode == "irlsq_reg" && sparse_mode) {
         std::cerr << "Error: mode 'irlsq_reg' is FEM-only; sparse input is not supported.\n";

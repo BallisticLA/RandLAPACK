@@ -11,9 +11,17 @@
 // (build/solve time) + storage (peak RSS, analytical) + Cholesky shift-retry count.
 //
 // CLI: <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> <tol> <maxit>
-//      <d_factor> <sketch_nnz> [seed]
+//      <d_factor> <sketch_nnz> [seed] [num_runs]
 //   method_mask bits: 1 CQRRT, 2 CholQR, 4 sCholQR3, 8 sCholQR3_basic, 16 CholQR2,
 //                     32 Blendenpik, 64 unpreconditioned.
+//   num_runs (default 1): repetitions per method, all recorded (one CSV row each,
+//   'run' column). The MATLAB plotters aggregate (best run by default).
+//
+// Warm start policy (2026-08-05, Max): the sketch-and-solve x0 warm start is
+// Blendenpik-only. Bit 32 therefore runs TWO variants -- "Blendenpik" (its own
+// warm start) and "Blendenpik_cold" (x0 = 0) -- and every Q-less QR method is
+// unconditionally cold. The former [qless_warm_start]/[bp_warm_start] CLI knobs
+// are gone (the 07-31 warm/cold campaign trees are retired with them).
 
 #include "RandLAPACK.hh"
 #include "rl_cholqr_linops.hh"
@@ -115,7 +123,7 @@ static void compute_orth_and_cond(AOp& A, const double* R, int64_t mtot, int64_t
 int main(int argc, char** argv) {
     if (argc < 12) {
         std::fprintf(stderr, "usage: %s <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> "
-                             "<tol> <maxit> <d_factor> <sketch_nnz> [seed] [qless_warm_start] [bp_warm_start]\n", argv[0]);
+                             "<tol> <maxit> <d_factor> <sketch_nnz> [seed] [num_runs]\n", argv[0]);
         return 1;
     }
     std::string prec = argv[1];          // "double" (v1)
@@ -130,16 +138,14 @@ int main(int argc, char** argv) {
     double d_factor = std::stod(argv[10]);
     int64_t sketch_nnz = std::stoll(argv[11]);
     int64_t seed = (argc > 12) ? std::stoll(argv[12]) : 1;
-    // Warm-start ablation (2026-07-31, mirrors CQRRT_linop_applications):
-    //   qless_warm_start: 1 => every Q-less QR method's LSQR starts from the
-    //     sketch-and-solve x0 (built with an AUXILIARY sketch via Blendenpik
-    //     init_only; the method's own QR stays sketch-free). Cost recorded in
-    //     the setup_us CSV column. Default 0 (historical behavior).
-    //   bp_warm_start: 0 => Blendenpik's own warm start disabled. Default 1
-    //     (its class default since 2026-07-27 -- which silently made the
-    //     07-29 campaign MIXED: Blendenpik warm, everyone else cold).
-    bool qless_warm = (argc > 13) && std::stoi(argv[13]) != 0;
-    bool bp_warm    = (argc > 14) ? (std::stoi(argv[14]) != 0) : true;
+    // Repetitions per method, all recorded. Timing at 4-7 LSQR iterations is at
+    // the noise floor of a single run (2026-08-05 finding); 5 runs + best-of in
+    // the plotter is the fix. Default 1 keeps old invocations valid.
+    int64_t num_runs = (argc > 13) ? std::stoll(argv[13]) : 1;
+    if (num_runs < 1) {
+        std::fprintf(stderr, "num_runs must be >= 1 (got %lld)\n", (long long)num_runs);
+        return 1;
+    }
     int64_t block_size = 256;
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }
 
@@ -193,6 +199,25 @@ int main(int argc, char** argv) {
     // cond(A R^{-1}) needs an n x n eig; skip it above this size (infeasible at ISAAC-large n).
     const int64_t cond_est_max_n = 16384;   // includes small (n=8256), excludes large (n=33024)
 
+    // 3b. CPU warmup, untimed (NOT the x0 warm-start ablation): one Q-less QR
+    // build plus a few LSQR iterations so MKL thread pools, first-touch pages,
+    // and the FFT apply path are all exercised before anything is measured.
+    // Without this the first timed solve absorbs those one-time costs, which at
+    // 4-7 LSQR iterations is the same magnitude as the whole solve (the
+    // 2026-08-05 yellow-bar finding).
+    std::printf("Running warmup (untimed)... "); std::fflush(stdout);
+    {
+        std::vector<double> R_wu(n * n, 0.0), x_wu(n, 0.0);
+        rl::CholQR_linops<double> qr_wu(false, tol); qr_wu.block_size = block_size;
+        int wu_status = qr_wu.call(A_hat, R_wu.data(), n);
+        int it_wu = 0; long lt_wu[4] = {0}; double rr_wu = -1;
+        rl::lsqr<double>(A_hat, mtot, n,
+                         (wu_status == 0) ? R_wu.data() : nullptr,
+                         (wu_status == 0) ? n : (int64_t)0,
+                         rhs.data(), x_wu.data(), tol, tol, 5, it_wu, lt_wu, &rr_wu);
+    }
+    std::printf("done\n");
+
     // 4. Method list from the mask.
     std::vector<std::string> algs;
     if (method_mask & 1)  algs.push_back("CQRRT_linop");
@@ -200,7 +225,10 @@ int main(int argc, char** argv) {
     if (method_mask & 4)  algs.push_back("sCholQR3");
     if (method_mask & 8)  algs.push_back("sCholQR3_basic");
     if (method_mask & 16) algs.push_back("CholQR2");
-    if (method_mask & 32) algs.push_back("Blendenpik");
+    if (method_mask & 32) {
+        algs.push_back("Blendenpik");        // its own sketch-and-solve warm start
+        algs.push_back("Blendenpik_cold");   // same solver, x0 = 0
+    }
     if (method_mask & 64) algs.push_back("unpreconditioned");
 
     // 5. CSV.
@@ -210,19 +238,25 @@ int main(int argc, char** argv) {
     std::ofstream out(csv);
     out << "# Toeplitz LS benchmark m=" << m << " n=" << n << " omega=" << omega
         << " lambda=" << lambda << " tol=" << tol << " d_factor=" << d_factor << "\n";
-    out << "# qless_warm_start=" << (qless_warm ? 1 : 0) << " bp_warm_start=" << (bp_warm ? 1 : 0) << "\n";
-    out << "algorithm,m,n,qr_status,qr_time_us,solve_time_us,peak_rss_kb,analytical_kb,"
+    out << "# blendenpik=warm+cold (all Q-less methods cold; 2026-08-05 policy)"
+        << " num_runs=" << num_runs << "\n";
+    out << "algorithm,run,m,n,qr_status,qr_time_us,solve_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,iterations,solver_flag,solver_relres,aug_relres,normal_relres,"
            "data_relres,recovery_error,cond_estimate,chol_retries,"
-           "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us\n";   // fwd/adj/trsm 2026-07-29; setup_us 2026-07-31
+           "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us\n";   // fwd/adj/trsm 2026-07-29; setup_us 2026-07-31; run 2026-08-05
 
     std::vector<double> R(n*n), x(n), Tx(m), Ax(mtot);
 
     for (const auto& alg : algs) {
-        std::printf("\n=== %s ===\n", alg.c_str());
+    for (int64_t run_idx = 0; run_idx < num_runs; ++run_idx) {   // body indent unchanged on purpose (2026-08-05)
+        std::printf("\n=== %s (run %lld/%lld) ===\n", alg.c_str(),
+                    (long long)(run_idx + 1), (long long)num_runs);
         std::fill(R.begin(), R.end(), 0.0);
         std::fill(x.begin(), x.end(), 0.0);
+        // Same base seed, per-run key bump: independent sketches per run,
+        // matching the CQRRT_linop_applications run_states convention.
         auto state = RandBLAS::RNGState<RNG>((uint32_t)seed);
+        if (run_idx > 0) state.key.incr(run_idx);
         int qr_status = 0, iters = 0, flag = 0, chol_retries = 0;
         long qr_us = 0, solve_us = 0, peak_kb = 0, analytical_kb = 0;
         // Solve-time DECOMPOSITION (added 2026-07-29 to localize a timing anomaly).
@@ -240,9 +274,10 @@ int main(int argc, char** argv) {
         //     runs. Reporting the parts removes that trap.
         // -1 means "not measured for this method" (Blendenpik exposes only a lumped solve).
         long solve_fwd_us = -1, solve_adj_us = -1, solve_trsm_us = -1;
-        long setup_us = 0;   // warm-start x0 build; 0 = cold (or embedded, for warm Blendenpik)
+        long setup_us = 0;   // 0 always for Q-less methods (cold); warm Blendenpik's x0 is embedded
         double solver_relres = -1;   // LSQR's own ||b - Ã y|| / ||b|| at termination
-        bool have_R = false, is_bp = (alg == "Blendenpik"), is_unprec = (alg == "unpreconditioned");
+        bool is_bp     = (alg.rfind("Blendenpik", 0) == 0);
+        bool have_R = false, is_unprec = (alg == "unpreconditioned");
 
         rl::PeakRSSTracker mem; mem.start();
         auto t0 = steady_clock::now();
@@ -250,7 +285,7 @@ int main(int argc, char** argv) {
         if (is_bp) {
             rl::Blendenpik_linops<double, RNG> bp(true, tol);
             bp.nnz = sketch_nnz;
-            bp.warm_start = bp_warm;
+            bp.warm_start = (alg == "Blendenpik");   // "Blendenpik_cold" => x0 = 0
             // Give Blendenpik the SAME iteration budget as every other method. It
             // previously fell back to its internal min(4n,1000) default while the others
             // received the CLI maxit (3000 in the campaigns) -- a silent 3x handicap.
@@ -300,36 +335,11 @@ int main(int argc, char** argv) {
             }
             if (qr_status == 0) {
                 have_R = true;
+                // Cold start unconditionally (2026-08-05 policy): the sketch-and-solve
+                // x0 warm start is Blendenpik-only now; the qless_warm path that lived
+                // here (auxiliary Blendenpik init_only sketch + shift trick) is removed.
                 long lt[4] = {0};
-                if (qless_warm) {
-                    // Sketch-and-solve x0 via an auxiliary sketch (Blendenpik init_only,
-                    // fresh deterministic state), then the shift trick around rl_lsqr:
-                    // solve for the correction dx against r0 = rhs - A_hat x0 and return
-                    // x = x0 + dx, exactly as rl_blendenpik.hh does internally.
-                    auto ws_t0 = steady_clock::now();
-                    std::vector<double> x0(n, 0.0), r0(mtot, 0.0);
-                    auto ws_state = RandBLAS::RNGState<RNG>((uint32_t)(seed + 7919));
-                    rl::Blendenpik_linops<double, RNG> ss(false, tol);
-                    ss.nnz = sketch_nnz; ss.init_only = true;
-                    int ss_status = ss.call(A_hat, rhs.data(), mtot, x0.data(), n, d_factor, ws_state);
-                    if (ss_status != 0) {
-                        std::fprintf(stderr, "warning: sketch-and-solve x0 failed (%d); falling back to x0=0\n", ss_status);
-                        std::fill(x0.begin(), x0.end(), 0.0);
-                    }
-                    A_hat(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, mtot, 1, n, 1.0, x0.data(), n, 0.0, r0.data(), mtot);
-                    for (int64_t i = 0; i < mtot; ++i) r0[i] = rhs[i] - r0[i];
-                    setup_us = duration_cast<microseconds>(steady_clock::now() - ws_t0).count();
-                    flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, r0.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
-                    blas::axpy(n, 1.0, x0.data(), 1, x.data(), 1);
-                    // LSQR normalized its residual by ||r0||; rescale to mean the same
-                    // thing as every other row (||rhs - A x|| / ||rhs||).
-                    if (solver_relres >= 0) {
-                        double nr0 = blas::nrm2(mtot, r0.data(), 1);
-                        if (rhs_norm > 0) solver_relres *= nr0 / rhs_norm;
-                    }
-                } else {
-                    flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
-                }
+                flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
                 solve_us = lt[3];
                 solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];
             }
@@ -373,12 +383,14 @@ int main(int argc, char** argv) {
         std::printf("  orth=%.3e solver_relres=%.3e aug=%.3e normal=%.3e data=%.3e recovery=%.3e cond=%.3e retries=%d\n",
                     orth_err, solver_relres, aug_relres, normal_relres, data_relres, recov, cond_est, chol_retries);
 
-        out << alg << "," << m << "," << n << "," << qr_status << "," << qr_us << "," << solve_us << ","
+        out << alg << "," << run_idx << "," << m << "," << n << "," << qr_status << "," << qr_us << "," << solve_us << ","
             << peak_kb << "," << analytical_kb << ","
             << std::scientific << orth_err << "," << iters << "," << flag << ","
             << solver_relres << "," << aug_relres << "," << normal_relres << ","
             << data_relres << "," << recov << "," << cond_est << "," << chol_retries << ","
             << solve_fwd_us << "," << solve_adj_us << "," << solve_trsm_us << "," << setup_us << "\n";
+        out.flush();   // partial results survive a scheduler kill mid-campaign
+    }
     }
     out.close();
     std::printf("\nresults -> %s\n", csv.c_str());
