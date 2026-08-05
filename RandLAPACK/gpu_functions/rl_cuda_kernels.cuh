@@ -8,9 +8,6 @@
 
 namespace RandLAPACK::cuda_kernels {
 
-// This conditional allows us to make sure that the cuda kernels are only compiled with nvcc.
-#ifdef USE_CUDA
-
 // cuSOLVER's ormqr interface is typed by precision; these templates infer
 // the element type from the arguments and dispatch to the S or D symbol at
 // compile time (if constexpr), so the indirection has no runtime cost.
@@ -30,6 +27,10 @@ inline cusolverStatus_t cusolver_ormqr(cusolverDnHandle_t handle, cublasSideMode
     else
         return cusolverDnSormqr(handle, side, trans, m, n, k, A, lda, tau, C, ldc, work, lwork, dev_info);
 }
+
+
+// This conditional allows us to make sure that the cuda kernels are only compiled with nvcc.
+#ifdef USE_CUDA
 
 /** Given the dimensions of a matrix decompose the work for CUDA.
  * @param[in] m number of rows
