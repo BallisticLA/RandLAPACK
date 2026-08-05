@@ -1,5 +1,10 @@
 # Installing and using RandLAPACK
 
+**The fastest route is the autoinstaller**: `bash install.sh` builds
+RandLAPACK, its dependencies, and the test and benchmark executables in one
+command; see [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md). This file covers manual
+installation for fine-grained control.
+
 Sections 1 through 3 of this file describe how to perform a *basic* installation
 of RandLAPACK and its dependencies.
 
@@ -19,7 +24,7 @@ of the corresponding instructions in Section 1.
 - **C++ Compiler**: C++20 support required
   - GCC 11 or higher
   - Clang 14 or higher (not extensively tested)
-  - Intel ICPX (has known issues, see GitHub issue #91)
+  - Intel ICPX (not extensively tested)
 
 ### GPU Support (Optional)
 For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
@@ -46,7 +51,7 @@ For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
 ### Note on Directory Names
 On some systems, library directories are called `lib` while on others they're called `lib64`. Adjust paths accordingly in the CMake configuration commands below.
 
-We recomment installing software (including googletest, if desired) using Spack:
+We recommend installing software (including googletest, if desired) using Spack:
 https://github.com/spack/spack.git
 
 ## 1. Optional dependencies
@@ -99,14 +104,13 @@ Later on, we'll assume these recipes were executed from a directory
 that contains (or will contain) the ``RandLAPACK`` project directory as a subdirectory.
 
 One can compile and install BLAS++ from
-[source](https://bitbucket.org/icl/blaspp/src/master/) using CMake by running
+[source](https://github.com/icl-utk-edu/blaspp) using CMake by running
 ```shell
 git clone https://github.com/icl-utk-edu/blaspp.git
 mkdir blaspp-build
 cd blaspp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install \
-    -DCMAKE_BINARY_DIR=`pwd` \
     -Dbuild_tests=OFF \
     -Dblas_int=int64 \
     ../blaspp
@@ -118,7 +122,7 @@ i.e. pointing at the BLAS vendor library's /include/ folder.
 This will ensure that CBLAS is properly encountered by CMake.
 
 One can compile and install LAPACK++ from
-[source](https://bitbucket.org/icl/lapackpp/src/master/) using CMake by running
+[source](https://github.com/icl-utk-edu/lapackpp) using CMake by running
 ```shell
 git clone https://github.com/icl-utk-edu/lapackpp.git
 mkdir lapackpp-build
@@ -126,7 +130,6 @@ cd lapackpp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
     -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
-    -DCMAKE_BINARY_DIR=`pwd` \
     -Dbuild_tests=OFF \
     ../lapackpp
 make -j2 install
@@ -157,7 +160,6 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/cmake/lapackpp/ \
     -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp/ \
     -DRandom123_DIR=`pwd`/../random123-install/include/ \
-    -DCMAKE_BINARY_DIR=`pwd` \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
     ../RandLAPACK/
 make -j install
@@ -176,6 +178,10 @@ Here are the conceptual meanings in the recipe's build flags:
   
 * `-Dblaspp_DIR=X` means `X` is the directory containing the file `blasppConfig.cmake`.
 
+* `-DRandLAPACK_BUILD_TESTS=ON` builds the GoogleTest regression suite
+  (requires GTest); `-DBUILD_SHARED_LIBS` and `-DSANITIZE_ADDRESS=ON`
+  (AddressSanitizer instrumentation, Debug builds) are also available.
+
 * `-DRandom123_DIR=X` means `X` is the directory that contains a folder called ``Random123``
   that includes the Random123 header files. For example, ``X/Random123/philox.h`` needs
   to be a file on your system.
@@ -193,7 +199,7 @@ For instance, the following CMakeLists.txt demonstrates how an executable can
 be linked to the RandLAPACK library:
 
 ```cmake
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.21)
 project(myexec)
 
 find_package(blaspp REQUIRED)
@@ -232,15 +238,16 @@ you want to make a project that connects RandLAPACK and Intel MKL.
 Such a situation might arise if you want to use RandLAPACK together with
 MKL's sparse linear algebra functionality.
 
-One of the RandLAPACK developers (Riley) has run into trouble
-getting BLAS++ to link to MKL as intended.
-Here's how Riley configured his BLAS++ and LAPACK++ installations:
+RandLAPACK developers have run into trouble getting BLAS++ to link to MKL
+as intended. Here is a configuration of BLAS++ and LAPACK++ that is known
+to work:
 
 0. Install and configure MKL. You can get MKL [here](https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html?operatingsystem=linux&distributions=webdownload&options=online).
-   Once you've installed it you need to edit your `.bashrc` file.
-   Riley's bashrc file was updated to contain the line
+   Once you've installed it you need to make its libraries findable, for
+   example by adding lines like the following to your shell startup file
+   (adjust the path to your MKL installation):
    ```
-   export MAIN_MKL_LIBS="/home/riley/intel/oneapi/mkl/latest/lib/intel64"
+   export MAIN_MKL_LIBS="/path/to/intel/oneapi/mkl/latest/lib/intel64"
    export LD_LIBRARY_PATH="${MAIN_MKL_LIBS}:${LD_LIBRARY_PATH}"
    export LIBRARY_PATH="${MAIN_MKL_LIBS}:${LIBRARY_PATH}"
    ```
@@ -278,7 +285,6 @@ Here's how Riley configured his BLAS++ and LAPACK++ installations:
     cmake -DCMAKE_BUILD_TYPE=Release \
        -Dblaspp_DIR=/opt/mklpp/lib/blaspp \
        -DCMAKE_INSTALL_PREFIX=/opt/mklpp \
-       -DCMAKE_BINARY_DIR=`pwd` \
        -Dbuild_tests=OFF ..
     make -j2 install
     ```

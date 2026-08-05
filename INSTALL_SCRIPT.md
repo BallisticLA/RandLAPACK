@@ -14,26 +14,29 @@ Before running the install script, ensure you have the following software
 available on your system:
 
 ### Essential Requirements
-* **C++ Compiler:** GNU GCC 13.3.0 or higher (required for C++20 features)
-* **CMake:** Version 3.27 or higher
-* **BLAS/LAPACK Library:** Intel MKL 2022 or higher recommended
+* **C++ Compiler:** GNU GCC 13.3.0 is the reference version (any C++20
+  compiler can work; the script warns on other versions and continues)
+* **CMake:** Version 3.21 or higher (recent releases recommended)
+* **BLAS/LAPACK Library:** Intel MKL 2022 or higher recommended on Linux;
+  on macOS, Homebrew OpenBLAS and libomp are required
+  (`brew install openblas libomp`)
 * **GoogleTest:** (Optional but recommended) For running RandLAPACK tests
 
 ### GPU Support Requirements (Optional)
 * **CUDA Toolkit:** Version 12.4.1 or higher
-  - **Recommended:** CUDA 12.9.0 + GCC 13.3.0 (verified working as of 2025-11-26)
+  - **Recommended:** CUDA 12.9.0 + GCC 13.3.0
   - **IMPORTANT:** CUDA versions have strict GCC compatibility requirements:
-    - CUDA 12.9.0: Compatible with GCC 13.x ✓
-    - CUDA 12.4.1: Compatible with GCC 13.x ✓
-    - CUDA 12.2.1: Requires GCC ≤ 12.x (GCC 13.x will fail with "unsupported GNU version")
-  - See `INSTALL.md` Section 0 for full compatibility matrix
-  - Ensure compatible NVIDIA driver (v580+ recommended for CUDA 12.9)
-* **CUDA Libraries:** cuBLAS and cuSOLVER (included with CUDA Toolkit)
+    - CUDA 12.9.0: Compatible with GCC 13.x
+    - CUDA 12.4.1: Compatible with GCC 13.x
+    - CUDA 12.2.1: Requires GCC 12.x or older ("unsupported GNU version" otherwise)
+  - See `INSTALL.md` Section 0 for the full compatibility matrix
+  - Ensure a compatible NVIDIA driver (v580+ recommended for CUDA 12.9)
+* **CUDA Libraries:** cuBLAS and cuSOLVER (included with the CUDA Toolkit)
 
 ### Installing Requirements with Spack
 
-We strongly recommend using [Spack](https://github.com/spack/spack) to manage
-these dependencies. A typical Spack installation would look like:
+We recommend [Spack](https://github.com/spack/spack) for managing these
+dependencies. A typical installation:
 
 ```shell
 # Step 1: Install the compiler FIRST
@@ -46,7 +49,7 @@ spack compiler find
 spack load gcc@13.3.0
 
 # Step 4: Install all other dependencies using the new compiler
-spack install cmake@3.27
+spack install cmake
 spack install intel-oneapi-mkl
 spack install googletest
 
@@ -54,12 +57,13 @@ spack install googletest
 spack install cuda@12.9.0
 ```
 
-**IMPORTANT:** The compiler must be installed, registered with `spack compiler find`,
-and loaded *before* installing other dependencies. This ensures all packages are
-built with the correct compiler version. Spack will automatically use the loaded
-compiler for subsequent package installations.
+**IMPORTANT:** The compiler must be installed, registered with
+`spack compiler find`, and loaded *before* installing other dependencies, so
+every package builds with the intended compiler.
 
-After installation, load the environment:
+After installation, load the environment (and consider adding these commands
+to your shell startup file, compiler first):
+
 ```shell
 spack load gcc@13.3.0
 spack load cmake
@@ -68,49 +72,45 @@ spack load googletest
 spack load cuda@12.9.0  # If GPU support needed
 ```
 
-**Pro tip:** Add the spack load commands to your `~/.bashrc` to automatically
-load the environment in every shell session. Make sure to load the compiler first
-in your `.bashrc`.
-
 ## 1. Preparing for Installation
 
 ### Directory Structure
 
-The install script expects a specific directory structure:
+On its first run the script moves your clone into a project layout that it
+creates next to the clone:
 
 ```
-~/RandNLA/
-├── RandLAPACK/          # Clone RandLAPACK here (script will move it)
-└── RandNLA-project/     # Created automatically by script
-    ├── lib/
-    │   ├── blaspp/      # Built by script
-    │   ├── lapackpp/    # Built by script
-    │   ├── random123/   # Built by script
-    │   └── RandLAPACK/  # Moved here by script
-    └── build/           # Build artifacts
+<parent directory>/
+|-- RandLAPACK/               # your clone (moved into the layout on first run)
+`-- RandNLA-project/          # created by the script
+    |-- lib/
+    |   |-- RandLAPACK/       # the clone, after the move
+    |   |-- blaspp/           # cloned + built by the script
+    |   `-- lapackpp/         # cloned + built by the script
+    |-- install/
+    |   |-- RandLAPACK-install/   # installed headers + CMake config
+    |   |-- blaspp-install/
+    |   |-- lapackpp-install/
+    |   `-- random123/            # header-only clone
+    |-- build/                # one build directory per project above
+    `-- install.log           # full build log of the latest run
 ```
+
+Re-running the script from the moved location
+(`RandNLA-project/lib/RandLAPACK/install.sh`) detects the layout, reuses the
+dependency installs and build directories, and performs an incremental
+rebuild.
 
 ### Initial Setup
 
-1. Create the base directory:
-   ```shell
-   mkdir -p ~/RandNLA
-   cd ~/RandNLA
-   ```
+```shell
+mkdir -p ~/RandNLA
+cd ~/RandNLA
+git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
+cd RandLAPACK
+```
 
-2. Clone RandLAPACK repository:
-   ```shell
-   git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
-   cd RandLAPACK
-   ```
-
-3. **(Important)** Switch to the correct development branch if needed:
-   ```shell
-   git checkout <branch-name>
-   ```
-
-   **Note:** Always verify with the development team which branch to use for
-   the latest GPU support and stability improvements.
+If you need a development branch, check it out before running the script.
 
 ## 2. Running the Install Script
 
@@ -161,185 +161,101 @@ All compiler output goes to `<project-dir>/install.log` automatically; the
 console shows one line per step, and any failure prints the log path plus
 the last lines of the log. There is no need to tee the output yourself.
 
+### Reusing Preinstalled Dependencies (Discovery)
+
+If you already have BLAS++, LAPACK++, or Random123 installed, point the
+script at them and it will skip those builds:
+
+```shell
+BLASPP_INSTALL_DIR=/path/to/blaspp-install \
+LAPACKPP_INSTALL_DIR=/path/to/lapackpp-install \
+RANDOM123_INSTALL_DIR=/path/to/random123 \
+bash install.sh
+```
+
+Each variable must point at an install root (the directory containing
+`lib*/cmake/<pkg>/` or, for Random123, `include/Random123/`). Dependencies
+the script itself installed on a previous run are reused automatically.
+RandBLAS is deliberately not covered: it stays a pinned git submodule (see
+`INSTALL.md`, section "RandBLAS is a pinned submodule").
+
 ## 3. What the Script Does
 
-The `install.sh` script performs the following steps automatically:
+In order (steps are numbered on the console and logged to `install.log`):
 
-1. **Creates Project Structure**
-   - Creates `~/RandNLA/RandNLA-project/` directory tree
-   - Sets up subdirectories for libraries and build artifacts
-
-2. **Builds BLAS++**
-   - Clones BLAS++ from official repository
-   - Configures with appropriate BLAS backend (MKL if available)
-   - Builds with GPU support if requested
-   - Installs to `~/RandNLA/RandNLA-project/lib/blaspp/`
-
-3. **Builds LAPACK++**
-   - Clones LAPACK++ from official repository
-   - Configures to use previously built BLAS++
-   - Builds with GPU support if requested
-   - Installs to `~/RandNLA/RandNLA-project/lib/lapackpp/`
-
-4. **Installs Random123**
-   - Clones Random123 header-only library
-   - Installs headers to `~/RandNLA/RandNLA-project/lib/random123/`
-
-5. **Moves and Builds RandLAPACK**
-   - Moves `RandLAPACK` directory to `~/RandNLA/RandNLA-project/lib/`
-   - Configures CMake with all dependency paths
-   - Builds RandLAPACK library
-   - Builds test suite and benchmarks
-   - Creates executables in `~/RandNLA/RandNLA-project/build/RandLAPACK-build/bin/`
+1. **Toolchain and GPU decision.** GCC/NVCC versions are checked (warn and
+   continue by default), GPU hardware is detected, and the CUDA choice is
+   made from flags, prompts, or non-interactive defaults.
+2. **Project layout.** Creates `RandNLA-project/{lib,install,build}` next to
+   the clone and moves the clone into `lib/RandLAPACK` (first run only).
+3. **Dependency discovery.** Reuses externally provided or previously built
+   BLAS++/LAPACK++/Random123 installs; clones what is missing.
+4. **BLAS++** configure, build, install (into `install/blaspp-install/`).
+5. **LAPACK++** configure, build, install (into `install/lapackpp-install/`),
+   against the BLAS++ from the previous step.
+6. **RandLAPACK** configure, build, install (headers and CMake config into
+   `install/RandLAPACK-install/`), with the test suite enabled.
+7. **extras** and **benchmarks**: two standalone downstream projects,
+   configured against the *installed* RandLAPACK and built (executables stay
+   in their build directories).
 
 ## 4. Verifying the Installation
 
-### Running Tests
-
-After installation completes, verify everything works correctly:
+Run the test suite from anywhere:
 
 ```shell
-cd ~/RandNLA/RandNLA-project/build/RandLAPACK-build
-ctest
+ctest --test-dir <parent>/RandNLA-project/build/RandLAPACK-build
 ```
 
-This runs the complete test suite (456 tests). Expected output:
-```
-99% tests passed, 1 tests failed out of 456
-Total Test time (real) = 124.62 sec
-```
-
-**Note:** Some test failures are known and acceptable in development branches.
-Consult the development team if you see unexpected failures.
-
-### Running GPU Tests Only
-
-If you enabled GPU support, test GPU functionality specifically:
+The suite should pass (the exact test count grows over time; CI runs this
+same suite on every change). If you enabled GPU support, the GPU tests run
+as part of the same suite; to run only them:
 
 ```shell
-./bin/RandLAPACK_tests_gpu
+<parent>/RandNLA-project/build/RandLAPACK-build/bin/RandLAPACK_tests_gpu
 ```
-
-Expected output: 13-14 GPU tests should pass within 15-20 seconds.
 
 ## 5. Working with the Installed Project
 
 ### Key File Locations
 
-After installation:
-
-* **RandLAPACK library:** `~/RandNLA/RandNLA-project/build/RandLAPACK-build/libRandLAPACK.a`
-* **Headers:** `~/RandNLA/RandNLA-project/lib/RandLAPACK/RandLAPACK/`
-* **Tests:** `~/RandNLA/RandNLA-project/build/RandLAPACK-build/bin/RandLAPACK_tests*`
-* **Benchmarks:** `~/RandNLA/RandNLA-project/build/RandLAPACK-build/bin/RandLAPACK_bench*`
-* **CMake config:** `~/RandNLA/RandNLA-project/build/RandLAPACK-build/RandLAPACKConfig.cmake`
+* **Installed headers + CMake config:**
+  `RandNLA-project/install/RandLAPACK-install/` (the config file lives under
+  `lib*/cmake/RandLAPACK/`; RandLAPACK is header-only, so there is no
+  library archive)
+* **Test executables:** `RandNLA-project/build/RandLAPACK-build/bin/`
+* **Extras executables:** `RandNLA-project/build/extras-build/`
+* **Benchmark executables:** `RandNLA-project/build/benchmark-build/`
+  (see `benchmark/README.md` for how to run them)
 
 ### Recompiling After Code Changes
 
-If you modify RandLAPACK source code:
-
 ```shell
-cd ~/RandNLA/RandNLA-project/build/RandLAPACK-build
-source ~/.bashrc  # Ensures environment is loaded
-make -j
+cd <parent>/RandNLA-project/build/RandLAPACK-build
+make -j && make install
 ```
 
-**Important:** Always source your `.bashrc` (or equivalent environment setup)
-before running `make` to ensure CUDA libraries and other dependencies are in
-your `LD_LIBRARY_PATH`.
+The `make install` matters: RandLAPACK is header-only, and the extras,
+benchmarks, and your own projects consume the *installed* headers, so
+changes only reach them after an install. Alternatively just re-run
+`bash install.sh` from `lib/RandLAPACK/`; re-runs are incremental.
 
 ### Using RandLAPACK in Your Own Projects
 
-See Section 4 of `INSTALL.md` for details on linking RandLAPACK to external
-CMake projects. You'll need to specify:
+See Section 4 of `INSTALL.md`. The paths produced by this script are:
 
-```cmake
--Dblaspp_DIR=~/RandNLA/RandNLA-project/lib/blaspp/lib/cmake/blaspp
--Dlapackpp_DIR=~/RandNLA/RandNLA-project/lib/lapackpp/lib/cmake/lapackpp
--DRandBLAS_DIR=~/RandNLA/RandNLA-project/build/RandLAPACK-build/RandBLAS
--DRandLAPACK_DIR=~/RandNLA/RandNLA-project/build/RandLAPACK-build
+```
+-Dblaspp_DIR=<parent>/RandNLA-project/install/blaspp-install/lib/cmake/blaspp
+-Dlapackpp_DIR=<parent>/RandNLA-project/install/lapackpp-install/lib/cmake/lapackpp
+-DRandLAPACK_DIR=<parent>/RandNLA-project/install/RandLAPACK-install/lib/cmake/RandLAPACK
 ```
 
----
+(depending on the platform, `lib` may be `lib64`; the installer's final
+summary prints the exact `RandLAPACK_DIR` for your machine).
 
-## Building and Running GPU Benchmarks
+## 6. Benchmarks
 
-GPU benchmarks are in the `benchmark/` directory and must be built separately from the main RandLAPACK project.
-
-### Prerequisites
-
-- RandLAPACK must already be built and installed with CUDA support (`-DRequireCUDA=ON`)
-- CUDA Toolkit must be available on your system
-- GPU hardware must be available
-
-### Building GPU Benchmarks
-
-Navigate to the benchmark directory and build as a standalone project:
-
-```shell
-cd ~/RandNLA/RandNLA-project/lib/RandLAPACK/benchmark
-mkdir -p build
-cd build
-cmake \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_COMPILER=g++ \
-  -DRandLAPACK_DIR=~/RandNLA/RandNLA-project/install/RandLAPACK-install/lib/cmake/RandLAPACK \
-  ..
-make -j
-```
-
-**Note:** Adjust the `RandLAPACK_DIR` path to match your installation location.
-
-### Running GPU Benchmarks
-
-#### BQRRP GPU Benchmark
-
-The BQRRP GPU benchmark supports two modes:
-
-**Block size sweep** (default):
-```shell
-./BQRRP_GPU_benchmark block_size [matrix_size] [profile_runtime] [run_qrf]
-```
-
-Examples:
-```shell
-# Run with default settings (16384x16384 matrix)
-./BQRRP_GPU_benchmark block_size
-
-# Run with 32768x32768 matrix
-./BQRRP_GPU_benchmark block_size 32768
-
-# Run with profiling enabled and QRF comparison
-./BQRRP_GPU_benchmark block_size 16384 1 1
-```
-
-**Matrix size sweep**:
-```shell
-./BQRRP_GPU_benchmark mat_size [profile_runtime] [run_qrf]
-```
-
-Examples:
-```shell
-# Run with default settings
-./BQRRP_GPU_benchmark mat_size
-
-# Run with profiling disabled but QRF comparison enabled
-./BQRRP_GPU_benchmark mat_size 0 1
-```
-
-### Output Files
-
-The benchmarks generate text files with timing results in the current directory:
-
-- `_BQRRP_GPU_speed_comparisons_block_size_*.txt` - Speed comparison results for block size sweep
-- `BQRRP_GPU_speed_comparisons_mat_size_*.txt` - Speed comparison results for matrix size sweep
-- `_BQRRP_GPU_runtime_breakdown_qrf_*.txt` - Detailed profiling with QRF (if profiling enabled)
-- `_BQRRP_GPU_runtime_breakdown_cholqr_*.txt` - Detailed profiling with CholQR (if profiling enabled)
-
-**Last Updated:** 2025-11-26
-**Tested With:**
-- GCC 13.3.0
-- CMake 3.31.9
-- CUDA 12.9.0
-- Intel MKL 2025.0.3
-- Ubuntu 22.04 / WSL2
+Benchmark executables are built automatically into
+`RandNLA-project/build/benchmark-build/`. Usage, including the GPU
+benchmarks and their output formats, is documented in
+[`benchmark/README.md`](benchmark/README.md).
