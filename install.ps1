@@ -29,6 +29,9 @@
 param(
     [string]$ProjectDir = "",
     [string]$MklRoot = "",
+    # Where the dependency stack lives (default: <ProjectDir>\install). CI
+    # points this at its shared, cached dependency directory.
+    [string]$DependencyRoot = "",
     [switch]$Fresh,
     [switch]$SkipTests
 )
@@ -60,7 +63,10 @@ if ($ProjectDir -eq "") {
     $ProjectDir = Join-Path (Split-Path $sourceRoot -Parent) "RandNLA-project"
 }
 $ProjectDir = [System.IO.Path]::GetFullPath($ProjectDir)
-$dependencyRoot = Join-Path $ProjectDir "install"
+if ($DependencyRoot -eq "") {
+    $DependencyRoot = Join-Path $ProjectDir "install"
+}
+$dependencyRoot = [System.IO.Path]::GetFullPath($DependencyRoot)
 $buildDir = Join-Path $ProjectDir "build\RandLAPACK-build"
 $installDir = Join-Path $ProjectDir "install\RandLAPACK-install"
 
