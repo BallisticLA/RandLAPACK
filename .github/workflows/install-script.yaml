@@ -7,7 +7,9 @@
 #      part of the script's contract);
 #   3. the dependency-discovery path (BLASPP_INSTALL_DIR & co.) configures
 #      a second project against already-installed dependencies.
-# A Windows job slot is reserved for the native-Windows work (install.ps1).
+# The Windows job runs install.ps1 the same way (fresh + idempotent re-run).
+# The Linux/macOS lanes invoke the root install.sh wrapper on purpose: users
+# type `bash install.sh`, so CI exercises the wrapper along with the script.
 name: install-script
 on:
   pull_request:
@@ -107,5 +109,36 @@ jobs:
       - name: re-run the installer in place (idempotency)
         run: bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu
 
-  # install-windows: reserved. Lands with the native Windows support
-  # (install.ps1 + MSVC/oneMKL recipe mirroring RandBLAS PR #179).
+  install-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+          submodules: recursive
+
+      - name: initialize MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # Shares the cached dependency stack with core-windows (same keys,
+      # same ..\windows-deps location); install.ps1 then reuses it through
+      # -DependencyRoot instead of rebuilding under its project directory.
+      - name: setup native Windows dependencies
+        uses: ./RandLAPACK/.github/actions/setup-randlapack-deps-windows
+
+      - name: run the installer
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+            -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
+            -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps"
+
+      - name: re-run the installer in place (idempotency)
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+            -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
+            -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps" `
+            -SkipTests

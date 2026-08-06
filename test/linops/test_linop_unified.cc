@@ -465,7 +465,7 @@ private:
         // Compare results using componentwise bounds
         RandBLAS::testing::buffs_approx_equal(
             C_op, C_reference, E, m * n,
-            __PRETTY_FUNCTION__, __FILE__, __LINE__
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
         );
 
         // Clean up

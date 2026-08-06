@@ -1,5 +1,9 @@
 # Using RandLAPACK's Automated Install Script
 
+The installer scripts live in the `install/` directory (`install/install.sh`
+for Linux/macOS, `install/install.ps1` for native Windows); a small wrapper is
+kept at the repository root so `bash install.sh` keeps working.
+
 This guide explains how to use the `install.sh` script to automatically install
 RandLAPACK and all of its dependencies (BLAS++, LAPACK++, Random123) with a
 single command.

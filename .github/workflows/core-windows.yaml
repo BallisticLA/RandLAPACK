@@ -1,0 +1,43 @@
+name: core-windows
+on:
+  pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+
+jobs:
+  build-windows:
+    name: windows-msvc-mkl-ilp64-${{ matrix.label }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            openmp: false
+          - label: openmp
+            openmp: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: initialize MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: setup native Windows dependencies
+        uses: ./.github/actions/setup-randlapack-deps-windows
+
+      - name: build, install, and test RandLAPACK
+        shell: pwsh
+        run: |
+          $openmp = '${{ matrix.openmp }}' -eq 'true'
+          & "$env:GITHUB_WORKSPACE/.github/scripts/windows/run-ci.ps1" `
+            -Task Core `
+            -WorkRoot "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci" `
+            -OpenMP:$openmp
