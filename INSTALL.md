@@ -323,10 +323,10 @@ Points worth knowing:
 - **BLAS++/LAPACK++ come from BallisticLA branches** (`BallisticLA/blaspp@remove-symv-debug-print`,
   `BallisticLA/lapackpp@msvc-direct-includes`) until two one-line MSVC fixes
   merge upstream (blaspp PR #132, lapackpp PR #87).
-- **OpenMP is currently disabled on MSVC** (a `collapse(2)` clause in
-  RandLAPACK needs the `/openmp:llvm` runtime, which conflicts with the
-  `/openmp:experimental` mode RandBLAS's build system selects). Serial builds
-  are fully functional.
+- **OpenMP on MSVC uses the `/openmp:llvm` runtime**, selected automatically
+  by RandBLAS's build system — the only MSVC mode that accepts RandLAPACK's
+  64-bit loop indices and `collapse` clauses. Serial builds (OpenMP off) are
+  also fully functional.
 - **GPU support is not available on native Windows.**
 - Executables that link MKL need the MKL `bin` directory on `PATH` at run
   time; the installer prints the path to keep.

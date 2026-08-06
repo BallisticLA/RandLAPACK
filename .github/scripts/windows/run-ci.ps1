@@ -7,12 +7,11 @@
 # CI runs the setup-randlapack-deps-windows action first (for caching) and then
 # invokes this script without -SetupDependencies.
 #
-# The build is serial (no OpenMP) for now: RandLAPACK's rl_rpchol.hh uses an
-# OpenMP `collapse(2)` clause, which MSVC only accepts under the /openmp:llvm
-# runtime, while RandBLAS's build system currently pins MSVC OpenMP to
-# /openmp:experimental. Until that is reconciled, OpenMP stays off on native
-# Windows; RandLAPACK guards all OpenMP use, so serial builds are fully
-# functional.
+# OpenMP on MSVC uses the /openmp:llvm runtime, selected by RandBLAS's build
+# system (RandBLAS #184): it is the only MSVC mode that accepts RandLAPACK's
+# 64-bit loop indices and collapse clauses. Pass -OpenMP to enable it;
+# without the switch the build is serial (also fully functional --
+# RandLAPACK guards all OpenMP use).
 
 [CmdletBinding()]
 param(
@@ -27,6 +26,8 @@ param(
     [string]$DependencyRoot = "",
 
     [switch]$SetupDependencies,
+
+    [switch]$OpenMP,
 
     [switch]$SanitizeAddress
 )
@@ -92,11 +93,11 @@ $configureArgs = @(
     "-Dlapackpp_DIR=$lapackppDir",
     "-DRandom123_DIR=$random123Dir",
     "-DCMAKE_PREFIX_PATH=$gtestPrefix",
-    "-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE",
     # The RandBLAS submodule's own tests are covered by RandBLAS's CI;
     # building and running them here roughly doubled the job time.
     "-DBUILD_TESTS=OFF"
 )
+if (-not $OpenMP) { $configureArgs += "-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE" }
 if ($SanitizeAddress) { $configureArgs += "-DSANITIZE_ADDRESS=ON" }
 
 Invoke-Checked "cmake" $configureArgs

@@ -10,8 +10,16 @@ on:
 
 jobs:
   build-windows:
-    name: windows-msvc-mkl-ilp64-serial
+    name: windows-msvc-mkl-ilp64-${{ matrix.label }}
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: serial
+            openmp: false
+          - label: openmp
+            openmp: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,6 +36,8 @@ jobs:
       - name: build, install, and test RandLAPACK
         shell: pwsh
         run: |
+          $openmp = '${{ matrix.openmp }}' -eq 'true'
           & "$env:GITHUB_WORKSPACE/.github/scripts/windows/run-ci.ps1" `
             -Task Core `
-            -WorkRoot "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci"
+            -WorkRoot "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci" `
+            -OpenMP:$openmp
