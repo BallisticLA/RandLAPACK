@@ -419,3 +419,34 @@ TEST_F(TestIterRefineLSQ, stagnation_exit_does_not_disturb_a_converging_solve) {
     for (int64_t i = 0; i < n; ++i)
         EXPECT_NEAR(x[i], x_true[i], 1e-8);
 }
+
+
+// Outer early exit (2026-08-06, structure unification with restarted_pcg_ne): when
+// outer_tol > 0, the refinement loop must stop as soon as the TRUE residual
+// ||b - Jx||/||b|| meets it, instead of always running all n_refine_steps. With a
+// perfect preconditioner one step reaches far below 1e-8, so a generous 8-step
+// budget must be cut short. outer_tol = 0 (the default) preserves the historical
+// fixed-step behaviour, pinned by every other test in this file.
+TEST_F(TestIterRefineLSQ, outer_tol_stops_refinement_early) {
+    using T = double;
+    int64_t m = 80, n = 12;
+
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 71);
+    fill_random(x_true, 72);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A.data(), m, n, R.data(), n);
+
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+    IterRefineLSQ<T> ir(/*tol=*/1e-12, /*max_inner=*/50, /*n_steps=*/8);
+    ir.outer_tol = (T)1e-8;
+    std::vector<T> x(n, 0);
+    ASSERT_EQ(ir.call(J, R.data(), n, b.data(), m, x.data(), n), 0);
+
+    EXPECT_LT(ir.outer_iters_done, 8);              // stopped before the step budget
+    EXPECT_GT(ir.outer_iters_done, 0);              // but did real work
+    EXPECT_LE(ir.final_residual_norm, (T)1e-8);     // and the claim is honest
+}

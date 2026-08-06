@@ -40,7 +40,24 @@
 //                  ceiling in earlier CSVs. Pass <= 0 to keep the default.
 //   [ir_inner_tol] inner-CG relative-residual tolerance (default: eps^0.85 in the
 //                  working precision, ~4.9e-14 in double). Pass < 0 to keep it.
-// Both exist so a diagnostic sweep can separate "CG stagnates below an unreachable
+//   [ir_inner_restarts] inner-CG restarts per outer step against the TRUE residual
+//                  (default 1). A drift check only: the 08-06 probe showed restarts
+//                  and tighter inner tolerances do NOT improve final accuracy (the
+//                  correction equation carries no new information).
+//   [ir_n_steps]   outer refinement steps (default 4; was hardcoded 2). THE accuracy
+//                  knob for cold-started IR-LSQ: each outer step recomputes the true
+//                  residual b - Jx and contracts the error by a kappa*eps-ish factor.
+//                  Epperly et al. (arXiv:2406.03468, Alg. 1) prove 2 steps suffice
+//                  WITH sketch-and-solve initialization; from x0 = 0 (our policy per
+//                  collaborator request) the 08-06 probe measures 3 steps to reach
+//                  machine-precision backward error at kappa ~ 5e10, 4 at 1e12 --
+//                  the default is 4 to cover the harder end (Max, 2026-08-06), and
+//                  ir_outer_tol makes surplus steps cheap (early exit once done).
+//   [ir_outer_tol] outer early-exit tolerance on ||b - Jx||/||b|| (default < 0 =>
+//                  10*eps of the solve precision; pass 0 to always run all steps).
+//                  Makes the outer loop "refine until done, capped at ir_n_steps",
+//                  the same contract as the Toeplitz benchmark's pcg_ne solver.
+// These exist so a diagnostic sweep can separate "CG stagnates below an unreachable
 // tolerance" from "CG is still converging when the cap stops it" without a rebuild.
 // The per-run answer is written to the CSV as ir_inner_capped / ir_inner_relres /
 // ir_inner_best_relres / ir_inner_best_iter.
@@ -204,6 +221,9 @@ struct bench_result {
 // diagnostic sweep separate those two effects without a rebuild.
 static int    g_ir_max_inner = 200;    // <= 0 => keep the IterRefineLSQ default
 static double g_ir_inner_tol = -1.0;   // <  0 => eps^0.85 in the working precision
+static int    g_ir_inner_restarts = 1; // inner-CG restarts per outer step (drift check only)
+static int    g_ir_n_steps = 4;        // outer refinement steps (2026-08-06, was hardcoded 2)
+static double g_ir_outer_tol = -1.0;   // <0 => 10*eps(solve precision); 0 disables early exit
 // (g_ir_warm_start / g_bp_warm_start removed 2026-08-05: IR methods are always
 //  cold; Blendenpik runs as two mask-32 variants, warm and cold.)
 
@@ -688,7 +708,7 @@ static int run_benchmark_inner(
                 // Match the inner-solve budget the Q-less QR methods get from the IR
                 // driver (max_inner per step x 2 steps), so the comparison is not
                 // decided by an accidental cap difference.
-                bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * 2;
+                bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * g_ir_n_steps;
                 std::fill(x_ls, x_ls + n, (T)0);
                 res.qr_status = bp.call(A_op, b_ptr->data(), m, x_ls, n, d_factor, state);
                 res.peak_rss_kb = mem.stop();
@@ -799,9 +819,12 @@ static int run_benchmark_inner(
                     RandLAPACK::IterRefineLSQ<T> ir(
                         /*tol=*/     (g_ir_inner_tol > 0) ? (T)g_ir_inner_tol : tol,
                         /*max_inner=*/(g_ir_max_inner > 0) ? g_ir_max_inner : 200,
-                        /*n_steps=*/2,
+                        /*n_steps=*/g_ir_n_steps,
                         /*timing=*/true,
                         /*verbose=*/false);
+                    ir.inner_restarts = g_ir_inner_restarts;
+                    ir.outer_tol = (g_ir_outer_tol >= 0) ? (T)g_ir_outer_tol
+                                 : (T)10 * std::numeric_limits<T>::epsilon();
                     int ir_status = ir.call(A_op, R, n, b.data(), m, x_ls, n);
                     auto ls_t1 = steady_clock::now();
                     if (ir_status != 0) {
@@ -1472,7 +1495,7 @@ static int run_irlsq_reg(
                 bp.nnz = sketch_nnz;
                 bp.warm_start = (alg_name == "Blendenpik");   // "_cold" => x0 = 0
                 // Same inner-solve budget as the IR methods (see the irlsq path).
-                bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * 2;
+                bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * g_ir_n_steps;
                 std::fill(x_ls, x_ls + n, (T_solve)0);
                 res.qr_status = bp.call(J_Ts, b.data(), m, x_ls, n, (T_solve)d_factor, state);
                 res.peak_rss_kb = mem.stop();
@@ -1557,7 +1580,10 @@ static int run_irlsq_reg(
                 RandLAPACK::IterRefineLSQ<T_solve> ir(
                     (g_ir_inner_tol > 0) ? (T_solve)g_ir_inner_tol : tol_T,
                     (g_ir_max_inner > 0) ? g_ir_max_inner : 200,
-                    2, true, false);
+                    g_ir_n_steps, true, false);
+                ir.inner_restarts = g_ir_inner_restarts;
+                ir.outer_tol = (g_ir_outer_tol >= 0) ? (T_solve)g_ir_outer_tol
+                             : (T_solve)10 * std::numeric_limits<T_solve>::epsilon();
                 int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
                 auto ls_t1 = steady_clock::now();
                 if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
@@ -1705,11 +1731,32 @@ int run_benchmark(int argc, char* argv[]) {
     // ir_max_inner <= 0 keeps the 200 default; ir_inner_tol < 0 keeps eps^0.85.
     g_ir_max_inner = (int)opt_long(11, 200);
     g_ir_inner_tol = opt_double(12, -1.0);
-    // Positions 13/14 were the 07-30 warm-start ablation knobs, removed 2026-08-05
-    // (warm x0 is Blendenpik-only; both Blendenpik variants always run). Reject
-    // rather than ignore, so a stale job script fails loudly instead of silently
-    // running a different experiment than it encodes.
-    if (argc > dfactor_idx + 13) {
+    // Inner-CG restarts per outer step (default 1: a recursive-residual drift check;
+    // the 08-06 probe showed extra restarts buy verification, never accuracy).
+    // Positions 13/14 are safe to reuse: the removed 07-30 warm-start scripts passed
+    // BOTH old knobs, so they still trip the stale-script guard below.
+    g_ir_inner_restarts = (int)opt_long(13, 1);
+    if (g_ir_inner_restarts < 0) {
+        std::cerr << "Error: ir_inner_restarts must be >= 0.\n";
+        return 1;
+    }
+    // Outer refinement steps (2026-08-06, Max; was the hardcoded 2 inherited from
+    // Epperly Alg. 1, whose 2-step guarantee assumes the sketch-and-solve x0 we
+    // deliberately do not use). 3 reaches machine-precision backward error from
+    // x0 = 0 at kappa ~ 5e10 in the controlled probe.
+    g_ir_n_steps = (int)opt_long(14, 4);
+    if (g_ir_n_steps < 1) {
+        std::cerr << "Error: ir_n_steps must be >= 1.\n";
+        return 1;
+    }
+    // Outer early exit (2026-08-06, structure unification with the Toeplitz
+    // pcg_ne): refinement stops once ||b - Jx||/||b|| meets this, capped at
+    // ir_n_steps. < 0 keeps the default 10*eps of the solve precision (the
+    // "refine until done" reading); 0 disables the check (always run all steps).
+    g_ir_outer_tol = opt_double(15, -1.0);
+    // Positions beyond 15: reject rather than ignore, so a stale job script fails
+    // loudly instead of silently running a different experiment than it encodes.
+    if (argc > dfactor_idx + 16) {
         std::cerr << "Error: [ir_warm_start]/[bp_warm_start] CLI knobs were removed "
                      "2026-08-05 (Blendenpik-only warm start, both variants always run). "
                      "Regenerate the job scripts.\n";

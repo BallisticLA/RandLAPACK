@@ -39,6 +39,7 @@
 // Both of these declare themselves "Public API" in their headers but were reachable
 // only by including them directly, which is part of why neither had any test coverage.
 #include "RandLAPACK/drivers/rl_lsqr.hh"
+#include "RandLAPACK/drivers/rl_restarted_pcg_ne.hh"
 #include "RandLAPACK/drivers/rl_blendenpik.hh"
 #include "RandLAPACK/drivers/rl_scholqr3_linops.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"

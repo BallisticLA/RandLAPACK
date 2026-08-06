@@ -7,15 +7,39 @@
 // preconditioners (unpreconditioned / CholQR / CholQR2 / sCholQR3 / sCholQR3_basic /
 // CQRRT / Blendenpik) build R; the solve is matrix-free LSQR on A with right precond R.
 //
-// v1: double precision only, LSQR solver. Records accuracy (Oleg's metrics) + speed
-// (build/solve time) + storage (peak RSS, analytical) + Cholesky shift-retry count.
+// Double precision only. Records accuracy (Oleg's metrics) + speed (build/solve
+// time) + storage (peak RSS, analytical) + Cholesky shift-retry count.
+//
+// Solver choice (2026-08-06, closing the 07-14 deferred item): the reference
+// benchmark offers TWO solvers and ours now does too. DEFAULT = pcg_ne (Max,
+// 2026-08-06 -- NOTE this deliberately diverges from the reference's lsqr
+// default; every campaign through 08-05 ran lsqr, so pass "lsqr" explicitly to
+// reproduce those).
+//   lsqr    = matrix-free LSQR on the right-preconditioned operator;
+//   pcg_ne  = restarted PCG on the right-preconditioned normal equations
+//             (rl_restarted_pcg_ne.hh; reference restarted_pcg_ne, restart after a
+//             1e-2 recursive-residual drop, true LS + NE residuals recomputed at
+//             every restart). Per-restart inner cap and restart count are aligned
+//             with the FEM2 benchmark (2026-08-06, Max): cap 500 = the campaign
+//             IR_MAX_INNER, and 3 restarts after the first round (up to 4 rounds),
+//             the IterRefineLSQ inner_restarts convention. The restart bound also
+//             stops the solver from spinning to maxit when tol sits below the
+//             normal-equations double-precision floor (see the 08-06 local run:
+//             LS relres floors near 1.7e-6 while the NE residual is at 1e-12).
+// Blendenpik rows always solve with LSQR (the solver is part of that method; the
+// reference has no Blendenpik), so their 'solver' column says lsqr in both modes.
 //
 // CLI: <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> <tol> <maxit>
-//      <d_factor> <sketch_nnz> [seed] [num_runs]
+//      <d_factor> <sketch_nnz> [seed] [num_runs] [solver] [pcg_restart_maxit] [pcg_max_restarts]
 //   method_mask bits: 1 CQRRT, 2 CholQR, 4 sCholQR3, 8 sCholQR3_basic, 16 CholQR2,
 //                     32 Blendenpik, 64 unpreconditioned.
 //   num_runs (default 1): repetitions per method, all recorded (one CSV row each,
 //   'run' column). The MATLAB plotters aggregate (best run by default).
+//   solver (default "pcg_ne"): "pcg_ne" (alias "restarted_pcg_ne") or "lsqr".
+//   pcg_restart_maxit (default 500): inner CG cap per restart, pcg_ne only.
+//   pcg_max_restarts (default 3): additional rounds after the first (< 0 unlimited),
+//   pcg_ne only. Default 3 = up to 4 TOTAL outer rounds, matching the FEM2
+//   benchmark's ir_n_steps = 4.
 //
 // Warm start policy (2026-08-05, Max): the sketch-and-solve x0 warm start is
 // Blendenpik-only. Bit 32 therefore runs TWO variants -- "Blendenpik" (its own
@@ -146,11 +170,28 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "num_runs must be >= 1 (got %lld)\n", (long long)num_runs);
         return 1;
     }
+    // Solver selection (2026-08-06). restart_drop 1e-2 is the reference default;
+    // the cap default is 500 (the FEM2 campaign IR_MAX_INNER, per Max) and the
+    // restart count 3 (matching IterRefineLSQ's inner_restarts convention).
+    std::string solver = (argc > 14) ? argv[14] : "pcg_ne";
+    if (solver == "restarted_pcg_ne") solver = "pcg_ne";
+    if (solver != "lsqr" && solver != "pcg_ne") {
+        std::fprintf(stderr, "solver must be \"lsqr\" or \"pcg_ne\" (got \"%s\")\n", solver.c_str());
+        return 1;
+    }
+    const bool use_pcg = (solver == "pcg_ne");
+    const int    pcg_restart_maxit = (argc > 15) ? std::stoi(argv[15]) : 500;
+    // max_restarts counts ADDITIONAL rounds after the first, so 3 = up to 4 total
+    // outer rounds, matching the FEM2 benchmark's ir_n_steps = 4 (2026-08-06, Max:
+    // same outer budget in both benchmarks; 4 covers the kappa ~ 1e12 end of the
+    // 08-06 probe).
+    const int    pcg_max_restarts  = (argc > 16) ? std::stoi(argv[16]) : 3;
+    const double pcg_restart_drop  = 1e-2;
     int64_t block_size = 256;
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }
 
-    std::printf("=== Toeplitz LS benchmark: m=%lld n=%lld omega=%.4f lambda_rel=%.1e mask=%lld ===\n",
-                (long long)m, (long long)n, omega, lambda_rel, (long long)method_mask);
+    std::printf("=== Toeplitz LS benchmark: m=%lld n=%lld omega=%.4f lambda_rel=%.1e mask=%lld solver=%s ===\n",
+                (long long)m, (long long)n, omega, lambda_rel, (long long)method_mask, solver.c_str());
 
     // 1. Prolate kernel generators c (m), r (n).
     std::vector<double> c(m), r(n);
@@ -237,13 +278,18 @@ int main(int argc, char** argv) {
     std::string csv = outdir + "/" + tstamp + "_toeplitz_ls_results.csv";
     std::ofstream out(csv);
     out << "# Toeplitz LS benchmark m=" << m << " n=" << n << " omega=" << omega
-        << " lambda=" << lambda << " tol=" << tol << " d_factor=" << d_factor << "\n";
+        << " lambda=" << lambda << " tol=" << tol << " d_factor=" << d_factor
+        << " solver=" << solver;
+    if (use_pcg) out << " pcg_restart_maxit=" << pcg_restart_maxit
+                     << " pcg_max_restarts=" << pcg_max_restarts;
+    out << "\n";
     out << "# blendenpik=warm+cold (all Q-less methods cold; 2026-08-05 policy)"
         << " num_runs=" << num_runs << "\n";
     out << "algorithm,run,m,n,qr_status,qr_time_us,solve_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,iterations,solver_flag,solver_relres,aug_relres,normal_relres,"
            "data_relres,recovery_error,cond_estimate,chol_retries,"
-           "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us\n";   // fwd/adj/trsm 2026-07-29; setup_us 2026-07-31; run 2026-08-05
+           "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us,"
+           "solver,pcg_restarts\n";   // fwd/adj/trsm 2026-07-29; setup_us 2026-07-31; run 2026-08-05; solver+restarts 2026-08-06
 
     std::vector<double> R(n*n), x(n), Tx(m), Ax(mtot);
 
@@ -275,7 +321,8 @@ int main(int argc, char** argv) {
         // -1 means "not measured for this method" (Blendenpik exposes only a lumped solve).
         long solve_fwd_us = -1, solve_adj_us = -1, solve_trsm_us = -1;
         long setup_us = 0;   // 0 always for Q-less methods (cold); warm Blendenpik's x0 is embedded
-        double solver_relres = -1;   // LSQR's own ||b - Ã y|| / ||b|| at termination
+        int pcg_restarts = -1;       // outer restart rounds; -1 = not the pcg_ne solver
+        double solver_relres = -1;   // solver's own relative residual at termination
         bool is_bp     = (alg.rfind("Blendenpik", 0) == 0);
         bool have_R = false, is_unprec = (alg == "unpreconditioned");
 
@@ -300,7 +347,13 @@ int main(int argc, char** argv) {
                 solver_relres = bp.final_relres; }
         } else if (is_unprec) {
             long lt[4] = {0};
-            flag = rl::lsqr<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+            if (use_pcg) {
+                flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(),
+                                                    tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
+                                                    pcg_max_restarts, &pcg_restarts, lt, &solver_relres);
+            } else {
+                flag = rl::lsqr<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+            }
             solve_us = lt[3]; peak_kb = mem.stop();
             solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];  // t_trsm is 0 here (no R)
         } else {
@@ -339,7 +392,13 @@ int main(int argc, char** argv) {
                 // x0 warm start is Blendenpik-only now; the qless_warm path that lived
                 // here (auxiliary Blendenpik init_only sketch + shift trick) is removed.
                 long lt[4] = {0};
-                flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+                if (use_pcg) {
+                    flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(),
+                                                        tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
+                                                        pcg_max_restarts, &pcg_restarts, lt, &solver_relres);
+                } else {
+                    flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+                }
                 solve_us = lt[3];
                 solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];
             }
@@ -388,7 +447,8 @@ int main(int argc, char** argv) {
             << std::scientific << orth_err << "," << iters << "," << flag << ","
             << solver_relres << "," << aug_relres << "," << normal_relres << ","
             << data_relres << "," << recov << "," << cond_est << "," << chol_retries << ","
-            << solve_fwd_us << "," << solve_adj_us << "," << solve_trsm_us << "," << setup_us << "\n";
+            << solve_fwd_us << "," << solve_adj_us << "," << solve_trsm_us << "," << setup_us << ","
+            << ((is_bp || !use_pcg) ? "lsqr" : "pcg_ne") << "," << pcg_restarts << "\n";
         out.flush();   // partial results survive a scheduler kill mid-campaign
     }
     }

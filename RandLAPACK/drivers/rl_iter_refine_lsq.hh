@@ -19,6 +19,7 @@
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_pcg_inner.hh"
 #include "../linops/rl_concepts.hh"
 
 #include <chrono>
@@ -53,15 +54,8 @@ namespace RandLAPACK {
 /// apply (adjoint). The default `n_refine_steps = 2` and inner CG stopping
 /// rule (relative residual `< inner_tol`) suffice for backward stability
 /// under the conditions of Epperly et al. (2025) Theorem 6.1.
-/// Exit condition of one inner-CG solve. Recorded per outer refinement step so a
-/// capped, non-converged solve is distinguishable from a converged one -- previously
-/// both reported success and were indistinguishable in the benchmark CSV.
-enum class InnerCGStatus : int {
-    Converged = 0,   ///< reached inner_tol
-    HitCap    = 1,   ///< exhausted max_inner_iters without reaching inner_tol
-    Breakdown = 2,   ///< p^T M p <= 0 (loss of orthogonality / non-SPD M)
-    Stagnated = 3    ///< residual stopped descending; exited early with the best iterate
-};
+// InnerCGStatus lives in rl_pcg_inner.hh since the 2026-08-06 kernel extraction
+// (same name, same namespace, same values -- callers are unaffected).
 
 template <typename T>
 struct IterRefineLSQ {
@@ -116,6 +110,14 @@ struct IterRefineLSQ {
     int inner_restarts;
     /// Outer refinement steps (Algorithm 1 of Epperly et al. uses 2).
     int n_refine_steps;
+    /// OUTER EARLY EXIT (added 2026-08-06, structure unification with
+    /// restarted_pcg_ne): stop refining once the TRUE residual ||b - Jx|| / ||b||
+    /// is at or below this value, checked at the top of every step where the
+    /// residual is computed anyway. 0 (the default) disables the check and
+    /// preserves the historical fixed-step behaviour: run exactly n_refine_steps.
+    /// With it enabled the loop reads "refine until done, capped at
+    /// n_refine_steps" -- the same contract as restarted_pcg_ne's tol + round cap.
+    T outer_tol;
     /// Enable per-step / per-substep timing breakdown.
     bool timing;
     /// Print convergence info to stdout.
@@ -157,6 +159,7 @@ struct IterRefineLSQ {
           inner_stag_rel_improve((T)1e-3),
           inner_restarts(1),
           n_refine_steps(n_steps),
+          outer_tol((T)0),
           timing(timing_on),
           verbose(verbose_on),
           outer_iters_done(0),
@@ -239,6 +242,15 @@ struct IterRefineLSQ {
             T r_norm = blas::nrm2(m, r, 1);
             if (verbose) {
                 std::printf("[IR-LSQ] step %d: ||r||/||b|| = %.4e\n", step, (double)(r_norm / b_norm));
+            }
+            // Outer early exit: the residual just computed IS the true one, so the
+            // check costs nothing extra. Exits before spending this step's inner CG.
+            if (outer_tol > (T)0 && r_norm <= outer_tol * b_norm) {
+                if (verbose) {
+                    std::printf("[IR-LSQ] step %d: outer_tol %.1e met; stopping early\n",
+                                step, (double)outer_tol);
+                }
+                break;
             }
 
             // g = J^T r
@@ -336,13 +348,8 @@ struct IterRefineLSQ {
 
 public:
     /// What one inner-CG solve did, for diagnosis (see the per-step output vectors).
-    struct InnerCGReport {
-        int           iters       = 0;
-        InnerCGStatus status      = InnerCGStatus::Converged;
-        T             relres      = (T)0;   ///< ||r||/||c|| at exit
-        T             best_relres = (T)0;   ///< smallest ||r||/||c|| seen
-        int           best_iter   = 0;      ///< iteration achieving best_relres
-    };
+    /// Alias of the shared kernel's report since the 2026-08-06 extraction.
+    using InnerCGReport = PCGInnerReport<T>;
 
 private:
     // One application of M = R^{-T} J^T J R^{-1}: out = M * v. Shared by the CG
@@ -382,12 +389,10 @@ private:
     }
 
     // Inner CG: solve M z = c, where M = R^{-T} J^T J R^{-1}, on ℝ^n.
-    // Workspaces (caller-allocated, length n unless noted): cg_r, cg_p, cg_Mp,
-    // tmp_n (for R^{-1} v), tmp_m (m-length, for J v_pre).
-    // warm_start = false: initial guess z = 0 (r = c, historical behavior).
-    // warm_start = true : z holds the starting iterate on entry; the TRUE residual
-    //                     r = c - M z is computed (one extra M apply) and CG runs
-    //                     from there. Used by the single-restart pass (2026-08-05).
+    // Since 2026-08-06 this is a thin wrapper over the shared instrumented kernel
+    // (rl_pcg_inner.hh), so IterRefineLSQ and restarted_pcg_ne run the SAME inner
+    // solver: stagnation window, best-iterate return, warm-start entry against the
+    // true residual. Workspaces as before; tmp_n / tmp_m feed apply_M only.
     template <linops::LinearOperator J_LO>
     int inner_cg(J_LO& J, const T* R, int64_t ldr,
                  const T* c, int64_t n, int64_t m,
@@ -398,138 +403,18 @@ private:
                  long& t_trsm, long& t_fwd, long& t_adj,
                  bool warm_start = false)
     {
-        using clock = std::chrono::steady_clock;
-
-        T c_norm = blas::nrm2(n, c, 1);
-        T tol_abs = inner_tol * c_norm;
-        if (c_norm == (T)0) {
-            // M is SPD, so M z = 0 has the unique solution z = 0. On a warm start
-            // the incoming z is already the previous attempt's answer to the same
-            // c = 0 system, i.e. 0 -- so writing 0 is correct on both paths.
-            std::fill(z, z + n, (T)0);
-            rep.iters = 0;
-            rep.status = InnerCGStatus::Converged;
-            rep.relres = (T)0; rep.best_relres = (T)0; rep.best_iter = 0;
-            return 0;
-        }
-
-        // Track the best (smallest) relative residual and where it occurred, so a
-        // solve that hits its floor early and then grinds to the cap is separable
-        // from one that is still making progress when the cap stops it.
-        rep.best_iter = 0;
-
-        if (!warm_start) {
-            // Initial guess z = 0; r = c - M*z = c.
-            std::fill(z, z + n, (T)0);
-            std::fill(cg_zbest, cg_zbest + n, (T)0);
-            std::copy(c, c + n, cg_r);
-            rep.best_relres = (T)1;
-        } else {
-            // TRUE residual at the incoming iterate: r = c - M z. The best-iterate
-            // snapshot starts at z itself, so a restart can never end worse than
-            // where it began.
-            apply_M(J, R, ldr, z, cg_Mp, n, m, tmp_n, tmp_m, t_trsm, t_fwd, t_adj);
-            for (int64_t i = 0; i < n; ++i) cg_r[i] = c[i] - cg_Mp[i];
-            std::copy(z, z + n, cg_zbest);
-            T r0 = blas::nrm2(n, cg_r, 1);
-            rep.best_relres = r0 / c_norm;
-            // Entry convergence check against the TRUE residual: a genuinely
-            // converged first attempt makes the restart free (0 iterations).
-            if (r0 <= tol_abs) {
-                rep.iters  = 0;
-                rep.status = InnerCGStatus::Converged;
-                rep.relres = rep.best_relres;
-                return 0;
-            }
-        }
-        std::copy(cg_r, cg_r + n, cg_p);
-
-        // Stagnation state: `stag_ref` is the residual at the last SIGNIFICANT improvement
-        // (a drop of at least inner_stag_rel_improve), and `last_improve_it` when it
-        // happened. A merely-noisy decrease does not count as progress, which is the whole
-        // point: the pathological case descends by ~0 for hundreds of iterations.
-        T   stag_ref        = std::numeric_limits<T>::max();
-        int last_improve_it = 0;
-
-        T rs_old = blas::dot(n, cg_r, 1, cg_r, 1);
-
-        for (int it = 0; it < max_inner_iters; ++it) {
-            // Mp = M * p =  R^{-T} J^T J R^{-1} p
-            apply_M(J, R, ldr, cg_p, cg_Mp, n, m, tmp_n, tmp_m, t_trsm, t_fwd, t_adj);
-
-            T pMp = blas::dot(n, cg_p, 1, cg_Mp, 1);
-            if (!(pMp > 0)) {
-                rep.iters  = it;
-                rep.status = InnerCGStatus::Breakdown;
-                rep.relres = std::sqrt(rs_old) / c_norm;
-                return 1;  // CG breakdown (loss of orthogonality / non-SPD M)
-            }
-            T alpha = rs_old / pMp;
-
-            // z ← z + alpha p
-            blas::axpy(n, alpha, cg_p, 1, z, 1);
-            // r ← r - alpha Mp
-            blas::axpy(n, -alpha, cg_Mp, 1, cg_r, 1);
-
-            T rs_new = blas::dot(n, cg_r, 1, cg_r, 1);
-            T r_norm = std::sqrt(rs_new);
-            T relres = r_norm / c_norm;
-            if (relres < rep.best_relres) {
-                rep.best_relres = relres;
-                rep.best_iter   = it + 1;
-                std::copy(z, z + n, cg_zbest);   // snapshot for the stagnation exit
-            }
-            if (relres < stag_ref * ((T)1 - inner_stag_rel_improve)) {
-                stag_ref        = relres;
-                last_improve_it = it + 1;
-            }
-
-            if (verbose) {
-                std::printf("[IR-LSQ]   inner CG iter %d: ||r||/||c|| = %.4e\n",
-                            it + 1, (double)relres);
-            }
-            // Convergence is checked BEFORE stagnation: a solve that reaches inner_tol
-            // reports Converged even if its last few steps were flat.
-            if (r_norm <= tol_abs) {
-                rep.iters  = it + 1;
-                rep.status = InnerCGStatus::Converged;
-                rep.relres = relres;
-                return 0;
-            }
-            if (inner_stag_window > 0 &&
-                (it + 1) - last_improve_it >= inner_stag_window) {
-                // Residual has flatlined. More iterations cannot reach inner_tol, and are
-                // measurably harmful to the outer solution, so stop and hand back the best
-                // iterate rather than the last one.
-                std::copy(cg_zbest, cg_zbest + n, z);
-                rep.iters  = it + 1;
-                rep.status = InnerCGStatus::Stagnated;
-                rep.relres = rep.best_relres;
-                if (verbose) {
-                    std::printf("[IR-LSQ]   inner CG STAGNATED at iter %d "
-                                "(no %.1e improvement in %d iters); returning best "
-                                "iterate from iter %d, relres %.4e\n",
-                                it + 1, (double)inner_stag_rel_improve, inner_stag_window,
-                                rep.best_iter, (double)rep.best_relres);
-                }
-                return 0;
-            }
-
-            T beta = rs_new / rs_old;
-            // p ← r + beta p
-            for (int64_t i = 0; i < n; ++i) cg_p[i] = cg_r[i] + beta * cg_p[i];
-            rs_old = rs_new;
-        }
-        // Exhausted the budget without reaching inner_tol. Still returns 0, because a
-        // capped solve is not necessarily an error for the caller -- but the status is
-        // now recorded so the benchmark can tell the two apart (it previously could not).
-        // Hand back the best iterate here too: best_relres <= final relres by construction,
-        // so this is never worse, and it matters when the cap lands after a flat stretch.
-        std::copy(cg_zbest, cg_zbest + n, z);
-        rep.iters  = max_inner_iters;
-        rep.status = InnerCGStatus::HitCap;
-        rep.relres = rep.best_relres;
-        return 0;
+        PCGInnerControls<T> ctl;
+        ctl.tol              = inner_tol;
+        ctl.max_iters        = max_inner_iters;
+        ctl.stag_window      = inner_stag_window;
+        ctl.stag_rel_improve = inner_stag_rel_improve;
+        ctl.verbose          = verbose;
+        ctl.tag              = "[IR-LSQ]";
+        auto Mv = [&](const T* v, T* out) {
+            apply_M(J, R, ldr, v, out, n, m, tmp_n, tmp_m, t_trsm, t_fwd, t_adj);
+        };
+        return pcg_inner<T>(Mv, c, n, z, cg_r, cg_p, cg_Mp, cg_zbest,
+                            ctl, rep, warm_start);
     }
 
     void populate_times(std::chrono::steady_clock::time_point outer_start,
