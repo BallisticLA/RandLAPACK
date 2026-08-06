@@ -231,7 +231,6 @@ int CQRRPT<T, RNG>::call(
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
     } else if(this -> qrcp == Subroutines::QRCP::bqrrp) {
 
-        #if !defined(__APPLE__)
         if (n <= 2000) {
             this->bqrrp_block_ratio = 1.0;
         } else if (n <= 8000) {
@@ -242,7 +241,6 @@ int CQRRPT<T, RNG>::call(
 
         RandLAPACK::BQRRP<T, RNG> BQRRP(false, n * this->bqrrp_block_ratio);
         BQRRP.call(d, n, A_hat, d, 1.0, tau, J, state);
-        #endif
     } else {
         lapack::geqp3(d, n, A_hat, d, J, tau);
     }
