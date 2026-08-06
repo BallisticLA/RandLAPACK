@@ -3,7 +3,7 @@
 # Run from an MSVC developer prompt (or "Developer PowerShell for VS") in the
 # repository root:
 #
-#   .\install.ps1
+#   .\install\install.ps1
 #
 # What it does, mirroring install.sh's layout in a sibling RandNLA-project
 # directory:
@@ -47,9 +47,10 @@ function Invoke-Checked {
     }
 }
 
-$sourceRoot = $PSScriptRoot
+# This script lives in <repo>\install\; the repository root is one level up.
+$sourceRoot = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path (Join-Path $sourceRoot "RandLAPACK\RandLAPACK.hh"))) {
-    throw "install.ps1 must sit in the RandLAPACK repository root."
+    throw "install.ps1 must sit in the install\ directory of a RandLAPACK clone."
 }
 if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
     throw "cl.exe is not on PATH. Run from an MSVC developer prompt (Developer PowerShell for VS 2022)."

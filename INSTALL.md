@@ -306,7 +306,7 @@ Intel oneMKL using ILP64, sequential linking. The easy path, from a
 "Developer PowerShell for VS 2022" prompt in the repository root:
 
 ```powershell
-.\install.ps1
+.\install\install.ps1
 ```
 
 This builds all dependencies (oneMKL through vcpkg, or pass
