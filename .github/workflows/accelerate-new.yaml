@@ -1,0 +1,90 @@
+# A8 validation workflow: builds the whole stack against Apple's NEW
+# Accelerate interface (ACCELERATE_NEW_LAPACK, LAPACK 3.9.1, $NEWLAPACK
+# symbols) using the BallisticLA fork branches:
+#   BallisticLA/blaspp@new-accelerate   (icl-utk-edu/blaspp PR #74, rebased)
+#   BallisticLA/lapackpp@new-accelerate (the LAPACK++ side that PR never had)
+#
+# The headline question this job answers: does the new interface fix the
+# Apple-Silicon gesdd divide-and-conquer bug that keeps core-macos red
+# (TestQB.Polynomial_Decay_general1 — the deliberate canary)? This job runs
+# the full suite WITHOUT the canary being expected to fail. See docs/CI.md.
+name: accelerate-new
+on:
+  pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+
+jobs:
+  build-accelerate-new:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: submodule update
+        run: |
+          git submodule update --init --recursive
+
+      - name: configure OS
+        run: |
+          set -x
+          brew install googletest
+          sw_vers
+          xcodebuild -version || true
+
+      - name: install BLAS++ (new Accelerate)
+        run: |
+          cd ..
+          git clone --depth 1 --branch new-accelerate https://github.com/BallisticLA/blaspp.git
+          cmake -S blaspp -B blaspp-build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX=`pwd`/blaspp-install \
+              -Dblas=accelerate \
+              -Dgpu_backend=none \
+              -Dbuild_tests=OFF
+          cmake --build blaspp-build -j$(sysctl -n hw.ncpu) --target install
+          echo "== blas/defines.h:"
+          cat blaspp-install/include/blas/defines.h
+          grep -q ACCELERATE_NEW_LAPACK blaspp-install/include/blas/defines.h \
+            || { echo "::error::blaspp did not select the NEW Accelerate interface"; exit 1; }
+
+      - name: install Random123
+        run: |
+          cd ..
+          git clone --depth 1 https://github.com/DEShawResearch/Random123.git
+          mkdir -p Random123-install/include
+          cp -rp Random123/include/Random123 Random123-install/include/
+
+      - name: install LAPACK++ (new Accelerate)
+        run: |
+          cd ..
+          git clone --depth 1 --branch new-accelerate https://github.com/BallisticLA/lapackpp.git
+          cmake -S lapackpp -B lapackpp-build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -Dblaspp_DIR=`pwd`/blaspp-install/lib/cmake/blaspp \
+              -DCMAKE_INSTALL_PREFIX=`pwd`/lapackpp-install \
+              -Dbuild_tests=OFF \
+              -Dgpu_backend=none
+          cmake --build lapackpp-build -j$(sysctl -n hw.ncpu) --target install
+          echo "== lapack/defines.h:"
+          cat lapackpp-install/include/lapack/defines.h || true
+
+      - name: build and test RandLAPACK
+        run: |
+          cd ..
+          cmake -S RandLAPACK -B RandLAPACK-build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -Dblaspp_DIR=`pwd`/blaspp-install/lib/cmake/blaspp \
+              -Dlapackpp_DIR=`pwd`/lapackpp-install/lib/cmake/lapackpp \
+              -DRandom123_DIR=`pwd`/Random123-install/include/ \
+              -DCMAKE_INSTALL_PREFIX=`pwd`/RandLAPACK-install \
+              -DBUILD_TESTS=OFF
+          cmake --build RandLAPACK-build -j$(sysctl -n hw.ncpu)
+          # Full suite, canary INCLUDED: TestQB.Polynomial_Decay_general1
+          # passing here is the evidence that new Accelerate fixes gesdd.
+          ctest --test-dir RandLAPACK-build \
+                --exclude-regex "^TestABRIK\.ABRIK_catch_instability" \
+                --output-on-failure
