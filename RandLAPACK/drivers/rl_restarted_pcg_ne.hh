@@ -23,9 +23,13 @@
 //     round whose target is unreachable exits at its residual floor with the
 //     best iterate instead of grinding out the full cap, and stagnation is not
 //     treated as terminal (the next round's true-residual restart decides).
-//   * After the round, z += dz and BOTH residuals are recomputed exactly, the
-//     true least-squares residual b - A x and the true normal-equation residual
-//     g - H z, so recursive-residual drift never accumulates across rounds.
+//   * After the round, z += dz and BOTH residuals are recomputed exactly: the
+//     true least-squares residual b - A x, and the normal-equation residual in
+//     the STABLE form R^{-T}(A^T(b - A x)) (Epperly et al. Alg. 1 line 5) rather
+//     than the reference's g - H z. The two are mathematically identical, but
+//     g - H z subtracts large kappa-contaminated quantities and floors the
+//     achievable accuracy on hard problems (second deliberate deviation from the
+//     reference; measured A/B in the round-residual comment below).
 //   * The loop exits when ||b - A x|| / ||b|| <= tol (success), when the TOTAL
 //     inner-iteration budget max_iters is exhausted, or when the inner CG breaks
 //     down (indefinite H apply, a sign the factor R is unusable).
@@ -211,8 +215,25 @@ int restarted_pcg_ne(
         // Recompute BOTH residuals exactly; this is the restart that removes
         // recursive-residual drift (the point of the algorithm).
         relres = recover_x_and_relres();
-        apply_H(z, q);
-        for (int64_t i = 0; i < n; ++i) r_ne[i] = g[i] - q[i];
+        // STABLE residual form (2026-08-06, measured). recover_x_and_relres left
+        // wm = b - A x (the SMALL true LS residual); map it through R^{-T} A^T
+        // (Epperly et al. Alg. 1 line 5) instead of the reference's g - H z, which
+        // subtracts two large kappa-contaminated quantities. On the m=800 prolate
+        // benchmark case (FFT operator, lambda_rel 1e-20) the two forms were A/B'd
+        // with everything else identical: g - H z stalls every method's LS relres
+        // at 1.75e-6 with garbage recovery (1.75e4); this form reaches the 1e-10
+        // noise floor with recovery 1.9e-3, matching warm Blendenpik. Dense
+        // replicas of the same problem do NOT reproduce the stall (both forms
+        // converge to kappa ~ 1e11 and beyond), so the FFT apply's rounding is a
+        // necessary ingredient; the benchmark is the regression harness for this.
+        {
+            A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
+              n, 1, m, (T)1.0, wm, m, (T)0.0, r_ne, n);
+            if (prec) {
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, r_ne, 1);
+            }
+        }
 
         if (relres <= tol) { status = 0; break; }
         if (inner_flag == 2) { status = 2; break; }      // breakdown: R unusable

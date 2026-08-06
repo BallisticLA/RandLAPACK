@@ -407,3 +407,116 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_stagnation_exits_early) {
     EXPECT_GT(iters, 0);
     EXPECT_TRUE(std::isfinite((double)relres));
 }
+
+
+// Round-residual stability (2026-08-06): the reference MATLAB recomputes the
+// normal-equation residual as g - H z, a difference of two large kappa-contaminated
+// quantities whose cancellation error floors the achievable accuracy. Epperly et al.
+// Alg. 1 line 5 computes the same quantity stably from the SMALL true LS residual,
+// R^{-T}(A^T(b - A x)). On a consistent ill-conditioned problem with a healthy
+// preconditioner, the solver must therefore reach a tight LS tolerance instead of
+// stalling at an eps*kappa floor.
+TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_reaches_tight_tol_on_ill_conditioned) {
+    using T = double;
+    int64_t m = 200, n = 20;
+    std::vector<T> A, b, x_true;
+    make_problem(m, n, 67, A, b, x_true);
+    for (int64_t j = 0; j < n; ++j) {
+        T s = std::pow((T)10.0, (T)(-11.0 * (double)j / (n - 1)));
+        blas::scal(m, s, A.data() + j * m, 1);
+    }
+    // Recompute b from the SCALED A so the system is exactly consistent: the
+    // optimal residual is 0 and only numerical floors can stop the solver.
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+
+    std::vector<T> Ac(A), tau(n), R(n * n, 0);
+    lapack::geqrf(m, n, Ac.data(), m, tau.data());
+    lapack::lacpy(lapack::MatrixType::Upper, n, n, Ac.data(), m, R.data(), n);
+    if (n > 1)
+        lapack::laset(lapack::MatrixType::Lower, n - 1, n - 1, (T)0, (T)0, R.data() + 1, n);
+
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    std::vector<T> x(n, 0.0);
+    int iters = 0, restarts = 0;
+    T relres = -1;
+    int st = RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, R.data(), n, b.data(), x.data(),
+                                             /*tol=*/1e-12, /*max_iters=*/2000, iters,
+                                             /*restart_maxit=*/500, /*restart_drop=*/1e-2,
+                                             /*max_restarts=*/3,
+                                             &restarts, nullptr, &relres);
+    EXPECT_EQ(st, 0);                 // must actually converge, not stall at a floor
+    EXPECT_LE(relres, 1e-12);
+}
+
+
+// Round-residual regression floor, the PROLATE regime (2026-08-06). NOTE on what
+// this test can and cannot see: the g - H z vs R^{-T}(A^T(b - A x)) residual-form
+// difference that floors the FFT-operator benchmark at 1.75e-6 (A/B'd there; see
+// rl_restarted_pcg_ne.hh) is NOT reproduced by this dense replica -- both forms
+// pass it, so the FFT apply's rounding is a necessary ingredient and the m=800
+// benchmark case is the discriminating harness. This test still pins a floor no
+// implementation may regress: augmented prolate (numerically rank-deficient, tiny
+// sqrt(lambda) identity rows, noisy data) must converge to 1e-9 from a shifted
+// CholQR-style factor.
+TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_stable_residual_converges_on_prolate) {
+    using T = double;
+    // The exact measured configuration: T = 800 x 400 prolate (omega 0.14),
+    // augmented A = [T; sqrt(lambda) I] with lambda_rel = 1e-20, rhs = [b; 0],
+    // b = T x_true + 1e-11 relative noise. The tiny sqrt(lambda) identity rows are
+    // what push R's trailing diagonal small enough for the g - H z cancellation to
+    // bind; the smaller unaugmented prolate does NOT reproduce the stall.
+    int64_t mt = 800, n = 400, m = mt + n;
+    const double omega = 0.14;
+    auto prolate = [&](int64_t k) -> T {
+        if (k == 0) return (T)(2.0 * omega);
+        return (T)(std::sin(2.0 * M_PI * omega * (double)k) / (M_PI * (double)k));
+    };
+    std::vector<T> A(m * n, 0.0);
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < mt; ++i)
+            A[i + j * m] = prolate(i - j);
+    const T sqrt_lambda = (T)1e-10;   // lambda = 1e-20, sigma_max(T) ~ 1
+    for (int64_t j = 0; j < n; ++j) A[(mt + j) + j * m] = sqrt_lambda;
+    // Deterministic smooth x_true and deterministic 1e-11 relative "noise".
+    std::vector<T> x_true(n), b(m, 0.0);
+    for (int64_t i = 0; i < n; ++i)
+        x_true[i] = std::sin(0.7 * (double)i) / (1.0 + 0.01 * (double)i);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               mt, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    {
+        std::vector<T> e(mt);
+        for (int64_t i = 0; i < mt; ++i) e[i] = std::sin(3.1 * (double)i);
+        T en = blas::nrm2(mt, e.data(), 1), bn = blas::nrm2(mt, b.data(), 1);
+        for (int64_t i = 0; i < mt; ++i) b[i] += e[i] / en * (T)1e-11 * bn;
+    }
+
+    // CholQR-style R with an escalating diagonal shift (the benchmark's approach for
+    // numerically rank-deficient Grams). A weak R is fine: the measured benchmark run
+    // showed even CholQR's 0.83-orthogonality factor reaching the floor with the
+    // stable residual form.
+    std::vector<T> G(n * n, 0.0), R(n * n);
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, m, (T)1.0, A.data(), m, (T)0.0, G.data(), n);
+    T gnorm = 0; for (int64_t j = 0; j < n; ++j) gnorm = std::max(gnorm, std::abs(G[j + j * n]));
+    T shift = (T)10 * std::numeric_limits<T>::epsilon() * gnorm;
+    int info = 1;
+    for (int t = 0; t < 40 && info != 0; ++t, shift *= (T)10) {
+        std::copy(G.begin(), G.end(), R.begin());
+        for (int64_t j = 0; j < n; ++j) R[j + j * n] += shift;
+        info = (int)lapack::potrf(blas::Uplo::Upper, n, R.data(), n);
+    }
+    ASSERT_EQ(info, 0);
+
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    std::vector<T> x(n, 0.0);
+    int iters = 0, restarts = 0;
+    T relres = -1;
+    int st = RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, R.data(), n, b.data(), x.data(),
+                                             /*tol=*/1e-9, /*max_iters=*/2000, iters,
+                                             /*restart_maxit=*/500, /*restart_drop=*/1e-2,
+                                             /*max_restarts=*/3,
+                                             &restarts, nullptr, &relres);
+    EXPECT_EQ(st, 0);                 // reaches tol instead of stalling near 1e-6
+    EXPECT_LE(relres, 1e-9);
+}
