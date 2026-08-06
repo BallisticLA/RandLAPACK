@@ -49,7 +49,7 @@ function Invoke-Checked {
 
 # This script lives in <repo>\install\; the repository root is one level up.
 $sourceRoot = Split-Path $PSScriptRoot -Parent
-if (-not (Test-Path (Join-Path $sourceRoot "RandLAPACK\RandLAPACK.hh"))) {
+if (-not (Test-Path (Join-Path $sourceRoot "RandLAPACK.hh"))) {
     throw "install.ps1 must sit in the install\ directory of a RandLAPACK clone."
 }
 if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
