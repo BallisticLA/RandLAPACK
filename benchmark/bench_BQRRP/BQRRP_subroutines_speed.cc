@@ -1,10 +1,3 @@
-#if defined(__APPLE__)
-#include <iostream>
-int main() {
-    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
-    return 1;
-}
-#else
 /*
 QR speed comparison benchmark - runs:
     1. GEQRF
@@ -436,4 +429,3 @@ int main(int argc, char *argv[]) {
     file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
     file.flush();   
 }
-#endif

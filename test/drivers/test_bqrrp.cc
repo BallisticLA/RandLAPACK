@@ -1,4 +1,3 @@
-#if !defined(__APPLE__)
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -436,4 +435,3 @@ TEST_F(TestBQRRP, BQRRP_wide_aspect) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
-#endif

@@ -26,14 +26,22 @@ jobs:
           set -x
           brew install googletest
 
-      - name: install BLAS++
+      # macOS builds use Apple's NEW Accelerate interface (LAPACK 3.12 on
+      # current SDKs) -- the legacy default is LAPACK 3.2.1 from 2009, with a
+      # broken divide-and-conquer gesdd and none of the routines BQRRP/HQRRP
+      # need. The defines.h check makes a silent fallback to the legacy
+      # interface a hard failure. Requires blaspp/lapackpp with new-Accelerate
+      # support (icl-utk-edu masters after the BallisticLA PRs merge).
+      - name: install BLAS++ (new Accelerate)
         run: |
           cd ..
           git clone https://github.com/icl-utk-edu/blaspp.git
           mkdir blaspp-build
           cd blaspp-build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
           make -j2 install
+          grep -q ACCELERATE_NEW_LAPACK ../blaspp-install/include/blas/defines.h \
+            || { echo "::error::BLAS++ did not select Apple's new Accelerate interface"; exit 1; }
 
       - name: install Random123
         run: |
