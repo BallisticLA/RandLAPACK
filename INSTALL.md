@@ -43,6 +43,18 @@ For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
 **Verified Working Configuration** (as of 2025-11-26):
 - CUDA 12.9.0 + GCC 13.3.0 + CMake 3.31.9 + Driver v581.80 ✅
 
+### macOS: Apple Accelerate requirements
+Apple ships two LAPACK implementations inside Accelerate. The legacy default
+is LAPACK 3.2.1 (2009): its divide-and-conquer SVD (`gesdd`) is broken on
+Apple Silicon, and it lacks routines RandLAPACK requires (`orhr_col`,
+`geqrt`, ...). **RandLAPACK supports only the new interface** (macOS 13.3+,
+LAPACK 3.12 on current SDKs): build BLAS++ with `-Dblas=accelerate` using a
+BLAS++/LAPACK++ version that carries new-Accelerate support, and the correct
+interface propagates to LAPACK++ and RandLAPACK automatically. Verify by
+checking that the installed `include/blas/defines.h` contains
+`ACCELERATE_NEW_LAPACK`. Alternatively, use Homebrew OpenBLAS (what
+`install.sh` does on macOS).
+
 ### Note on Directory Names
 On some systems, library directories are called `lib` while on others they're called `lib64`. Adjust paths accordingly in the CMake configuration commands below.
 

@@ -1,0 +1,5 @@
+if(EXISTS "/home/mymel/RandNLA/worktrees/retire-legacy-accelerate/build/test/RandLAPACK_tests[1]_tests.cmake")
+  include("/home/mymel/RandNLA/worktrees/retire-legacy-accelerate/build/test/RandLAPACK_tests[1]_tests.cmake")
+else()
+  add_test(RandLAPACK_tests_NOT_BUILT RandLAPACK_tests_NOT_BUILT)
+endif()

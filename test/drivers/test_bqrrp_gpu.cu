@@ -256,7 +256,6 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
     	}
     }
 };
-#if !defined(__APPLE__)
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_GPU_070824) {
     int64_t m = 5000;//5000;
@@ -475,5 +474,4 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     cudaFree(tau_device);
     blas::device_free(d_work_geqrf_opt, lapack_queue);
 }
-#endif
 #endif
