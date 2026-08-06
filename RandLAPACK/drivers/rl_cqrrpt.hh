@@ -231,7 +231,7 @@ int CQRRPT<T, RNG>::call(
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
     } else if(this -> qrcp == Subroutines::QRCP::bqrrp) {
 
-        #if !defined(__APPLE__)
+        #if !defined(__APPLE__) || defined(ACCELERATE_NEW_LAPACK)
         if (n <= 2000) {
             this->bqrrp_block_ratio = 1.0;
         } else if (n <= 8000) {

@@ -228,7 +228,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) || defined(ACCELERATE_NEW_LAPACK)
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
     int64_t m = 10000;
     int64_t n = 200;

@@ -162,9 +162,11 @@ int BQRRP<T, RNG>::call(
     int64_t* J,
     RandBLAS::RNGState<RNG> &state
 ){
-    #ifdef __APPLE__
+    // Old Accelerate (LAPACK 3.2.1) lacks the routines BQRRP needs
+    // (orhr_col & co.); the new interface (ACCELERATE_NEW_LAPACK) has them.
+    #if defined(__APPLE__) && ! defined(ACCELERATE_NEW_LAPACK)
     UNUSED(m); UNUSED(n); UNUSED(A); UNUSED(lda); UNUSED(d_factor); UNUSED(tau); UNUSED(J); UNUSED(state);
-    throw std::runtime_error("BQRRP is not supported when BLAS is linked against Apple Accelerate.");
+    throw std::runtime_error("BQRRP is not supported with Apple Accelerate's legacy (pre-13.3) LAPACK. Rebuild BLAS++/LAPACK++ with ACCELERATE_NEW_LAPACK.");
     #else
     // Input parameter validation. Bad inputs would otherwise lead to a
     // downstream BLAS/LAPACK failure or, worse, a segfault -- both fatal

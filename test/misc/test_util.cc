@@ -550,7 +550,7 @@ TEST_F(TestUtil, test_col_swp_large_permutation_is_fast) {
     test_col_swp_speed_canary(1000000);
 }
 
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) || defined(ACCELERATE_NEW_LAPACK)
 TEST_F(TestUtil, test_orhr_col) {
     
     int64_t m = 4;//std::pow(2, 10);

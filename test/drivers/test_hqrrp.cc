@@ -142,7 +142,7 @@ class TestHQRRP : public ::testing::Test
     }
 };
 
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) || defined(ACCELERATE_NEW_LAPACK)
 // This test uses orhr_col
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {

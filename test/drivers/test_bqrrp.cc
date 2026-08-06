@@ -1,4 +1,5 @@
-#if !defined(__APPLE__)
+#include <blas/defines.h>
+#if !defined(__APPLE__) || defined(ACCELERATE_NEW_LAPACK)
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"

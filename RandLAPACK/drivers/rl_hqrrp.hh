@@ -527,11 +527,11 @@ static int64_t CHOLQR_mod_WY(
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
-    #if defined(__APPLE__)
+    #if defined(__APPLE__) && ! defined(ACCELERATE_NEW_LAPACK)
     UNUSED(num_stages); UNUSED(m_A); UNUSED(n_A); UNUSED(buff_A); UNUSED(ldim_A);
     UNUSED(buff_t); UNUSED(buff_T); UNUSED(ldim_T); UNUSED(buff_R); UNUSED(ldim_R);
     UNUSED(buff_D);
-    throw std::runtime_error("Unsupported on macOS.");
+    throw std::runtime_error("Unsupported with Apple Accelerate's legacy (pre-13.3) LAPACK. Rebuild BLAS++/LAPACK++ with ACCELERATE_NEW_LAPACK.");
     #else
 
     // Some initializations.
