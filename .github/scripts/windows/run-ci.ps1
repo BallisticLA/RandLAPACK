@@ -92,7 +92,10 @@ $configureArgs = @(
     "-Dlapackpp_DIR=$lapackppDir",
     "-DRandom123_DIR=$random123Dir",
     "-DCMAKE_PREFIX_PATH=$gtestPrefix",
-    "-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE"
+    "-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE",
+    # The RandBLAS submodule's own tests are covered by RandBLAS's CI;
+    # building and running them here roughly doubled the job time.
+    "-DBUILD_TESTS=OFF"
 )
 if ($SanitizeAddress) { $configureArgs += "-DSANITIZE_ADDRESS=ON" }
 
