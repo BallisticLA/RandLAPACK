@@ -1,26 +1,33 @@
 // CQRRT preconditioner comparison benchmark
 //
 // Isolates the effect of different methods for forming R_sk^{-1} on the final
-// orthogonality quality of CQRRT. Tests four paths:
+// orthogonality quality of CQRRT. Tests seven paths:
 //
-//   [1] expl_trsm:      DTRSM_R(A, R_sk) in-place                   ← CQRRT_expl path
-//   [2] expl_inv_trsm:  TRSM(I, R_sk) → R_inv; DGEMM(A, R_inv)       (TRSM on identity)
-//   [3] expl_inv_trtri: TRTRI(R_sk) → R_inv;   DGEMM(A, R_inv)       (LAPACK trtri)
-//   [4] expl_inv_geqp3: GEQP3(R_sk) = Q*R_buf*P^T;
-//                       R_inv = P * TRSM(R_buf, Q^T); DGEMM(A, R_inv)
-//   [5] expl_inv_svd:   GESDD(R_sk) = U*S*Vt;
-//                       R_inv = V * diag(1/S) * U^T; DGEMM(A, R_inv)
-//   [6] expl_inv_bqrrp: BQRRP(R_sk)=Q*R_buf*P^T; R_inv=P*TRSM(R_buf,Q^T); DGEMM(A, R_inv)
+//   [1] expl_trsm:           DTRSM_R(A, R_sk) in-place                <- CQRRT_expl path
+//   [2] expl_inv_trsm_left:  solve R_sk * X = I (TRSM Side::Left) -> R_inv; DGEMM(A, R_inv)
+//                            (column-ordered solve; the RandLAPACK default,
+//                             PCholQRPrecondMethod::TRSM_IDENTITY)
+//   [3] expl_inv_trsm_right: solve X * R_sk = I (TRSM Side::Right) -> R_inv; DGEMM(A, R_inv)
+//                            (reversed, row-ordered solve; kept to document the
+//                             solve-ordering effect, NOT shipped)
+//   [4] expl_inv_trtri:      TRTRI(R_sk) -> R_inv;   DGEMM(A, R_inv)   (LAPACK trtri)
+//   [5] expl_inv_geqp3:      GEQP3(R_sk) = Q*R_buf*P^T;
+//                            R_inv = P * TRSM(R_buf, Q^T); DGEMM(A, R_inv)
+//   [6] expl_inv_svd:        GESDD(R_sk) = U*S*Vt;
+//                            R_inv = V * diag(1/S) * U^T; DGEMM(A, R_inv)
+//   [7] expl_inv_bqrrp:      BQRRP(R_sk)=Q*R_buf*P^T; R_inv=P*TRSM(R_buf,Q^T); DGEMM(A, R_inv)
 //
 //   Path [1] never forms R_sk^{-1} explicitly (backward stable).
-//   Paths [2]-[6] all form R_sk^{-1} explicitly via different methods.
-//   Path [4] uses a rank-revealing QR to invert R_sk; the Q factor makes
+//   Paths [2]-[7] all form R_sk^{-1} explicitly via different methods.
+//   Paths [2] and [3] differ ONLY in how the triangular system is posed;
+//   the ordering governs the error of the composite product M * R_inv.
+//   Path [5] uses a rank-revealing QR to invert R_sk; the Q factor makes
 //   the inversion well-conditioned even when R_sk itself is ill-conditioned.
-//   Path [5] uses the SVD (gold standard for stability).
-//   Path [6] uses BQRRP (blocked randomized QRCP) to invert R_sk — the
-//   randomized counterpart of path [4]'s GEQP3.
+//   Path [6] uses the SVD (gold standard for stability).
+//   Path [7] uses BQRRP (blocked randomized QRCP), the randomized
+//   counterpart of path [5]'s GEQP3.
 //
-//   All six paths use the same sketch (same RNG state).
+//   All seven paths use the same sketch (same RNG state).
 //
 //   Per-path metrics:
 //     cond(A_pre)             — condition number of the preconditioned matrix
@@ -29,11 +36,7 @@
 //                               R_final=R_chol*R_sk, Q=A_orig*R_final^{-1}
 //
 //   Cross-path relative differences of A_pre (reference = path [1]):
-//     rd_12 = ||A_pre[1] - A_pre[2]|| / ||A_pre[1]||
-//     rd_13 = ||A_pre[1] - A_pre[3]|| / ||A_pre[1]||
-//     rd_14 = ||A_pre[1] - A_pre[4]|| / ||A_pre[1]||
-//     rd_15 = ||A_pre[1] - A_pre[5]|| / ||A_pre[1]||
-//     rd_16 = ||A_pre[1] - A_pre[6]|| / ||A_pre[1]||
+//     rd_1p = ||A_pre[1] - A_pre[p]|| / ||A_pre[1]||   for p = 2..7
 //
 //   Step-by-step pipeline divergence between paths [1] and [2] (CQRRT_expl vs CQRRT_linop):
 //   Each path uses the same RNG seed but a different sketch code path — mirrors actual impls.
@@ -88,11 +91,12 @@ using blas::Diag;
 // Path constants
 // ============================================================================
 
-static constexpr int N_PATHS = 6;
+static constexpr int N_PATHS = 7;
 
 static constexpr const char* PATH_NAMES[N_PATHS] = {
     "expl_trsm",
-    "expl_inv_trsm",
+    "expl_inv_trsm_left",
+    "expl_inv_trsm_right",
     "expl_inv_trtri",
     "expl_inv_geqp3",
     "expl_inv_svd",
@@ -101,7 +105,8 @@ static constexpr const char* PATH_NAMES[N_PATHS] = {
 
 static constexpr const char* PATH_DESCS[N_PATHS] = {
     "DTRSM_R(A, R_sk) in-place                              <- CQRRT_expl",
-    "TRSM(I, R_sk)->R_inv; DGEMM(A, R_inv)",
+    "solve R_sk*X=I (Side::Left)->R_inv; DGEMM(A, R_inv)    <- RandLAPACK default",
+    "solve X*R_sk=I (Side::Right)->R_inv; DGEMM(A, R_inv)   (reversed ordering, NOT shipped)",
     "TRTRI(R_sk)->R_inv;   DGEMM(A, R_inv)",
     "GEQP3(R_sk)=Q*R_buf*P^T; R_inv=P*TRSM(R_buf,Q^T); DGEMM(A, R_inv)",
     "GESDD(R_sk)=U*S*Vt; R_inv=V*diag(1/S)*U^T; DGEMM(A, R_inv)",
@@ -167,22 +172,19 @@ static T cholqr_orth_error(const std::vector<T>& A_pre, const T* A_orig,
 }
 
 // ============================================================================
-// One trial: 4-path orth comparison (shared sketch) +
+// One trial: N_PATHS-path orth comparison (shared sketch) +
 //            independent path [1] vs [2] step-by-step divergence
 // ============================================================================
 
 template <typename T>
 struct TrialResult {
-    // Per-path metrics (shared sketch, 4 paths)
+    // Per-path metrics (shared sketch, all N_PATHS paths)
     double cond_Apre[N_PATHS];
     double cond_G[N_PATHS];
     double orth_Q[N_PATHS];
-    // Cross-path relative differences of A_pre (reference = path [1], shared sketch)
-    double rd_Apre_12;  // TRSM in-place vs TRSM-on-identity
-    double rd_Apre_13;  // TRSM in-place vs trtri
-    double rd_Apre_14;  // TRSM in-place vs geqp3
-    double rd_Apre_15;  // TRSM in-place vs svd
-    double rd_Apre_16;  // TRSM in-place vs bqrrp
+    // Cross-path relative differences of A_pre (reference = path [1], shared
+    // sketch): entry p holds rel_diff(Apre[0], Apre[p]); entry 0 is unused.
+    double rd_Apre_vs1[N_PATHS];
     // Step-by-step pipeline divergence: paths [1] vs [2], faithful to actual implementations
     //   Path [1] (CQRRT_expl):  sketch via sketch_general(S, A_dense); TRSM in-place; SYRK
     //   Path [2] (CQRRT_linop): sketch via A_linop(Side::Right, S) [SpGEMM];
@@ -213,7 +215,7 @@ static TrialResult<T> run_trial(
     auto initial_state = state;
 
     // ----------------------------------------------------------------
-    // Part A: Shared sketch → R_sk, 4-path orth comparison
+    // Part A: Shared sketch → R_sk, N_PATHS-path orth comparison
     // ----------------------------------------------------------------
     RandBLAS::SparseDist Ds(d, m, sketch_nnz, RandBLAS::Axis::Short);
     RandBLAS::SparseSkOp<T> S(Ds, state);
@@ -236,18 +238,36 @@ static TrialResult<T> run_trial(
     // Explicit inverses of R_sk via two methods
     // ----------------------------------------------------------------
 
-    // Method A: TRSM on identity  (path [2])
-    std::vector<T> R_inv_trsm(n * n, T(0));
-    RandLAPACK::util::eye(n, n, R_inv_trsm.data());
+    // Method A1: TRSM on identity, column-ordered solve  (path [2])
+    //   Solve R_sk * X = I (Side::Left): each column of X is an independent
+    //   backward-stable solve R_sk * x_j = e_j. This is the RandLAPACK default
+    //   (PCholQRPrecondMethod::TRSM_IDENTITY, comps/rl_cholqr.hh), including
+    //   the trailing lower-triangle laset the primitive performs.
+    std::vector<T> R_inv_trsm_left(n * n, T(0));
+    RandLAPACK::util::eye(n, n, R_inv_trsm_left.data());
+    blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
+               Diag::NonUnit, n, n, (T)1.0,
+               R_sk.data(), n, R_inv_trsm_left.data(), n);
+    if (n > 1)
+        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, R_inv_trsm_left.data() + 1, n);
+
+    // Method A2: TRSM on identity, reversed row-ordered solve  (path [3])
+    //   Solve X * R_sk = I (Side::Right): rows of X carry independent
+    //   perturbations of R_sk, and the error of the composite M * X scales
+    //   with kappa(R_sk). Kept only to document the solve-ordering effect.
+    std::vector<T> R_inv_trsm_right(n * n, T(0));
+    RandLAPACK::util::eye(n, n, R_inv_trsm_right.data());
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                Diag::NonUnit, n, n, (T)1.0,
-               R_sk.data(), n, R_inv_trsm.data(), n);
+               R_sk.data(), n, R_inv_trsm_right.data(), n);
+    if (n > 1)
+        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, R_inv_trsm_right.data() + 1, n);
 
-    // Method B: LAPACK trtri  (path [3])
+    // Method B: LAPACK trtri  (path [4])
     std::vector<T> R_inv_trtri(R_sk.begin(), R_sk.end());
     lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_inv_trtri.data(), n);
 
-    // Method C: GEQP3 factorization of R_sk  (path [4])
+    // Method C: GEQP3 factorization of R_sk  (path [5])
     //   R_sk * P = Q_buf * R_buf   (GEQP3)
     //   R_sk^{-1} = P * R_buf^{-1} * Q_buf^T
     //   Computed via Option A: ungqr (explicit Q) + TRSM (cheaper than trtri + ormqr)
@@ -285,7 +305,7 @@ static TrialResult<T> run_trial(
                 R_inv_geqp3[(jpiv[k]-1) + j*n] = W[k + j*n];
     }
 
-    // Method D: SVD of R_sk  (path [5])
+    // Method D: SVD of R_sk  (path [6])
     //   R_sk = U * diag(s) * Vt
     //   R_sk^{-1} = V * diag(1/s) * U^T = Vt^T * diag(1/s) * U^T
     std::vector<T> R_inv_svd(n * n, 0.0);
@@ -304,7 +324,7 @@ static TrialResult<T> run_trial(
                    (T)0.0, R_inv_svd.data(), n);
     }
 
-    // Method E: BQRRP factorization of R_sk  (path [6])
+    // Method E: BQRRP factorization of R_sk  (path [7])
     //   Same output format as GEQP3: R_sk * P = Q_buf * R_buf, then
     //   R_sk^{-1} = P * R_buf^{-1} * Q_buf^T.
     //   BQRRP uses blocked randomized QRCP; block size matches CQRRT_linops
@@ -343,10 +363,8 @@ static TrialResult<T> run_trial(
 
     // ----------------------------------------------------------------
     // Compute all N_PATHS preconditioned matrices:
-    //   Apre[0]: TRSM in-place   (path [1], CQRRT_expl)
-    //   Apre[1]: GEMM + R_inv_trsm  (path [2])
-    //   Apre[2]: GEMM + R_inv_trtri (path [3])
-    //   Apre[3]: GEMM + R_inv_geqp3 (path [4])
+    //   Apre[0]: TRSM in-place                (path [1], CQRRT_expl)
+    //   Apre[p]: GEMM + R_invs[p-1], p >= 1   (paths [2]..[7])
     // ----------------------------------------------------------------
     std::array<std::vector<T>, N_PATHS> Apre;
     for (auto& a : Apre) a.resize(m * n, T(0));
@@ -356,8 +374,8 @@ static TrialResult<T> run_trial(
                Diag::NonUnit, m, n, (T)1.0, R_sk.data(), n, Apre[0].data(), m);
 
     const T* R_invs[N_PATHS - 1] = {
-        R_inv_trsm.data(), R_inv_trtri.data(), R_inv_geqp3.data(),
-        R_inv_svd.data(), R_inv_bqrrp.data()
+        R_inv_trsm_left.data(), R_inv_trsm_right.data(), R_inv_trtri.data(),
+        R_inv_geqp3.data(), R_inv_svd.data(), R_inv_bqrrp.data()
     };
     for (int p = 1; p < N_PATHS; ++p)
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
@@ -366,11 +384,8 @@ static TrialResult<T> run_trial(
     // ----------------------------------------------------------------
     // Cross-path relative differences (reference = path [1] = Apre[0])
     // ----------------------------------------------------------------
-    res.rd_Apre_12 = (double)rel_diff(Apre[0].data(), Apre[1].data(), m*n);
-    res.rd_Apre_13 = (double)rel_diff(Apre[0].data(), Apre[2].data(), m*n);
-    res.rd_Apre_14 = (double)rel_diff(Apre[0].data(), Apre[3].data(), m*n);
-    res.rd_Apre_15 = (double)rel_diff(Apre[0].data(), Apre[4].data(), m*n);
-    res.rd_Apre_16 = (double)rel_diff(Apre[0].data(), Apre[5].data(), m*n);
+    for (int p = 1; p < N_PATHS; ++p)
+        res.rd_Apre_vs1[p] = (double)rel_diff(Apre[0].data(), Apre[p].data(), m*n);
 
     // ----------------------------------------------------------------
     // Part B: Independent step-by-step divergence, paths [1] vs [2]
@@ -449,10 +464,11 @@ static TrialResult<T> run_trial(
                    Diag::NonUnit, n, n, (T)1.0, R_sk_1.data(), n, Rfinal_1.data(), n);
 
         // ---- Path [2]: CQRRT_linop — TRSM_IDENTITY, linop fwd/adj, TRMM ----
-        // R_inv via TRSM_IDENTITY: solve X * R_sk_2 = I  (upper triangular result)
+        // R_inv via TRSM_IDENTITY: solve R_sk_2 * X = I (Side::Left), matching
+        // cholqr_primitive's shipping default (comps/rl_cholqr.hh).
         std::vector<T> R_inv_2(n * n, T(0));
         RandLAPACK::util::eye(n, n, R_inv_2.data());
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
+        blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
                    Diag::NonUnit, n, n, (T)1.0, R_sk_2.data(), n, R_inv_2.data(), n);
         for (int64_t j = 0; j < n; ++j)
             for (int64_t i = j+1; i < n; ++i)
@@ -527,12 +543,14 @@ static void write_csv_and_run(
     if (kappa_target > 0)
         csv << " kappa_target=" << std::scientific << std::setprecision(6) << kappa_target;
     csv << "\n";
-    csv << "run,"
-        << "orth_Q1,orth_Q2,orth_Q3,orth_Q4,orth_Q5,orth_Q6,"
-        << "cond_Apre1,cond_Apre2,cond_Apre3,cond_Apre4,cond_Apre5,cond_Apre6,"
-        << "cond_G1,cond_G2,cond_G3,cond_G4,cond_G5,cond_G6,"
-        << "rd_Apre_12,rd_Apre_13,rd_Apre_14,rd_Apre_15,rd_Apre_16,"
-        << "rd_Msk_12,rd_Rsk_12,rd_Apre_12_step,rd_G_12,rd_Rchol_12,rd_Rfinal_12,"
+    for (int p = 0; p < N_PATHS; ++p)
+        csv << "# path " << (p+1) << ": " << PATH_NAMES[p] << "\n";
+    csv << "run,";
+    for (int p = 1; p <= N_PATHS; ++p) csv << "orth_Q" << p << ",";
+    for (int p = 1; p <= N_PATHS; ++p) csv << "cond_Apre" << p << ",";
+    for (int p = 1; p <= N_PATHS; ++p) csv << "cond_G" << p << ",";
+    for (int p = 2; p <= N_PATHS; ++p) csv << "rd_Apre_1" << p << ",";
+    csv << "rd_Msk_12,rd_Rsk_12,rd_Apre_12_step,rd_G_12,rd_Rchol_12,rd_Rfinal_12,"
         << "cond_Rsk\n";
 
     RandBLAS::RNGState<RNG> base_state(42);
@@ -555,11 +573,8 @@ static void write_csv_and_run(
             printf("    [%d] %-18s %12.3e\n", p+1, PATH_NAMES[p], res.cond_G[p]);
 
         printf("  run %ld  rel_diff(MR^pre) vs [1]:\n", r);
-        printf("    rd_12 (trsm-on-I):   %12.3e\n", res.rd_Apre_12);
-        printf("    rd_13 (trtri):       %12.3e\n", res.rd_Apre_13);
-        printf("    rd_14 (geqp3):       %12.3e\n", res.rd_Apre_14);
-        printf("    rd_15 (svd):         %12.3e\n", res.rd_Apre_15);
-        printf("    rd_16 (bqrrp):       %12.3e\n", res.rd_Apre_16);
+        for (int p = 1; p < N_PATHS; ++p)
+            printf("    rd_1%d (%-19s): %12.3e\n", p+1, PATH_NAMES[p], res.rd_Apre_vs1[p]);
 
         printf("  run %ld  step-by-step divergence [1] vs [2] (expl: sketch_general; linop: SpGEMM):\n", r);
         printf("    M^sk:    %12.3e\n", res.rd_Msk_12);
@@ -575,9 +590,8 @@ static void write_csv_and_run(
         for (int p = 0; p < N_PATHS; ++p) csv << res.orth_Q[p]    << ",";
         for (int p = 0; p < N_PATHS; ++p) csv << res.cond_Apre[p] << ",";
         for (int p = 0; p < N_PATHS; ++p) csv << res.cond_G[p]    << ",";
-        csv << res.rd_Apre_12 << "," << res.rd_Apre_13 << "," << res.rd_Apre_14 << ","
-            << res.rd_Apre_15 << "," << res.rd_Apre_16 << ","
-            << res.rd_Msk_12 << "," << res.rd_Rsk_12 << "," << res.rd_Apre_12_step << ","
+        for (int p = 1; p < N_PATHS; ++p) csv << res.rd_Apre_vs1[p] << ",";
+        csv << res.rd_Msk_12 << "," << res.rd_Rsk_12 << "," << res.rd_Apre_12_step << ","
             << res.rd_G_12 << "," << res.rd_Rchol_12 << "," << res.rd_Rfinal_12 << ","
             << res.cond_Rsk << "\n";
     }
