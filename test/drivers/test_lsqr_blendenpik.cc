@@ -402,8 +402,12 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_stagnation_exits_early) {
                                              /*max_restarts=*/3,
                                              &restarts, nullptr, &relres);
     EXPECT_EQ(st, 1);                 // tolerance genuinely unreachable
-    EXPECT_EQ(restarts, 4);           // all rounds ran
-    EXPECT_LT(iters, 800);            // stagnation exit: strictly under the full budget
+    // Outer stagnation exit (2026-08-07): two consecutive rounds without
+    // meaningful true-residual improvement end the loop BEFORE the round
+    // budget -- the LS floor is O(1) here, so rounds 2+ cannot help.
+    EXPECT_LT(restarts, 4);
+    EXPECT_GT(restarts, 1);           // but the flatline needed two rounds to detect
+    EXPECT_LT(iters, 800);            // stagnation exits: strictly under the full budget
     EXPECT_GT(iters, 0);
     EXPECT_TRUE(std::isfinite((double)relres));
 }

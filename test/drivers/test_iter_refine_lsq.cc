@@ -156,7 +156,11 @@ TEST_F(TestIterRefineLSQ, imperfect_preconditioner) {
     build_R_from_A(A_pert.data(), m, n, R.data(), n);
 
     DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
-    IterRefineLSQ<T> ir(1e-12, 100, 2);
+    // Under the paced-restart scheme (round_drop = 1e-4, 2026-08-07) an
+    // imperfect preconditioner needs more than two shallow rounds to reach
+    // gels-level accuracy: give the loop room and let outer_tol stop it.
+    IterRefineLSQ<T> ir(1e-12, 100, /*n_steps=*/20);
+    ir.outer_tol = (T)1e-12;
     std::vector<T> x_ir(n, 0);
     int status = ir.call(J, R.data(), n, b.data(), m, x_ir.data(), n);
     EXPECT_EQ(status, 0);
@@ -171,6 +175,8 @@ TEST_F(TestIterRefineLSQ, imperfect_preconditioner) {
     EXPECT_LT(diff_norm / xref_norm, 1e-9);
     // Imperfect R: CG should take more than 1 iter but well under the cap.
     EXPECT_LT(ir.inner_iters_per_step.front(), 100);
+    // The paced loop must exit well before the 20-round cap.
+    EXPECT_LT(ir.outer_iters_done, 20);
 }
 
 
@@ -207,10 +213,10 @@ TEST_F(TestIterRefineLSQ, capped_solve_is_reported) {
     // --- capped run: 2 inner iterations against a 1e-14 tolerance ---
     {
         IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/2, /*n_steps=*/2);
-        // This test pins SINGLE-attempt mechanics (exact cap count); the default
-        // single restart (2026-08-05) would rerun and double the reported iters.
-        // Restart semantics get their own test below.
-        ir.inner_restarts = 0;
+        // Legacy fixed-tolerance rounds: this test pins the "asked for 1e-14,
+        // capped at 2 iterations" mechanics, which the paced default would
+        // change (the round target would be round_drop, not 1e-14).
+        ir.round_drop = 0;
         std::vector<T> x(n, 0);
         int status = ir.call(J, R.data(), n, b.data(), m, x.data(), n);
         EXPECT_EQ(status, 0);   // capping is still not an error return ...
@@ -228,6 +234,7 @@ TEST_F(TestIterRefineLSQ, capped_solve_is_reported) {
     // --- generous run: same problem, enough budget to converge ---
     {
         IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/200, /*n_steps=*/2);
+        ir.round_drop = 0;   // legacy fixed-tolerance rounds, as above
         std::vector<T> x(n, 0);
         int status = ir.call(J, R.data(), n, b.data(), m, x.data(), n);
         EXPECT_EQ(status, 0);
@@ -283,9 +290,6 @@ TEST_F(TestIterRefineLSQ, stagnating_solve_exits_early_with_best_iterate) {
         IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/kCap, /*n_steps=*/2);
         ir.inner_stag_window     = kWindow;
         ir.inner_stag_rel_improve = 1.0;      // no drop can ever qualify as progress
-        // Single-attempt mechanics under test (exact window count); the default
-        // restart would re-stagnate and double the reported iters.
-        ir.inner_restarts = 0;
         int status = ir.call(J, R.data(), n, b.data(), m, x_stag.data(), n);
         EXPECT_EQ(status, 0);                 // stagnating is not an error return
         ASSERT_EQ(ir.inner_status_per_step.size(), 2u);
@@ -304,6 +308,8 @@ TEST_F(TestIterRefineLSQ, stagnating_solve_exits_early_with_best_iterate) {
     {
         IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/kCap, /*n_steps=*/2);
         ir.inner_stag_window = 0;             // disable the exit entirely
+        ir.round_drop = 0;   // legacy fixed 1e-14 rounds: the contrast needs the
+                             // deep solve the paced default would cut short
         std::vector<T> x(n, 0);
         int status = ir.call(J, R.data(), n, b.data(), m, x.data(), n);
         EXPECT_EQ(status, 0);
@@ -317,20 +323,15 @@ TEST_F(TestIterRefineLSQ, stagnating_solve_exits_early_with_best_iterate) {
     }
 }
 
-// Single restart (added 2026-08-05, default inner_restarts = 1). After the inner CG
-// terminates, it is rerun once from the iterate it returned, against the TRUE residual
-// c - M z (the recursive residual CG tracks internally drifts in finite precision, so
-// both the convergence test and the stagnation window can be reading fiction by the
-// time they fire).
-//
-// Three properties pinned here:
-//   1. A capped attempt restarts and the reported per-step count is the SUM of both
-//      attempts (cap 2 => exactly 4 with the same weak preconditioner).
-//   2. The restart never loses ground: its entry snapshot is the incoming iterate, so
-//      the aggregated best residual is <= the single-attempt one.
-//   3. For a solve whose first attempt genuinely converged, the restart is (near) free:
-//      the entry check sees the true residual already under tolerance.
-TEST_F(TestIterRefineLSQ, single_restart_reruns_from_returned_iterate) {
+// Paced restarts (Oleg's proposition, 2026-08-07, replacing the 2026-08-05 single
+// verification restart). Each round's inner CG stops after a round_drop (1e-4)
+// residual drop and the outer loop restarts against the TRUE residual; outer_tol
+// terminates the loop. Pinned here:
+//   1. A weak preconditioner needs several rounds but converges to the target well
+//      before the 20-round cap.
+//   2. Every round is shallow: no round runs anywhere near a deep fixed-tol solve.
+//   3. The final solution matches the direct reference.
+TEST_F(TestIterRefineLSQ, paced_rounds_converge_with_early_exit) {
     using T = double;
     int64_t m = 120, n = 20;
 
@@ -348,47 +349,61 @@ TEST_F(TestIterRefineLSQ, single_restart_reruns_from_returned_iterate) {
     build_R_from_A(A_pert.data(), m, n, R.data(), n);
     DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
 
-    // Baseline: one attempt, cap 2.
-    T best_single = 0;
-    {
-        IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/2, /*n_steps=*/2);
-        ir.inner_restarts = 0;
-        std::vector<T> x(n, 0);
-        ASSERT_EQ(ir.call(J, R.data(), n, b.data(), m, x.data(), n), 0);
-        best_single = ir.inner_best_relres_per_step.front();
-    }
+    IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/200, /*n_steps=*/20);
+    ir.outer_tol = (T)1e-10;
+    std::vector<T> x(n, 0);
+    ASSERT_EQ(ir.call(J, R.data(), n, b.data(), m, x.data(), n), 0);
 
-    // (1) + (2): default restart on the same capped problem.
-    {
-        IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/2, /*n_steps=*/2);
-        std::vector<T> x(n, 0);
-        ASSERT_EQ(ir.call(J, R.data(), n, b.data(), m, x.data(), n), 0);
-        EXPECT_EQ(ir.inner_restarts, 1);   // the documented default
-        EXPECT_EQ(ir.inner_status_per_step.front(),
-                  static_cast<int>(RandLAPACK::InnerCGStatus::HitCap));
-        EXPECT_EQ(ir.inner_iters_per_step.front(), 4);   // 2 (attempt) + 2 (restart)
-        EXPECT_LE(ir.inner_best_relres_per_step.front(), best_single);
-        for (int64_t i = 0; i < n; ++i) EXPECT_TRUE(std::isfinite(x[i]));
-    }
+    EXPECT_GT(ir.outer_iters_done, 1);        // the weak R genuinely needs rounds
+    EXPECT_LT(ir.outer_iters_done, 20);       // but converges before the cap
+    EXPECT_LE(ir.final_residual_norm, (T)1e-10);
+    for (auto it : ir.inner_iters_per_step)
+        EXPECT_LT(it, 200);                   // every round is shallow, none hit the cap
+    for (int64_t i = 0; i < n; ++i) EXPECT_NEAR(x[i], x_true[i], 1e-8);
+}
 
-    // (3): a converging solve pays at most the one extra M apply, not extra budget.
-    {
-        IterRefineLSQ<T> ir_no(/*tol=*/1e-12, /*max_inner=*/200, /*n_steps=*/2);
-        ir_no.inner_restarts = 0;
-        std::vector<T> x0v(n, 0);
-        ASSERT_EQ(ir_no.call(J, R.data(), n, b.data(), m, x0v.data(), n), 0);
+// Unification (2026-08-07): IterRefineLSQ is an adapter over restarted_pcg_ne, so
+// the same problem with equivalently-mapped parameters must produce the IDENTICAL
+// iterate sequence -- not merely a close one. This is the contract that the FEM2
+// and Toeplitz benchmarks now run one solver, not two implementations of it.
+TEST_F(TestIterRefineLSQ, delegation_matches_restarted_pcg_ne_exactly) {
+    using T = double;
+    int64_t m = 120, n = 20;
 
-        IterRefineLSQ<T> ir1(/*tol=*/1e-12, /*max_inner=*/200, /*n_steps=*/2);
-        std::vector<T> x1v(n, 0);
-        ASSERT_EQ(ir1.call(J, R.data(), n, b.data(), m, x1v.data(), n), 0);
-        EXPECT_EQ(ir1.inner_status_per_step.front(),
-                  static_cast<int>(RandLAPACK::InnerCGStatus::Converged));
-        // The restart may add a couple of true-residual polish iterations when the
-        // recursive residual was optimistic, but never a second full solve.
-        EXPECT_LE(ir1.inner_iters_per_step.front(),
-                  ir_no.inner_iters_per_step.front() + 3);
-        for (int64_t i = 0; i < n; ++i) EXPECT_NEAR(x1v[i], x_true[i], 1e-8);
-    }
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 4242);
+    fill_random(x_true, 777);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 31337, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    const T tol_outer = (T)1e-10, tol_abs = (T)1e-14, drop = (T)1e-4;
+    const int cap = 200, rounds_max = 20;
+
+    IterRefineLSQ<T> ir(tol_abs, cap, rounds_max);
+    ir.outer_tol = tol_outer;
+    std::vector<T> x_ir(n, 0);
+    ASSERT_EQ(ir.call(J, R.data(), n, b.data(), m, x_ir.data(), n), 0);
+
+    std::vector<T> x_eng(n, 0);
+    int iters = 0, rounds = 0;
+    int st = RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x_eng.data(),
+                                             tol_outer, cap * rounds_max, iters,
+                                             /*restart_maxit=*/cap, /*restart_drop=*/drop,
+                                             /*max_restarts=*/rounds_max - 1,
+                                             &rounds, nullptr, nullptr,
+                                             /*stag_window=*/20, /*stag_rel_improve=*/(T)1e-3,
+                                             /*inner_abs_tol=*/tol_abs);
+    ASSERT_EQ(st, 0);
+    EXPECT_EQ(ir.outer_iters_done, rounds);
+    for (int64_t i = 0; i < n; ++i)
+        EXPECT_DOUBLE_EQ(x_ir[i], x_eng[i]) << "element " << i;
 }
 
 // A converging solve must be untouched by the stagnation logic: it reports Converged, and

@@ -37,7 +37,7 @@
 //   'run' column). The MATLAB plotters aggregate (best run by default).
 //   solver (default "pcg_ne"): "pcg_ne" (alias "restarted_pcg_ne") or "lsqr".
 //   pcg_restart_maxit (default 500): inner CG cap per restart, pcg_ne only.
-//   pcg_max_restarts (default 3): additional rounds after the first (< 0 unlimited),
+//   pcg_max_restarts (default 20 since 2026-08-07; was 3): additional rounds after the first (< 0 unlimited),
 //   pcg_ne only. Default 3 = up to 4 TOTAL outer rounds, matching the FEM2
 //   benchmark's ir_n_steps = 4.
 //
@@ -185,7 +185,11 @@ int main(int argc, char** argv) {
     // outer rounds, matching the FEM2 benchmark's ir_n_steps = 4 (2026-08-06, Max:
     // same outer budget in both benchmarks; 4 covers the kappa ~ 1e12 end of the
     // 08-06 probe).
-    const int    pcg_max_restarts  = (argc > 16) ? std::stoi(argv[16]) : 3;
+    // Round cap 20 (2026-08-07, Max; was 3): under the 1e-4 restart pacing the
+    // engine default now carries, rounds are what pace convergence, and 3 rounds
+    // budget-truncated the unpreconditioned baseline five orders above tol while
+    // dressing it up as fast. tol + maxit remain the binding constraints.
+    const int    pcg_max_restarts  = (argc > 16) ? std::stoi(argv[16]) : 20;
     const double pcg_restart_drop  = 1e-2;
     int64_t block_size = 256;
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }

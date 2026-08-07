@@ -5,12 +5,28 @@
 //
 // Solves min_x ||b - J x||_2 for a tall LinearOperator J using a precomputed
 // triangular preconditioner R (e.g., the R-factor from CQRRT_linops on J or on
-// a sketch SJ). R is treated as a right preconditioner on the normal equations,
-// and two iterative-refinement steps are performed; under standard hypotheses
-// two steps suffice for backward stability. The inner solver is CG on the
-// symmetric-positive-definite preconditioned normal-equation matrix
+// a sketch SJ). R is treated as a right preconditioner on the normal equations.
 //
-//     M = R^{-T} J^T J R^{-1}.
+// SINCE 2026-08-07 THIS CLASS IS A THIN ADAPTER over the shared restarted
+// engine restarted_pcg_ne (rl_restarted_pcg_ne.hh): the FEM2 and Toeplitz
+// benchmarks previously ran two separately-implemented copies of the same
+// algorithm (rounds of CG on the right-preconditioned normal equations,
+// separated by exact recomputations of the true residual). The 2026-08-06
+// stable-residual change made even the round right-hand sides identical, so
+// the outer loops were unified here. What this class adds over the raw engine
+// call is the historical field names, the per-step diagnostic vectors, and the
+// cold-start policy.
+//
+// RESTART PACING (Oleg's proposition, 2026-08-07). Each round's inner CG stops
+// after its residual has dropped by the factor `round_drop` (default 1e-4)
+// relative to the round's own right-hand side, rather than grinding to a fixed
+// tiny tolerance: only the between-round recomputation of the true residual
+// injects new information, so deep inner solves polish a stale right-hand side
+// (measured 2026-08-06: inner tolerance is not the accuracy lever, outer
+// rounds are). `inner_tol` survives as the ABSOLUTE inner target: a round
+// whose normal-equation residual has already fallen to inner_tol * ||g_0||
+// terminates immediately (the "CG still stops once below the target" guard).
+// Set round_drop <= 0 to restore the legacy fixed-tolerance rounds.
 //
 // Reference: E. N. Epperly, M. Meier, and Y. Nakatsukasa,
 //   "Fast randomized least-squares solvers can be just as accurate and stable
@@ -18,13 +34,15 @@
 //    + Theorem 6.1 (master theorem on backward stability of two-step IR).
 
 #include "rl_blaspp.hh"
-#include "rl_lapackpp.hh"
+#include "rl_exceptions.hh"
 #include "rl_pcg_inner.hh"
+#include "rl_restarted_pcg_ne.hh"
 #include "../linops/rl_concepts.hh"
 
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <vector>
 
@@ -40,29 +58,31 @@ namespace RandLAPACK {
 
 /// @brief Iterative-refinement least-squares solver with right preconditioner R.
 ///
-/// Solves min_x ||b - J x||_2 by performing `n_refine_steps` outer steps of
+/// Solves min_x ||b - J x||_2 by up to `n_refine_steps` rounds of
 ///
-///   r_i ← b - J x_i
-///   g_i ← J^T r_i
-///   c_i ← R^{-T} g_i
-///   z_i ← inner_solve(M, c_i)            with M = R^{-T} J^T J R^{-1}
+///   r_i ← b - J x_i                       (true residual, working precision)
+///   c_i ← R^{-T} (J^T r_i)
+///   z_i ← CG on M z = c_i                 with M = R^{-T} J^T J R^{-1},
+///                                         stopped after a `round_drop` residual
+///                                         drop (or at the inner_tol floor)
 ///   x_{i+1} ← x_i + R^{-1} z_i
 ///
-/// where R is upper triangular (n × n, ColMajor) and is held constant. The
-/// inner solver is preconditioner-free conjugate gradients on the SPD matrix
-/// M; each inner matvec costs two TRSMs, one J apply (forward), and one J^T
-/// apply (adjoint). The default `n_refine_steps = 2` and inner CG stopping
-/// rule (relative residual `< inner_tol`) suffice for backward stability
-/// under the conditions of Epperly et al. (2025) Theorem 6.1.
+/// exiting early once ||b - J x|| / ||b|| <= outer_tol. Executed by the shared
+/// engine restarted_pcg_ne; see the file header for the pacing rationale.
 // InnerCGStatus lives in rl_pcg_inner.hh since the 2026-08-06 kernel extraction
 // (same name, same namespace, same values -- callers are unaffected).
 
 template <typename T>
 struct IterRefineLSQ {
     // ------------- Configuration -------------
-    /// Inner-CG residual tolerance: stop when ||M z - c|| <= inner_tol * ||c||.
+    /// ABSOLUTE inner-CG target, relative to the initial normal-equation
+    /// right-hand side ||R^{-T} J^T b||: a round whose NE residual is already
+    /// below inner_tol * ||g_0|| stops immediately. In legacy mode
+    /// (round_drop <= 0) this is instead the per-round relative tolerance,
+    /// the pre-2026-08-07 contract.
     T inner_tol;
-    /// Hard cap on inner CG iterations per outer refinement step.
+    /// Hard cap on inner CG iterations per round. The TOTAL budget across all
+    /// rounds is max_inner_iters * n_refine_steps.
     int max_inner_iters;
     /// STAGNATION EXIT (added 2026-07-29 from ISAAC diagnostic evidence).
     ///
@@ -92,31 +112,25 @@ struct IterRefineLSQ {
     /// Relative residual drop that counts as progress for the stagnation test
     /// (default 1e-3, i.e. the residual must fall by at least 0.1%).
     T inner_stag_rel_improve;
-    /// SINGLE RESTART (added 2026-08-05, Max's proposition).
+    /// RESTART PACING (Oleg's proposition, 2026-08-07): per-round relative
+    /// residual drop at which the inner CG stops and control returns to the
+    /// outer loop for a true-residual restart. Default 1e-4. <= 0 restores the
+    /// legacy contract (each round runs to the fixed inner_tol).
     ///
-    /// After the inner CG terminates (converged, stagnated, or capped), restart it
-    /// once from the iterate it returned: recompute the TRUE residual r = c - M z
-    /// and run a fresh CG from there. Number of restarts per outer step; 0 disables.
-    ///
-    /// Why this helps: CG tracks its residual through the recurrence
-    /// r <- r - alpha M p, which drifts from the true residual c - M z in finite
-    /// precision. Both the convergence test and the stagnation window read the
-    /// RECURSIVE residual, so a solve can stop at a floor (or declare convergence)
-    /// that the true residual does not corroborate. The restart discards the drifted
-    /// recurrence, re-measures the truth, and gives CG fresh conjugacy from the
-    /// returned iterate; a genuinely converged solve costs only one extra M apply
-    /// (the entry check sees the true residual already under tolerance and returns
-    /// immediately with 0 iterations).
-    int inner_restarts;
-    /// Outer refinement steps (Algorithm 1 of Epperly et al. uses 2).
+    /// This replaces the 2026-08-05 `inner_restarts` verification pass: under
+    /// the restarted scheme every round IS a restart against the true
+    /// residual, so a separate drift check inside the round is redundant.
+    T round_drop;
+    /// Maximum outer rounds (default benchmark setting: 20). With outer_tol
+    /// enabled the loop reads "refine until done, capped at n_refine_steps";
+    /// well-preconditioned methods exit after a few rounds, and the cap gives
+    /// weakly-preconditioned configurations room to keep descending.
     int n_refine_steps;
     /// OUTER EARLY EXIT (added 2026-08-06, structure unification with
     /// restarted_pcg_ne): stop refining once the TRUE residual ||b - Jx|| / ||b||
-    /// is at or below this value, checked at the top of every step where the
-    /// residual is computed anyway. 0 (the default) disables the check and
-    /// preserves the historical fixed-step behaviour: run exactly n_refine_steps.
-    /// With it enabled the loop reads "refine until done, capped at
-    /// n_refine_steps" -- the same contract as restarted_pcg_ne's tol + round cap.
+    /// is at or below this value, checked between rounds where the residual is
+    /// recomputed anyway. 0 (the default) disables the check: run exactly
+    /// n_refine_steps rounds.
     T outer_tol;
     /// Enable per-step / per-substep timing breakdown.
     bool timing;
@@ -124,15 +138,15 @@ struct IterRefineLSQ {
     bool verbose;
 
     // ------------- Outputs (filled by call) -------------
-    /// Number of outer refinement steps actually executed.
+    /// Number of outer rounds actually executed.
     int outer_iters_done;
-    /// CG iteration counts for each outer step.
+    /// CG iteration counts for each round.
     std::vector<int> inner_iters_per_step;
-    /// Exit condition of each outer step's inner CG (see InnerCGStatus).
+    /// Exit condition of each round's inner CG (see InnerCGStatus).
     std::vector<int> inner_status_per_step;
-    /// Relative CG residual ||M z - c|| / ||c|| at exit, per outer step.
+    /// Relative CG residual ||M z - c|| / ||c|| at exit, per round.
     std::vector<T> inner_relres_per_step;
-    /// Smallest relative CG residual seen during that step, and the iteration at
+    /// Smallest relative CG residual seen during that round, and the iteration at
     /// which it occurred. Together with inner_relres_per_step these separate the two
     /// ways a solve can burn its budget:
     ///   best_iter << iters and best ~= final  -> converged then STAGNATED (the
@@ -157,7 +171,7 @@ struct IterRefineLSQ {
           max_inner_iters(max_inner),
           inner_stag_window(20),
           inner_stag_rel_improve((T)1e-3),
-          inner_restarts(1),
+          round_drop((T)1e-4),
           n_refine_steps(n_steps),
           outer_tol((T)0),
           timing(timing_on),
@@ -175,8 +189,9 @@ struct IterRefineLSQ {
     /// @param ldr   Leading dimension of R.
     /// @param b     Right-hand side, length m.
     /// @param m     Number of rows of J / length of b.
-    /// @param x     Solution buffer, length n. On entry: initial guess (use zeros
-    ///              for cold start). On exit: the refined LS solution.
+    /// @param x     Solution buffer, length n. Always COLD-STARTED: any incoming
+    ///              content is zeroed (the 2026-08-05 policy; the sketch-and-solve
+    ///              warm start is Blendenpik-only).
     /// @param n     Number of columns of J / length of x.
     ///
     /// @returns 0 on success; nonzero on inner-CG breakdown.
@@ -184,259 +199,78 @@ struct IterRefineLSQ {
     int call(J_LO& J, const T* R, int64_t ldr,
              const T* b, int64_t m, T* x, int64_t n)
     {
+        randlapack_require(n_refine_steps >= 1)
+            << "IterRefineLSQ: n_refine_steps must be >= 1";
+        randlapack_require(max_inner_iters >= 1)
+            << "IterRefineLSQ: max_inner_iters must be >= 1";
+
         using clock = std::chrono::steady_clock;
-        auto outer_start = clock::now();
+        auto t_start = clock::now();
 
-        // Separate outer-only (excluding inner CG) and inner-CG-only counters so
-        // we can report a non-overlapping breakdown. The total wallclock spent
-        // inside inner_cg() is tracked via t_inner_total; the per-op time
-        // inside inner_cg is captured by the t_inner_* counters and would
-        // otherwise be triple-counted (once in t_inner_total, once in the
-        // outer totals) if we shared counters.
-        long t_inner_total = 0;
-        long t_outer_trsm = 0, t_outer_fwd = 0, t_outer_adj = 0;
-        long t_inner_trsm = 0, t_inner_fwd = 0, t_inner_adj = 0;
+        // Cold start (2026-08-05 policy): any incoming x is ignored.
+        std::fill(x, x + n, (T)0);
 
-        inner_iters_per_step.clear();
-        inner_status_per_step.clear();
-        inner_relres_per_step.clear();
-        inner_best_relres_per_step.clear();
-        inner_best_iter_per_step.clear();
-        outer_iters_done = 0;
+        // Legacy mode (round_drop <= 0): rounds run to the fixed inner_tol
+        // relative to their own right-hand side, no absolute guard.
+        const bool paced = (round_drop > (T)0);
+        T drop      = paced ? round_drop : inner_tol;
+        T abs_guard = paced ? inner_tol : (T)0;
 
-        // Per-call workspace buffers. Allocated once up front, reused across outer steps.
-        T* r     = new T[m]();   // residual
-        T* g     = new T[n]();   // J^T r
-        T* c     = new T[n]();   // R^{-T} g
-        T* z     = new T[n]();   // inner-solve output
-        T* dx    = new T[n]();   // R^{-1} z
-        T* cg_r  = new T[n]();   // CG residual
-        T* cg_p  = new T[n]();   // CG search direction
-        T* cg_Mp = new T[n]();   // M * p inside CG
-        T* tmp_n = new T[n]();   // R^{-1} p scratch
-        T* tmp_m = new T[m]();   // J * v scratch (m-length)
-        // Best-iterate snapshot for the stagnation exit. One extra n-vector, and one
-        // n-copy per improvement -- negligible against a CG iteration's two operator
-        // applies and two triangular solves.
-        T* cg_zbest = new T[n]();
-        auto free_workspace = [&]() {
-            delete[] r; delete[] g; delete[] c; delete[] z; delete[] dx;
-            delete[] cg_r; delete[] cg_p; delete[] cg_Mp;
-            delete[] tmp_n; delete[] tmp_m; delete[] cg_zbest;
-        };
+        PCGRoundHistory<T> hist;
+        int iters_total = 0, rounds = 0;
+        T final_rel = (T)0;
+        long times4[4] = {0, 0, 0, 0};
 
-        T b_norm = blas::nrm2(m, b, 1);
-        if (b_norm == (T)0) b_norm = (T)1;  // avoid div-by-zero in residual reporting
+        int st = restarted_pcg_ne<T>(J, m, n, R, ldr, b, x,
+            /*tol=*/outer_tol,
+            /*max_iters=*/max_inner_iters * n_refine_steps,
+            iters_total,
+            /*restart_maxit=*/max_inner_iters,
+            /*restart_drop=*/drop,
+            /*max_restarts=*/n_refine_steps - 1,
+            &rounds,
+            timing ? times4 : nullptr,
+            &final_rel,
+            inner_stag_window, inner_stag_rel_improve,
+            abs_guard, &hist);
 
-        for (int step = 0; step < n_refine_steps; ++step) {
-            // r = b - J*x
-            //   tmp_m = J*x
-            auto t0 = clock::now();
-            J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-              m, 1, n, (T)1.0, x, n, (T)0.0, tmp_m, m);
-            t_outer_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+        // Republish the engine's per-round records under the historical names.
+        inner_iters_per_step       = hist.iters;
+        inner_status_per_step      = hist.status;
+        inner_relres_per_step      = hist.relres;
+        inner_best_relres_per_step = hist.best_relres;
+        inner_best_iter_per_step   = hist.best_iter;
+        outer_iters_done    = rounds;
+        final_residual_norm = final_rel;
 
-            //   r = b - tmp_m
-            for (int64_t i = 0; i < m; ++i) r[i] = b[i] - tmp_m[i];
-
-            T r_norm = blas::nrm2(m, r, 1);
-            if (verbose) {
-                std::printf("[IR-LSQ] step %d: ||r||/||b|| = %.4e\n", step, (double)(r_norm / b_norm));
+        if (verbose) {
+            static const char* kNames[] = {"converged", "HIT CAP", "breakdown", "STAGNATED"};
+            for (size_t s = 0; s < hist.iters.size(); ++s) {
+                std::printf("[IR-LSQ] round %zu: inner CG %s after %d iters, "
+                            "relres=%.4e (best %.4e at iter %d); LS relres %.4e\n",
+                            s, kNames[hist.status[s]], hist.iters[s],
+                            (double)hist.relres[s], (double)hist.best_relres[s],
+                            hist.best_iter[s], (double)hist.ls_relres[s]);
             }
-            // Outer early exit: the residual just computed IS the true one, so the
-            // check costs nothing extra. Exits before spending this step's inner CG.
-            if (outer_tol > (T)0 && r_norm <= outer_tol * b_norm) {
-                if (verbose) {
-                    std::printf("[IR-LSQ] step %d: outer_tol %.1e met; stopping early\n",
-                                step, (double)outer_tol);
-                }
-                break;
-            }
-
-            // g = J^T r
-            t0 = clock::now();
-            J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-              n, 1, m, (T)1.0, r, m, (T)0.0, g, n);
-            t_outer_adj += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-            // c = R^{-T} g  (in-place TRSM on a copy of g)
-            std::copy(g, g + n, c);
-            t0 = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, c, 1);
-            t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-            // Inner CG on M*z = c, then `inner_restarts` restarts from the returned
-            // iterate (attempt > 0 recomputes the TRUE residual c - M z and runs a
-            // fresh CG; see the inner_restarts field comment for why). The per-step
-            // report aggregates the attempts: iters summed, best tracked across all,
-            // status/relres from the final attempt.
-            InnerCGReport rep{};
-            rep.best_relres = (T)1;
-            int cg_status = 0;
-            auto t_in0 = clock::now();
-            for (int attempt = 0; attempt <= std::max(0, inner_restarts); ++attempt) {
-                InnerCGReport att{};
-                cg_status = inner_cg(J, R, ldr, c, n, m,
-                                     z, cg_r, cg_p, cg_Mp, tmp_n, tmp_m, cg_zbest,
-                                     att, t_inner_trsm, t_inner_fwd, t_inner_adj,
-                                     /*warm_start=*/attempt > 0);
-                if (att.best_relres < rep.best_relres) {
-                    rep.best_relres = att.best_relres;
-                    rep.best_iter   = rep.iters + att.best_iter;
-                }
-                rep.iters += att.iters;
-                rep.status  = att.status;
-                rep.relres  = att.relres;
-                if (cg_status != 0) break;   // breakdown: no restart can help
-                if (verbose && attempt < std::max(0, inner_restarts)) {
-                    std::printf("[IR-LSQ] step %d: restarting inner CG from its "
-                                "returned iterate (attempt %d)\n", step, attempt + 2);
-                }
-            }
-            t_inner_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t_in0).count();
-            inner_iters_per_step.push_back(rep.iters);
-            inner_status_per_step.push_back(static_cast<int>(rep.status));
-            inner_relres_per_step.push_back(rep.relres);
-            inner_best_relres_per_step.push_back(rep.best_relres);
-            inner_best_iter_per_step.push_back(rep.best_iter);
-            if (verbose) {
-                static const char* kNames[] = {"converged", "HIT CAP", "breakdown", "STAGNATED"};
-                std::printf("[IR-LSQ] step %d: inner CG %s after %d iters, "
-                            "relres=%.4e (best %.4e at iter %d)\n",
-                            step, kNames[static_cast<int>(rep.status)], rep.iters,
-                            (double)rep.relres, (double)rep.best_relres, rep.best_iter);
-            }
-            if (cg_status != 0) {
-                outer_iters_done = step;
-                final_residual_norm = r_norm / b_norm;
-                if (timing) populate_times(outer_start, t_inner_total,
-                                            t_outer_trsm, t_outer_fwd, t_outer_adj,
-                                            t_inner_trsm, t_inner_fwd, t_inner_adj);
-                free_workspace();
-                return cg_status;
-            }
-
-            // dx = R^{-1} z
-            std::copy(z, z + n, dx);
-            t0 = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, dx, 1);
-            t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-            // x ← x + dx
-            blas::axpy(n, (T)1.0, dx, 1, x, 1);
-            outer_iters_done = step + 1;
         }
 
-        // Final residual report
-        {
-            auto t0 = clock::now();
-            J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-              m, 1, n, (T)1.0, x, n, (T)0.0, tmp_m, m);
-            t_outer_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-            for (int64_t i = 0; i < m; ++i) tmp_m[i] = b[i] - tmp_m[i];
-            final_residual_norm = blas::nrm2(m, tmp_m, 1) / b_norm;
+        if (timing) {
+            long total = std::chrono::duration_cast<std::chrono::microseconds>(
+                             clock::now() - t_start).count();
+            // Non-overlapping [outer_total, inner_cg_total, trsm, fwd, adj, other]:
+            // op totals are all-inclusive; "other" subtracts the kernel wallclock
+            // and the outer-only op time so nothing is counted twice.
+            long op_outer = (times4[0] - hist.t_fwd_inner_us)
+                          + (times4[1] - hist.t_adj_inner_us)
+                          + (times4[2] - hist.t_trsm_inner_us);
+            long other = total - hist.t_inner_us - op_outer;
+            if (other < 0) other = 0;
+            times = {total, hist.t_inner_us, times4[2], times4[0], times4[1], other};
         }
 
-        if (timing) populate_times(outer_start, t_inner_total,
-                                    t_outer_trsm, t_outer_fwd, t_outer_adj,
-                                    t_inner_trsm, t_inner_fwd, t_inner_adj);
-        free_workspace();
-        return 0;
-    }
-
-public:
-    /// What one inner-CG solve did, for diagnosis (see the per-step output vectors).
-    /// Alias of the shared kernel's report since the 2026-08-06 extraction.
-    using InnerCGReport = PCGInnerReport<T>;
-
-private:
-    // One application of M = R^{-T} J^T J R^{-1}: out = M * v. Shared by the CG
-    // iteration body and the warm-start entry residual, so the two can never
-    // compute M differently. Clobbers tmp_n / tmp_m.
-    template <linops::LinearOperator J_LO>
-    void apply_M(J_LO& J, const T* R, int64_t ldr,
-                 const T* v, T* out, int64_t n, int64_t m,
-                 T* tmp_n, T* tmp_m,
-                 long& t_trsm, long& t_fwd, long& t_adj)
-    {
-        using clock = std::chrono::steady_clock;
-        //   tmp_n = R^{-1} v
-        std::copy(v, v + n, tmp_n);
-        auto t0 = clock::now();
-        blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                   blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, tmp_n, 1);
-        t_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-        //   tmp_m = J * tmp_n
-        t0 = clock::now();
-        J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-          m, 1, n, (T)1.0, tmp_n, n, (T)0.0, tmp_m, m);
-        t_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-        //   out = J^T * tmp_m
-        t0 = clock::now();
-        J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-          n, 1, m, (T)1.0, tmp_m, m, (T)0.0, out, n);
-        t_adj += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-        //   out ← R^{-T} out   (in-place TRSM)
-        t0 = clock::now();
-        blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                   blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
-        t_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-    }
-
-    // Inner CG: solve M z = c, where M = R^{-T} J^T J R^{-1}, on ℝ^n.
-    // Since 2026-08-06 this is a thin wrapper over the shared instrumented kernel
-    // (rl_pcg_inner.hh), so IterRefineLSQ and restarted_pcg_ne run the SAME inner
-    // solver: stagnation window, best-iterate return, warm-start entry against the
-    // true residual. Workspaces as before; tmp_n / tmp_m feed apply_M only.
-    template <linops::LinearOperator J_LO>
-    int inner_cg(J_LO& J, const T* R, int64_t ldr,
-                 const T* c, int64_t n, int64_t m,
-                 T* z,
-                 T* cg_r, T* cg_p, T* cg_Mp,
-                 T* tmp_n, T* tmp_m, T* cg_zbest,
-                 InnerCGReport& rep,
-                 long& t_trsm, long& t_fwd, long& t_adj,
-                 bool warm_start = false)
-    {
-        PCGInnerControls<T> ctl;
-        ctl.tol              = inner_tol;
-        ctl.max_iters        = max_inner_iters;
-        ctl.stag_window      = inner_stag_window;
-        ctl.stag_rel_improve = inner_stag_rel_improve;
-        ctl.verbose          = verbose;
-        ctl.tag              = "[IR-LSQ]";
-        auto Mv = [&](const T* v, T* out) {
-            apply_M(J, R, ldr, v, out, n, m, tmp_n, tmp_m, t_trsm, t_fwd, t_adj);
-        };
-        return pcg_inner<T>(Mv, c, n, z, cg_r, cg_p, cg_Mp, cg_zbest,
-                            ctl, rep, warm_start);
-    }
-
-    void populate_times(std::chrono::steady_clock::time_point outer_start,
-                        long t_inner_total,
-                        long t_outer_trsm, long t_outer_fwd, long t_outer_adj,
-                        long t_inner_trsm, long t_inner_fwd, long t_inner_adj)
-    {
-        using clock = std::chrono::steady_clock;
-        long outer_total = std::chrono::duration_cast<std::chrono::microseconds>(
-            clock::now() - outer_start).count();
-        // Non-overlapping breakdown of outer_total:
-        //   inner_ex   = inner CG wallclock minus its TRSM/fwd/adj portions
-        //   total_trsm = outer-loop TRSMs + inner-CG TRSMs
-        //   total_fwd  = outer-loop J·v  + inner-CG J·v
-        //   total_adj  = outer-loop J^T·v + inner-CG J^T·v
-        //   other      = residual setup, axpy/copy/nrm2 bookkeeping, clock overhead
-        long inner_ex   = t_inner_total - t_inner_trsm - t_inner_fwd - t_inner_adj;
-        long total_trsm = t_outer_trsm + t_inner_trsm;
-        long total_fwd  = t_outer_fwd  + t_inner_fwd;
-        long total_adj  = t_outer_adj  + t_inner_adj;
-        long other      = outer_total - inner_ex - total_trsm - total_fwd - total_adj;
-        times = { outer_total, inner_ex, total_trsm, total_fwd, total_adj, other };
+        // Historical contract: a capped or stagnated solve is not an error
+        // return; only a CG breakdown is.
+        return (st == 2) ? 1 : 0;
     }
 };
 
