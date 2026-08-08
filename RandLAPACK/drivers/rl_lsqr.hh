@@ -19,6 +19,7 @@
 //   tests S1 (||r||/||b|| <= btol) and S2 (||A^T r||/(||A|| ||r||) <= atol).
 
 #include "rl_blaspp.hh"
+#include "rl_blas2_threads.hh"
 #include "rl_lapackpp.hh"
 #include "../linops/rl_concepts.hh"
 
@@ -81,8 +82,10 @@ int lsqr(
         if (prec) {
             std::copy(vin, vin + n, sc);                      // sc = v
             auto ts = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, sc, 1);
+            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, sc, 1);
+            }
             t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
             fwd_in = sc;                                       // sc = R^{-1} v
         }
@@ -100,8 +103,10 @@ int lsqr(
         t_adj += duration_cast<microseconds>(clock::now() - ta).count();
         if (prec) {
             auto ts = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
+            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
+            }
             t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
         }
     };
@@ -166,8 +171,10 @@ int lsqr(
     // Undo the preconditioner: x = R^{-1} y  (y currently in x).
     if (prec) {
         auto ts = clock::now();
-        blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                   blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, x, 1);
+        { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, x, 1);
+        }
         t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
     }
 

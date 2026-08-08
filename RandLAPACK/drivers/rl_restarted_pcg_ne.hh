@@ -39,6 +39,7 @@
 // inner drop tolerance only paces the restarts.
 
 #include "rl_blaspp.hh"
+#include "rl_blas2_threads.hh"
 #include "rl_exceptions.hh"
 #include "rl_pcg_inner.hh"
 #include "../linops/rl_concepts.hh"
@@ -173,8 +174,10 @@ int restarted_pcg_ne(
         if (prec) {
             std::copy(vin, vin + n, sc);                       // sc = v
             auto ts = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, sc, 1);
+            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, sc, 1);
+            }
             dt = duration_cast<microseconds>(clock::now() - ts).count();
             t_trsm += dt; if (in_kernel) t_trsm_in += dt;
             fwd_in = sc;                                        // sc = R^{-1} v
@@ -191,8 +194,10 @@ int restarted_pcg_ne(
         t_adj += dt; if (in_kernel) t_adj_in += dt;
         if (prec) {
             auto ts = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
+            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
+            }
             dt = duration_cast<microseconds>(clock::now() - ts).count();
             t_trsm += dt; if (in_kernel) t_trsm_in += dt;
         }
@@ -205,8 +210,10 @@ int restarted_pcg_ne(
         std::copy(z, z + n, x);
         if (prec) {
             auto ts = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, x, 1);
+            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, x, 1);
+            }
             t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
         }
         auto tf = clock::now();
@@ -226,8 +233,10 @@ int restarted_pcg_ne(
         t_adj += duration_cast<microseconds>(clock::now() - ta).count();
         if (prec) {
             auto ts = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, g, 1);
+            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, g, 1);
+            }
             t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
         }
     }
@@ -312,8 +321,10 @@ int restarted_pcg_ne(
             A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
               n, 1, m, (T)1.0, wm, m, (T)0.0, r_ne, n);
             if (prec) {
-                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                           blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, r_ne, 1);
+                { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                    blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                               blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, r_ne, 1);
+                }
             }
         }
 

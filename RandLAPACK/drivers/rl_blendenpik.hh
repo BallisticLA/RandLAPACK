@@ -30,6 +30,7 @@
 
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
+#include "rl_blas2_threads.hh"
 #include "rl_lapackpp.hh"
 #include "rl_lsqr.hh"
 #include "../linops/rl_concepts.hh"
@@ -137,8 +138,10 @@ class Blendenpik_linops {
             if (warm_start) {
                 lapack::ormqr(blas::Side::Left, blas::Op::Trans, d, 1, n, Ask, d, tau, Sb, d);
                 std::copy(Sb, Sb + n, x0);
-                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::NoTrans,
-                           blas::Diag::NonUnit, n, R, n, x0, 1);
+                { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                    blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::NoTrans,
+                               blas::Diag::NonUnit, n, R, n, x0, 1);
+                }
                 // r0 = b - A x0: LSQR then solves for the correction against this residual.
                 A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
                   m, 1, n, (T)1.0, x0, n, (T)0.0, r0, m);
