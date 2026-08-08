@@ -64,22 +64,38 @@
 namespace RandLAPACK {
 
 
-/// Default cap for level-2 solves. 4 is the measured sweet spot on both a 16-thread
-/// desktop and (pending calibration) the 64-core benchmark nodes: enough threads to
-/// saturate memory bandwidth on the factor, few enough that barrier cost stays off
-/// the critical path.
-constexpr int kDefaultBlas2Threads = 4;
+/// Size-dependent cap, calibrated on the benchmark hardware (Xeon Gold 6430, 64
+/// cores, 2026-08-07; dtrsv, milliseconds):
+///
+///     threads          1        4        8       16       32       64
+///     n =  2000     0.562    0.408   *0.392*   0.774    0.909    0.887
+///     n =  8256    18.147    6.232    4.915  * 4.735*   5.828    7.130
+///     n = 20000   108.209   45.121   27.110  *19.276*  19.564   24.354
+///
+/// Threading genuinely helps up to 8-16 threads and degrades past that, so the
+/// cap is a peak-seeker, not a "run it serially" switch. The optimum moves with
+/// n because the parallel work per barrier grows with n while barrier cost does
+/// not, hence the two-tier rule below.
+///
+/// NOTE ON MAGNITUDE. On this hardware the penalty for leaving it unguarded (64
+/// threads) is a moderate 1.5-2.3x. A 16-thread WSL2 desktop showed a 100x
+/// collapse instead, because 16 OpenMP threads there oversubscribe 8 physical
+/// cores; do not quote desktop numbers as if they were cluster numbers.
+constexpr int kBlas2ThreadsSmall = 8;    ///< n <= kBlas2SmallDim
+constexpr int kBlas2ThreadsLarge = 16;   ///< n >  kBlas2SmallDim
+constexpr int64_t kBlas2SmallDim = 4000;
 
 
-/// Thread cap read once from RANDLAPACK_BLAS2_THREADS, falling back to
-/// kDefaultBlas2Threads. Returns <= 0 when the guard is disabled.
-inline int blas2_thread_cap() {
-    static const int cap = []() -> int {
+/// Thread cap for a level-2 solve on an n x n factor. RANDLAPACK_BLAS2_THREADS
+/// overrides the calibrated values (read once); a value <= 0 disables the guard.
+inline int blas2_thread_cap(int64_t n) {
+    static const int override_cap = []() -> int {
         const char* s = std::getenv("RANDLAPACK_BLAS2_THREADS");
-        if (s == nullptr || *s == '\0') return kDefaultBlas2Threads;
+        if (s == nullptr || *s == '\0') return -1;   // -1 = "no override"
         return std::atoi(s);
     }();
-    return cap;
+    if (override_cap >= 0) return override_cap;
+    return (n <= kBlas2SmallDim) ? kBlas2ThreadsSmall : kBlas2ThreadsLarge;
 }
 
 
@@ -88,9 +104,11 @@ inline int blas2_thread_cap() {
 /// (including on an exception unwinding through the scope).
 class Blas2ThreadGuard {
     public:
-        Blas2ThreadGuard() {
+        /// @param n  dimension of the triangular factor being solved against;
+        ///           selects the calibrated cap (see blas2_thread_cap).
+        explicit Blas2ThreadGuard(int64_t n) {
         #if defined(RandBLAS_HAS_MKL)
-            int cap = blas2_thread_cap();
+            int cap = blas2_thread_cap(n);
             if (cap > 0) {
                 // mkl_set_num_threads_local returns the PREVIOUS thread-local value,
                 // where 0 means "no local setting, follow the global one". Restoring

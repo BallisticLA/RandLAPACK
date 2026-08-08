@@ -82,7 +82,7 @@ int lsqr(
         if (prec) {
             std::copy(vin, vin + n, sc);                      // sc = v
             auto ts = clock::now();
-            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+            { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                 blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                            blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, sc, 1);
             }
@@ -103,7 +103,7 @@ int lsqr(
         t_adj += duration_cast<microseconds>(clock::now() - ta).count();
         if (prec) {
             auto ts = clock::now();
-            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+            { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                 blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                            blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
             }
@@ -171,7 +171,7 @@ int lsqr(
     // Undo the preconditioner: x = R^{-1} y  (y currently in x).
     if (prec) {
         auto ts = clock::now();
-        { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+        { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
             blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                        blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, x, 1);
         }

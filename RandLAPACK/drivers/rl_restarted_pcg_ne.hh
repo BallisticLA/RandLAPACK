@@ -174,7 +174,7 @@ int restarted_pcg_ne(
         if (prec) {
             std::copy(vin, vin + n, sc);                       // sc = v
             auto ts = clock::now();
-            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+            { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                 blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                            blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, sc, 1);
             }
@@ -194,7 +194,7 @@ int restarted_pcg_ne(
         t_adj += dt; if (in_kernel) t_adj_in += dt;
         if (prec) {
             auto ts = clock::now();
-            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+            { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                 blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                            blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
             }
@@ -210,7 +210,7 @@ int restarted_pcg_ne(
         std::copy(z, z + n, x);
         if (prec) {
             auto ts = clock::now();
-            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+            { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                 blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                            blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, x, 1);
             }
@@ -233,7 +233,7 @@ int restarted_pcg_ne(
         t_adj += duration_cast<microseconds>(clock::now() - ta).count();
         if (prec) {
             auto ts = clock::now();
-            { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+            { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                 blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                            blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, g, 1);
             }
@@ -321,7 +321,7 @@ int restarted_pcg_ne(
             A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
               n, 1, m, (T)1.0, wm, m, (T)0.0, r_ne, n);
             if (prec) {
-                { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                     blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                                blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, r_ne, 1);
                 }

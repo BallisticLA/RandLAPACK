@@ -138,7 +138,7 @@ class Blendenpik_linops {
             if (warm_start) {
                 lapack::ormqr(blas::Side::Left, blas::Op::Trans, d, 1, n, Ask, d, tau, Sb, d);
                 std::copy(Sb, Sb + n, x0);
-                { Blas2ThreadGuard tg;   // cap threads: see rl_blas2_threads.hh
+                { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                     blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::NoTrans,
                                blas::Diag::NonUnit, n, R, n, x0, 1);
                 }
