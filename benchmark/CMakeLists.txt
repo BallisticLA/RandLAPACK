@@ -10,7 +10,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(GNUInstallDirs)
 
 message(STATUS "Checking for OpenMP ... ")
+# Same MSVC OpenMP-flavor guard as CMake/rl_build_options.cmake: classic
+# /openmp (OpenMP 2.0) ignores the collapse clause; /openmp:llvm is the
+# mode RandLAPACK's loops need.
+if (MSVC AND NOT DEFINED OpenMP_CXX_FLAGS)
+    set(OpenMP_CXX_FLAGS "/openmp:llvm" CACHE STRING
+        "OpenMP compiler flags for C++")
+endif()
+if (MSVC)
+    set(benchmark_OpenMP_MSVC_FLAGS "${OpenMP_CXX_FLAGS}")
+endif()
 find_package(OpenMP COMPONENTS CXX)
+if (MSVC AND OpenMP_CXX_FOUND AND TARGET OpenMP::OpenMP_CXX)
+    set_property(TARGET OpenMP::OpenMP_CXX PROPERTY
+        INTERFACE_COMPILE_OPTIONS "${benchmark_OpenMP_MSVC_FLAGS}")
+    set(OpenMP_CXX_FLAGS "${benchmark_OpenMP_MSVC_FLAGS}")
+endif()
 set(tmp FALSE)
 if (OpenMP_CXX_FOUND)
     set(tmp TRUE)
