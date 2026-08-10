@@ -22,6 +22,7 @@
 
 #include "rl_blaspp.hh"
 #include "rl_exceptions.hh"
+#include "rl_blas2_threads.hh"
 
 #include <mkl_dfti.h>
 #include <complex>
@@ -120,9 +121,15 @@ struct ToeplitzLinOp {
             // work = [ bj(0..in_rows-1) ; 0 ... ]  (complex, imag=0)
             for (int64_t i = 0; i < in_rows; ++i) work[i] = std::complex<T>(bj[i], (T)0);
             for (int64_t i = in_rows; i < L; ++i) work[i] = std::complex<T>((T)0, (T)0);
-            DftiComputeForward(desc, work);
-            for (int64_t i = 0; i < L; ++i) work[i] *= Fuse[i];
-            DftiComputeBackward(desc, work);   // scaled by 1/L
+            {   // Cap the transform's threads: MKL's threaded FFT intermittently
+                // stalls 16-32 ms per call at full width on this class of machine,
+                // which a solver converging in a few applies cannot average out.
+                // See rl_blas2_threads.hh for the measurements.
+                RandLAPACK::Blas2ThreadGuard fftg(RandLAPACK::fft_thread_cap(), 0);
+                DftiComputeForward(desc, work);
+                for (int64_t i = 0; i < L; ++i) work[i] *= Fuse[i];
+                DftiComputeBackward(desc, work);   // scaled by 1/L
+            }
             // beta == 0 must NOT read C: BLAS semantics say C is write-only in that
             // case, and callers rely on it -- CompositeOperator hands this operator a
             // freshly allocated scratch with beta = 0. Reading it would multiply
@@ -147,7 +154,8 @@ private:
         // flipud(row(2:end)) placed at the END: positions L-(nr-1) .. L-1 hold row(nr-1) .. row(1).
         for (int64_t k = 1; k < nr; ++k)
             Femb_out[L - k] = std::complex<T>(row[k], (T)0);
-        DftiComputeForward(desc, Femb_out);
+        {   RandLAPACK::Blas2ThreadGuard fftg(RandLAPACK::fft_thread_cap(), 0);
+            DftiComputeForward(desc, Femb_out); }
     }
 };
 

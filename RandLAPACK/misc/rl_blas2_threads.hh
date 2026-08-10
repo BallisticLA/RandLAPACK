@@ -99,16 +99,57 @@ inline int blas2_thread_cap(int64_t n) {
 }
 
 
-/// RAII cap on the calling thread's BLAS thread count. Construct in the narrowest
-/// scope containing a level-2 solve; the previous setting is restored on destruction
-/// (including on an exception unwinding through the scope).
+/// Cap for MKL's threaded FFT (DFTI). Measured on the benchmark node (Xeon Gold
+/// 6430, 64 cores, 2026-08-10) for one forward+backward apply of the Toeplitz
+/// operator, milliseconds:
+///
+///     threads          1      8     16     32     64
+///     L =  32768    0.274  0.355  0.267  0.297  0.319
+///     L = 131072    3.29   1.24   1.00   0.93   0.97
+///     L = 524288   15.52   4.95   3.66   3.05   3.13
+///
+/// Two things follow. The mean barely improves past 16 threads, and at 64 the
+/// call becomes INTERMITTENTLY unstable: individual DftiComputeForward calls were
+/// caught taking 16-32 ms instead of ~0.1 ms (stage-resolved, ~99% of the stall
+/// inside the FFT call itself). A solver that converges in a handful of iterations
+/// cannot average those stalls out -- measured CQRRT solve 344 ms at 64 threads
+/// versus 19 ms at 8, with the unpreconditioned baseline (276 applies) barely
+/// affected -- so the artifact scaled INVERSELY with preconditioner quality and
+/// inverted the wall-clock ranking.
+///
+/// Capping the transform is the vendor-recommended remedy for single small
+/// transforms (Intel advises reducing the thread count rather than expecting a
+/// lone FFT to scale; batching via DFTI_NUMBER_OF_TRANSFORMS is the alternative,
+/// and is unavailable to us because CG produces one right-hand side at a time).
+constexpr int kDefaultFFTThreads = 16;
+
+
+/// Thread cap for an FFT apply. RANDLAPACK_FFT_THREADS overrides (read once);
+/// <= 0 disables the guard.
+inline int fft_thread_cap() {
+    static const int cap = []() -> int {
+        const char* s = std::getenv("RANDLAPACK_FFT_THREADS");
+        if (s == nullptr || *s == '\0') return kDefaultFFTThreads;
+        return std::atoi(s);
+    }();
+    return cap;
+}
+
+
+/// RAII cap on the calling thread's MKL thread count. Construct in the narrowest
+/// scope containing the guarded call; the previous setting is restored on
+/// destruction (including when an exception unwinds through the scope).
 class Blas2ThreadGuard {
     public:
         /// @param n  dimension of the triangular factor being solved against;
         ///           selects the calibrated cap (see blas2_thread_cap).
-        explicit Blas2ThreadGuard(int64_t n) {
+        explicit Blas2ThreadGuard(int64_t n) : Blas2ThreadGuard(blas2_thread_cap(n), 0) {}
+
+        /// Explicit-cap form, for callers with their own calibration (e.g. the FFT
+        /// operator). The dummy second parameter disambiguates from the int64_t
+        /// dimension overload.
+        Blas2ThreadGuard(int cap, int /*tag*/) {
         #if defined(RandBLAS_HAS_MKL)
-            int cap = blas2_thread_cap(n);
             if (cap > 0) {
                 // mkl_set_num_threads_local returns the PREVIOUS thread-local value,
                 // where 0 means "no local setting, follow the global one". Restoring
