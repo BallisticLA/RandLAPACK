@@ -125,9 +125,17 @@ if ($MklRoot -ne "") {
         $found = Get-Command "vcpkg.exe" -ErrorAction SilentlyContinue
         if ($found) { $VcpkgExecutable = $found.Source }
     }
+    if ($VcpkgExecutable -eq "" -and $env:VSINSTALLDIR) {
+        # Visual Studio 2022 17.6+ bundles vcpkg with the C++ workload; a
+        # developer prompt exports VSINSTALLDIR but does not always put
+        # vcpkg.exe on PATH.
+        $bundled = Join-Path $env:VSINSTALLDIR "VC\vcpkg\vcpkg.exe"
+        if (Test-Path $bundled) { $VcpkgExecutable = $bundled }
+    }
     if ($VcpkgExecutable -eq "") {
         throw ("Could not locate vcpkg.exe (checked -VcpkgExecutable, VCPKG_INSTALLATION_ROOT, " +
-            "VCPKG_ROOT, PATH). Alternatively pass -MklRoot pointing at an existing oneMKL install.")
+            "VCPKG_ROOT, PATH, and the Visual Studio bundled copy under VSINSTALLDIR). " +
+            "Alternatively pass -MklRoot pointing at an existing oneMKL install.")
     }
 
     $vcpkgInstallRoot = Join-Path $resolvedRoot "vcpkg-installed"
@@ -136,8 +144,42 @@ if ($MklRoot -ne "") {
     if (Test-Path (Join-Path $mklLibDir "mkl_intel_ilp64_dll.lib")) {
         Write-Host "Reusing oneMKL at $mklRoot"
     } else {
-        Invoke-Checked $VcpkgExecutable @(
-            "install", "intel-mkl:x64-windows", "--x-install-root=$vcpkgInstallRoot")
+        # Manifest mode is the only mode every vcpkg distribution supports:
+        # the copy bundled with Visual Studio has no classic-mode instance,
+        # so `vcpkg install intel-mkl:x64-windows` fails there outright.
+        # Generate a minimal manifest and point every scratch tree at
+        # DependencyRoot -- the bundled vcpkg lives under Program Files,
+        # where its default scratch locations are not writable. The bundled
+        # vcpkg additionally requires builtin-baseline; the pin below is
+        # vcpkg release 2026.07.29 (intel-mkl 2025.2.0), which also makes
+        # the oneMKL version independent of the vcpkg copy's age.
+        $vcpkgScratch = Join-Path $resolvedRoot "vcpkg-scratch"
+        $manifestDir = Join-Path $vcpkgScratch "manifest"
+        New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
+        Set-Content -Path (Join-Path $manifestDir "vcpkg.json") -Encoding ascii -Value @(
+            '{',
+            '  "name": "randlapack-windows-deps",',
+            '  "version-string": "1",',
+            '  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d",',
+            '  "dependencies": [ "intel-mkl" ]',
+            '}')
+        Push-Location $manifestDir
+        try {
+            Invoke-Checked $VcpkgExecutable @(
+                "install",
+                "--triplet", "x64-windows",
+                "--x-install-root=$vcpkgInstallRoot",
+                "--downloads-root=$(Join-Path $vcpkgScratch 'downloads')",
+                "--x-buildtrees-root=$(Join-Path $vcpkgScratch 'buildtrees')",
+                "--x-packages-root=$(Join-Path $vcpkgScratch 'packages')")
+        } finally {
+            Pop-Location
+        }
+        # buildtrees/packages hold gigabytes of extracted installer scratch;
+        # the installed prefix is self-contained. Keep downloads so a re-run
+        # (or a CI downloads cache) skips the oneMKL fetch.
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
+            (Join-Path $vcpkgScratch "buildtrees"), (Join-Path $vcpkgScratch "packages")
     }
     $mklBin = Join-Path $mklRoot "bin"
 }

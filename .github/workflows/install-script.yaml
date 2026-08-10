@@ -142,3 +142,68 @@ jobs:
             -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
             -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps" `
             -SkipTests
+
+  # User-fidelity lane: a plain Visual Studio install has no standalone
+  # vcpkg -- only the manifest-only copy bundled with the C++ workload. A
+  # classic-mode `vcpkg install` fails there ("this vcpkg distribution does
+  # not have a classic mode instance") while staying green on CI runners,
+  # which ship a classic-capable C:\vcpkg. This job hides the runner's
+  # standalone vcpkg and provisions oneMKL through the bundled copy. The
+  # vcpkg-installed tree is deliberately NOT cached so every run exercises
+  # the manifest-mode fetch; only the installer download is cached.
+  install-windows-vs-vcpkg:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+          submodules: recursive
+
+      - name: initialize MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: cache oneMKL installer downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\..\windows-deps-vsvcpkg\vcpkg-scratch\downloads
+          key: windows-vsvcpkg-mkl-downloads-1-${{ hashFiles('RandLAPACK/.github/actions/setup-randlapack-deps-windows/setup.ps1') }}
+
+      - name: cache GoogleTest
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\..\windows-deps-vsvcpkg\googletest-install
+          key: windows-vsvcpkg-googletest-1.17.0-1-${{ hashFiles('RandLAPACK/.github/actions/setup-randlapack-deps-windows/setup.ps1') }}
+
+      - name: cache Random123
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\..\windows-deps-vsvcpkg\Random123-install
+          key: windows-vsvcpkg-random123-1-${{ hashFiles('RandLAPACK/.github/actions/setup-randlapack-deps-windows/setup.ps1') }}
+
+      - name: cache BLAS++
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\..\windows-deps-vsvcpkg\blaspp-install
+          key: windows-vsvcpkg-blaspp-remove-symv-debug-print-ilp64-sequential-1-${{ hashFiles('RandLAPACK/.github/actions/setup-randlapack-deps-windows/setup.ps1') }}
+
+      - name: cache LAPACK++
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\..\windows-deps-vsvcpkg\lapackpp-install
+          key: windows-vsvcpkg-lapackpp-msvc-direct-includes-ilp64-sequential-1-${{ hashFiles('RandLAPACK/.github/actions/setup-randlapack-deps-windows/setup.ps1') }}
+
+      - name: run the installer with the Visual Studio bundled vcpkg
+        shell: pwsh
+        run: |
+          Remove-Item Env:VCPKG_INSTALLATION_ROOT -ErrorAction SilentlyContinue
+          Remove-Item Env:VCPKG_ROOT -ErrorAction SilentlyContinue
+          $bundledVcpkg = Join-Path $env:VSINSTALLDIR "VC\vcpkg\vcpkg.exe"
+          if (-not (Test-Path $bundledVcpkg)) {
+            throw "Runner image has no VS-bundled vcpkg at $bundledVcpkg; this lane needs another way to reproduce a manifest-only vcpkg."
+          }
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+            -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
+            -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps-vsvcpkg" `
+            -VcpkgExecutable $bundledVcpkg

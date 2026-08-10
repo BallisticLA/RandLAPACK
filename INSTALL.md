@@ -316,6 +316,13 @@ comment in `install.ps1` documents the options.
 
 Points worth knowing:
 
+- **Any vcpkg distribution works, including the copy bundled with Visual
+  Studio.** The installer fetches oneMKL through vcpkg in manifest mode,
+  which the Visual Studio bundled copy supports (it has no classic-mode
+  instance, so `vcpkg install <port>` invocations would fail there). It
+  auto-detects vcpkg via `VCPKG_INSTALLATION_ROOT`, `VCPKG_ROOT`, `PATH`,
+  then the bundled copy under `VSINSTALLDIR`; pass `-VcpkgExecutable <path>`
+  to pin one explicitly, or `-MklRoot <path>` to skip vcpkg entirely.
 - **ILP64 is required.** RandBLAS's MKL sparse backend checks at compile time
   that its 64-bit indices match `MKL_INT`, so BLAS++ must be configured with
   `-Dblas_int=ilp64` against `mkl_intel_ilp64_dll.lib` (the installer does

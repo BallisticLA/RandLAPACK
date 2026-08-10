@@ -16,6 +16,9 @@
 #                       (default: ..\RandNLA-project relative to this script).
 #   -MklRoot <path>     Use an existing oneMKL (oneAPI installer layout)
 #                       instead of fetching MKL through vcpkg.
+#   -VcpkgExecutable <path>  vcpkg.exe to use for the oneMKL fetch. Default:
+#                       auto-detect (VCPKG_INSTALLATION_ROOT, VCPKG_ROOT,
+#                       PATH, then the Visual Studio bundled copy).
 #   -Fresh              Reconfigure RandLAPACK from scratch (dependencies are
 #                       always reused when present; delete <ProjectDir>\install
 #                       subdirectories to force dependency rebuilds).
@@ -29,6 +32,7 @@
 param(
     [string]$ProjectDir = "",
     [string]$MklRoot = "",
+    [string]$VcpkgExecutable = "",
     # Where the dependency stack lives (default: <ProjectDir>\install). CI
     # points this at its shared, cached dependency directory.
     [string]$DependencyRoot = "",
@@ -79,7 +83,7 @@ Write-Host ""
 
 # Step 1: dependencies (idempotent; reused when already present).
 & (Join-Path $sourceRoot ".github\actions\setup-randlapack-deps-windows\setup.ps1") `
-    -DependencyRoot $dependencyRoot -MklRoot $MklRoot
+    -DependencyRoot $dependencyRoot -MklRoot $MklRoot -VcpkgExecutable $VcpkgExecutable
 
 # Step 2: RandLAPACK itself.
 if ($Fresh -and (Test-Path $buildDir)) {
