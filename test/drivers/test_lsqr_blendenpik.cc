@@ -413,6 +413,58 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_stagnation_exits_early) {
 }
 
 
+// Warm start (2026-08-10). restarted_pcg_ne can refine an EXISTING iterate rather
+// than starting from x = 0, so a solver's own answer (Blendenpik's, say) can be fed
+// to iterative refinement. Three properties pinned:
+//   1. An already-converged x0 is recognized immediately: no work, and it is not
+//      made worse.
+//   2. A deliberately perturbed x0 is refined back to the reference solution.
+//   3. Warm and cold start agree on the final answer (same fixed point).
+TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_warm_start_refines_an_existing_iterate) {
+    using T = double;
+    int64_t m = 200, n = 20;
+    std::vector<T> A, b, x_true;
+    make_problem(m, n, 71, A, b, x_true);
+    auto x_ref = gels_reference(A, b, m, n);
+
+    std::vector<T> Ac(A), tau(n), R(n * n, 0);
+    lapack::geqrf(m, n, Ac.data(), m, tau.data());
+    lapack::lacpy(lapack::MatrixType::Upper, n, n, Ac.data(), m, R.data(), n);
+    if (n > 1)
+        lapack::laset(lapack::MatrixType::Lower, n - 1, n - 1, (T)0, (T)0, R.data() + 1, n);
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+
+    // (1) cold solve to convergence, then warm-restart FROM that answer.
+    std::vector<T> x_cold(n, 0);
+    int it_c = 0;
+    ASSERT_EQ(RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, R.data(), n, b.data(),
+                  x_cold.data(), 1e-12, 2000, it_c), 0);
+    std::vector<T> x_warm(x_cold);
+    int it_w = 0;
+    ASSERT_EQ(RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, R.data(), n, b.data(),
+                  x_warm.data(), 1e-12, 2000, it_w, 200, (T)1e-4, -1,
+                  nullptr, nullptr, nullptr, 20, (T)1e-3, (T)0, nullptr,
+                  /*x0=*/x_cold.data()), 0);
+    EXPECT_EQ(it_w, 0) << "an already-converged x0 must cost no inner iterations";
+    EXPECT_LT(rel_err(x_warm, x_ref), 1e-8);
+
+    // (2) perturb x0 substantially; refinement must recover the reference.
+    std::vector<T> x_bad(x_ref);
+    for (int64_t i = 0; i < n; ++i) x_bad[i] *= (T)1.5;
+    std::vector<T> x_fixed(n, 0);
+    int it_f = 0;
+    ASSERT_EQ(RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, R.data(), n, b.data(),
+                  x_fixed.data(), 1e-12, 2000, it_f, 200, (T)1e-4, -1,
+                  nullptr, nullptr, nullptr, 20, (T)1e-3, (T)0, nullptr,
+                  /*x0=*/x_bad.data()), 0);
+    EXPECT_GT(it_f, 0) << "a perturbed x0 must require real work";
+    EXPECT_LT(rel_err(x_fixed, x_ref), 1e-8);
+
+    // (3) warm and cold reach the same fixed point.
+    EXPECT_LT(rel_err(x_fixed, x_cold), 1e-8);
+}
+
+
 // Round-residual stability (2026-08-06): the reference MATLAB recomputes the
 // normal-equation residual as g - H z, a difference of two large kappa-contaminated
 // quantities whose cancellation error floors the achievable accuracy. Epperly et al.

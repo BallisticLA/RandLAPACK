@@ -132,6 +132,11 @@ struct IterRefineLSQ {
     /// recomputed anyway. 0 (the default) disables the check: run exactly
     /// n_refine_steps rounds.
     T outer_tol;
+    /// Optional initial iterate to refine (length n), or nullptr for the cold
+    /// start that every Q-less method uses. Added 2026-08-10 so another solver's
+    /// answer (Blendenpik's) can be handed to refinement, which separates
+    /// preconditioner quality from solver structure in the benchmark suite.
+    const T* warm_x0 = nullptr;
     /// Enable per-step / per-substep timing breakdown.
     bool timing;
     /// Print convergence info to stdout.
@@ -207,7 +212,7 @@ struct IterRefineLSQ {
         using clock = std::chrono::steady_clock;
         auto t_start = clock::now();
 
-        // Cold start (2026-08-05 policy): any incoming x is ignored.
+        // Cold start (2026-08-05 policy) unless the caller supplied warm_x0.
         std::fill(x, x + n, (T)0);
 
         // Legacy mode (round_drop <= 0): rounds run to the fixed inner_tol
@@ -232,7 +237,7 @@ struct IterRefineLSQ {
             timing ? times4 : nullptr,
             &final_rel,
             inner_stag_window, inner_stag_rel_improve,
-            abs_guard, &hist);
+            abs_guard, &hist, warm_x0);
 
         // Republish the engine's per-round records under the historical names.
         inner_iters_per_step       = hist.iters;

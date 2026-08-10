@@ -112,6 +112,15 @@ struct PCGRoundHistory {
 ///                      "CG still terminates once below the target" guard
 ///                      (2026-08-07). 0 disables the guard.
 /// @param[out] history  optional per-round records (see PCGRoundHistory).
+/// @param[in]  x0       optional initial guess (length n). nullptr = cold start
+///                      (x = 0), the historical behaviour and the policy for every
+///                      Q-less method. Supplied, the solver refines THAT iterate:
+///                      z is seeded with R x0 so that x = R^{-1} z reproduces it,
+///                      and the first round's normal-equation residual is taken
+///                      from the true residual b - A x0 rather than from g.
+///                      Added 2026-08-10 so a solver's own answer (e.g.
+///                      Blendenpik's) can be handed to iterative refinement,
+///                      separating preconditioner quality from solver structure.
 /// @returns 0 if the LS tolerance was met; 1 if the iteration budget was exhausted;
 ///          2 if the inner CG broke down or made no progress (reference flag 2).
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
@@ -130,7 +139,8 @@ int restarted_pcg_ne(
     int stag_window = 20,
     T stag_rel_improve = (T)1e-3,
     T inner_abs_tol = (T)0,
-    PCGRoundHistory<T>* history = nullptr)
+    PCGRoundHistory<T>* history = nullptr,
+    const T* x0 = nullptr)
 {
     randlapack_require(restart_drop > (T)0 && restart_drop < (T)1)
         << "restarted_pcg_ne: restart_drop must lie in (0,1)";
@@ -241,9 +251,32 @@ int restarted_pcg_ne(
         }
     }
 
-    // z = 0, so r_ne = g and the initial x is 0.
-    std::copy(g, g + n, r_ne);
-    T relres = recover_x_and_relres();
+    // Cold start: z = 0, so x = 0 and the NE residual is exactly g.
+    // Warm start: seed z = R x0 so that x = R^{-1} z recovers x0, then take the
+    // NE residual from the TRUE residual b - A x0 in the same stable form the
+    // restart loop uses (g - H z would reintroduce the cancellation that the
+    // 2026-08-06 change removed).
+    T relres;
+    if (x0 == nullptr) {
+        std::copy(g, g + n, r_ne);
+        relres = recover_x_and_relres();
+    } else {
+        std::copy(x0, x0 + n, z);
+        if (prec) {
+            auto ts = clock::now();
+            blas::trmv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, z, 1);
+            t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
+        }
+        relres = recover_x_and_relres();          // leaves wm = b - A x
+        A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
+          n, 1, m, (T)1.0, wm, m, (T)0.0, r_ne, n);
+        if (prec) {
+            Blas2ThreadGuard tg(n);
+            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, r_ne, 1);
+        }
+    }
 
     // NE-space reference scale for the inner_abs_tol guard: the initial NE
     // right-hand side ||g||.

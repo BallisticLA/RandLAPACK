@@ -32,7 +32,8 @@
 // CLI: <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> <tol> <maxit>
 //      <d_factor> <sketch_nnz> [seed] [num_runs] [solver] [pcg_restart_maxit] [pcg_max_restarts]
 //   method_mask bits: 1 CQRRT, 2 CholQR, 4 sCholQR3, 8 sCholQR3_basic, 16 CholQR2,
-//                     32 Blendenpik, 64 unpreconditioned.
+//                     32 Blendenpik, 64 unpreconditioned,
+//                     128 Blendenpik + our refinement solver (warm and cold rows).
 //   num_runs (default 1): repetitions per method, all recorded (one CSV row each,
 //   'run' column). The MATLAB plotters aggregate (best run by default).
 //   solver (default "pcg_ne"): "pcg_ne" (alias "restarted_pcg_ne") or "lsqr".
@@ -275,6 +276,18 @@ int main(int argc, char** argv) {
         algs.push_back("Blendenpik_cold");   // same solver, x0 = 0
     }
     if (method_mask & 64) algs.push_back("unpreconditioned");
+    if (method_mask & 128) {
+        // Blendenpik's preconditioner handed to OUR refinement solver (2026-08-10).
+        // As published, Blendenpik is sketch + QR + LSQR with no refinement, so the
+        // suite otherwise compares its preconditioner through a different solver
+        // than every Q-less method uses, conflating preconditioner quality with
+        // solver structure. These two rows keep the published rows intact and add
+        // the like-for-like comparison: same R, same restarted-PCG refinement, one
+        // started from Blendenpik's warm (sketch-and-solve) answer and one from its
+        // cold answer.
+        algs.push_back("Blendenpik_refine");
+        algs.push_back("Blendenpik_cold_refine");
+    }
 
     // 5. CSV.
     std::string tstamp; { std::time_t t = std::time(nullptr); char buf[32];
@@ -327,13 +340,44 @@ int main(int argc, char** argv) {
         long setup_us = 0;   // 0 always for Q-less methods (cold); warm Blendenpik's x0 is embedded
         int pcg_restarts = -1;       // outer restart rounds; -1 = not the pcg_ne solver
         double solver_relres = -1;   // solver's own relative residual at termination
-        bool is_bp     = (alg.rfind("Blendenpik", 0) == 0);
+        bool is_bp     = (alg.rfind("Blendenpik", 0) == 0)
+                      && (alg.find("_refine") == std::string::npos);
         bool have_R = false, is_unprec = (alg == "unpreconditioned");
 
         rl::PeakRSSTracker mem; mem.start();
         auto t0 = steady_clock::now();
 
-        if (is_bp) {
+        bool is_bp_ref = (alg.find("_refine") != std::string::npos);
+        if (is_bp_ref) {
+            // Phase 1: Blendenpik exactly as published (warm or cold), untimed split
+            // shared with the published rows -- qr_us is its sketch+QR, solve_us will
+            // be REPLACED below by the refinement solve so the two are comparable.
+            rl::Blendenpik_linops<double, RNG> bp(true, tol);
+            bp.nnz = sketch_nnz;
+            bp.warm_start = (alg == "Blendenpik_refine");   // "_cold_refine" => x0 = 0
+            bp.max_iters = maxit;
+            qr_status = bp.call(A_hat, rhs.data(), mtot, x.data(), n, d_factor, state);
+            if (qr_status == 0) {
+                qr_us = bp.times[0] + bp.times[1];
+                std::copy(bp.R_out.begin(), bp.R_out.end(), R.begin());
+                have_R = true;
+                // Phase 2: refine Blendenpik's own answer with the shared engine.
+                std::vector<double> x_bp(x.begin(), x.begin() + n);
+                long lt[4] = {0};
+                flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, R.data(), n, rhs.data(),
+                                                    x.data(), tol, maxit, iters,
+                                                    pcg_restart_maxit, pcg_restart_drop,
+                                                    pcg_max_restarts, &pcg_restarts, lt,
+                                                    &solver_relres, 20, 1e-3, 0.0, nullptr,
+                                                    /*x0=*/x_bp.data());
+                solve_us = lt[3];
+                solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];
+                // Blendenpik's own LSQR iterations are part of reaching x0, so report
+                // the total the row actually spent.
+                iters += bp.lsqr_iters;
+            }
+            peak_kb = mem.stop();
+        } else if (is_bp) {
             rl::Blendenpik_linops<double, RNG> bp(true, tol);
             bp.nnz = sketch_nnz;
             bp.warm_start = (alg == "Blendenpik");   // "Blendenpik_cold" => x0 = 0

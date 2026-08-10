@@ -597,6 +597,16 @@ static int run_benchmark_inner(
         selected_algs.push_back("Blendenpik");        // its own sketch-and-solve warm start
         selected_algs.push_back("Blendenpik_cold");   // same solver, x0 = 0
     }
+    if (method_mask & 64) {
+        // Blendenpik's preconditioner run through OUR refinement solver (2026-08-10).
+        // As published Blendenpik is sketch + QR + LSQR with no refinement, so the
+        // suite otherwise compares its R through a different solver than every Q-less
+        // method uses, conflating preconditioner quality with solver structure. These
+        // rows keep the published ones intact and add the like-for-like comparison,
+        // started from Blendenpik's warm and cold answers respectively.
+        selected_algs.push_back("Blendenpik_refine");
+        selected_algs.push_back("Blendenpik_cold_refine");
+    }
 
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
@@ -721,6 +731,25 @@ static int run_benchmark_inner(
                     res.ir_inner_relres = bp.final_relres;
                     blendenpik_lsqr_us    = bp.times[2];
                     blendenpik_lsqr_iters = bp.lsqr_iters;
+                    if (alg_name.find("_refine") != std::string::npos) {
+                        // Refine Blendenpik's own answer with the shared engine, so the
+                        // only difference from a Q-less row is which R is used.
+                        T* x_bp = new T[n];
+                        std::copy(x_ls, x_ls + n, x_bp);
+                        RandLAPACK::IterRefineLSQ<T> ir(
+                            (g_ir_inner_tol > 0) ? (T)g_ir_inner_tol : tol,
+                            (g_ir_max_inner > 0) ? g_ir_max_inner : 200,
+                            g_ir_n_steps, true, false);
+                        ir.round_drop = (T)g_ir_round_drop;
+                        ir.outer_tol = (g_ir_outer_tol >= 0) ? (T)g_ir_outer_tol
+                                     : (T)10 * std::numeric_limits<T>::epsilon();
+                        ir.warm_x0 = x_bp;
+                        int st = ir.call(A_op, R, n, b_ptr->data(), m, x_ls, n);
+                        if (st != 0) std::cerr << "Warning: refine status " << st << "\n";
+                        res.ir_outer_iters = ir.outer_iters_done;
+                        record_inner_cg_diagnosis(ir, res);
+                        delete[] x_bp;
+                    }
                 }
             } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<T> qr_algo(/*time_subroutines=*/true, tol);
