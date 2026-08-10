@@ -309,20 +309,20 @@ Intel oneMKL using ILP64, sequential linking. The easy path, from a
 .\install\install.ps1
 ```
 
-This builds all dependencies (oneMKL through vcpkg, or pass
-`-MklRoot <path>` to use an existing oneAPI install), then builds, installs,
-and tests RandLAPACK, mirroring `install.sh`'s directory layout. The header
-comment in `install.ps1` documents the options.
+This builds all dependencies (oneMKL is downloaded from Intel's official
+NuGet packages, or pass `-MklRoot <path>` to use an existing oneAPI
+install), then builds, installs, and tests RandLAPACK, mirroring
+`install.sh`'s directory layout. The header comment in `install.ps1`
+documents the options.
 
 Points worth knowing:
 
-- **Any vcpkg distribution works, including the copy bundled with Visual
-  Studio.** The installer fetches oneMKL through vcpkg in manifest mode,
-  which the Visual Studio bundled copy supports (it has no classic-mode
-  instance, so `vcpkg install <port>` invocations would fail there). It
-  auto-detects vcpkg via `VCPKG_INSTALLATION_ROOT`, `VCPKG_ROOT`, `PATH`,
-  then the bundled copy under `VSINSTALLDIR`; pass `-VcpkgExecutable <path>`
-  to pin one explicitly, or `-MklRoot <path>` to skip vcpkg entirely.
+- **No vcpkg (or any package manager) is required.** oneMKL comes from
+  Intel's official NuGet packages (`intelmkl.devel.win-x64` +
+  `intelmkl.redist.win-x64`), downloaded as plain zip archives from
+  nuget.org, pinned by version and SHA256, and arranged into the standard
+  oneAPI layout. Pass `-MklRoot <path>` to use an existing oneAPI install
+  instead.
 - **ILP64 is required.** RandBLAS's MKL sparse backend checks at compile time
   that its 64-bit indices match `MKL_INT`, so BLAS++ must be configured with
   `-Dblas_int=ilp64` against `mkl_intel_ilp64_dll.lib` (the installer does

@@ -1,6 +1,6 @@
 name: setup-randlapack-deps-windows
 description: >
-  Builds/restores RandLAPACK's native Windows dependencies (oneMKL via vcpkg,
+  Builds/restores RandLAPACK's native Windows dependencies (oneMKL from Intel's NuGet packages,
   GoogleTest, Random123, BLAS++, LAPACK++) and exports their locations as
   environment variables (MKLROOT, googletest_PREFIX, Random123_DIR, blaspp_DIR,
   lapackpp_DIR). Requires an initialized MSVC environment (ilammy/msvc-dev-cmd).
@@ -16,11 +16,11 @@ runs:
   steps:
     # Caches live beside the workspace, keyed on the setup script so any recipe
     # change invalidates them.
-    - name: cache oneMKL (vcpkg)
+    - name: cache oneMKL (NuGet)
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\vcpkg-installed
-        key: windows-vcpkg-intel-mkl-1-${{ hashFiles('.github/actions/setup-randlapack-deps-windows/setup.ps1') }}
+        path: ${{ github.workspace }}\..\windows-deps\onemkl-2025.2.0.627
+        key: windows-nuget-intel-mkl-2025.2.0.627-1-${{ hashFiles('.github/actions/setup-randlapack-deps-windows/setup.ps1') }}
 
     - name: cache GoogleTest
       if: inputs.sanitize-address != 'true'

@@ -1,5 +1,5 @@
 # Builds and installs RandLAPACK's native Windows dependencies:
-#   - oneMKL (via vcpkg, ILP64 + sequential DLL set)
+#   - oneMKL (Intel's NuGet packages, ILP64 + sequential DLL set)
 #   - GoogleTest v1.17.0
 #   - Random123 (headers only)
 #   - BLAS++  from BallisticLA/blaspp,  branch remove-symv-debug-print
@@ -18,10 +18,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DependencyRoot,
 
-    [string]$VcpkgExecutable = "",
-
     # Use an existing oneMKL install (e.g. from the oneAPI installer) instead
-    # of fetching MKL through vcpkg. Must contain the ILP64 DLL import libs.
+    # of downloading Intel's NuGet packages. Must contain the ILP64 DLL
+    # import libs.
     [string]$MklRoot = "",
 
     [switch]$SanitizeAddress
@@ -113,75 +112,47 @@ if ($MklRoot -ne "") {
     if (-not $mklBin) { throw "-MklRoot $MklRoot has no bin\ (or redist\intel64\) DLL directory." }
     Write-Host "Using existing oneMKL at $mklRoot"
 } else {
-    if ($VcpkgExecutable -eq "") {
-        foreach ($candidateRoot in @($env:VCPKG_INSTALLATION_ROOT, $env:VCPKG_ROOT)) {
-            if ($candidateRoot -and (Test-Path (Join-Path $candidateRoot "vcpkg.exe"))) {
-                $VcpkgExecutable = Join-Path $candidateRoot "vcpkg.exe"
-                break
-            }
-        }
-    }
-    if ($VcpkgExecutable -eq "") {
-        $found = Get-Command "vcpkg.exe" -ErrorAction SilentlyContinue
-        if ($found) { $VcpkgExecutable = $found.Source }
-    }
-    if ($VcpkgExecutable -eq "" -and $env:VSINSTALLDIR) {
-        # Visual Studio 2022 17.6+ bundles vcpkg with the C++ workload; a
-        # developer prompt exports VSINSTALLDIR but does not always put
-        # vcpkg.exe on PATH.
-        $bundled = Join-Path $env:VSINSTALLDIR "VC\vcpkg\vcpkg.exe"
-        if (Test-Path $bundled) { $VcpkgExecutable = $bundled }
-    }
-    if ($VcpkgExecutable -eq "") {
-        throw ("Could not locate vcpkg.exe (checked -VcpkgExecutable, VCPKG_INSTALLATION_ROOT, " +
-            "VCPKG_ROOT, PATH, and the Visual Studio bundled copy under VSINSTALLDIR). " +
-            "Alternatively pass -MklRoot pointing at an existing oneMKL install.")
-    }
-
-    $vcpkgInstallRoot = Join-Path $resolvedRoot "vcpkg-installed"
-    $mklRoot = Join-Path $vcpkgInstallRoot "x64-windows"
+    # oneMKL comes straight from Intel's official NuGet packages -- plain
+    # zip archives on nuget.org, pinned by version and SHA256. The devel
+    # package carries the ILP64/sequential import libs and headers, the
+    # redist package the runtime DLLs. This deliberately avoids vcpkg: its
+    # Visual Studio-bundled distribution is manifest-only (no classic-mode
+    # instance), and nothing here needed vcpkg beyond this one download.
+    # The OpenMP/TBB packages the devel nuspec references are skipped on
+    # purpose -- RandLAPACK links the sequential MKL DLL set.
+    $mklVersion = "2025.2.0.627"
+    $mklPackages = @(
+        @{ Id = "intelmkl.devel.win-x64"
+           Sha256 = "988816fb3cdfc5dcfdd42036c28314dcfda22fe47a29056ae455e360a8833ee5" },
+        @{ Id = "intelmkl.redist.win-x64"
+           Sha256 = "42bf35a13581aa03ecbee62e83e2c6397a45f13ae8aa657c1727fd0335e52c9e" })
+    $mklRoot = Join-Path $resolvedRoot "onemkl-$mklVersion"
     $mklLibDir = Join-Path $mklRoot "lib"
+    $mklBin = Join-Path $mklRoot "bin"
     if (Test-Path (Join-Path $mklLibDir "mkl_intel_ilp64_dll.lib")) {
         Write-Host "Reusing oneMKL at $mklRoot"
     } else {
-        # Manifest mode is the only mode every vcpkg distribution supports:
-        # the copy bundled with Visual Studio has no classic-mode instance,
-        # so `vcpkg install intel-mkl:x64-windows` fails there outright.
-        # Generate a minimal manifest and point every scratch tree at
-        # DependencyRoot -- the bundled vcpkg lives under Program Files,
-        # where its default scratch locations are not writable. The bundled
-        # vcpkg additionally requires builtin-baseline; the pin below is
-        # vcpkg release 2026.07.29 (intel-mkl 2025.2.0), which also makes
-        # the oneMKL version independent of the vcpkg copy's age.
-        $vcpkgScratch = Join-Path $resolvedRoot "vcpkg-scratch"
-        $manifestDir = Join-Path $vcpkgScratch "manifest"
-        New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
-        Set-Content -Path (Join-Path $manifestDir "vcpkg.json") -Encoding ascii -Value @(
-            '{',
-            '  "name": "randlapack-windows-deps",',
-            '  "version-string": "1",',
-            '  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d",',
-            '  "dependencies": [ "intel-mkl" ]',
-            '}')
-        Push-Location $manifestDir
-        try {
-            Invoke-Checked $VcpkgExecutable @(
-                "install",
-                "--triplet", "x64-windows",
-                "--x-install-root=$vcpkgInstallRoot",
-                "--downloads-root=$(Join-Path $vcpkgScratch 'downloads')",
-                "--x-buildtrees-root=$(Join-Path $vcpkgScratch 'buildtrees')",
-                "--x-packages-root=$(Join-Path $vcpkgScratch 'packages')")
-        } finally {
-            Pop-Location
+        if (Test-Path $mklRoot) { Remove-Item -Recurse -Force $mklRoot }
+        $extractRoot = Join-Path $mklRoot "extract"
+        foreach ($package in $mklPackages) {
+            $archive = Join-Path $resolvedRoot "$($package.Id).$mklVersion.zip"
+            Invoke-Checked "curl.exe" @("-fsSL", "--retry", "3", "-o", $archive,
+                "https://api.nuget.org/v3-flatcontainer/$($package.Id)/$mklVersion/$($package.Id).$mklVersion.nupkg")
+            $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+            if ($actual -ne $package.Sha256) {
+                throw "$($package.Id) $mklVersion hash mismatch: expected $($package.Sha256), got $actual."
+            }
+            Expand-Archive -Path $archive -DestinationPath (Join-Path $extractRoot $package.Id) -Force
+            Remove-Item $archive
         }
-        # buildtrees/packages hold gigabytes of extracted installer scratch;
-        # the installed prefix is self-contained. Keep downloads so a re-run
-        # (or a CI downloads cache) skips the oneMKL fetch.
-        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
-            (Join-Path $vcpkgScratch "buildtrees"), (Join-Path $vcpkgScratch "packages")
+        # Arrange the pieces into the oneAPI directory shape (lib\, include\,
+        # bin\) that the -MklRoot path, the checks below, and RandBLAS's
+        # MKL_sparse.cmake (MKLROOT/include) already expect.
+        Move-Item (Join-Path $extractRoot "intelmkl.devel.win-x64\build\native\win-x64") $mklLibDir
+        Move-Item (Join-Path $extractRoot "intelmkl.devel.win-x64\build\native\include") (Join-Path $mklRoot "include")
+        Move-Item (Join-Path $extractRoot "intelmkl.redist.win-x64\runtimes\win-x64\native") $mklBin
+        Remove-Item -Recurse -Force $extractRoot
     }
-    $mklBin = Join-Path $mklRoot "bin"
 }
 
 foreach ($required in @(
