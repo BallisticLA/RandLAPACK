@@ -20,6 +20,9 @@ of the corresponding instructions in Section 1.
   - GCC 11 or higher
   - Clang 14 or higher (not extensively tested)
   - Intel ICPX (has known issues, see GitHub issue #91)
+  - MSVC (Visual Studio 2022) on native Windows, with Ninja as the build
+    tool (both bundled with the "Desktop development with C++" workload) --
+    see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
 
 ### GPU Support (Optional)
 For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
@@ -301,43 +304,15 @@ We do that so that it's easier to infer a valid choice of directory structure fo
 
 ## 6. Native Windows (MSVC)
 
-RandLAPACK builds natively on Windows with MSVC (Visual Studio 2022) and
-Intel oneMKL using ILP64, sequential linking. The easy path, from a
-"Developer PowerShell for VS 2022" prompt in the repository root:
+RandLAPACK builds natively on Windows with MSVC (Visual Studio 2022). The
+full guide -- prerequisites, the one-command installer, BLAS/LAPACK backend
+choice (oneMKL default, OpenBLAS, bring-your-own), runtime-DLL handling, and
+how the Windows install differs from Linux/macOS -- lives in
+[INSTALL_WINDOWS.md](INSTALL_WINDOWS.md). The short version, from a
+"Developer PowerShell for VS 2022" prompt:
 
 ```powershell
+git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
+cd RandLAPACK
 .\install\install.ps1
 ```
-
-This builds all dependencies (oneMKL is downloaded from Intel's official
-NuGet packages, or pass `-MklRoot <path>` to use an existing oneAPI
-install), then builds, installs, and tests RandLAPACK, mirroring
-`install.sh`'s directory layout. The header comment in `install.ps1`
-documents the options.
-
-Points worth knowing:
-
-- **No vcpkg (or any package manager) is required.** oneMKL comes from
-  Intel's official NuGet packages (`intelmkl.devel.win-x64` +
-  `intelmkl.redist.win-x64`), downloaded as plain zip archives from
-  nuget.org, pinned by version and SHA256, and arranged into the standard
-  oneAPI layout. Pass `-MklRoot <path>` to use an existing oneAPI install
-  instead.
-- **ILP64 is required.** RandBLAS's MKL sparse backend checks at compile time
-  that its 64-bit indices match `MKL_INT`, so BLAS++ must be configured with
-  `-Dblas_int=ilp64` against `mkl_intel_ilp64_dll.lib` (the installer does
-  this for you).
-- **BLAS++/LAPACK++ come from BallisticLA branches** (`BallisticLA/blaspp@remove-symv-debug-print`,
-  `BallisticLA/lapackpp@msvc-direct-includes`) until two one-line MSVC fixes
-  merge upstream (blaspp PR #132, lapackpp PR #87).
-- **OpenMP on MSVC uses the `/openmp:llvm` runtime**, selected automatically
-  by RandBLAS's build system — the only MSVC mode that accepts RandLAPACK's
-  64-bit loop indices and `collapse` clauses. Serial builds (OpenMP off) are
-  also fully functional.
-- **GPU support is not available on native Windows.**
-- Executables that link MKL need the MKL `bin` directory on `PATH` at run
-  time; the installer prints the path to keep.
-
-CI runs this configuration on every pull request (`core-windows` workflow);
-`.github/scripts/windows/run-ci.ps1 -Task Core -SetupDependencies` reproduces
-that job locally.

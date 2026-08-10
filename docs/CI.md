@@ -12,7 +12,7 @@ the thing we tell users to type is itself under test).
 | core-linux | `build-asan` | ubuntu-latest | Debug + AddressSanitizer build and test run | no |
 | core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain | **yes** (`build`) |
 | core-macos | `build-asan` | macos-latest | Debug + AddressSanitizer build and test run | no |
-| core-windows | `build-windows` | windows-2022 | MSVC + oneMKL (ILP64, sequential) build + tests, serial (no OpenMP) | no (new) |
+| core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial; each leg ends with a stripped-PATH run of a staged test executable | no (new) |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
 | install-script | `install-macos` | macos-latest | `install.sh`: fresh install, idempotent re-run | **yes** |
 | install-script | `install-windows` | windows-2022 | `install/install.ps1`: fresh install, idempotent re-run | no (new) |
@@ -57,10 +57,21 @@ candidates once they have a green track record.
   tested by RandBLAS's CI; rebuilding its ~450 tests in every RandLAPACK job
   roughly doubled job times. The install-script lanes keep them, preserving
   exactly what a user's install builds.
-- **Windows builds are serial (OpenMP off) for now.** RandLAPACK's OpenMP
-  loops need MSVC's `/openmp:llvm` runtime (64-bit indices, `collapse`),
-  which RandBLAS's build system does not select yet; see BallisticLA/RandBLAS#184.
-  When that lands, core-windows grows an OpenMP leg.
+- **The Windows matrix is deliberately small** (CI-cost budget): the two
+  mkl legs cover the default backend serial + OpenMP, and ONE openblas leg
+  covers non-MKL provisioning and the LP64 build. There is no
+  openblas-openmp leg (OpenMP x MSVC is backend-orthogonal and covered by
+  mkl-openmp), no second install-script backend leg (the installer's
+  `-Backend` forwarding is thin; provisioning is covered by the openblas
+  core leg), and no Windows ASan lane.
+- **Windows executables are staged, not PATH-dependent.** The BLAS backend
+  enters BLAS++ as raw library paths, which `TARGET_RUNTIME_DLLS` cannot
+  see, so `RANDLAPACK_RUNTIME_DLL_DIRS` stages the backend DLLs beside every
+  test/benchmark executable (app-local deployment). The stripped-PATH CI
+  step is the regression gate; do not remove it. An internal process-PATH
+  prepend remains in run-ci.ps1/install.ps1 only for the RandBLAS
+  submodule's own test executables, until RandBLAS gains the same staging
+  (planned follow-up).
 - **BLAS++ and LAPACK++ on Windows come from BallisticLA fork branches**
   (`BallisticLA/blaspp@remove-symv-debug-print`,
   `BallisticLA/lapackpp@msvc-direct-includes`) carrying two one-line MSVC
@@ -78,11 +89,16 @@ slower than a warm one.
 |------------------|---------|--------------|
 | `core-deps-<OS>-v<N>` | core-linux, core-macos (both jobs) | the workspace (`../*-install`) |
 | `installer-deps-<OS>-v<N>` | install-linux | `deps-install/` in the workspace |
-| `windows-*-v<N>` (five keys) | core-windows, install-windows | `..\windows-deps` |
+| `windows-*-r<N>` (per backend + shared) | core-windows, install-windows | `..\windows-deps` |
 
-To force a rebuild against fresh upstream clones, bump the `-v` suffix in
-the relevant key. The Windows keys are additionally salted with a hash of
-`setup.ps1`, so editing that script invalidates them automatically.
+To force a rebuild against fresh upstream clones, bump the `-v`/`-r` suffix
+in the relevant key. The Windows keys use MANUAL revision literals only --
+never `hashFiles()`: that helper resolves paths relative to the workspace
+root, and the install-script workflow checks the repo out under
+`RandLAPACK\`, where the glob matches nothing and `hashFiles()` silently
+returns an empty string. The result was two workflows reading and writing
+*different* caches while appearing to share one. When a recipe in
+`setup.ps1` changes, bump the `-r<N>` on the affected keys in `action.yml`.
 BLAS++/LAPACK++ track upstream default branches, so a stale cache also
 means frozen upstream — bump the suffix when upstream matters.
 
@@ -92,6 +108,6 @@ means frozen upstream — bump the suffix when upstream matters.
   ordinary `cmake` + `make` invocations.
 - Installer lanes: `bash install.sh --yes --no-gpu` from a fresh clone.
 - Windows (from an MSVC developer prompt in the repository root):
-  `.github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies`
-  reproduces core-windows; `.\install\install.ps1` reproduces
-  install-windows.
+  `.github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies
+  [-Backend openblas]` reproduces a core-windows leg; `.\install\install.ps1`
+  reproduces install-windows.
