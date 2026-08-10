@@ -10,16 +10,28 @@ on:
 
 jobs:
   build-windows:
-    name: windows-msvc-mkl-ilp64-${{ matrix.label }}
+    name: windows-msvc-${{ matrix.backend }}-${{ matrix.int }}-${{ matrix.label }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
+      # Deliberately small matrix (see docs/CI.md): the mkl legs cover the
+      # default backend serial + OpenMP; ONE openblas leg covers the non-MKL
+      # provisioning and LP64 build. No openblas-openmp (OpenMP x MSVC is
+      # backend-orthogonal and already covered) and no Windows ASan lane.
       matrix:
         include:
           - label: serial
+            backend: mkl
+            int: ilp64
             openmp: false
           - label: openmp
+            backend: mkl
+            int: ilp64
             openmp: true
+          - label: serial
+            backend: openblas
+            int: lp64
+            openmp: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +44,8 @@ jobs:
 
       - name: setup native Windows dependencies
         uses: ./.github/actions/setup-randlapack-deps-windows
+        with:
+          blas-backend: ${{ matrix.backend }}
 
       - name: build, install, and test RandLAPACK
         shell: pwsh
@@ -40,4 +54,37 @@ jobs:
           & "$env:GITHUB_WORKSPACE/.github/scripts/windows/run-ci.ps1" `
             -Task Core `
             -WorkRoot "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci" `
+            -Backend '${{ matrix.backend }}' `
             -OpenMP:$openmp
+
+      # TEMPORARY (remove after one green run): prove which OpenMP flavor
+      # reached cl.exe -- RandBLAS selects /openmp:llvm behind a guard whose
+      # ordering vs the root find_package(OpenMP) is under audit.
+      - name: report the MSVC OpenMP flavor
+        if: matrix.openmp
+        shell: pwsh
+        run: |
+          $cc = "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci/RandLAPACK-build/compile_commands.json"
+          if (Test-Path $cc) {
+            $flags = Select-String -Path $cc -Pattern '[-/]openmp[:\w]*' -AllMatches |
+              ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
+            Write-Host "OpenMP flags observed in compile_commands.json: $($flags -join ', ')"
+          } else {
+            Write-Host "compile_commands.json not found at $cc"
+          }
+
+      # Staged executables must run with NO PATH preparation: this is the
+      # regression gate for app-local DLL staging (Windows searches the exe's
+      # directory first, so a staged exe needs nothing else).
+      - name: run a staged test executable with a stripped PATH
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci/RandLAPACK-build" `
+            -Recurse -Filter "RandLAPACK_tests.exe" | Select-Object -First 1
+          if (-not $exe) { throw "RandLAPACK_tests.exe not found in the build tree." }
+          $env:PATH = "C:\Windows\System32;C:\Windows"
+          # Starting the process at all forces the loader to resolve every
+          # statically imported DLL (BLAS++, LAPACK++, the BLAS backend) from
+          # the staged copies; listing tests proves it end to end.
+          & $exe.FullName --gtest_list_tests | Select-Object -First 5 | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "Staged executable failed with a stripped PATH (exit $LASTEXITCODE)." }

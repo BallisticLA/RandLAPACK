@@ -55,6 +55,11 @@ function(add_benchmark)
     target_compile_options(${TGT_NAME} PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>:-g>)
     # Include directories come from target_link_libraries, no need to set manually
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
+    # On Windows the RandLAPACK package config provides DLL staging so the
+    # benchmark runs without PATH preparation.
+    if (COMMAND randlapack_stage_runtime_dlls)
+        randlapack_stage_runtime_dlls(${TGT_NAME})
+    endif()
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
 endfunction()
 

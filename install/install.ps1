@@ -15,8 +15,14 @@
 # Options:
 #   -ProjectDir <path>  Where dependencies/builds/installs go
 #                       (default: ..\RandNLA-project relative to this script).
-#   -MklRoot <path>     Use an existing oneMKL (oneAPI installer layout)
-#                       instead of downloading Intel's NuGet packages.
+#   -Backend <name>     BLAS/LAPACK backend: mkl (default; auto-discovers an
+#                       installed oneAPI, else downloads Intel's pinned NuGet
+#                       packages), openblas (official release binaries), or
+#                       custom (bring your own via -BlasLibraries).
+#   -MklRoot <path>     Use this oneMKL install (oneAPI layout) instead of
+#                       auto-discovery/download. Backend mkl only.
+#   -BlasLibraries / -LapackLibraries / -BackendBinDir / -BlasInt / -BlasFortran
+#                       Backend custom only; see setup.ps1's header.
 #   -Fresh              Reconfigure RandLAPACK from scratch (dependencies are
 #                       always reused when present; delete <ProjectDir>\install
 #                       subdirectories to force dependency rebuilds).
@@ -29,7 +35,15 @@
 [CmdletBinding()]
 param(
     [string]$ProjectDir = "",
+    [ValidateSet("mkl", "openblas", "custom")]
+    [string]$Backend = "mkl",
     [string]$MklRoot = "",
+    [string]$BlasLibraries = "",
+    [string]$LapackLibraries = "",
+    [string]$BackendBinDir = "",
+    [ValidateSet("lp64", "ilp64")]
+    [string]$BlasInt = "lp64",
+    [string]$BlasFortran = "",
     # Where the dependency stack lives (default: <ProjectDir>\install). CI
     # points this at its shared, cached dependency directory.
     [string]$DependencyRoot = "",
@@ -53,9 +67,35 @@ $sourceRoot = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path (Join-Path $sourceRoot "RandLAPACK.hh"))) {
     throw "install.ps1 must sit in the install\ directory of a RandLAPACK clone."
 }
+
+# ------------------------------------------------------ preflight checks ----
+# Catch every missing prerequisite up front, each with its fix, instead of
+# failing later with a tool-specific error.
+$preflightProblems = @()
 if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
-    throw "cl.exe is not on PATH. Run from an MSVC developer prompt (Developer PowerShell for VS 2022)."
+    $preflightProblems += ("cl.exe (the MSVC compiler) is not on PATH. Open 'Developer PowerShell " +
+        "for VS 2022' from the Start menu and run this script there. If Visual Studio is not " +
+        "installed:`n    winget install Microsoft.VisualStudio.2022.Community --override " +
+        '"--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"')
 }
+foreach ($tool in @(
+        @{ Name = "cmake.exe"; Hint = "CMake ships with the Visual Studio C++ workload; a Developer PowerShell puts it on PATH." },
+        @{ Name = "ninja.exe"; Hint = "Ninja ships with the Visual Studio C++ workload; a Developer PowerShell puts it on PATH." },
+        @{ Name = "git.exe";   Hint = "Install Git:`n    winget install Git.Git" },
+        @{ Name = "curl.exe";  Hint = "curl.exe ships with Windows 10 (1803+) in System32; check your PATH includes it." })) {
+    if (-not (Get-Command $tool.Name -ErrorAction SilentlyContinue)) {
+        $preflightProblems += "$($tool.Name) is not on PATH. $($tool.Hint)"
+    }
+}
+if ($preflightProblems.Count -gt 0) {
+    $preflightProblems | ForEach-Object { Write-Host "PREREQUISITE MISSING: $_`n" }
+    throw "Missing prerequisites ($($preflightProblems.Count)); see the messages above."
+}
+if ($ProjectDir -ne "" -and $ProjectDir.Length -gt 150) {
+    Write-Warning ("-ProjectDir is $($ProjectDir.Length) characters long; deep dependency build " +
+        "paths may exceed Windows' 260-character limit. Prefer a shorter location.")
+}
+
 if (-not (Test-Path (Join-Path $sourceRoot "RandBLAS\CMakeLists.txt"))) {
     Write-Host "Initializing the RandBLAS submodule..."
     Invoke-Checked "git" @("-C", $sourceRoot, "submodule", "update", "--init", "--recursive")
@@ -80,7 +120,9 @@ Write-Host ""
 
 # Step 1: dependencies (idempotent; reused when already present).
 & (Join-Path $sourceRoot ".github\actions\setup-randlapack-deps-windows\setup.ps1") `
-    -DependencyRoot $dependencyRoot -MklRoot $MklRoot
+    -DependencyRoot $dependencyRoot -Backend $Backend -MklRoot $MklRoot `
+    -BlasLibraries $BlasLibraries -LapackLibraries $LapackLibraries `
+    -BackendBinDir $BackendBinDir -BlasInt $BlasInt -BlasFortran $BlasFortran
 
 # Step 2: RandLAPACK itself.
 if ($Fresh -and (Test-Path $buildDir)) {
@@ -88,6 +130,7 @@ if ($Fresh -and (Test-Path $buildDir)) {
     Remove-Item -Recurse -Force $buildDir
 }
 
+$stageDllDirs = if ($env:RANDNLA_BLAS_BIN) { $env:RANDNLA_BLAS_BIN.Replace('\', '/') } else { "" }
 Invoke-Checked "cmake" @(
     "-S", $sourceRoot, "-B", $buildDir,
     "-G", "Ninja",
@@ -97,6 +140,7 @@ Invoke-Checked "cmake" @(
     "-Dlapackpp_DIR=$env:lapackpp_DIR",
     "-DRandom123_DIR=$env:Random123_DIR",
     "-DCMAKE_PREFIX_PATH=$env:googletest_PREFIX",
+    "-DRANDLAPACK_RUNTIME_DLL_DIRS=$stageDllDirs",
     "-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE")
 Invoke-Checked "cmake" @("--build", $buildDir, "--target", "install")
 
@@ -114,4 +158,10 @@ Write-Host "  blaspp_DIR:     $env:blaspp_DIR"
 Write-Host "  lapackpp_DIR:   $env:lapackpp_DIR"
 Write-Host "  Random123_DIR:  $env:Random123_DIR"
 Write-Host ""
-Write-Host "Keep $env:MKL_BIN on PATH when running executables that link MKL."
+if ($env:RANDNLA_BLAS_BIN) {
+    Write-Host "Runtime DLLs from $env:RANDNLA_BLAS_BIN are staged next to RandLAPACK's"
+    Write-Host "test and benchmark executables automatically -- no PATH changes needed."
+    Write-Host "For your own executables: find_package(RandLAPACK), then call"
+    Write-Host "randlapack_stage_runtime_dlls(<your_target>) in your CMakeLists, or copy"
+    Write-Host "the DLLs from that directory beside your .exe."
+}
