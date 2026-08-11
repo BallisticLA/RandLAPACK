@@ -162,6 +162,11 @@ struct IterRefineLSQ {
     std::vector<int> inner_best_iter_per_step;
     /// Final relative residual ||b - J x|| / ||b|| (or ||b - J x|| if ||b|| == 0).
     T final_residual_norm;
+    /// Total inner CG iterations summed over all rounds, for callers that report a
+    /// single iteration count.
+    int inner_iters_total() const {
+        int t = 0; for (int v : inner_iters_per_step) t += v; return t;
+    }
     /// Per-substep wall-clock breakdown (microseconds), populated when timing == true.
     /// Entries: [0]=outer_total, [1]=inner_cg_total, [2]=trsm_total,
     ///          [3]=fwd_total, [4]=adj_total, [5]=other.
