@@ -64,6 +64,13 @@ candidates once they have a green track record.
   mkl-openmp), no second install-script backend leg (the installer's
   `-Backend` forwarding is thin; provisioning is covered by the openblas
   core leg), and no Windows ASan lane.
+- **The MSVC OpenMP flavor is forced to `/openmp:llvm` in RandLAPACK's own
+  CMake** (`CMake/rl_build_options.cmake` and the benchmark project), not
+  just in RandBLAS. RandLAPACK's `find_package(OpenMP)` runs before the
+  submodule's guard, and a 2026-08 CI diagnostic proved classic `-openmp`
+  was being cached -- under which MSVC silently ignores the `collapse`
+  clause (warning C4849) that `rl_rpchol` relies on, i.e. the "openmp" leg
+  was not testing what its name claimed.
 - **Windows executables are staged, not PATH-dependent.** The BLAS backend
   enters BLAS++ as raw library paths, which `TARGET_RUNTIME_DLLS` cannot
   see, so `RANDLAPACK_RUNTIME_DLL_DIRS` stages the backend DLLs beside every

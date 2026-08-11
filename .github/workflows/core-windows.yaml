@@ -57,22 +57,6 @@ jobs:
             -Backend '${{ matrix.backend }}' `
             -OpenMP:$openmp
 
-      # TEMPORARY (remove after one green run): prove which OpenMP flavor
-      # reached cl.exe -- RandBLAS selects /openmp:llvm behind a guard whose
-      # ordering vs the root find_package(OpenMP) is under audit.
-      - name: report the MSVC OpenMP flavor
-        if: matrix.openmp
-        shell: pwsh
-        run: |
-          $cc = "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci/RandLAPACK-build/compile_commands.json"
-          if (Test-Path $cc) {
-            $flags = Select-String -Path $cc -Pattern '[-/]openmp[:\w]*' -AllMatches |
-              ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
-            Write-Host "OpenMP flags observed in compile_commands.json: $($flags -join ', ')"
-          } else {
-            Write-Host "compile_commands.json not found at $cc"
-          }
-
       # Staged executables must run with NO PATH preparation: this is the
       # regression gate for app-local DLL staging (Windows searches the exe's
       # directory first, so a staged exe needs nothing else).
