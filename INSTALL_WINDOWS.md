@@ -157,6 +157,14 @@ directory (the installer prints it at the end) next to your `.exe`.
 - **First build is slow**: Windows Defender real-time scanning inspects
   every new object file. The build is CPU-bound regardless; subsequent
   reruns reuse everything.
+- **Wrong results or crashes only inside an activated conda environment**:
+  conda ships MKL/OpenBLAS DLLs under the *same filenames* as ours and puts
+  its `Library\bin` on PATH when an environment is active. RandLAPACK's own
+  staged executables are immune (the exe's folder outranks PATH), but a
+  program of yours that relies on PATH can silently pick up conda's copies.
+  Stage your executable (section 6) and the problem disappears. To
+  deliberately build *against* a conda-provided MKL instead, pass
+  `-MklRoot "<env>\Library"` (requires conda's `mkl-devel` package).
 - **Path-length errors deep in dependency builds**: keep the project
   directory short (e.g. `C:\s\RandLAPACK`), or enable Windows long paths.
 - **Full reset**: delete `<ProjectDir>\build` and the relevant
