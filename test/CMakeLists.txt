@@ -13,6 +13,7 @@ if (GTest_FOUND)
         comps/test_rf.cc
         comps/test_syrf.cc
         comps/test_rpchol.cc
+        comps/test_bk.cc
         drivers/test_krill.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
@@ -34,7 +35,11 @@ if (GTest_FOUND)
     # Create non-CUDA test executable
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
     target_link_libraries(RandLAPACK_tests RandLAPACK GTest::GTest GTest::Main)
-    gtest_discover_tests(RandLAPACK_tests)
+    # An explicit timeout is the only mechanism that converts a non-termination regression
+    # into a test FAILURE rather than a hung CI job: gtest has no per-test timeout, and the
+    # CTest default is 1500s. BK's default budget is INT_MAX and its termination now rests
+    # on norm_converged plus the saturation guard, so this is a real risk, not a formality.
+    gtest_discover_tests(RandLAPACK_tests PROPERTIES TIMEOUT 300)
 
     # Check if CUDA is required and setup CUDA-specific tests
     if (RequireCUDA AND CUDAToolkit_FOUND)
