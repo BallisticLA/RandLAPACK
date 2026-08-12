@@ -4,9 +4,19 @@ on:
     branches-ignore:
       - cqrrp-gpu-benchmarking
   workflow_dispatch:
+  # Only main. A branch with an open pull request is already covered by the
+  # pull_request event above, and firing on both ran every job twice per
+  # commit -- same SHA, same result.
   push:
-    branches-ignore:
-      - cqrrp-gpu-benchmarking
+    branches:
+      - main
+
+# One run per ref at a time. Pushing a fix used to leave the superseded run
+# going to completion. Superseding is only safe for pull requests: on main we
+# want every commit validated, not just the newest.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-windows:
