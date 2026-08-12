@@ -56,7 +56,7 @@ spack compiler find
 spack load gcc@13.3.0
 
 # Step 4: Install all other dependencies using the new compiler
-spack install cmake@3.27
+spack install cmake@3.31.9
 spack install intel-oneapi-mkl
 spack install googletest
 

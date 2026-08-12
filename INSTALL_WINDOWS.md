@@ -11,9 +11,20 @@ Install the two prerequisites (skip any you already have), from a regular
 PowerShell window:
 
 ```powershell
-winget install Git.Git
-winget install Microsoft.VisualStudio.2022.Community --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"
+winget install --id Git.Git --exact
+
+winget install --id Microsoft.VisualStudio.2022.BuildTools --exact `
+  --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
+
+Build Tools is the compiler without the IDE. If you would rather have the full
+IDE, swap the second line for
+`--id Microsoft.VisualStudio.2022.Community` with
+`--add Microsoft.VisualStudio.Workload.NativeDesktop`. Either way
+`--includeRecommended` matters: it pulls in "C++ CMake tools for Windows",
+which is what supplies CMake and Ninja, so you do not install those
+separately. And `--wait` matters: without it winget returns while the Visual
+Studio installer is still running, which looks like it finished.
 
 Then open **"x64 Native Tools Command Prompt for VS 2022"** from the Start
 menu (the exact entry matters -- see section 3), and run:

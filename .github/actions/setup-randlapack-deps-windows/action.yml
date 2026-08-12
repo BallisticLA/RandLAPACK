@@ -64,13 +64,13 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\blaspp-${{ inputs.blas-backend }}-install
-        key: windows-msvc-blaspp-remove-symv-debug-print-${{ inputs.blas-backend }}-ninja-r1
+        key: windows-msvc-blaspp-upstream-3057185-${{ inputs.blas-backend }}-ninja-r2
 
     - name: cache LAPACK++
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\lapackpp-${{ inputs.blas-backend }}-install
-        key: windows-msvc-lapackpp-msvc-direct-includes-${{ inputs.blas-backend }}-ninja-r1
+        key: windows-msvc-lapackpp-upstream-40b9d0d-${{ inputs.blas-backend }}-ninja-r2
 
     - name: build missing dependencies
       shell: pwsh

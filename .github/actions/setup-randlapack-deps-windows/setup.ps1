@@ -5,12 +5,14 @@
 #     custom/bring-your-own libraries
 #   - GoogleTest v1.17.0
 #   - Random123 (headers only)
-#   - BLAS++  from BallisticLA/blaspp,  branch remove-symv-debug-print
-#   - LAPACK++ from BallisticLA/lapackpp, branch msvc-direct-includes
+#   - BLAS++  from icl-utk-edu/blaspp   (upstream), pinned by commit
+#   - LAPACK++ from icl-utk-edu/lapackpp (upstream), pinned by commit
 #
-# The BallisticLA branches carry the two one-line MSVC fixes that upstream
-# icl-utk-edu has not merged yet (blaspp PR #132, lapackpp PR #87). Once those
-# merge, both clones below can move back to upstream master.
+# Everything is fetched from its canonical upstream and pinned to an immutable
+# ref. The two one-line MSVC fixes this build needs merged upstream on
+# 2026-08-06 (blaspp PR #132, lapackpp PR #87), so the BallisticLA forks these
+# once pointed at are no longer needed. The pins are commits rather than tags
+# only because the latest release of each, v2025.05.28, predates those merges.
 #
 # Every step is idempotent: work already present under -DependencyRoot (for
 # example, restored from a CI cache) is left alone. Run from an MSVC developer
@@ -135,16 +137,23 @@ function Find-PackageConfigDirectory {
     return $config.DirectoryName
 }
 
-function Clone-Head {
-    param([string]$Url, [string]$Destination, [string]$Branch = "")
+function Clone-Pinned {
+    # -Ref is a tag or a commit SHA. Everything here is pinned to an immutable
+    # ref on purpose: a branch tip moves, and these clones live inside a cache
+    # keyed on this script, so a moving tip would silently change what a
+    # "cache hit" restores.
+    param([string]$Url, [string]$Destination, [string]$Ref)
     if (Test-Path $Destination) {
         Write-Host "Reusing existing clone at $Destination"
         return
     }
-    $cloneArgs = @("clone", "--depth", "1")
-    if ($Branch -ne "") { $cloneArgs += @("--branch", $Branch) }
-    $cloneArgs += @($Url, $Destination)
-    Invoke-Checked "git" $cloneArgs
+    # A tag can be cloned shallowly by name; a SHA cannot, so fetch it
+    # directly (GitHub allows fetching a reachable commit by SHA).
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    Invoke-Checked "git" @("-C", $Destination, "init", "--quiet")
+    Invoke-Checked "git" @("-C", $Destination, "remote", "add", "origin", $Url)
+    Invoke-Checked "git" @("-C", $Destination, "fetch", "--quiet", "--depth", "1", "origin", $Ref)
+    Invoke-Checked "git" @("-C", $Destination, "checkout", "--quiet", "FETCH_HEAD")
 }
 
 function Export-GitHubValue {
@@ -560,6 +569,46 @@ if ($Backend -eq "custom") {
     $backendId = "custom-$($hashHex.Substring(0, 8))"
 }
 
+function Copy-LibrariesToSpaceFreePath {
+    # BLAS++'s BLASFinder feeds library paths into a try_compile *unquoted*,
+    # so under the Ninja generator a path containing a space is split at the
+    # space and the probe dies with, e.g.:
+    #     ninja: error: 'C:/Program', needed by 'cmTC_x.exe', missing
+    # BLASFinder reports only "BLAS library not found", which points at the
+    # library rather than at the path that broke.
+    #
+    # This is not a corner case: Intel installs oneMKL to
+    # C:\Program Files (x86)\Intel\oneAPI\ by default, so EVERY discovered
+    # oneMKL hits it, as does any custom backend under Program Files. It is
+    # invisible to CI and to the download path because those land in a
+    # space-free directory under the dependency root.
+    #
+    # Import libraries are self-contained (they only name their DLL, which is
+    # still resolved at run time from $backendBin), so copying them next to
+    # the rest of the dependency tree is safe. Only done when needed, to keep
+    # the common case transparent.
+    param([string[]]$Libraries, [string]$Destination, [string]$Label)
+    if (-not ($Libraries | Where-Object { $_ -match ' ' })) { return $Libraries }
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    Write-Host ("Staging $Label import libraries into a space-free path " +
+        "($Destination): BLAS++ cannot probe libraries whose path contains a space.")
+    return @($Libraries | ForEach-Object {
+        $leaf = Split-Path $_ -Leaf
+        $target = Join-Path $Destination $leaf
+        Copy-Item -LiteralPath $_.Replace('/', '\') -Destination $target -Force
+        Convert-ToCMakePath $target
+    })
+}
+
+$spaceFreeLibDir = Join-Path $resolvedRoot "backend-libs"
+$backendLibraries = Copy-LibrariesToSpaceFreePath -Libraries $backendLibraries `
+    -Destination $spaceFreeLibDir -Label "BLAS"
+if ($backendLapackLibraries -ne "") {
+    $backendLapackLibraries = (Copy-LibrariesToSpaceFreePath `
+        -Libraries @($backendLapackLibraries -split ';') `
+        -Destination $spaceFreeLibDir -Label "LAPACK") -join ';'
+}
+
 if ($backendBin -ne "") { $env:PATH = "$backendBin;$env:PATH" }
 
 # ------------------------------------------------------------- GoogleTest ----
@@ -570,7 +619,7 @@ if (Test-Path (Join-Path $gtestInstall "include\gtest\gtest.h")) {
     Write-Host "Reusing GoogleTest at $gtestInstall"
 } else {
     $gtestSrc = Join-Path $resolvedRoot "$gtestVariant-src"
-    Clone-Head "https://github.com/google/googletest.git" $gtestSrc "v1.17.0"
+    Clone-Pinned "https://github.com/google/googletest.git" $gtestSrc "v1.17.0"
     $gtestBuild = Join-Path $resolvedRoot "$gtestVariant-build"
     $gtestArgs = @(
         "-S", $gtestSrc, "-B", $gtestBuild, "-G", "Ninja",
@@ -593,7 +642,7 @@ if (Test-Path (Join-Path $random123Install "include\Random123\philox.h")) {
     Write-Host "Reusing Random123 at $random123Install"
 } else {
     $random123Src = Join-Path $resolvedRoot "Random123-src"
-    Clone-Head "https://github.com/DEShawResearch/Random123.git" $random123Src "v1.14.0"
+    Clone-Pinned "https://github.com/DEShawResearch/Random123.git" $random123Src "v1.14.0"
     New-Item -ItemType Directory -Force -Path (Join-Path $random123Install "include") | Out-Null
     Copy-Item -Recurse -Force (Join-Path $random123Src "include\Random123") `
         (Join-Path $random123Install "include\Random123")
@@ -610,7 +659,11 @@ if ($blasppReusable) {
     Write-Host "Reusing BLAS++ at $blasppInstall"
 } else {
     $blasppSrc = Join-Path $resolvedRoot "blaspp-src"
-    Clone-Head "https://github.com/BallisticLA/blaspp.git" $blasppSrc "remove-symv-debug-print"
+    # Upstream, pinned to the commit that merged the MSVC fix (PR #132,
+    # 2026-08-06). The fix is not in a release yet: the latest tag,
+    # v2025.05.28, predates it. Move to a tag once one includes it.
+    Clone-Pinned "https://github.com/icl-utk-edu/blaspp.git" $blasppSrc `
+        "30571853f980d3a2a1737124ea4789e025a5e045"
     # Never re-configure an existing blaspp build in place: that regenerates
     # blas/defines.h without the backend defines. Fresh build tree per run.
     $blasppBuild = Join-Path $resolvedRoot "blaspp-$backendId-build"
@@ -642,7 +695,10 @@ if ($lapackppReusable) {
     Write-Host "Reusing LAPACK++ at $lapackppInstall"
 } else {
     $lapackppSrc = Join-Path $resolvedRoot "lapackpp-src"
-    Clone-Head "https://github.com/BallisticLA/lapackpp.git" $lapackppSrc "msvc-direct-includes"
+    # Upstream, pinned to the commit that merged the MSVC fix (PR #87,
+    # 2026-08-06); likewise not yet in a release.
+    Clone-Pinned "https://github.com/icl-utk-edu/lapackpp.git" $lapackppSrc `
+        "40b9d0daf29b6f1f3fa58bc3f22bd6cfb2c67fe4"
     $lapackppBuild = Join-Path $resolvedRoot "lapackpp-$backendId-build"
     if (Test-Path $lapackppBuild) { Remove-Item -Recurse -Force $lapackppBuild }
     $lapackppArgs = @(
