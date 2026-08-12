@@ -10,7 +10,7 @@
 #
 # Everything is fetched from its canonical upstream and pinned to an immutable
 # ref. The two one-line MSVC fixes this build needs merged upstream on
-# 2026-08-06 (blaspp PR #132, lapackpp PR #87), so the BallisticLA forks these
+# 2026-08-06 (icl-utk-edu/blaspp#132, icl-utk-edu/lapackpp#87), so the forks these
 # once pointed at are no longer needed. The pins are commits rather than tags
 # only because the latest release of each, v2025.05.28, predates those merges.
 #

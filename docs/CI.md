@@ -45,8 +45,8 @@ candidates once they have a green track record.
   is always red reports nothing.
 
   **Revert once Apple's new Accelerate interface is in use**, i.e. when both
-  of these land (order matters -- lapackpp#88 needs the `defines.h` from
-  blaspp#134):
+  of these land (order matters -- icl-utk-edu/lapackpp#88 needs the
+  `defines.h` from icl-utk-edu/blaspp#134):
     - <https://github.com/icl-utk-edu/blaspp/pull/134> -- New Apple Accelerate
       support, a rebased and completed continuation of the stalled
       <https://github.com/icl-utk-edu/blaspp/pull/74>
@@ -153,7 +153,8 @@ candidates once they have a green track record.
 - **Every Windows dependency is pinned to an immutable ref**, and comes from
   its canonical upstream. BLAS++ and LAPACK++ are pinned to commits rather
   than tags only because the latest release of each, `v2025.05.28`, predates
-  the MSVC fixes this build needs (blaspp #132, lapackpp #87, merged upstream
+  the MSVC fixes this build needs (icl-utk-edu/blaspp#132,
+  icl-utk-edu/lapackpp#87, merged upstream
   2026-08-06); they move to a tag once one carries them. A branch name would
   be a moving target inside a cache keyed on the setup script, so a cache hit
   could restore a different revision than a miss builds.

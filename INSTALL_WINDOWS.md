@@ -243,7 +243,8 @@ The version above therefore applies only to the no-oneMKL case.
 
 **Two deliberate exceptions to "pin a stable release".** BLAS++ and LAPACK++ are pinned to
 commits rather than to their latest release, `v2025.05.28`, because that release predates the
-two one-line MSVC fixes this build needs (blaspp #132 and lapackpp #87, both merged upstream on
+two one-line MSVC fixes this build needs (icl-utk-edu/blaspp#132 and
+icl-utk-edu/lapackpp#87, both merged upstream on
 2026-08-06). They move to a release tag as soon as one includes those fixes. Everything else is
 a stable, released version.
 
