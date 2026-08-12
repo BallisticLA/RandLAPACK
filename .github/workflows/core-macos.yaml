@@ -86,7 +86,27 @@ jobs:
               `pwd`/../RandLAPACK
           make -j$(sysctl -n hw.ncpu)
           make -j$(sysctl -n hw.ncpu) install
-          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability" --output-on-failure
+          #####################################################################
+          ## TEMPORARY -- REVERT THIS ENTIRE BLOCK                            ##
+          ##                                                                  ##
+          ## TestQB.Polynomial_Decay_general1 fails on Apple Silicon because  ##
+          ## Apple's OLD Accelerate LAPACK has a broken divide-and-conquer    ##
+          ## gesdd. It is quarantined here ONLY to stop core-macos being      ##
+          ## permanently red, which trained everyone to ignore this job.      ##
+          ##                                                                  ##
+          ## REVERT AS SOON AS Mark has reviewed the BLAS++ / LAPACK++ work   ##
+          ## that migrates to the new Accelerate interface. The test is still ##
+          ## RUN below, so its result is not lost: if it starts PASSING, the  ##
+          ## job prints a loud warning telling you to delete this block.      ##
+          #####################################################################
+          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability|^TestQB\.Polynomial_Decay_general1" \
+                --output-on-failure
+          echo "::warning title=TEMPORARY macOS suppression is ACTIVE::TestQB.Polynomial_Decay_general1 is quarantined (Apple Accelerate gesdd bug). REVERT once Mark has reviewed the BLAS++/LAPACK++ Accelerate migration. See docs/CI.md."
+          if ctest --tests-regex "^TestQB\.Polynomial_Decay_general1" --output-on-failure; then
+            echo "::warning title=DELETE THE macOS SUPPRESSION::TestQB.Polynomial_Decay_general1 now PASSES. The Accelerate gesdd bug appears fixed -- remove the quarantine block in .github/workflows/core-macos.yaml and the note in docs/CI.md."
+          else
+            echo "::notice title=Quarantined test still failing (expected)::TestQB.Polynomial_Decay_general1 still fails, as expected while Apple's old Accelerate gesdd is in use. The suppression is still needed."
+          fi
 
       - name: build and test extras
         run: |
@@ -185,4 +205,24 @@ jobs:
               `pwd`/../RandLAPACK
           make -j$(sysctl -n hw.ncpu)
           make -j$(sysctl -n hw.ncpu) install
-          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability" --output-on-failure
+          #####################################################################
+          ## TEMPORARY -- REVERT THIS ENTIRE BLOCK                            ##
+          ##                                                                  ##
+          ## TestQB.Polynomial_Decay_general1 fails on Apple Silicon because  ##
+          ## Apple's OLD Accelerate LAPACK has a broken divide-and-conquer    ##
+          ## gesdd. It is quarantined here ONLY to stop core-macos being      ##
+          ## permanently red, which trained everyone to ignore this job.      ##
+          ##                                                                  ##
+          ## REVERT AS SOON AS Mark has reviewed the BLAS++ / LAPACK++ work   ##
+          ## that migrates to the new Accelerate interface. The test is still ##
+          ## RUN below, so its result is not lost: if it starts PASSING, the  ##
+          ## job prints a loud warning telling you to delete this block.      ##
+          #####################################################################
+          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability|^TestQB\.Polynomial_Decay_general1" \
+                --output-on-failure
+          echo "::warning title=TEMPORARY macOS suppression is ACTIVE::TestQB.Polynomial_Decay_general1 is quarantined (Apple Accelerate gesdd bug). REVERT once Mark has reviewed the BLAS++/LAPACK++ Accelerate migration. See docs/CI.md."
+          if ctest --tests-regex "^TestQB\.Polynomial_Decay_general1" --output-on-failure; then
+            echo "::warning title=DELETE THE macOS SUPPRESSION::TestQB.Polynomial_Decay_general1 now PASSES. The Accelerate gesdd bug appears fixed -- remove the quarantine block in .github/workflows/core-macos.yaml and the note in docs/CI.md."
+          else
+            echo "::notice title=Quarantined test still failing (expected)::TestQB.Polynomial_Decay_general1 still fails, as expected while Apple's old Accelerate gesdd is in use. The suppression is still needed."
+          fi
