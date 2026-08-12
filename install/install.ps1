@@ -1,53 +1,32 @@
 # RandLAPACK native Windows installer -- the companion to install.sh.
-#
-# Run from an "x64 Native Tools Command Prompt for VS 2022" in the repository
-# root:
+# Full guide, including how to get an x64 toolchain: INSTALL_WINDOWS.md
 #
 #   powershell -ExecutionPolicy Bypass -File .\install\install.ps1
 #
-# (That prompt is cmd, hence the explicit launch; the policy flag is because
-# Windows blocks PowerShell scripts by default on a fresh machine.)
-#
-# The architecture matters: the plain "Developer PowerShell/Command Prompt for
-# VS 2022" entries default to a 32-bit (x86) toolchain, which cannot link the
-# x64 BLAS/LAPACK libraries this installer provisions. Preflight rejects that
-# case with an explanation rather than letting it fail deep in the build.
-#
-# What it does, mirroring install.sh's layout in a sibling RandNLA-project
-# directory:
-#   1. Builds/reuses the dependencies (a BLAS/LAPACK backend, GoogleTest,
-#      Random123, BLAS++, LAPACK++) under
-#      <ProjectDir>\install.
-#   2. Configures, builds, installs, and tests RandLAPACK.
+# Builds or reuses the dependencies (a BLAS/LAPACK backend, GoogleTest,
+# Random123, BLAS++, LAPACK++) under <ProjectDir>\install, then configures,
+# builds, installs and tests RandLAPACK. Mirrors install.sh's layout in a
+# sibling RandNLA-project directory. GPU support is not available on native
+# Windows yet.
 #
 # Options:
 #   -ProjectDir <path>  Where dependencies/builds/installs go
-#                       (default: ..\RandNLA-project relative to this script).
-#   -Backend <name>     BLAS/LAPACK backend: mkl (default; discovered from an
-#                       installed oneAPI, otherwise offered as a pinned
-#                       download), openblas (official release binaries), or
-#                       custom (bring your own via -BlasLibraries).
-#   -MklRoot <path>     Use this oneMKL install (oneAPI layout) instead of
-#                       auto-discovery. Backend mkl only.
-#   -NoDownload         Fail instead of downloading a backend that was not
-#                       found locally. The default is to fetch one into
-#                       <ProjectDir> (project-local; nothing is installed
-#                       system-wide), which is ordinary Windows practice.
-#   -Yes                Skip interactive questions, taking each documented
-#                       default. Questions are already skipped when stdin
-#                       is not a terminal.
+#                       (default: ..\RandNLA-project next to the clone).
+#   -Backend <name>     mkl (default) | openblas | custom. See setup.ps1.
+#   -MklRoot <path>     Use this oneMKL install instead of discovery.
+#   -NoDownload         Fail rather than download a backend that was not
+#                       found locally. The default fetches one into
+#                       <ProjectDir>; nothing is installed system-wide.
+#   -Yes                Skip interactive questions, taking each default.
+#                       Already skipped when stdin is not a terminal.
+#   -NoOpenMP           Build serially. The default enables OpenMP through
+#                       MSVC's /openmp:llvm runtime.
+#   -Fresh              Reconfigure RandLAPACK from scratch. Dependencies are
+#                       always reused; delete <ProjectDir>\install to rebuild
+#                       them.
+#   -SkipTests          Do not run the test suite after building.
 #   -BlasLibraries / -LapackLibraries / -BackendBinDir / -BlasInt / -BlasFortran
 #                       Backend custom only; see setup.ps1's header.
-#   -Fresh              Reconfigure RandLAPACK from scratch (dependencies are
-#                       always reused when present; delete <ProjectDir>\install
-#                       subdirectories to force dependency rebuilds).
-#   -NoOpenMP           Build serially. The default enables OpenMP via MSVC's
-#                       /openmp:llvm runtime (the only mode that accepts
-#                       RandLAPACK's 64-bit loop indices and collapse
-#                       clauses); a serial build is fully functional too.
-#   -SkipTests          Do not run the test suite after building.
-#
-# GPU support is not available on native Windows yet.
 
 [CmdletBinding()]
 param(

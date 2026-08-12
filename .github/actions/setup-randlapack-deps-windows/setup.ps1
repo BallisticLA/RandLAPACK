@@ -349,42 +349,26 @@ if ($Backend -eq "mkl") {
     }
     if (-not $mklLayout -and -not $provisionMkl) {
         # Reached two ways: -NoDownload, or the question above answered no.
-        # Both mean "no backend is available", so both get the same full list
-        # of ways to supply one; only the reason differs.
-        #
-        # Probing the literal oneAPI path (rather than requiring MKLROOT) is
-        # the polished Windows behaviour: that path IS canonical for oneMKL,
-        # even though Windows has no general system prefix for third-party
-        # libraries. See randnla/reference/windows-software-distribution.md.
-        #
-        # Details to the console, short throw -- the same shape install.ps1's
-        # preflight uses. A long multi-line throw message gets echoed twice by
-        # PowerShell (message, then FullyQualifiedErrorId) and buried in a
-        # stack trace, which makes actionable guidance harder to read, not
-        # easier.
+        # Both mean no backend is available, so both get the same options.
+        # Details go to the console and the throw stays short: PowerShell
+        # echoes a long throw message twice and buries it in a stack trace.
         $mklRootShown = if ($env:MKLROOT) { $env:MKLROOT } else { "(not set)" }
         $oneApiShown = if ($env:ONEAPI_ROOT) { Join-Path $env:ONEAPI_ROOT "mkl\latest" } else { "(not set)" }
         Write-Host ""
         $why = if ($NoDownload) { "-NoDownload was given" } else { "the download was declined" }
-        Write-Host "No oneMKL installation found, and $why."
+        Write-Host "No oneMKL found, and $why."
         Write-Host ""
-        Write-Host "  Looked in (in order):"
-        Write-Host "    -MklRoot                                        (not given)"
-        Write-Host "    `$env:MKLROOT                                    $mklRootShown"
-        Write-Host "    `$env:ONEAPI_ROOT\mkl\latest                     $oneApiShown"
-        Write-Host "    C:\Program Files (x86)\Intel\oneAPI\mkl\latest  (default oneAPI location)"
+        Write-Host "  Searched:  -MklRoot (not given)"
+        Write-Host "             `$env:MKLROOT           $mklRootShown"
+        Write-Host "             `$env:ONEAPI_ROOT       $oneApiShown"
+        Write-Host "             C:\Program Files (x86)\Intel\oneAPI\mkl\latest"
         Write-Host ""
-        Write-Host "  A directory only counts if it holds mkl_intel_ilp64_dll.lib under lib\ or"
-        Write-Host "  lib\intel64\ alongside a bin\ (or redist\intel64\) DLL directory, so a"
-        Write-Host "  partial install is rejected rather than half-used."
-        Write-Host ""
-        Write-Host "  Pick one:"
-        Write-Host "    1. Install oneMKL:            winget install --id Intel.oneMKL --exact"
-        Write-Host "    2. Use a copy you already have:  -MklRoot `"<path to ...\mkl\latest>`""
-        Write-Host "    3. Use OpenBLAS instead:      -Backend openblas"
-        Write-Host "    4. Let the installer fetch a pinned oneMKL (~155 MB into"
-        Write-Host "       $resolvedRoot; nothing installed system-wide):"
-        Write-Host "       re-run and answer yes, or pass -Yes to skip the question."
+        Write-Host "  Any of these works:"
+        Write-Host "    winget install --id Intel.oneMKL --exact"
+        Write-Host "    -MklRoot `"<path to ...\mkl\latest>`"   use a copy you already have"
+        Write-Host "    -Backend openblas                     use OpenBLAS instead"
+        Write-Host "    re-run and answer yes (or pass -Yes)  download a pinned oneMKL,"
+        Write-Host "                                          ~155 MB, into this project only"
         Write-Host ""
         throw "No BLAS/LAPACK backend available; see the options above."
     }
@@ -596,23 +580,12 @@ if ($Backend -eq "custom") {
 }
 
 function Copy-LibrariesToSpaceFreePath {
-    # BLAS++'s BLASFinder feeds library paths into a try_compile *unquoted*,
-    # so under the Ninja generator a path containing a space is split at the
-    # space and the probe dies with, e.g.:
-    #     ninja: error: 'C:/Program', needed by 'cmTC_x.exe', missing
-    # BLASFinder reports only "BLAS library not found", which points at the
-    # library rather than at the path that broke.
-    #
-    # This is not a corner case: Intel installs oneMKL to
-    # C:\Program Files (x86)\Intel\oneAPI\ by default, so EVERY discovered
-    # oneMKL hits it, as does any custom backend under Program Files. It is
-    # invisible to CI and to the download path because those land in a
-    # space-free directory under the dependency root.
-    #
-    # Import libraries are self-contained (they only name their DLL, which is
-    # still resolved at run time from $backendBin), so copying them next to
-    # the rest of the dependency tree is safe. Only done when needed, to keep
-    # the common case transparent.
+    # BLAS++ splits library paths on spaces before probing them, so any path
+    # containing one fails as "BLAS library not found". Intel's default oneMKL
+    # location has a space, making this the common case rather than a corner
+    # one. Fixed upstream in icl-utk-edu/blaspp#137; removing this workaround
+    # is tracked in #158. Import libraries only name their DLL, still loaded
+    # at run time from $backendBin, so relocating them is safe.
     param([string[]]$Libraries, [string]$Destination, [string]$Label)
     if (-not ($Libraries | Where-Object { $_ -match ' ' })) { return $Libraries }
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null

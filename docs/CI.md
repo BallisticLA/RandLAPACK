@@ -65,7 +65,7 @@ candidates once they have a green track record.
   mkl-openmp), no second install-script backend leg (the installer's
   `-Backend` forwarding is thin; provisioning is covered by the openblas
   core leg), and no Windows ASan lane.
-- **The two Windows guard jobs test the documented *user* path, which the
+- **The Windows guard job tests the documented *user* path, which the
   build matrix structurally cannot.** Every build leg initializes MSVC with
   an explicit `arch: x64` under `pwsh`, so none of them exercises the shell
   the install docs actually tell users to open. That gap is precisely how a
@@ -138,12 +138,13 @@ candidates once they have a green track record.
   prepend remains in run-ci.ps1/install.ps1 only for the RandBLAS
   submodule's own test executables, until RandBLAS gains the same staging
   (planned follow-up).
-- **BLAS++ and LAPACK++ on Windows come from BallisticLA fork branches**
-  (`BallisticLA/blaspp@remove-symv-debug-print`,
-  `BallisticLA/lapackpp@msvc-direct-includes`) carrying two one-line MSVC
-  fixes. Upstream PRs are open (blaspp #132, lapackpp #87); once merged, the
-  clones in `.github/actions/setup-randlapack-deps-windows/setup.ps1` move
-  back to upstream master.
+- **Every Windows dependency is pinned to an immutable ref**, and comes from
+  its canonical upstream. BLAS++ and LAPACK++ are pinned to commits rather
+  than tags only because the latest release of each, `v2025.05.28`, predates
+  the MSVC fixes this build needs (blaspp #132, lapackpp #87, merged upstream
+  2026-08-06); they move to a tag once one carries them. A branch name would
+  be a moving target inside a cache keyed on the setup script, so a cache hit
+  could restore a different revision than a miss builds.
 
 ## Caches
 

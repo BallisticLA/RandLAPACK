@@ -73,34 +73,10 @@ dependencies, builds RandLAPACK, and runs its test suite. Everything lands in
 a sibling `RandNLA-project\` directory; re-running the script reuses what is
 already built.
 
-Unlike Linux and macOS, you are not expected to install a BLAS library first.
-Windows has no system location for third-party libraries, so projects acquire
-their own -- that is what vcpkg, Conan, and NuGet exist for. Anything the
-installer downloads goes inside `RandNLA-project\`, never into your system,
-and deleting that directory removes it completely.
-
-If no oneMKL is found, the installer explains what it searched and asks before
-downloading anything:
-
-```
-No existing oneMKL found (checked -MklRoot, $env:MKLROOT, $env:ONEAPI_ROOT,
-and C:\Program Files (x86)\Intel\oneAPI\mkl\latest).
-
-A pinned, checksum-verified copy (~155 MB) can be downloaded into
-  ...\RandNLA-project\install
-It is used only by this project: nothing is installed system-wide, no PATH
-or registry changes, and deleting that directory removes it completely.
-
-Download oneMKL now? [Y/n]
-```
-
-Answering no prints the alternatives and stops. Questions are skipped when the
-installer is not attached to a terminal (a script, a pipeline, CI), taking the
-default shown in brackets; `-Yes` skips them in an interactive session too.
-
-If you would rather supply the library yourself, use `-MklRoot` to point at an
-existing oneMKL, or `-NoDownload` to make a missing one an error instead of a
-download. See §4.
+You are not expected to install a BLAS library first, unlike on Linux and
+macOS. If the installer cannot find one it says what it searched and asks
+before downloading a pinned copy into the project directory -- nothing is
+installed system-wide. Section 4 covers the choices.
 
 ## 2. How this differs from Linux and macOS
 
@@ -205,6 +181,12 @@ on a BLAS/LAPACK library of your choice. On Windows the installer supports:
 | **oneMKL** (default) | none needed | fastest option on most x64 CPUs; 64-bit integers (ILP64); MKL-accelerated sparse routines in RandBLAS | discovered from an existing install via `-MklRoot`, `MKLROOT`, `ONEAPI_ROOT`, or the default oneAPI location; otherwise Intel's official NuGet packages are downloaded, pinned by version and SHA256. `-NoDownload` turns "not found" into an error |
 | **OpenBLAS** | `-Backend openblas` | solid free backend; 32-bit integers (LP64); RandBLAS's portable sparse fallbacks replace the MKL-only accelerations | official OpenBLAS release binaries, pinned and checksum-verified; the archive is self-contained and includes full LAPACK |
 | **Custom / bring-your-own** | `-Backend custom -BlasLibraries <paths>` | anything BLAS++/LAPACK++ can link -- e.g. AMD AOCL, a local ILP64 OpenBLAS build | you provide the import libraries (and their DLL directory via `-BackendBinDir`); the installer verifies them with a small link-and-run check before building anything |
+
+**ILP64 and LP64** describe the integer width a BLAS library uses for matrix
+dimensions -- 64-bit and 32-bit respectively. It matters only if you mix
+libraries built for different widths; the installer keeps it consistent for
+you, and the practical difference is that ILP64 lets RandBLAS use oneMKL's
+accelerated sparse routines.
 
 Notes for the custom path: AMD AOCL downloads sit behind a click-through
 license page, so the installer cannot fetch them -- download AOCL yourself,
