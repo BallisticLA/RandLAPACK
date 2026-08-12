@@ -96,7 +96,7 @@ Windows. The build tool is Ninja everywhere, which Visual Studio bundles.
 The practical consequence of the third row is worth internalizing: **on
 Windows you never need to edit PATH for RandLAPACK**. If an executable is
 staged, it runs; if you write your own program against RandLAPACK, either
-call the provided staging helper (section 6) or copy the DLLs next to your
+call the provided staging helper (section 7) or copy the DLLs next to your
 `.exe`. This "app-local deployment" is the idiomatic Windows layout -- it is
 what Visual Studio's own package manager does by default.
 
@@ -181,7 +181,36 @@ then point `-BlasLibraries` at its `.lib` files. The custom path is expected
 to work with any well-formed backend but is not exercised by our CI; oneMKL
 and OpenBLAS are.
 
-## 5. `install.ps1` reference
+## 5. What the installer downloads, and at which versions
+
+The installer never installs a compiler, CMake or Ninja -- those are yours to provide, exactly
+as on Linux and macOS (see §3). What it *can* fetch is the BLAS/LAPACK backend and RandLAPACK's
+own build-time dependencies. Everything lands under `<ProjectDir>`, is pinned to an exact
+version, and is verified by checksum where the source publishes archives:
+
+| Component | Version | Source | Verified by |
+|---|---|---|---|
+| Intel oneMKL | **2025.2.0.627** | `intelmkl.devel/redist.win-x64` on nuget.org | SHA256 |
+| OpenBLAS | **0.3.34** | official GitHub release binaries | SHA256 |
+| GoogleTest | **v1.17.0** | release tag | git tag |
+| Random123 | **v1.14.0** | release tag | git tag |
+| BLAS++ | commit `3057185` | icl-utk-edu/blaspp | git commit |
+| LAPACK++ | commit `40b9d0d` | icl-utk-edu/lapackpp | git commit |
+
+All are fetched from the project's canonical upstream and pinned to an immutable reference, so
+a given RandLAPACK revision always builds the same dependency versions.
+
+**oneMKL is only downloaded if you do not already have one.** If an existing oneAPI is
+discovered (§4), the installer uses *your* version, whatever that is, and downloads nothing.
+The version above therefore applies only to the no-oneMKL case.
+
+**Two deliberate exceptions to "pin a stable release".** BLAS++ and LAPACK++ are pinned to
+commits rather than to their latest release, `v2025.05.28`, because that release predates the
+two one-line MSVC fixes this build needs (blaspp #132 and lapackpp #87, both merged upstream on
+2026-08-06). They move to a release tag as soon as one includes those fixes. Everything else is
+a stable, released version.
+
+## 6. `install.ps1` reference
 
 ```
 -ProjectDir <path>    Where dependencies/builds/installs go
@@ -234,7 +263,7 @@ Worked examples:
     -BackendBinDir "C:\AOCL\bin"
 ```
 
-## 6. Runtime DLLs: what "staging" means
+## 7. Runtime DLLs: what "staging" means
 
 A Windows executable that links a DLL-based library must be able to find
 those DLLs when it starts. Windows looks in the executable's own directory
@@ -255,7 +284,7 @@ randlapack_stage_runtime_dlls(myprog)   # no-op on non-Windows platforms
 If you prefer not to use the helper, copy the DLLs from the backend's `bin`
 directory (the installer prints it at the end) next to your `.exe`.
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 - **"running scripts is disabled on this system"**: Windows' default
   PowerShell execution policy. Launch it as the quick start does
@@ -287,7 +316,7 @@ directory (the installer prints it at the end) next to your `.exe`.
   its `Library\bin` on PATH when an environment is active. RandLAPACK's own
   staged executables are immune (the exe's folder outranks PATH), but a
   program of yours that relies on PATH can silently pick up conda's copies.
-  Stage your executable (section 6) and the problem disappears. To
+  Stage your executable (section 7) and the problem disappears. To
   deliberately build *against* a conda-provided MKL instead, pass
   `-MklRoot "<env>\Library"` (requires conda's `mkl-devel` package).
 - **Path-length errors deep in dependency builds**: keep the project
