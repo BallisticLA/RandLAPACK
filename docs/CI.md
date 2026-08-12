@@ -12,8 +12,7 @@ the thing we tell users to type is itself under test).
 | core-linux | `build-asan` | ubuntu-latest | Debug + AddressSanitizer build and test run | no |
 | core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain | **yes** (`build`) |
 | core-macos | `build-asan` | macos-latest | Debug + AddressSanitizer build and test run | no |
-| core-windows | `windows-guard-logic` | windows-2022 | Architecture-guard decision table (`test-toolchain-guard.ps1`); no MSVC, no build, seconds | no (new) |
-| core-windows | `windows-toolchain-guards` | windows-2022 | Asserts `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no (new) |
+| core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no (new) |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial; each leg ends with a stripped-PATH run of a staged test executable | no (new) |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
 | install-script | `install-macos` | macos-latest | `install.sh`: fresh install, idempotent re-run | **yes** |
@@ -72,20 +71,23 @@ candidates once they have a green track record.
   the install docs actually tell users to open. That gap is precisely how a
   32-bit toolchain reached a collaborator in 2026-08 and failed three layers
   down as BLAS++ reporting "BLAS library not found" (the libraries were fine;
-  an x86 linker simply cannot use an x64 import library). The guards close it
-  from two directions and are cheap because both assert a *refusal*, so
-  neither builds a dependency:
-    - `windows-guard-logic` drives the decision over a table of
-      architectures. This is the only way to cover **arm64** and **arm**: we
-      cannot build for them, so no build leg can ever test them. It also
-      asserts that `install.ps1`'s and `setup.ps1`'s duplicated copies of the
-      check still agree, since they run independently.
-    - `windows-toolchain-guards` runs the real installer under a real x86
-      toolchain and an `amd64_arm64` cross-compiling one (which yields an
-      arm64-targeting `cl.exe` on ordinary x64 hardware, so no ARM runner is
-      needed). It launches via `cmd` + `-ExecutionPolicy Bypass` under
-      Windows PowerShell 5.1, so the documented invocation stays under test
-      too, not just the guard.
+  an x86 linker simply cannot use an x64 import library). `windows-toolchain-guards` closes it
+  from two directions in **one** job: every check asserts a *refusal* or runs
+  pure logic, so each takes seconds and runner start-up dominates -- splitting
+  them across jobs would multiply the Windows runner count for no coverage.
+    - The decision table (`test-toolchain-guard.ps1`) drives the guard over
+      every architecture. This is the only way to cover **arm64** and **arm**:
+      we cannot build for them, so no build leg can ever test them.
+    - The integration steps (`assert-toolchain-refused.ps1`) run the real
+      installer under a real x86 toolchain and an `amd64_arm64` cross-compiling
+      one, which yields an arm64-targeting `cl.exe` on ordinary x64 hardware,
+      so no ARM runner is needed. They launch via `cmd` +
+      `-ExecutionPolicy Bypass` under Windows PowerShell 5.1, so the documented
+      invocation stays under test too, not just the guard.
+    - A step asserting a *failure* must reset `$LASTEXITCODE` before returning:
+      `shell: powershell` exits the step with whatever it holds, so the
+      intentional non-zero code reports a passing assertion as red. This bit us
+      on the guards' first run.
   x86 and arm64 must fail with *different* messages: x86 is a wrong-shell
   mistake with a one-command fix, arm64 is an unsupported platform (no
   oneMKL build exists for it). The tests pin that distinction.
@@ -108,6 +110,12 @@ candidates once they have a green track record.
   Linux/macOS behavior, where `install.sh` expects a system BLAS and errors
   without one. Everything downloaded lands under the dependency root, so a
   runner's cache and a user's project directory stay self-contained.
+- **The architecture check lives in one file, dot-sourced by both callers.**
+  `.github/scripts/windows/toolchain-arch.ps1` is shared by `install.ps1` and
+  `setup.ps1`, which run independently (CI calls `setup.ps1` alone, users call
+  `install.ps1`). It was briefly duplicated, with a test asserting the copies
+  agreed; sharing the file removes both the duplication and the need for that
+  test.
 - **The architecture check reads several signals, not just `cl.exe`'s
   banner.** It prefers `VSCMD_ARG_TGT_ARCH`, then the
   `bin\Host<host>\<target>\cl.exe` path convention, and only then the banner.

@@ -37,6 +37,9 @@ param(
     # where install.sh expects a system BLAS and errors without one.
     # Whatever is downloaded lands under <DependencyRoot>: project-local,
     # nothing installed system-wide, removed when that directory is deleted.
+    # With -Backend openblas this always fails: OpenBLAS has no canonical
+    # Windows location to discover, so there is nothing to fall back to and
+    # the honest answer is to direct the user at -Backend custom.
     [switch]$NoDownload,
 
     # Skip interactive questions and take the documented default for each,
@@ -76,42 +79,18 @@ function Invoke-Checked {
     }
 }
 
+# Architecture detection is shared with install/install.ps1 rather than
+# duplicated; see that file's note. $PSScriptRoot is
+# <repo>\.github\actions\setup-randlapack-deps-windows.
+$archHelper = Join-Path $PSScriptRoot "..\..\scripts\windows\toolchain-arch.ps1"
+if (-not (Test-Path $archHelper)) {
+    throw "Missing $archHelper. This clone looks incomplete."
+}
+. $archHelper
+
 function Convert-ToCMakePath {
     param([string]$Path)
     return $Path.Replace('\', '/')
-}
-
-function Get-ClTargetArchitecture {
-    # Returns the compiler's TARGET architecture, lowercased ("x64", "x86",
-    # "arm64", "arm"), or "" if it genuinely cannot be determined.
-    #
-    # Three independent signals, most reliable first -- the same
-    # probe-several-things approach Find-OneMklLayout uses, and for the same
-    # reason: a missed detection here fails *open*, which defeats the check.
-    #   1. VSCMD_ARG_TGT_ARCH, exported by vcvarsall.bat / VsDevCmd (and so
-    #      by ilammy/msvc-dev-cmd in CI). Never localized.
-    #   2. The toolset path: MSVC lays cl.exe out as
-    #      ...\bin\Host<host>\<target>\cl.exe, a stable convention.
-    #   3. The banner, last, for anything matching neither of the above.
-    #      On its own this would be wrong on a localized Visual Studio, where
-    #      the words around the architecture are translated.
-    if ($env:VSCMD_ARG_TGT_ARCH) { return $env:VSCMD_ARG_TGT_ARCH.ToLowerInvariant() }
-    $cl = Get-Command "cl.exe" -ErrorAction SilentlyContinue
-    if (-not $cl) { return "" }
-    if ($cl.Source -match '\\bin\\Host[^\\]+\\([^\\]+)\\cl\.exe$') {
-        return $Matches[1].ToLowerInvariant()
-    }
-    # Native stderr merged via 2>&1 becomes ErrorRecords, which would throw
-    # under $ErrorActionPreference = "Stop"; relax it for this one call.
-    $previous = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $banner = (& $cl.Source 2>&1 | Out-String)
-    } finally {
-        $ErrorActionPreference = $previous
-    }
-    if ($banner -match '\bfor\s+(x64|x86|ARM64|ARM)\b') { return $Matches[1].ToLowerInvariant() }
-    return ""
 }
 
 # Prompts happen only on a terminal and only without -Yes, mirroring
@@ -133,32 +112,6 @@ function Read-YesNo {
         if ($reply -in @("n", "no")) { return $false }
         Write-Host "Please answer y or n."
     }
-}
-
-function Get-ToolchainArchitectureProblem {
-    # Returns a description of why $Arch is unusable, or "" if it is fine.
-    # x86 and ARM64 fail for completely different reasons and deserve
-    # different advice: x86 means the wrong shell was opened and is a
-    # one-command fix, ARM64 means the platform is genuinely unsupported.
-    # (Mirrored in install.ps1, which performs the same check up front.)
-    param([string]$Arch)
-    if ($Arch -eq "" -or $Arch -eq "x64" -or $Arch -eq "amd64") { return "" }
-    if ($Arch -eq "x86") {
-        return ("cl.exe targets x86, but RandLAPACK and its BLAS/LAPACK backends are 64-bit " +
-            "(x64).`n" +
-            "  You are in a 32-bit developer shell. 'Developer PowerShell for VS 2022' and " +
-            "'Developer Command Prompt for VS 2022' both default to x86.`n" +
-            "  Fix: open 'x64 Native Tools Command Prompt for VS 2022' from the Start menu " +
-            "(or run: cmd /k `"<VS install>\VC\Auxiliary\Build\vcvars64.bat`") and re-run.`n" +
-            "  Then delete the RandNLA-project directory before retrying: dependencies already " +
-            "configured by the x86 compiler are reused as-is and would keep failing.")
-    }
-    return ("cl.exe targets $Arch, which this installer does not support: the Windows build " +
-        "is x64-only.`n" +
-        "  Intel oneMKL publishes no $Arch build, and the OpenBLAS binaries pinned here are " +
-        "x64. Supplying an $Arch BLAS/LAPACK through -Backend custom is the only route, and " +
-        "it is untested.`n" +
-        "  If you meant to build x64, open 'x64 Native Tools Command Prompt for VS 2022'.")
 }
 
 function Assert-SupportedToolchain {
@@ -490,7 +443,23 @@ if ($Backend -eq "mkl") {
     # and MSYS2 all differ, and the release zips even ship CMake config
     # files with wrong hardcoded paths). So rather than probe and guess, ask
     # -- and only when someone is there to answer.
-    if ($script:Interactive -and -not $NoDownload) {
+    if ($NoDownload) {
+        # -NoDownload must mean what it says for every backend. There is no
+        # OpenBLAS to discover, so the only honest outcome is to stop and
+        # point at the backend that takes user-supplied libraries.
+        Write-Host ""
+        Write-Host "-Backend openblas needs to download OpenBLAS, and -NoDownload forbids that."
+        Write-Host ""
+        Write-Host "  OpenBLAS has no canonical install location on Windows, so unlike oneMKL"
+        Write-Host "  there is nothing to discover. To use a copy you already have:"
+        Write-Host ""
+        Write-Host "    -Backend custom -BlasLibraries `"<path>\libopenblas.lib`" ``"
+        Write-Host "      -BackendBinDir `"<directory holding libopenblas.dll>`" ``"
+        Write-Host "      -BlasInt lp64 -BlasFortran add"
+        Write-Host ""
+        throw "-Backend openblas requires a download; use -Backend custom or drop -NoDownload."
+    }
+    if ($script:Interactive) {
         if (Read-YesNo "Do you already have OpenBLAS installed?" $false) {
             Write-Host ""
             Write-Host "OpenBLAS has no standard layout on Windows, so point at the pieces"

@@ -9,72 +9,50 @@ on:
       - cqrrp-gpu-benchmarking
 
 jobs:
-  # Decision-level test of the architecture guard. Needs no MSVC and no
-  # build, so it covers arm64 and arm -- which we cannot build for, and so
-  # can never cover with a build leg -- in a few seconds on x64 hardware.
-  # Also asserts install.ps1's and setup.ps1's duplicated copies agree.
-  windows-guard-logic:
-    name: windows-guard-logic
+  # Structural gate for the documented *user* path, which the build matrix
+  # below cannot cover: it initializes MSVC with an explicit arch: x64 under
+  # pwsh, so it has never exercised the shell the install docs tell users to
+  # open. That gap is exactly how a 32-bit toolchain reached a collaborator and
+  # failed three layers down as "BLAS library not found".
+  #
+  # One job, not three: every check here asserts a *refusal* or runs pure
+  # logic, so each takes seconds and runner start-up dominates. Splitting them
+  # would triple the Windows runner count for no extra coverage.
+  windows-toolchain-guards:
+    name: windows-toolchain-guards
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+
+      # Pure logic, no MSVC needed. This is the only way to cover arm64 and
+      # arm: we cannot build for them, so no build leg could ever test them.
       - name: architecture guard decision table
         shell: powershell
         run: .\.github\scripts\windows\test-toolchain-guard.ps1
 
-  # Structural gate for the documented *user* path, which the build matrix
-  # below cannot cover: it initializes MSVC with an explicit arch: x64 and
-  # runs under pwsh, so it has never exercised the shell the install docs
-  # tell users to open. That gap is exactly how a 32-bit toolchain reached a
-  # collaborator and failed three layers down as "BLAS library not found".
-  #
-  # These legs assert a *refusal*, so they stop at preflight in seconds and
-  # never build a dependency: cheap enough to keep permanently. arch x86 is
-  # the real-world case; amd64_arm64 cross-compiles, which yields an
-  # ARM64-targeting cl.exe on an ordinary x64 runner and so covers the ARM
-  # branch of the guard without ARM hardware.
-  windows-toolchain-guards:
-    name: windows-guard-${{ matrix.arch }}
-    runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86
-            expect: targets x86
-          - arch: amd64_arm64
-            expect: targets arm64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: initialize MSVC (${{ matrix.arch }})
+      # Integration counterparts. x86 is the real-world case; amd64_arm64
+      # cross-compiles, yielding an arm64-targeting cl.exe on an ordinary x64
+      # runner, so the arm branch is exercised without ARM hardware.
+      - name: initialize MSVC (x86)
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: ${{ matrix.arch }}
+          arch: x86
 
       # Windows PowerShell 5.1, not pwsh: this is what a user actually gets,
-      # and the launch line is verbatim the one INSTALL_WINDOWS.md prescribes
-      # (cmd + -ExecutionPolicy Bypass), so the documented invocation itself
-      # stays under test.
-      - name: install.ps1 must refuse a ${{ matrix.arch }} toolchain
+      # and the launch line is verbatim the one INSTALL_WINDOWS.md prescribes,
+      # so the documented invocation itself stays under test.
+      - name: install.ps1 must refuse an x86 toolchain
         shell: powershell
-        run: |
-          $output = & cmd /c "powershell -ExecutionPolicy Bypass -File .\install\install.ps1 2>&1"
-          $exit = $LASTEXITCODE
-          $text = $output -join "`n"
-          Write-Host $text
-          if ($exit -eq 0) {
-            throw "install.ps1 succeeded with a ${{ matrix.arch }} toolchain; the architecture guard did not fire."
-          }
-          if ($text -notmatch '${{ matrix.expect }}') {
-            throw "The guard fired, but no '${{ matrix.expect }}' in its output: the wrong check failed."
-          }
-          Write-Host "OK: refused ${{ matrix.arch }} at preflight, with the expected explanation."
-          # This step succeeds when the installer FAILS, so the non-zero
-          # $LASTEXITCODE left by that intentional failure has to be cleared:
-          # `shell: powershell` exits the step with whatever it holds, which
-          # would report a pass as a failure.
-          exit 0
+        run: .\.github\scripts\windows\assert-toolchain-refused.ps1 -Expect "targets x86"
+
+      - name: initialize MSVC (amd64_arm64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
+      - name: install.ps1 must refuse an arm64 toolchain
+        shell: powershell
+        run: .\.github\scripts\windows\assert-toolchain-refused.ps1 -Expect "targets arm64"
 
   build-windows:
     name: windows-msvc-${{ matrix.backend }}-${{ matrix.int }}-${{ matrix.label }}

@@ -6,9 +6,6 @@
 # the decision directly covers arm64 and arm on ordinary x64 hardware, and
 # covers them in seconds.
 #
-# It also guards against drift. install.ps1 and setup.ps1 each carry a copy
-# of these two functions (they run independently -- CI calls setup.ps1 alone,
-# users call install.ps1), so this asserts the two copies still agree.
 #
 # The integration counterpart lives in core-windows.yaml, which runs the real
 # installer under a real x86 and a real cross-compiled arm64 toolchain and
@@ -17,11 +14,8 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
-$sources = @(
-    (Join-Path $repoRoot "install\install.ps1"),
-    (Join-Path $repoRoot ".github\actions\setup-randlapack-deps-windows\setup.ps1")
-)
+# Single shared implementation, dot-sourced by both install.ps1 and setup.ps1.
+$source = Join-Path $PSScriptRoot "toolchain-arch.ps1"
 
 # Arch, whether it must be accepted, and a phrase the refusal must contain.
 # x86 and arm64 must not merely both fail -- they must fail with *different*
@@ -67,46 +61,25 @@ foreach ($case in $Cases) {
 
 $savedArch = $env:VSCMD_ARG_TGT_ARCH
 $failures = 0
-$allVerdicts = @{}
 try {
-    foreach ($source in $sources) {
-        $label = Split-Path $source -Leaf
-        Write-Host "--- $label ---"
-        $verdicts = @(Get-GuardVerdicts -SourceFile $source -Cases $cases)
-        $allVerdicts[$label] = $verdicts
-        for ($i = 0; $i -lt $cases.Count; $i++) {
-            $case = $cases[$i]
-            $verdict = $verdicts[$i]
-            $accepted = ($verdict.Problem -eq "")
-            $ok = ($accepted -eq $case.ShouldPass)
-            if ($ok -and $case.Expect -ne "" -and $verdict.Problem -notmatch [regex]::Escape($case.Expect)) {
-                $ok = $false
-                Write-Host "    (refused, but the message lacked '$($case.Expect)')"
-            }
-            if (-not $ok) { $failures++ }
-            Write-Host ("{0}  {1,-6} detected={2,-6} {3}" -f
-                $(if ($ok) { "OK  " } else { "FAIL" }),
-                $case.Arch, $verdict.Detected,
-                $(if ($accepted) { "accepted" } else { "refused" }))
+    $verdicts = @(Get-GuardVerdicts -SourceFile $source -Cases $cases)
+    for ($i = 0; $i -lt $cases.Count; $i++) {
+        $case = $cases[$i]
+        $verdict = $verdicts[$i]
+        $accepted = ($verdict.Problem -eq "")
+        $ok = ($accepted -eq $case.ShouldPass)
+        if ($ok -and $case.Expect -ne "" -and $verdict.Problem -notmatch [regex]::Escape($case.Expect)) {
+            $ok = $false
+            Write-Host "    (refused, but the message lacked '$($case.Expect)')"
         }
+        if (-not $ok) { $failures++ }
+        Write-Host ("{0}  {1,-6} detected={2,-6} {3}" -f
+            $(if ($ok) { "OK  " } else { "FAIL" }),
+            $case.Arch, $verdict.Detected,
+            $(if ($accepted) { "accepted" } else { "refused" }))
     }
 } finally {
     $env:VSCMD_ARG_TGT_ARCH = $savedArch
-}
-
-# Drift check: both copies must reach identical verdicts.
-Write-Host "--- install.ps1 vs setup.ps1 agreement ---"
-$left = $allVerdicts["install.ps1"]
-$right = $allVerdicts["setup.ps1"]
-for ($i = 0; $i -lt $cases.Count; $i++) {
-    $leftAccepted = ($left[$i].Problem -eq "")
-    $rightAccepted = ($right[$i].Problem -eq "")
-    if ($leftAccepted -ne $rightAccepted) {
-        $failures++
-        Write-Host ("FAIL  {0}: install.ps1 and setup.ps1 disagree" -f $cases[$i].Arch)
-    } else {
-        Write-Host ("OK    {0}: both agree" -f $cases[$i].Arch)
-    }
 }
 
 Write-Host ""

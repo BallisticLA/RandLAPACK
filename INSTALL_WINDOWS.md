@@ -42,6 +42,25 @@ their own -- that is what vcpkg, Conan, and NuGet exist for. Anything the
 installer downloads goes inside `RandNLA-project\`, never into your system,
 and deleting that directory removes it completely.
 
+If no oneMKL is found, the installer explains what it searched and asks before
+downloading anything:
+
+```
+No existing oneMKL found (checked -MklRoot, $env:MKLROOT, $env:ONEAPI_ROOT,
+and C:\Program Files (x86)\Intel\oneAPI\mkl\latest).
+
+A pinned, checksum-verified copy (~155 MB) can be downloaded into
+  ...\RandNLA-project\install
+It is used only by this project: nothing is installed system-wide, no PATH
+or registry changes, and deleting that directory removes it completely.
+
+Download oneMKL now? [Y/n]
+```
+
+Answering no prints the alternatives and stops. Questions are skipped when the
+installer is not attached to a terminal (a script, a pipeline, CI), taking the
+default shown in brackets; `-Yes` skips them in an interactive session too.
+
 If you would rather supply the library yourself, use `-MklRoot` to point at an
 existing oneMKL, or `-NoDownload` to make a missing one an error instead of a
 download. See §4.
@@ -94,23 +113,31 @@ about *which shell you start from*:
    backend here are 64-bit, and a 32-bit linker cannot use an x64 import
    library. Use **"x64 Native Tools Command Prompt for VS 2022"** instead.
 
-You can confirm you are in the right place with:
+Confirm you are in the right place with:
 
 ```
-cl
+where cl
 ```
 
-The banner must end in `for x64`. If it says `for x86`, you are in a 32-bit
-shell. The installer's preflight check will also stop you with this same
-explanation, so you cannot get far down the wrong path.
+The path it prints must contain `Hostx64\x64`. If it prints
+`INFO: Could not find files for the given pattern(s)`, you are in a plain
+shell with no compiler; if it contains `Hostx86\x86`, you are in a 32-bit
+developer shell. Use `where cl` rather than running `cl` alone: in the failing
+cases `cl` either is not found or prints a usage banner, and neither reads as
+"wrong shell". The installer's preflight check catches this too, so you cannot
+get far down the wrong path.
 
-If you prefer PowerShell to `cmd`, there is no x64 PowerShell entry in the
-Start menu, so ask for the architecture explicitly:
+**If the Start-menu entry is missing or named differently** (Build Tools, a
+different edition, or a Visual Studio version other than 2022), this works
+from any Command Prompt regardless of edition or version -- it asks Visual
+Studio's own locator where it is installed:
 
-```powershell
-Import-Module "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\Community" -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+```bat
+for /f "usebackq delims=" %i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%i\VC\Auxiliary\Build\vcvars64.bat"
 ```
+
+The `-products *` matters: without it `vswhere` reports only full Visual
+Studio editions and silently finds nothing on a Build Tools install.
 
 ### Script execution policy
 
@@ -155,7 +182,14 @@ and OpenBLAS are.
 -NoDownload           Fail instead of downloading a backend that was not
                       found locally. The default fetches one into
                       <ProjectDir>; nothing is installed system-wide, and
-                      deleting <ProjectDir> removes it.
+                      deleting <ProjectDir> removes it. With -Backend
+                      openblas this always fails, because OpenBLAS has no
+                      canonical Windows location to discover -- use
+                      -Backend custom to supply your own.
+-NoOpenMP             Build serially. The default enables OpenMP through
+                      MSVC's /openmp:llvm runtime, the only mode that
+                      accepts RandLAPACK's 64-bit loop indices; a serial
+                      build is fully functional too.
 -Yes                  Skip interactive questions, taking each documented
                       default. Questions are already skipped when stdin is
                       not a terminal, so CI never needs this.
