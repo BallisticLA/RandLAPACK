@@ -144,8 +144,18 @@ function Clone-Pinned {
     # "cache hit" restores.
     param([string]$Url, [string]$Destination, [string]$Ref)
     if (Test-Path $Destination) {
-        Write-Host "Reusing existing clone at $Destination"
-        return
+        # Reuse only if it is actually the pinned source. A clone left by an
+        # earlier revision of this script may sit at a different remote or
+        # commit, and silently rebuilding that is how a "fixed" dependency
+        # stays broken.
+        $head = (& git -C $Destination rev-parse HEAD 2>$null)
+        $remote = (& git -C $Destination remote get-url origin 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $remote -eq $Url -and ($head -eq $Ref -or $head -like "$Ref*")) {
+            Write-Host "Reusing existing clone at $Destination"
+            return
+        }
+        Write-Host "Re-cloning $Destination : it is not at the pinned $Url@$Ref."
+        Remove-Item -Recurse -Force $Destination
     }
     # A tag can be cloned shallowly by name; a SHA cannot, so fetch it
     # directly (GitHub allows fetching a reachable commit by SHA).
@@ -154,6 +164,22 @@ function Clone-Pinned {
     Invoke-Checked "git" @("-C", $Destination, "remote", "add", "origin", $Url)
     Invoke-Checked "git" @("-C", $Destination, "fetch", "--quiet", "--depth", "1", "origin", $Ref)
     Invoke-Checked "git" @("-C", $Destination, "checkout", "--quiet", "FETCH_HEAD")
+}
+
+function Test-Provenance {
+    # A dependency install is reusable only if it was built from the source we
+    # would build from now. Without this, changing a pin (or a repository) has
+    # no effect on anyone who already has an install: the reuse check only
+    # asks "does a config file exist?". That is the same failure mode as
+    # reusing a dependency tree configured by the wrong compiler.
+    param([string]$InstallRoot, [string]$Expected)
+    $stamp = Join-Path $InstallRoot ".randlapack-source"
+    return (Test-Path $stamp) -and ((Get-Content -Raw $stamp).Trim() -eq $Expected)
+}
+
+function Write-Provenance {
+    param([string]$InstallRoot, [string]$Expected)
+    Set-Content -Path (Join-Path $InstallRoot ".randlapack-source") -Value $Expected -Encoding ascii
 }
 
 function Export-GitHubValue {
@@ -653,17 +679,21 @@ if (Test-Path (Join-Path $random123Install "include\Random123\philox.h")) {
 $blasppInstall = Join-Path $resolvedRoot "blaspp-$backendId-install"
 # Reuse only on an intact install: a partially restored cache directory must
 # trigger a rebuild, not silently skip it.
+# Upstream, pinned to the commit that merged the MSVC fix (PR #132,
+# 2026-08-06). Not in a release yet: the latest tag, v2025.05.28, predates it.
+# Move to a tag once one includes it. Declared once and used for both the
+# clone and the reuse stamp, so the two cannot drift.
+$blasppUrl = "https://github.com/icl-utk-edu/blaspp.git"
+$blasppRef = "30571853f980d3a2a1737124ea4789e025a5e045"
+$blasppSource = "$blasppUrl@$blasppRef"
 $blasppReusable = (Test-Path $blasppInstall) -and (Get-ChildItem -Path $blasppInstall -Recurse `
-    -Filter "blasppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1)
+    -Filter "blasppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `
+    -and (Test-Provenance $blasppInstall $blasppSource)
 if ($blasppReusable) {
     Write-Host "Reusing BLAS++ at $blasppInstall"
 } else {
     $blasppSrc = Join-Path $resolvedRoot "blaspp-src"
-    # Upstream, pinned to the commit that merged the MSVC fix (PR #132,
-    # 2026-08-06). The fix is not in a release yet: the latest tag,
-    # v2025.05.28, predates it. Move to a tag once one includes it.
-    Clone-Pinned "https://github.com/icl-utk-edu/blaspp.git" $blasppSrc `
-        "30571853f980d3a2a1737124ea4789e025a5e045"
+    Clone-Pinned $blasppUrl $blasppSrc $blasppRef
     # Never re-configure an existing blaspp build in place: that regenerates
     # blas/defines.h without the backend defines. Fresh build tree per run.
     $blasppBuild = Join-Path $resolvedRoot "blaspp-$backendId-build"
@@ -683,22 +713,26 @@ if ($blasppReusable) {
     if ($backendBlasFortran -ne "") { $blasppArgs += "-Dblas_fortran=$backendBlasFortran" }
     Invoke-Checked "cmake" $blasppArgs
     Invoke-Checked "cmake" @("--build", $blasppBuild, "--target", "install")
+    Write-Provenance $blasppInstall $blasppSource
 }
 $blasppDir = Find-PackageConfigDirectory $blasppInstall "blaspp"
 
 # --------------------------------------------------------------- LAPACK++ ----
 
 $lapackppInstall = Join-Path $resolvedRoot "lapackpp-$backendId-install"
+# Upstream, pinned to the commit that merged the MSVC fix (PR #87,
+# 2026-08-06); likewise not yet in a release. Declared once, as above.
+$lapackppUrl = "https://github.com/icl-utk-edu/lapackpp.git"
+$lapackppRef = "40b9d0daf29b6f1f3fa58bc3f22bd6cfb2c67fe4"
+$lapackppSource = "$lapackppUrl@$lapackppRef"
 $lapackppReusable = (Test-Path $lapackppInstall) -and (Get-ChildItem -Path $lapackppInstall -Recurse `
-    -Filter "lapackppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1)
+    -Filter "lapackppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `
+    -and (Test-Provenance $lapackppInstall $lapackppSource)
 if ($lapackppReusable) {
     Write-Host "Reusing LAPACK++ at $lapackppInstall"
 } else {
     $lapackppSrc = Join-Path $resolvedRoot "lapackpp-src"
-    # Upstream, pinned to the commit that merged the MSVC fix (PR #87,
-    # 2026-08-06); likewise not yet in a release.
-    Clone-Pinned "https://github.com/icl-utk-edu/lapackpp.git" $lapackppSrc `
-        "40b9d0daf29b6f1f3fa58bc3f22bd6cfb2c67fe4"
+    Clone-Pinned $lapackppUrl $lapackppSrc $lapackppRef
     $lapackppBuild = Join-Path $resolvedRoot "lapackpp-$backendId-build"
     if (Test-Path $lapackppBuild) { Remove-Item -Recurse -Force $lapackppBuild }
     $lapackppArgs = @(
@@ -714,6 +748,7 @@ if ($lapackppReusable) {
     }
     Invoke-Checked "cmake" $lapackppArgs
     Invoke-Checked "cmake" @("--build", $lapackppBuild, "--target", "install")
+    Write-Provenance $lapackppInstall $lapackppSource
 }
 $lapackppDir = Find-PackageConfigDirectory $lapackppInstall "lapackpp"
 
