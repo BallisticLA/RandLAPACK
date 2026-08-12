@@ -1,5 +1,6 @@
 # Configures, builds, installs, and tests RandLAPACK natively on Windows with
-# MSVC + oneMKL (ILP64, sequential). Shared between GitHub CI and local runs.
+# MSVC and the selected BLAS/LAPACK backend (-Backend: mkl default, openblas,
+# custom). Shared between GitHub CI and local runs.
 #
 # Local use, from an MSVC developer prompt in the repository root:
 #   .github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies
@@ -24,6 +25,9 @@ param(
     [string]$WorkRoot = "",
 
     [string]$DependencyRoot = "",
+
+    [ValidateSet("mkl", "openblas", "custom")]
+    [string]$Backend = "mkl",
 
     [switch]$SetupDependencies,
 
@@ -64,22 +68,38 @@ if ($DependencyRoot -eq "") {
 }
 
 if ($SetupDependencies) {
+    # -Yes: this path is CI (and local reproduction of a CI leg), so it must
+    # never stop on a question.
     & (Join-Path $SourceRoot ".github\actions\setup-randlapack-deps-windows\setup.ps1") `
-        -DependencyRoot $DependencyRoot -SanitizeAddress:$SanitizeAddress
+        -DependencyRoot $DependencyRoot -Backend $Backend -Yes `
+        -SanitizeAddress:$SanitizeAddress
 }
 
 $blasppDir = Require-EnvironmentVariable "blaspp_DIR"
 $lapackppDir = Require-EnvironmentVariable "lapackpp_DIR"
 $random123Dir = Require-EnvironmentVariable "Random123_DIR"
 $gtestPrefix = Require-EnvironmentVariable "googletest_PREFIX"
-$mklRoot = Require-EnvironmentVariable "MKLROOT"
-$mklBin = [Environment]::GetEnvironmentVariable("MKL_BIN")
-if (-not $mklBin) { $mklBin = "$($mklRoot.Replace('/', '\'))\bin" }
+$backendBin = [Environment]::GetEnvironmentVariable("RANDNLA_BLAS_BIN")
+if (-not $backendBin) {
+    # Legacy fallback for environments set up by an older setup.ps1: derive
+    # the DLL directory from MKLROOT, accepting both oneAPI layouts.
+    $mklRoot = [Environment]::GetEnvironmentVariable("MKLROOT")
+    if ($mklRoot) {
+        $backendBin = @("$($mklRoot.Replace('/', '\'))\bin",
+                        "$($mklRoot.Replace('/', '\'))\redist\intel64") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+    }
+}
+if (-not $backendBin) {
+    throw "RANDNLA_BLAS_BIN is not set. Run setup.ps1 (or pass -SetupDependencies)."
+}
 
-# oneMKL enters through raw library paths recorded by BLAS++, so its DLLs are
-# not covered by the TARGET_RUNTIME_DLLS staging and must be on PATH for the
-# build-time gtest discovery and for ctest.
-$env:PATH = "$mklBin;$env:PATH"
+# The BLAS backend enters through raw library paths recorded by BLAS++, so its
+# DLLs are not covered by the TARGET_RUNTIME_DLLS staging. RANDLAPACK_RUNTIME_DLL_DIRS
+# stages them beside RandLAPACK's executables; the process-PATH prepend below
+# additionally covers the RandBLAS submodule's own executables until the
+# RandBLAS-side staging lands (planned follow-up).
+$env:PATH = "$backendBin;$env:PATH"
 
 $buildDir = Join-Path $WorkRoot "RandLAPACK-build"
 $installDir = Join-Path $WorkRoot "RandLAPACK-install"
@@ -93,6 +113,8 @@ $configureArgs = @(
     "-Dlapackpp_DIR=$lapackppDir",
     "-DRandom123_DIR=$random123Dir",
     "-DCMAKE_PREFIX_PATH=$gtestPrefix",
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+    "-DRANDLAPACK_RUNTIME_DLL_DIRS=$($backendBin.Replace('\', '/'))",
     # The RandBLAS submodule's own tests are covered by RandBLAS's CI;
     # building and running them here roughly doubled the job time.
     "-DBUILD_TESTS=OFF"
@@ -103,10 +125,8 @@ if ($SanitizeAddress) { $configureArgs += "-DSANITIZE_ADDRESS=ON" }
 Invoke-Checked "cmake" $configureArgs
 Invoke-Checked "cmake" @("--build", $buildDir, "--target", "install")
 
-# Same exclusion as the Linux and macOS core jobs.
 Invoke-Checked "ctest" @(
     "--test-dir", $buildDir,
-    "--exclude-regex", "^TestABRIK\.ABRIK_catch_instability",
     "--output-on-failure")
 
 Write-Host "RandLAPACK Windows $Task validation succeeded."

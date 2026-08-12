@@ -12,6 +12,11 @@ single command.
 a quick, streamlined setup process. If you need fine-grained control over
 dependency configurations, refer to RandLAPACK's `INSTALL.md` instead.
 
+> **Windows users:** this document describes the Linux/macOS installer
+> (`install.sh`). The native Windows companion is `install\install.ps1`,
+> documented in [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) -- prerequisites,
+> every option, backend selection, and troubleshooting.
+
 ## 0. Software Requirements
 
 Before running the install script, ensure you have the following software
@@ -19,7 +24,8 @@ available on your system:
 
 ### Essential Requirements
 * **C++ Compiler:** GNU GCC 13.3.0 or higher (required for C++20 features)
-* **CMake:** Version 3.27 or higher
+* **CMake:** Version 3.21 or higher (the project's CMake floor; recent
+  releases recommended)
 * **BLAS/LAPACK Library:** Intel MKL 2022 or higher recommended
 * **GoogleTest:** (Optional but recommended) For running RandLAPACK tests
 
@@ -50,7 +56,7 @@ spack compiler find
 spack load gcc@13.3.0
 
 # Step 4: Install all other dependencies using the new compiler
-spack install cmake@3.27
+spack install cmake@3.31.9
 spack install intel-oneapi-mkl
 spack install googletest
 
