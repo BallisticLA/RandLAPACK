@@ -3,7 +3,7 @@
 #     installed oneAPI or fetched from Intel's NuGet packages, ILP64 +
 #     sequential), OpenBLAS (official release binaries, LP64), or
 #     custom/bring-your-own libraries
-#   - GoogleTest v1.17.0
+#   - GoogleTest v1.18.0
 #   - Random123 (headers only)
 #   - BLAS++  from icl-utk-edu/blaspp   (upstream), pinned by commit
 #   - LAPACK++ from icl-utk-edu/lapackpp (upstream), pinned by commit
@@ -397,12 +397,12 @@ if ($Backend -eq "mkl") {
         # instance), and nothing here needed vcpkg beyond this one download.
         # The OpenMP/TBB packages the devel nuspec references are skipped on
         # purpose -- RandLAPACK links the sequential MKL DLL set.
-        $mklVersion = "2025.2.0.627"
+        $mklVersion = "2026.1.0.226"
         $mklPackages = @(
             @{ Id = "intelmkl.devel.win-x64"
-               Sha256 = "988816fb3cdfc5dcfdd42036c28314dcfda22fe47a29056ae455e360a8833ee5" },
+               Sha256 = "d4456ce3c767b235d9c212c093a40cdf073589102dbf70bc0fd2d59140be30d2" },
             @{ Id = "intelmkl.redist.win-x64"
-               Sha256 = "42bf35a13581aa03ecbee62e83e2c6397a45f13ae8aa657c1727fd0335e52c9e" })
+               Sha256 = "ac2d4a14a70b021557170f53460b57038af5ab1977e82a05aca8e4a5af7bcb61" })
         $mklRoot = Join-Path $resolvedRoot "onemkl-$mklVersion"
         $mklLibDir = Join-Path $mklRoot "lib"
         $mklBin = Join-Path $mklRoot "bin"
@@ -645,7 +645,7 @@ if (Test-Path (Join-Path $gtestInstall "include\gtest\gtest.h")) {
     Write-Host "Reusing GoogleTest at $gtestInstall"
 } else {
     $gtestSrc = Join-Path $resolvedRoot "$gtestVariant-src"
-    Clone-Pinned "https://github.com/google/googletest.git" $gtestSrc "v1.17.0"
+    Clone-Pinned "https://github.com/google/googletest.git" $gtestSrc "v1.18.0"
     $gtestBuild = Join-Path $resolvedRoot "$gtestVariant-build"
     $gtestArgs = @(
         "-S", $gtestSrc, "-B", $gtestBuild, "-G", "Ninja",

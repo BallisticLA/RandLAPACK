@@ -31,7 +31,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\onemkl-2025.2.0.627
-        key: windows-nuget-intel-mkl-2025.2.0.627-r1
+        key: windows-nuget-intel-mkl-2026.1.0.226-r1
 
     - name: cache OpenBLAS (release binaries)
       if: inputs.blas-backend == 'openblas'
@@ -45,14 +45,14 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\googletest-install
-        key: windows-msvc-googletest-1.17.0-ninja-r1
+        key: windows-msvc-googletest-1.18.0-ninja-r1
 
     - name: cache GoogleTest (ASan)
       if: inputs.sanitize-address == 'true'
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\googletest-asan-install
-        key: windows-msvc-googletest-asan-1.17.0-ninja-r1
+        key: windows-msvc-googletest-asan-1.18.0-ninja-r1
 
     - name: cache Random123
       uses: actions/cache@v4

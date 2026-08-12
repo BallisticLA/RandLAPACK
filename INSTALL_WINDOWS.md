@@ -190,9 +190,9 @@ version, and is verified by checksum where the source publishes archives:
 
 | Component | Version | Source | Verified by |
 |---|---|---|---|
-| Intel oneMKL | **2025.2.0.627** | `intelmkl.devel/redist.win-x64` on nuget.org | SHA256 |
+| Intel oneMKL | **2026.1.0.226** | `intelmkl.devel/redist.win-x64` on nuget.org | SHA256 |
 | OpenBLAS | **0.3.34** | official GitHub release binaries | SHA256 |
-| GoogleTest | **v1.17.0** | release tag | git tag |
+| GoogleTest | **v1.18.0** | release tag | git tag |
 | Random123 | **v1.14.0** | release tag | git tag |
 | BLAS++ | commit `3057185` | icl-utk-edu/blaspp | git commit |
 | LAPACK++ | commit `40b9d0d` | icl-utk-edu/lapackpp | git commit |
