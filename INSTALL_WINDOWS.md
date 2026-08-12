@@ -188,6 +188,30 @@ libraries built for different widths; the installer keeps it consistent for
 you, and the practical difference is that ILP64 lets RandBLAS use oneMKL's
 accelerated sparse routines.
 
+### When no oneMKL is found
+
+The installer says what it searched and asks before downloading anything:
+
+```
+No oneMKL found, and the download was declined.
+
+  Searched:  -MklRoot (not given)
+             $env:MKLROOT           (not set)
+             $env:ONEAPI_ROOT       (not set)
+             C:\Program Files (x86)\Intel\oneAPI\mkl\latest
+
+  Any of these works:
+    winget install --id Intel.oneMKL --exact
+    -MklRoot "<path to ...\mkl\latest>"   use a copy you already have
+    -Backend openblas                     use OpenBLAS instead
+    re-run and answer yes (or pass -Yes)  download a pinned oneMKL,
+                                          ~155 MB, into this project only
+```
+
+Answering no stops with those options. Questions are skipped entirely when the
+installer is not attached to a terminal -- a script, a pipeline, CI -- taking
+the default shown in brackets; `-Yes` skips them in an interactive session too.
+
 Notes for the custom path: AMD AOCL downloads sit behind a click-through
 license page, so the installer cannot fetch them -- download AOCL yourself,
 then point `-BlasLibraries` at its `.lib` files. The custom path is expected
