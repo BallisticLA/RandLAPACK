@@ -25,6 +25,18 @@ candidates once they have a green track record.
 
 ## Things that are deliberate (do not "fix" without reading this)
 
+- **Workflows fire on `pull_request`, and on `push` only for `main`.** They
+  used to fire on `push` for every branch as well, so each commit on a pull
+  request ran every job twice -- same SHA, same result, double the minutes.
+  A branch with an open pull request is covered by the `pull_request` event;
+  `main` still gets a run of its own. The one thing this drops is CI for a
+  branch with no pull request open, which `workflow_dispatch` covers on
+  demand.
+- **`concurrency` supersedes in-flight runs, for pull requests only.** Pushing
+  a fix used to leave the previous run going to completion. On `main`,
+  `cancel-in-progress` is deliberately false: every commit there should be
+  validated, not just the newest.
+
 - **`TestQB.Polynomial_Decay_general1` is QUARANTINED on macOS -- THIS IS
   TEMPORARY AND MUST BE REVERTED.** The test fails on Apple Silicon because
   Apple's default (old) Accelerate LAPACK has a broken divide-and-conquer
