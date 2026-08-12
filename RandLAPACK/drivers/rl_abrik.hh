@@ -47,7 +47,8 @@ enum class ABRIKTermination {
     max_retries,     ///< Retry budget exhausted with the error still above tol.
     norm_converged,  ///< BK exhausted the Frobenius content of the input.
     rank_deficient,  ///< BK could not grow the Krylov subspace any further.
-    under_delivered  ///< Fewer triplets exist than were asked for; see below.
+    under_delivered, ///< Fewer triplets exist than were asked for; see below.
+    saturated        ///< The basis reached the ambient dimension; no room to grow.
 };
 
 template <typename T, typename RNG>
@@ -106,6 +107,12 @@ class ABRIK {
         // this always holds the value actually used.
         int64_t assessed_rank;
         ABRIKTermination termination_reason;
+        /// Conditioning contract for BK's rank criterion; forwarded to BK::tau. Zero means
+        /// derive a default. Mirrors CQRRPT's user-facing `eps`. Kept distinct from `tol`
+        /// on purpose: `tol` is the Frobenius-convergence threshold and is ALSO handed to
+        /// CQRRT as its eps (rl_bk.hh, CQRRT.emplace(false, tol)), so overloading it again
+        /// would make the rank decision move whenever convergence was retuned.
+        T tau;
 
         ABRIK(
             bool verb,
@@ -123,6 +130,7 @@ class ABRIK {
             adaptive_max_retries = 10;
             assessed_rank = 0;
             termination_reason = ABRIKTermination::not_adaptive;
+            tau = 0;
         }
 
         /// Computes an SVD of the form:
@@ -239,6 +247,7 @@ class ABRIK {
                 bk_obj.max_krylov_iters  = this->max_krylov_iters;
                 bk_obj.verbose           = this->verbose;
                 bk_obj.timing            = this->timing;
+                bk_obj.tau               = this->tau;
 
                 // Call BK to build Krylov subspaces and band matrices
                 T* X_ev = nullptr;
@@ -305,6 +314,17 @@ class ABRIK {
                     // Phase: SVD on band matrix + factor reconstruction
                     if(this -> timing)
                         allocation_t_start = steady_clock::now();
+
+                    // Zero-width guard. The rank criterion can now reject an entire
+                    // terminal block, giving end_cols == 0; call_with_checkpoints already
+                    // guards this case (:585) but call() did not, and would reach
+                    // malloc(0), new T[0] and gesdd with a zero dimension.
+                    if (end_cols == 0 || end_rows == 0) {
+                        this->singular_triplets_found = 0;
+                        if (this->termination_reason == ABRIKTermination::not_adaptive)
+                            this->termination_reason = ABRIKTermination::rank_deficient;
+                        break;
+                    }
 
                     // Internal SVD workspace: freed in this function.
                     U_hat  = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
@@ -377,7 +397,8 @@ class ABRIK {
                     bool short_of_request = (k_assess < this->assessed_rank);
                     bool cannot_grow =
                         bk_obj.termination_reason == BKTermination::norm_converged ||
-                        bk_obj.termination_reason == BKTermination::rank_deficient;
+                        bk_obj.termination_reason == BKTermination::rank_deficient ||
+                        bk_obj.termination_reason == BKTermination::saturated;
 
                     if (residual <= this->tol && !short_of_request) {
                         this->termination_reason = ABRIKTermination::converged;
@@ -409,6 +430,17 @@ class ABRIK {
                         this->termination_reason = ABRIKTermination::rank_deficient;
                         if (this->verbose)
                             std::cerr << "ABRIK adaptive: BK could not grow the Krylov subspace further. "
+                                      << "Residual = " << residual << ", tol = " << this->tol << std::endl;
+                        break;
+                    }
+                    // Terminal, like the two above: the basis has reached the ambient
+                    // dimension, so retrying with a larger budget cannot produce anything.
+                    // Falling through to the retry branch would spend the whole retry
+                    // allowance re-deriving the same answer.
+                    if (bk_obj.termination_reason == BKTermination::saturated) {
+                        this->termination_reason = ABRIKTermination::saturated;
+                        if (this->verbose)
+                            std::cerr << "ABRIK adaptive: the Krylov basis reached the ambient dimension. "
                                       << "Residual = " << residual << ", tol = " << this->tol << std::endl;
                         break;
                     }
@@ -557,6 +589,7 @@ class ABRIK {
             bk_obj.tol             = this->tol;
             bk_obj.verbose         = this->verbose;
             bk_obj.timing          = false;
+            bk_obj.tau             = this->tau;
 
             T* X_ev = nullptr, *Y_od = nullptr, *R = nullptr, *S = nullptr;
             int64_t end_rows = 0, end_cols = 0;

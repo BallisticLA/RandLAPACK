@@ -33,11 +33,62 @@ struct BKSubroutines {
     enum QR_explicit {geqrf_ungqr, cqrrt};
 };
 
+/// How many leading columns of a k-wide block carry operator content.
+///
+/// Returns the smallest r for which the trailing (k-r)-by-(k-r) sub-block of the block's
+/// triangular factor has Frobenius norm at most tau*||A||_F; r = k means the whole block is
+/// healthy, r = 0 means none of it is.
+///
+/// Three things distinguish this from the test it replaces, which was
+///     std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(eps)
+///
+/// 1. It reads the whole trailing block, not the single trailing diagonal entry. One
+///    collapsed entry at the end said nothing about the k-1 columns before it.
+/// 2. The threshold is RELATIVE to ||A||_F. The old constant was absolute, so the same
+///    matrix scaled by 1e8 got a different answer -- measured: 50 triplets claimed on a
+///    rank-5 input instead of 10, and a different termination reason.
+/// 3. It returns a width rather than a boolean, so the caller can keep the healthy part.
+///
+/// Follows Balabanov, "Randomized Cholesky QR factorizations", arXiv:2210.09953, Alg. 7
+/// step 3, with the anchor carried across to the blocked setting: Alg. 7 measures against
+/// ||R||_2 of the factorization it is revealing, which for a whole-matrix factorization is
+/// the matrix scale. Anchoring to a *block's* own scale does not survive blocking -- a
+/// wholly dead block has no healthy reference, and a block-relative rule then flags nothing
+/// (measured: 0 of 5 seeds on an exactly-rank-40 input, residual 3.0e+00). Theorem 5.6 of
+/// that paper is the contract this buys: cond(retained) <= 10 n^1.5 r / tau.
+///
+/// Reads the full square sub-block rather than one triangle, so it is correct for both
+/// bands: R is stored lower-triangular by util::transposition, while S_ii is written upper
+/// by lacpy(MatrixType::Upper, ...). The untouched triangle is exactly zero either way.
+///
+/// Degenerate ||A||: a zero or denormal matrix gives a threshold of zero, so only an
+/// exactly-zero trailing block satisfies it and the function returns 0 rather than k. A
+/// non-finite ||A|| makes every comparison false and returns k. Neither can hang, because
+/// termination no longer depends on this function -- that is what the saturation guard is
+/// for.
+template <typename T>
+int64_t block_numerical_rank(int64_t k, const T* Rii, int64_t ldr, T norm_A, T tau) {
+    const T thresh = tau * norm_A;
+    for (int64_t r = 0; r < k; ++r) {
+        T acc = 0;
+        for (int64_t j = r; j < k; ++j) {
+            for (int64_t i = r; i < k; ++i) {
+                const T v = Rii[i + j * ldr];
+                acc += v * v;
+            }
+        }
+        if (std::sqrt(acc) <= thresh)
+            return r;
+    }
+    return k;
+}
+
 /// Reason BK terminated its main loop.
 enum class BKTermination {
     max_iters_reached, ///< Reached max_krylov_iters without convergence (resumable).
     norm_converged,    ///< norm_R exceeded threshold (A's spectral content exhausted).
-    rank_deficient     ///< Near-zero diagonal entry in R or S (subspace can't grow).
+    rank_deficient,    ///< Near-zero diagonal entry in R or S (subspace can't grow).
+    saturated          ///< The basis has as many columns as the ambient dimension allows.
 };
 
 template <typename T, typename RNG>
@@ -54,6 +105,16 @@ class BK {
         std::vector<long> times;
         T norm_R_end;
         BKTermination termination_reason;
+        /// Conditioning contract for the rank criterion: the trailing block is judged
+        /// against tau*||A||_F. Larger tau retains fewer columns and bounds their
+        /// conditioning more tightly (Balabanov Thm 5.6: cond <= 10 n^1.5 r / tau).
+        /// Mirrors CQRRPT's user-facing `eps` (rl_cqrrpt.hh:120). Zero means "derive a
+        /// default from the problem size", which is done inside call_impl where n is known.
+        T tau;
+        /// Width of the terminal block after truncation; equals k unless the rank criterion
+        /// rejected part of it. Needed because end_cols/end_rows can no longer be
+        /// reconstructed from `iter` alone.
+        int64_t final_block_width;
 
         BK(
             bool verb,
@@ -65,6 +126,14 @@ class BK {
             timing = time_subroutines;
             tol = ep;
             max_krylov_iters = INT_MAX;
+            // These three are outputs, but they were left uninitialized, so reading a
+            // termination reason before the first call() was undefined behaviour -- and
+            // reading it is exactly what a test asserting on termination does.
+            num_krylov_iters = 0;
+            norm_R_end = 0;
+            termination_reason = BKTermination::max_iters_reached;
+            tau = 0;                 // 0 => derive n*eps inside call_impl
+            final_block_width = 0;
         }
 
         /// Builds the block Krylov subspaces and band matrices for a truncated SVD.
@@ -247,6 +316,23 @@ class BK {
                 int64_t n = A.n_cols;
                 int max_iters = this->max_krylov_iters;
 
+                // Preconditions. k > min(m, n) is not merely unsupported, it is an
+                // out-of-bounds READ: the band buffers are sized n*k and (n+k)*k, while the
+                // rank-deficiency probes index R_ii[(n + 1) * (k - 1)] and
+                // S_ii[((n + k) + 1) * (k - 1)]. With n = 5 and k = 10 the first of those
+                // is R[54] against a 50-element allocation. ABRIK only ever checked k > 0
+                // (rl_abrik.hh:188, :209), so nothing upstream caught it either. ungqr(n, k,
+                // k, ...) at the explicit-QR step would also be an invalid LAPACK call.
+                //
+                // randlapack_require is not NDEBUG-gated (rl_exceptions.hh:97-98), so these
+                // hold in Release and are testable with EXPECT_THROW.
+                randlapack_require(m > 0) << "BK: m=" << m << " must be > 0";
+                randlapack_require(n > 0) << "BK: n=" << n << " must be > 0";
+                randlapack_require(k > 0) << "BK: block size k=" << k << " must be > 0";
+                randlapack_require(k <= std::min(m, n))
+                    << "BK: block size k=" << k << " exceeds min(m, n)=" << std::min(m, n)
+                    << "; the band buffers and the rank-deficiency probes assume k <= min(m, n)";
+
                 // Loop state: initialized differently for fresh start vs resume.
                 int64_t iter, iter_od, iter_ev;
                 int64_t curr_X_cols, curr_Y_cols;
@@ -401,6 +487,12 @@ class BK {
                 // The bounded loop also stops at max_krylov_iters (termination_reason set per case;
                 // the ABRIK driver only resumes when that was the reason).
                 T norm_A = A.fro_nrm();
+                // tau = 0 means "derive". n*eps clears Theorem 5.6's floor of 4 n^1.5 r u
+                // and is the default until measurement says otherwise; it is user-settable
+                // for exactly that reason.
+                const T tau_eff = (this->tau > 0) ? this->tau
+                                                  : (T)n * std::numeric_limits<T>::epsilon();
+                this->final_block_width = k;
                 T sq_tol = std::pow(this->tol, 2);
                 T threshold =  std::sqrt(1 - sq_tol) * norm_A;
 
@@ -441,7 +533,8 @@ class BK {
                         if(this -> timing)
                             qr_t_start = steady_clock::now();
 
-                        CQRRT -> call(m, k, X_i, m, R_11_trans, k, d_factor, state);
+                        std::fill(R_11_trans, R_11_trans + k * k, (T)0.0);
+                        (void) CQRRT -> call(m, k, X_i, m, R_11_trans, k, d_factor, state);
 
                         if(this -> timing) {
                             qr_t_stop = steady_clock::now();
@@ -529,7 +622,20 @@ class BK {
                             if(this -> timing)
                                 qr_t_start = steady_clock::now();
 
-                            CQRRT -> call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
+                            // R_11_trans is allocated once and REUSED every iteration, so
+                            // a failed CQRRT would leave the previous block's healthy
+                            // diagonal in place and the rank criterion below would read
+                            // stale values and detect nothing. Clear it, and honour the
+                            // status: CQRRT returns nonzero on rank deficiency
+                            // (rl_cqrrt.hh, diag_is_nonzero / potrf failure), which is
+                            // precisely the condition we must not discard.
+                            std::fill(R_11_trans, R_11_trans + k * k, (T)0.0);
+                            int cq_status = CQRRT -> call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
+                            if (cq_status != 0) {
+                                this->final_block_width = 0;
+                                this->termination_reason = BKTermination::rank_deficient;
+                                break;
+                            }
                             // Copy R_ii over to R's (in transposed format).
 
                             util::transposition(0, k, R_11_trans, k, R_ii, n, 1);
@@ -567,11 +673,15 @@ class BK {
                             }
                         }
 
-                        // Early termination
-                        // if (abs(R(end)) <= sqrt(eps('T')))
-                        if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
-                            this->termination_reason = BKTermination::rank_deficient;
-                            break;
+                        // Rank criterion, right basis. Relative to ||A||, reads the whole
+                        // trailing block, and yields a width so the healthy prefix survives.
+                        {
+                            int64_t r_blk = block_numerical_rank<T>(k, R_ii, n, norm_A, tau_eff);
+                            if (r_blk < k) {
+                                this->final_block_width = r_blk;
+                                this->termination_reason = BKTermination::rank_deficient;
+                                break;
+                            }
                         }
 
                         // Grow R buffer
@@ -677,9 +787,16 @@ class BK {
 
                         // Early termination
                         // if (abs(S(end)) <= sqrt(eps('T')))
-                        if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
-                            this->termination_reason = BKTermination::rank_deficient;
-                            break;
+                        // Rank criterion, left basis. S_ii has leading dimension n + k and
+                        // is written upper-triangular by lacpy, where R is lower; the shared
+                        // helper reads the full square sub-block so both are handled.
+                        {
+                            int64_t r_blk = block_numerical_rank<T>(k, S_ii, n + k, norm_A, tau_eff);
+                            if (r_blk < k) {
+                                this->final_block_width = r_blk;
+                                this->termination_reason = BKTermination::rank_deficient;
+                                break;
+                            }
                         }
 
                         if(this -> timing) {
@@ -711,9 +828,20 @@ class BK {
                     if(this -> timing)
                         norm_t_start = steady_clock::now();
 
-                    // This is only changed on odd iters
+                    // This is only changed on odd iters.
+                    //
+                    // Uplo::Lower, not Upper. R is written by
+                    // util::transposition(0, k, Y_i, n, R_ii, n, /*copy_upper_triangle=*/1),
+                    // which sets AT(i,j) = A(j,i) for j <= i (rl_util.hh:313-317), so the
+                    // stored buffer is LOWER triangular. Asking lantr for the upper triangle
+                    // returned the diagonal and the exact zeros above it, making norm_R equal
+                    // ||diag(R)||_F -- a severe undercount against
+                    // threshold = sqrt(1 - tol^2) * ||A||_F. The consequence was that
+                    // norm_converged almost never fired and rank_deficient silently absorbed
+                    // terminations belonging to this criterion: before this fix
+                    // ABRIK_adaptive_norm_converged itself terminated as rank_deficient.
                     if (iter % 2 != 0)
-                        norm_R = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, iter_ev * k, iter_ev * k, R, n);
+                        norm_R = lapack::lantr(Norm::Fro, Uplo::Lower, Diag::NonUnit, iter_ev * k, iter_ev * k, R, n);
 
                     if(this -> timing) {
                         norm_t_stop       = steady_clock::now();
@@ -727,13 +855,57 @@ class BK {
                         break;
                     }
 
-                    ++iter;
                     // Frobenius-content convergence (criterion 1 above): ||R||_F exceeding
                     // sqrt(1 - tol^2)||M||_F means ||M - hat(M)||_F <= tol * ||M||_F.
+                    //
+                    // This check must come BEFORE ++iter. `iter` is the count of COMPLETED
+                    // iterations, and end_cols = ((iter + 1) / 2) * k below reads it that
+                    // way; the max_iters_reached exit above likewise breaks before the
+                    // increment. Breaking after it left iter one too high, so end_cols
+                    // claimed a block that was never built and gesdd read uninitialized
+                    // columns of Y_od/X_ev. That was latent until the Uplo fix above: with
+                    // norm_R stuck at ||diag(R)|| this exit essentially never fired, so the
+                    // miscount was unreachable. Fixing the norm alone turned six passing
+                    // tests into residuals of order 1.
                     if(norm_R > threshold) {
                         this->termination_reason = BKTermination::norm_converged;
                         break;
                     }
+
+                    // Saturation guard. The right basis lives in R^n, so it cannot exceed n
+                    // columns; ((iter + 1) / 2) * k is the count already built (the same
+                    // expression end_cols uses below), and another block needs k more.
+                    //
+                    // This is a termination criterion in its own right, independent of any
+                    // rank test, and it is also a memory-safety bound. R_ii is placed at row
+                    // k*(iter_ev+1) in a buffer with leading dimension n, and S_ii at row
+                    // k*(iter_od+1) with leading dimension n+k. Once the basis passes n
+                    // columns those writes run past the end of their column and land in the
+                    // next one: silent corruption of the band, no segfault, and nothing for
+                    // a sanitizer to catch because the memory is validly allocated.
+                    //
+                    // Until now this job was being done implicitly by the rank-deficiency
+                    // exit, which is why removing that exit on 2026-07-29 broke nine tests
+                    // that have nothing to do with rank deficiency: every non-adaptive test
+                    // is budgeted to exactly the saturation count (test_abrik.cc:189) and
+                    // relied on it to stop. Making the guard explicit is what allows the
+                    // rank criterion to be changed safely.
+                    //
+                    // Ordered after norm_converged so that genuinely exhausting the
+                    // Frobenius content still reports as such rather than as saturation.
+                    //
+                    // Only ODD iterations append to the right basis, so only they are
+                    // constrained by n. An even iteration appends to the LEFT basis, which
+                    // lives in R^m, and gives end_rows = end_cols + k; blocking it as well
+                    // would cut the run one half-step short and force extraction through
+                    // the narrower odd/R path for no reason. There can be at most one even
+                    // iteration after the final odd one, so guarding the odd side alone
+                    // bounds both.
+                    if ((((iter + 1) % 2) != 0) && (((iter + 1) / 2) * k + k > n)) {
+                        this->termination_reason = BKTermination::saturated;
+                        break;
+                    }
+                    ++iter;
                 }
 
                 // Set output state
@@ -750,8 +922,34 @@ class BK {
                 // drops k/2 singular triplets. An odd final iteration is reachable via a
                 // rank-deficient break in the odd branch, an odd max_krylov_iters, or an odd
                 // checkpoint value.
-                end_cols = ((iter + 1) / 2) * k;
-                iter % 2 == 0 ? end_rows = end_cols + k : end_rows = end_cols;
+                //
+                // Truncation. When the rank criterion rejected part of the terminal block,
+                // only final_block_width of its k columns are real and the rest must not be
+                // reported. The two sides need DIFFERENT adjustments, which is why a single
+                // formula could not express it and why final_block_width has to be carried
+                // out of the loop rather than recovered from `iter`:
+                //
+                //   odd terminal  -> the truncated block is a Y (right) block, so end_cols
+                //                    loses the rejected columns while end_rows keeps the
+                //                    full X width. end_rows == end_cols therefore stops
+                //                    holding, and forcing it would silently re-admit the
+                //                    junk columns as basis width.
+                //   even terminal -> the truncated block is an X (left) block, so end_cols
+                //                    is untouched and only end_rows shrinks.
+                //
+                // Getting this backwards is invisible to a test that asserts on end_cols
+                // alone: on the even side the count is already correct and it is the LEFT
+                // basis that is contaminated.
+                const int64_t full_cols = ((iter + 1) / 2) * k;
+                const bool truncated = (this->termination_reason == BKTermination::rank_deficient)
+                                       && (this->final_block_width < k);
+                if (iter % 2 != 0) {
+                    end_cols = truncated ? full_cols - (k - this->final_block_width) : full_cols;
+                    end_rows = full_cols;
+                } else {
+                    end_cols = full_cols;
+                    end_rows = full_cols + (truncated ? this->final_block_width : k);
+                }
                 final_iter_is_odd = (iter % 2 != 0);
 
                 // Free internal temporaries (NOT X_ev, Y_od, R, S; those are returned to caller)
