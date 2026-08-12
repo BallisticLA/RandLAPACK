@@ -24,12 +24,34 @@ candidates once they have a green track record.
 
 ## Things that are deliberate (do not "fix" without reading this)
 
-- **core-macos is red on purpose.** `TestQB.Polynomial_Decay_general1` fails
-  on Apple Silicon because Apple's default (old) Accelerate LAPACK has a
-  broken divide-and-conquer `gesdd`. The failure is kept as a canary: when
-  the planned migration to the new Accelerate interface happens, this test
-  flipping green is the evidence the bug is gone. A local fix exists
-  (reference SVD via `gesvd`) but is intentionally unmerged.
+- **`TestQB.Polynomial_Decay_general1` is QUARANTINED on macOS -- THIS IS
+  TEMPORARY AND MUST BE REVERTED.** The test fails on Apple Silicon because
+  Apple's default (old) Accelerate LAPACK has a broken divide-and-conquer
+  `gesdd`. It was previously left failing as a canary, which made core-macos
+  permanently red and trained everyone to ignore the job -- a red CI lane that
+  is always red reports nothing.
+
+  **Revert once Apple's new Accelerate interface is in use**, i.e. when both
+  of these land (order matters -- lapackpp#88 needs the `defines.h` from
+  blaspp#134):
+    - <https://github.com/icl-utk-edu/blaspp/pull/134> -- New Apple Accelerate
+      support, a rebased and completed continuation of the stalled
+      <https://github.com/icl-utk-edu/blaspp/pull/74>
+    - <https://github.com/icl-utk-edu/lapackpp/pull/88> -- Support Apple's new
+      Accelerate interface
+
+  Then RandLAPACK PR #155 (retire legacy-Accelerate accommodations) becomes
+  mergeable, `TestQB.Polynomial_Decay_general1` should pass on its own, and
+  the "DELETE THE macOS SUPPRESSION" warning below will fire. Delete the
+  marked block in `.github/workflows/core-macos.yaml` (both `build` and
+  `build-asan`) and this entry.
+
+  The canary is deliberately preserved: the test is still *run*, separately,
+  and cannot fail the job. Every macOS run prints a warning that the
+  suppression is active, and if the test ever **passes** the job prints a
+  louder one telling you to delete the quarantine -- which is exactly the
+  signal the old always-red arrangement was supposed to provide. A local fix
+  exists (reference SVD via `gesvd`) but is intentionally unmerged.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). The pinned commit is already
   tested by RandBLAS's CI; rebuilding its ~450 tests in every RandLAPACK job
