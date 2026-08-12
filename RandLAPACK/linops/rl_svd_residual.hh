@@ -130,4 +130,80 @@ SvdResidualTriple<T> svd_residual_all(GLO& A, T* U, T* V, T* Sigma, int64_t k) {
     };
 }
 
+/// The two-sided normalized residual of EACH triplet separately:
+///
+///     res[i] = sqrt( ||A v_i - sigma_i u_i||^2 + ||A' u_i - sigma_i v_i||^2 ) / sigma_i
+///
+/// The two helpers above answer "how accurate is this set of triplets, taken together".
+/// They cannot answer "how many of the returned triplets are real", because a single
+/// Frobenius norm mixes converged triplets with junk and reports one number. That second
+/// question is the one that matters for a block Krylov method that may commit basis columns
+/// carrying no operator content: such a column comes back as a triplet with sigma near
+/// zero, and only a per-triplet test exposes it. A caller can then count how many triplets
+/// certify, which is the honest measure of what was delivered.
+///
+/// Writes k entries to res_out, which the caller allocates. Two operator applications
+/// total, the same cost as either aggregate helper.
+///
+/// A triplet with sigma_i <= 0 is reported as infinite rather than skipped or bailed on.
+/// The aggregate helpers return early in that case, which is right for an adaptive loop
+/// that just needs "not converged", but wrong here: a returned triplet with no singular
+/// value is precisely the failure this function exists to catch, so it must be visible as
+/// one bad entry rather than poison the whole array.
+template <typename T, LinearOperator GLO>
+void svd_residual_per_triplet(GLO& A, T* U, T* V, T* Sigma, int64_t k, T* res_out) {
+    if (k < 1)
+        return;
+
+    const T inf = std::numeric_limits<T>::infinity();
+    int64_t m = A.n_rows;
+    int64_t n = A.n_cols;
+
+    T* U_cpy = new T[m * k]();
+    T* V_cpy = new T[n * k]();
+
+    // U_cpy = A V - U diag(Sigma); V_cpy = A' U - V diag(Sigma). Left unnormalized here:
+    // the scaling is per column below, so that a single zero sigma cannot contaminate its
+    // neighbours the way an in-place whole-block scal would.
+    lapack::lacpy(MatrixType::General, m, k, U, m, U_cpy, m);
+    for (int64_t i = 0; i < k; ++i)
+        blas::scal(m, Sigma[i], &U_cpy[m * i], 1);
+    A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, (T)1.0, V, n, (T)-1.0, U_cpy, m);
+
+    lapack::lacpy(MatrixType::General, n, k, V, n, V_cpy, n);
+    for (int64_t i = 0; i < k; ++i)
+        blas::scal(n, Sigma[i], &V_cpy[n * i], 1);
+    A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, (T)1.0, U, m, (T)-1.0, V_cpy, n);
+
+    for (int64_t i = 0; i < k; ++i) {
+        if (Sigma[i] <= T(0)) {
+            res_out[i] = inf;
+            continue;
+        }
+        T ru = blas::nrm2(m, &U_cpy[m * i], 1);
+        T rv = blas::nrm2(n, &V_cpy[n * i], 1);
+        res_out[i] = std::hypot(ru, rv) / Sigma[i];
+    }
+
+    delete[] U_cpy;
+    delete[] V_cpy;
+}
+
+/// How many of the k returned triplets certify at `tol`, under the per-triplet two-sided
+/// normalized residual. This is the "delivered real content" count: a fabricated direction
+/// cannot pass a two-sided test, so it is a lower bound on genuine spectral content and an
+/// upper bound on what the caller may honestly claim.
+template <typename T, LinearOperator GLO>
+int64_t svd_triplets_certified(GLO& A, T* U, T* V, T* Sigma, int64_t k, T tol) {
+    if (k < 1)
+        return 0;
+    T* res = new T[k]();
+    svd_residual_per_triplet<T>(A, U, V, Sigma, k, res);
+    int64_t count = 0;
+    for (int64_t i = 0; i < k; ++i)
+        if (res[i] <= tol) ++count;
+    delete[] res;
+    return count;
+}
+
 } // end namespace RandLAPACK::linops
