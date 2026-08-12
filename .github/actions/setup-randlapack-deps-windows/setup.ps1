@@ -425,7 +425,8 @@ if ($Backend -eq "mkl") {
             $extractRoot = Join-Path $mklRoot "extract"
             foreach ($package in $mklPackages) {
                 $archive = Join-Path $resolvedRoot "$($package.Id).$mklVersion.zip"
-                Invoke-Checked "curl.exe" @("-fsSL", "--retry", "3", "-o", $archive,
+                Invoke-Checked "curl.exe" @("-fsSL", "--retry", "5", "--retry-all-errors",
+                    "--retry-delay", "3", "-o", $archive,
                     "https://api.nuget.org/v3-flatcontainer/$($package.Id)/$mklVersion/$($package.Id).$mklVersion.nupkg")
                 $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
                 if ($actual -ne $package.Sha256) {
@@ -516,7 +517,8 @@ if ($Backend -eq "mkl") {
     } else {
         if (Test-Path $openblasRoot) { Remove-Item -Recurse -Force $openblasRoot }
         $archive = Join-Path $resolvedRoot "OpenBLAS-$openblasVersion-x64.zip"
-        Invoke-Checked "curl.exe" @("-fsSL", "--retry", "3", "-o", $archive,
+        Invoke-Checked "curl.exe" @("-fsSL", "--retry", "5", "--retry-all-errors",
+            "--retry-delay", "3", "-o", $archive,
             "https://github.com/OpenMathLib/OpenBLAS/releases/download/v$openblasVersion/OpenBLAS-$openblasVersion-x64.zip")
         $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
         if ($actual -ne $openblasSha256) {

@@ -70,6 +70,11 @@ jobs:
             throw "The guard fired, but no '${{ matrix.expect }}' in its output: the wrong check failed."
           }
           Write-Host "OK: refused ${{ matrix.arch }} at preflight, with the expected explanation."
+          # This step succeeds when the installer FAILS, so the non-zero
+          # $LASTEXITCODE left by that intentional failure has to be cleared:
+          # `shell: powershell` exits the step with whatever it holds, which
+          # would report a pass as a failure.
+          exit 0
 
   build-windows:
     name: windows-msvc-${{ matrix.backend }}-${{ matrix.int }}-${{ matrix.label }}
