@@ -7,8 +7,15 @@ development experience. If you are on Linux or macOS, use
 
 ## 1. Quick start
 
-Install the two prerequisites (skip any you already have), from a regular
-PowerShell window:
+RandLAPACK expects the same things on Windows as on Linux and macOS: a **C++
+compiler, CMake, Ninja and Git**, available in whatever terminal you choose to
+work in. The installer does not supply them and will not install them for you;
+it checks for them and stops with a fix-it command if any are missing.
+
+If you already have those, skip to step 3.
+
+**1. Get a toolchain** (one way; use your own if you prefer). Visual Studio's
+C++ workload provides MSVC, the Windows SDK, CMake and Ninja together:
 
 ```powershell
 winget install --id Git.Git --exact
@@ -17,17 +24,36 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools --exact `
   --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
-Build Tools is the compiler without the IDE. If you would rather have the full
-IDE, swap the second line for
-`--id Microsoft.VisualStudio.2022.Community` with
-`--add Microsoft.VisualStudio.Workload.NativeDesktop`. Either way
-`--includeRecommended` matters: it pulls in "C++ CMake tools for Windows",
-which is what supplies CMake and Ninja, so you do not install those
-separately. And `--wait` matters: without it winget returns while the Visual
-Studio installer is still running, which looks like it finished.
+Build Tools is the compiler without the IDE; `--id Microsoft.VisualStudio.2022.Community`
+with `--add Microsoft.VisualStudio.Workload.NativeDesktop` works equally well.
+`--includeRecommended` is what pulls in "C++ CMake tools for Windows", which
+supplies CMake and Ninja. `--wait` matters too: without it winget returns while
+the Visual Studio installer is still running, which looks like it finished.
 
-Then open **"x64 Native Tools Command Prompt for VS 2022"** from the Start
-menu (the exact entry matters -- see section 3), and run:
+**2. Make the toolchain visible to your terminal.** This is the one real
+difference from Unix: MSVC is never on `PATH` globally, only inside a
+"developer environment" that Visual Studio sets up per session. Any of these
+gets you one, and they are equivalent — pick whichever fits how you work:
+
+- Open **"x64 Native Tools Command Prompt for VS 2022"** from the Start menu.
+- Or, in any Command Prompt, ask Visual Studio where it is and load it (works
+  for any edition or version):
+
+  ```bat
+  for /f "usebackq delims=" %i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%i\VC\Auxiliary\Build\vcvars64.bat"
+  ```
+
+- Or use any shell your editor or build tool already sets up, as long as it
+  gives you an **x64** toolchain (see section 3 — this is worth checking, the
+  obvious Start-menu entries give you a 32-bit one).
+
+Whatever you pick, this must show a path containing `Hostx64\x64`:
+
+```
+where cl
+```
+
+**3. Build:**
 
 ```bat
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
@@ -102,12 +128,16 @@ what Visual Studio's own package manager does by default.
 
 ## 3. Prerequisites, in detail
 
-- **Visual Studio 2022** (Community is free; Build Tools also works) with the
-  **"Desktop development with C++"** workload. That workload includes MSVC,
-  the Windows SDK, CMake, and Ninja -- you do not install those separately.
+You provide these; the installer does not:
+
+- **A C++ compiler.** MSVC, from Visual Studio 2022 or its Build Tools, with
+  the **"Desktop development with C++"** workload.
+- **CMake and Ninja.** Both ship with that workload's "C++ CMake tools for
+  Windows" component, so a separate install is usually unnecessary. Your own
+  copies are fine if they are on `PATH`.
 - **Git** (any recent version).
-- A network connection for the first run (dependency downloads; roughly
-  200 MB for the default backend).
+- A network connection for the first run, to fetch the BLAS/LAPACK backend and
+  build dependencies (see section 5). Roughly 200 MB for the default backend.
 
 The installer checks all of this up front and prints a fix-it command for
 anything missing.
@@ -115,14 +145,15 @@ anything missing.
 Two mistakes account for nearly every failed Windows install, and both are
 about *which shell you start from*:
 
-1. **A regular PowerShell.** `cl.exe`, `cmake`, and `ninja` are on PATH only
-   inside a Visual Studio "developer" shell, which sets them up per session.
-2. **A developer shell of the wrong architecture.** This one is easy to hit
+1. **A regular PowerShell.** `cl.exe`, `cmake` and `ninja` are on `PATH` only
+   inside a Visual Studio developer environment, which is set up per session.
+2. **A developer shell of the wrong architecture.** This is easy to hit
    because the obvious Start-menu entries are the wrong ones: **"Developer
    PowerShell for VS 2022"** and **"Developer Command Prompt for VS 2022"**
    both default to a **32-bit (x86)** toolchain. RandLAPACK and every BLAS
    backend here are 64-bit, and a 32-bit linker cannot use an x64 import
-   library. Use **"x64 Native Tools Command Prompt for VS 2022"** instead.
+   library. Note that shell bitness is not a usable signal: "Developer Command
+   Prompt" is itself a 64-bit process and still selects x86 tools.
 
 Confirm you are in the right place with:
 
