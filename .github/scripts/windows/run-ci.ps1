@@ -125,10 +125,8 @@ if ($SanitizeAddress) { $configureArgs += "-DSANITIZE_ADDRESS=ON" }
 Invoke-Checked "cmake" $configureArgs
 Invoke-Checked "cmake" @("--build", $buildDir, "--target", "install")
 
-# Same exclusion as the Linux and macOS core jobs.
 Invoke-Checked "ctest" @(
     "--test-dir", $buildDir,
-    "--exclude-regex", "^TestABRIK\.ABRIK_catch_instability",
     "--output-on-failure")
 
 Write-Host "RandLAPACK Windows $Task validation succeeded."

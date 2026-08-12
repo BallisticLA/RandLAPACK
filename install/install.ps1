@@ -190,7 +190,6 @@ Invoke-Checked "cmake" @("--build", $buildDir, "--target", "install")
 if (-not $SkipTests) {
     Invoke-Checked "ctest" @(
         "--test-dir", $buildDir,
-        "--exclude-regex", "^TestABRIK\.ABRIK_catch_instability",
         "--output-on-failure")
 }
 
