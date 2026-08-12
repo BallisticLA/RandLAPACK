@@ -31,10 +31,20 @@ candidates once they have a green track record.
   permanently red and trained everyone to ignore the job -- a red CI lane that
   is always red reports nothing.
 
-  **Revert as soon as Mark has reviewed the BLAS++ / LAPACK++ work migrating
-  to the new Accelerate interface.** Delete the marked block in
-  `.github/workflows/core-macos.yaml` (both `build` and `build-asan`) and this
-  entry.
+  **Revert once Apple's new Accelerate interface is in use**, i.e. when both
+  of these land (order matters -- lapackpp#88 needs the `defines.h` from
+  blaspp#134):
+    - <https://github.com/icl-utk-edu/blaspp/pull/134> -- New Apple Accelerate
+      support, a rebased and completed continuation of the stalled
+      <https://github.com/icl-utk-edu/blaspp/pull/74>
+    - <https://github.com/icl-utk-edu/lapackpp/pull/88> -- Support Apple's new
+      Accelerate interface
+
+  Then RandLAPACK PR #155 (retire legacy-Accelerate accommodations) becomes
+  mergeable, `TestQB.Polynomial_Decay_general1` should pass on its own, and
+  the "DELETE THE macOS SUPPRESSION" warning below will fire. Delete the
+  marked block in `.github/workflows/core-macos.yaml` (both `build` and
+  `build-asan`) and this entry.
 
   The canary is deliberately preserved: the test is still *run*, separately,
   and cannot fail the job. Every macOS run prints a warning that the
