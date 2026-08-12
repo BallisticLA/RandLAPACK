@@ -308,11 +308,13 @@ RandLAPACK builds natively on Windows with MSVC (Visual Studio 2022). The
 full guide -- prerequisites, the one-command installer, BLAS/LAPACK backend
 choice (oneMKL default, OpenBLAS, bring-your-own), runtime-DLL handling, and
 how the Windows install differs from Linux/macOS -- lives in
-[INSTALL_WINDOWS.md](INSTALL_WINDOWS.md). The short version, from a
-"Developer PowerShell for VS 2022" prompt:
+[INSTALL_WINDOWS.md](INSTALL_WINDOWS.md). The short version, from an
+"x64 Native Tools Command Prompt for VS 2022" (the plain "Developer
+PowerShell/Command Prompt for VS 2022" entries default to a 32-bit toolchain
+and will not link the x64 BLAS libraries):
 
-```powershell
+```bat
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 cd RandLAPACK
-.\install\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install\install.ps1
 ```

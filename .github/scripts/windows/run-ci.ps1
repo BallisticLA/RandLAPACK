@@ -68,8 +68,11 @@ if ($DependencyRoot -eq "") {
 }
 
 if ($SetupDependencies) {
+    # -Yes: this path is CI (and local reproduction of a CI leg), so it must
+    # never stop on a question.
     & (Join-Path $SourceRoot ".github\actions\setup-randlapack-deps-windows\setup.ps1") `
-        -DependencyRoot $DependencyRoot -Backend $Backend -SanitizeAddress:$SanitizeAddress
+        -DependencyRoot $DependencyRoot -Backend $Backend -Yes `
+        -SanitizeAddress:$SanitizeAddress
 }
 
 $blasppDir = Require-EnvironmentVariable "blaspp_DIR"

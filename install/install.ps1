@@ -1,9 +1,17 @@
 # RandLAPACK native Windows installer -- the companion to install.sh.
 #
-# Run from an MSVC developer prompt (or "Developer PowerShell for VS") in the
-# repository root:
+# Run from an "x64 Native Tools Command Prompt for VS 2022" in the repository
+# root:
 #
-#   .\install\install.ps1
+#   powershell -ExecutionPolicy Bypass -File .\install\install.ps1
+#
+# (That prompt is cmd, hence the explicit launch; the policy flag is because
+# Windows blocks PowerShell scripts by default on a fresh machine.)
+#
+# The architecture matters: the plain "Developer PowerShell/Command Prompt for
+# VS 2022" entries default to a 32-bit (x86) toolchain, which cannot link the
+# x64 BLAS/LAPACK libraries this installer provisions. Preflight rejects that
+# case with an explanation rather than letting it fail deep in the build.
 #
 # What it does, mirroring install.sh's layout in a sibling RandNLA-project
 # directory:
@@ -20,7 +28,14 @@
 #                       packages), openblas (official release binaries), or
 #                       custom (bring your own via -BlasLibraries).
 #   -MklRoot <path>     Use this oneMKL install (oneAPI layout) instead of
-#                       auto-discovery/download. Backend mkl only.
+#                       auto-discovery. Backend mkl only.
+#   -NoDownload         Fail instead of downloading a backend that was not
+#                       found locally. The default is to fetch one into
+#                       <ProjectDir> (project-local; nothing is installed
+#                       system-wide), which is ordinary Windows practice.
+#   -Yes                Skip interactive questions, taking each documented
+#                       default. Questions are already skipped when stdin
+#                       is not a terminal.
 #   -BlasLibraries / -LapackLibraries / -BackendBinDir / -BlasInt / -BlasFortran
 #                       Backend custom only; see setup.ps1's header.
 #   -Fresh              Reconfigure RandLAPACK from scratch (dependencies are
@@ -38,6 +53,8 @@ param(
     [ValidateSet("mkl", "openblas", "custom")]
     [string]$Backend = "mkl",
     [string]$MklRoot = "",
+    [switch]$NoDownload,
+    [switch]$Yes,
     [string]$BlasLibraries = "",
     [string]$LapackLibraries = "",
     [string]$BackendBinDir = "",
@@ -62,6 +79,56 @@ function Invoke-Checked {
     }
 }
 
+function Get-ClTargetArchitecture {
+    # Returns the compiler's TARGET architecture, lowercased ("x64", "x86",
+    # "arm64", "arm"), or "" if it genuinely cannot be determined.
+    # Three independent signals, most reliable first; a missed detection here
+    # fails *open*, which would defeat the check entirely. Parsing the banner
+    # alone would be wrong on a localized Visual Studio, where the words
+    # around the architecture are translated.
+    # (Mirrored in setup.ps1, which is also runnable on its own.)
+    if ($env:VSCMD_ARG_TGT_ARCH) { return $env:VSCMD_ARG_TGT_ARCH.ToLowerInvariant() }
+    $cl = Get-Command "cl.exe" -ErrorAction SilentlyContinue
+    if (-not $cl) { return "" }
+    if ($cl.Source -match '\\bin\\Host[^\\]+\\([^\\]+)\\cl\.exe$') {
+        return $Matches[1].ToLowerInvariant()
+    }
+    # Native stderr merged via 2>&1 becomes ErrorRecords, which would throw
+    # under $ErrorActionPreference = "Stop"; relax it for this one call.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $banner = (& $cl.Source 2>&1 | Out-String)
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($banner -match '\bfor\s+(x64|x86|ARM64|ARM)\b') { return $Matches[1].ToLowerInvariant() }
+    return ""
+}
+
+function Get-ToolchainArchitectureProblem {
+    # Returns a description of why $Arch is unusable, or "" if it is fine.
+    # x86 and ARM64 fail for completely different reasons and deserve
+    # different advice: x86 means the wrong shell was opened and is a
+    # one-command fix, ARM64 means the platform is genuinely unsupported.
+    # (Mirrored in setup.ps1, which is also runnable on its own.)
+    param([string]$Arch)
+    if ($Arch -eq "" -or $Arch -eq "x64" -or $Arch -eq "amd64") { return "" }
+    if ($Arch -eq "x86") {
+        return ("cl.exe targets x86, but RandLAPACK and its BLAS/LAPACK backends are 64-bit " +
+            "(x64). You are in a 32-bit developer shell: 'Developer PowerShell for VS 2022' " +
+            "and 'Developer Command Prompt for VS 2022' both default to x86.`n    Open 'x64 " +
+            "Native Tools Command Prompt for VS 2022' from the Start menu and re-run. If " +
+            "dependencies were already configured by the x86 compiler, delete the project " +
+            "directory first -- they are reused as-is and would keep failing.")
+    }
+    return ("cl.exe targets $Arch, which this installer does not support: the Windows build " +
+        "is x64-only. Intel oneMKL publishes no $Arch build, and the OpenBLAS binaries pinned " +
+        "here are x64. Supplying an $Arch BLAS/LAPACK through -Backend custom is the only " +
+        "route, and it is untested.`n    If you meant to build x64, open 'x64 Native Tools " +
+        "Command Prompt for VS 2022'.")
+}
+
 # This script lives in <repo>\install\; the repository root is one level up.
 $sourceRoot = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path (Join-Path $sourceRoot "RandLAPACK.hh"))) {
@@ -73,14 +140,22 @@ if (-not (Test-Path (Join-Path $sourceRoot "RandLAPACK.hh"))) {
 # failing later with a tool-specific error.
 $preflightProblems = @()
 if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
-    $preflightProblems += ("cl.exe (the MSVC compiler) is not on PATH. Open 'Developer PowerShell " +
-        "for VS 2022' from the Start menu and run this script there. If Visual Studio is not " +
-        "installed:`n    winget install Microsoft.VisualStudio.2022.Community --override " +
-        '"--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"')
+    $preflightProblems += ("cl.exe (the MSVC compiler) is not on PATH. Open 'x64 Native Tools " +
+        "Command Prompt for VS 2022' from the Start menu and run this script there. If Visual " +
+        "Studio is not installed:`n    winget install Microsoft.VisualStudio.2022.Community " +
+        '--override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"')
+} else {
+    # RandLAPACK and every BLAS backend the installer provisions are 64-bit.
+    # The plain 'Developer PowerShell/Command Prompt for VS 2022' entries
+    # default to an x86 toolchain, whose linker silently rejects the x64
+    # import libraries; the failure then surfaces much later as BLAS++
+    # reporting "BLAS library not found", which points at the wrong thing.
+    $archProblem = Get-ToolchainArchitectureProblem (Get-ClTargetArchitecture)
+    if ($archProblem -ne "") { $preflightProblems += $archProblem }
 }
 foreach ($tool in @(
-        @{ Name = "cmake.exe"; Hint = "CMake ships with the Visual Studio C++ workload; a Developer PowerShell puts it on PATH." },
-        @{ Name = "ninja.exe"; Hint = "Ninja ships with the Visual Studio C++ workload; a Developer PowerShell puts it on PATH." },
+        @{ Name = "cmake.exe"; Hint = "CMake ships with the Visual Studio C++ workload; an x64 Native Tools Command Prompt puts it on PATH." },
+        @{ Name = "ninja.exe"; Hint = "Ninja ships with the Visual Studio C++ workload; an x64 Native Tools Command Prompt puts it on PATH." },
         @{ Name = "git.exe";   Hint = "Install Git:`n    winget install Git.Git" },
         @{ Name = "curl.exe";  Hint = "curl.exe ships with Windows 10 (1803+) in System32; check your PATH includes it." })) {
     if (-not (Get-Command $tool.Name -ErrorAction SilentlyContinue)) {
@@ -121,6 +196,7 @@ Write-Host ""
 # Step 1: dependencies (idempotent; reused when already present).
 & (Join-Path $sourceRoot ".github\actions\setup-randlapack-deps-windows\setup.ps1") `
     -DependencyRoot $dependencyRoot -Backend $Backend -MklRoot $MklRoot `
+    -NoDownload:$NoDownload -Yes:$Yes `
     -BlasLibraries $BlasLibraries -LapackLibraries $LapackLibraries `
     -BackendBinDir $BackendBinDir -BlasInt $BlasInt -BlasFortran $BlasFortran
 

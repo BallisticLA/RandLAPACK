@@ -76,7 +76,11 @@ runs:
       shell: pwsh
       run: |
         $sanitizeAddress = '${{ inputs.sanitize-address }}' -eq 'true'
+        # -Yes: never prompt. Prompts are already skipped when stdin is not
+        # a terminal, but stating it makes the intent explicit and survives
+        # any future change to that detection.
         & "$env:GITHUB_ACTION_PATH/setup.ps1" `
           -DependencyRoot "${env:GITHUB_WORKSPACE}\..\windows-deps" `
           -Backend '${{ inputs.blas-backend }}' `
+          -Yes `
           -SanitizeAddress:$sanitizeAddress

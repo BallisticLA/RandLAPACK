@@ -22,12 +22,28 @@ param(
     [string]$DependencyRoot,
 
     # BLAS/LAPACK backend. "mkl" (default): oneMKL, ILP64 + sequential,
-    # auto-discovered from an installed oneAPI or downloaded from Intel's
-    # NuGet packages. "openblas": official OpenBLAS release binaries, LP64.
+    # discovered from an installed oneAPI, else downloaded (see -NoDownload).
+    # "openblas": official OpenBLAS release binaries, LP64.
     # "custom": bring your own libraries via -BlasLibraries (anything
     # BLAS++/LAPACK++ can link, e.g. AMD AOCL).
     [ValidateSet("mkl", "openblas", "custom")]
     [string]$Backend = "mkl",
+
+    # Refuse to download a backend that was not found locally, and fail
+    # instead. The default is to download, which is the ordinary Windows
+    # practice (no system prefix exists for third-party libraries, so
+    # per-project acquisition via vcpkg/NuGet/release archives is the norm).
+    # This switch is for users who want the stricter Linux/macOS behaviour,
+    # where install.sh expects a system BLAS and errors without one.
+    # Whatever is downloaded lands under <DependencyRoot>: project-local,
+    # nothing installed system-wide, removed when that directory is deleted.
+    [switch]$NoDownload,
+
+    # Skip interactive questions and take the documented default for each,
+    # mirroring install.sh's -y/--yes. Prompts are already skipped whenever
+    # stdin is not a terminal (CI, piped input), so this is only needed to
+    # silence them in an interactive session.
+    [switch]$Yes,
 
     # Use an existing oneMKL install (e.g. from the oneAPI installer) instead
     # of auto-discovery/download. Must contain the ILP64 DLL import libs.
@@ -63,6 +79,95 @@ function Invoke-Checked {
 function Convert-ToCMakePath {
     param([string]$Path)
     return $Path.Replace('\', '/')
+}
+
+function Get-ClTargetArchitecture {
+    # Returns the compiler's TARGET architecture, lowercased ("x64", "x86",
+    # "arm64", "arm"), or "" if it genuinely cannot be determined.
+    #
+    # Three independent signals, most reliable first -- the same
+    # probe-several-things approach Find-OneMklLayout uses, and for the same
+    # reason: a missed detection here fails *open*, which defeats the check.
+    #   1. VSCMD_ARG_TGT_ARCH, exported by vcvarsall.bat / VsDevCmd (and so
+    #      by ilammy/msvc-dev-cmd in CI). Never localized.
+    #   2. The toolset path: MSVC lays cl.exe out as
+    #      ...\bin\Host<host>\<target>\cl.exe, a stable convention.
+    #   3. The banner, last, for anything matching neither of the above.
+    #      On its own this would be wrong on a localized Visual Studio, where
+    #      the words around the architecture are translated.
+    if ($env:VSCMD_ARG_TGT_ARCH) { return $env:VSCMD_ARG_TGT_ARCH.ToLowerInvariant() }
+    $cl = Get-Command "cl.exe" -ErrorAction SilentlyContinue
+    if (-not $cl) { return "" }
+    if ($cl.Source -match '\\bin\\Host[^\\]+\\([^\\]+)\\cl\.exe$') {
+        return $Matches[1].ToLowerInvariant()
+    }
+    # Native stderr merged via 2>&1 becomes ErrorRecords, which would throw
+    # under $ErrorActionPreference = "Stop"; relax it for this one call.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $banner = (& $cl.Source 2>&1 | Out-String)
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($banner -match '\bfor\s+(x64|x86|ARM64|ARM)\b') { return $Matches[1].ToLowerInvariant() }
+    return ""
+}
+
+# Prompts happen only on a terminal and only without -Yes, mirroring
+# install.sh's INTERACTIVE flag. Without this gate, a question asked under
+# GitHub Actions (or any piped stdin) blocks until the job times out.
+$script:Interactive = -not $Yes -and -not [Console]::IsInputRedirected `
+    -and [Environment]::UserInteractive
+
+function Read-YesNo {
+    # Returns $true/$false. Non-interactive callers get $Default without a
+    # prompt, so every question must have a defensible unattended answer.
+    param([string]$Question, [bool]$Default)
+    if (-not $script:Interactive) { return $Default }
+    $suffix = if ($Default) { "[Y/n]" } else { "[y/N]" }
+    while ($true) {
+        $reply = (Read-Host "$Question $suffix").Trim().ToLowerInvariant()
+        if ($reply -eq "") { return $Default }
+        if ($reply -in @("y", "yes")) { return $true }
+        if ($reply -in @("n", "no")) { return $false }
+        Write-Host "Please answer y or n."
+    }
+}
+
+function Get-ToolchainArchitectureProblem {
+    # Returns a description of why $Arch is unusable, or "" if it is fine.
+    # x86 and ARM64 fail for completely different reasons and deserve
+    # different advice: x86 means the wrong shell was opened and is a
+    # one-command fix, ARM64 means the platform is genuinely unsupported.
+    # (Mirrored in install.ps1, which performs the same check up front.)
+    param([string]$Arch)
+    if ($Arch -eq "" -or $Arch -eq "x64" -or $Arch -eq "amd64") { return "" }
+    if ($Arch -eq "x86") {
+        return ("cl.exe targets x86, but RandLAPACK and its BLAS/LAPACK backends are 64-bit " +
+            "(x64).`n" +
+            "  You are in a 32-bit developer shell. 'Developer PowerShell for VS 2022' and " +
+            "'Developer Command Prompt for VS 2022' both default to x86.`n" +
+            "  Fix: open 'x64 Native Tools Command Prompt for VS 2022' from the Start menu " +
+            "(or run: cmd /k `"<VS install>\VC\Auxiliary\Build\vcvars64.bat`") and re-run.`n" +
+            "  Then delete the RandNLA-project directory before retrying: dependencies already " +
+            "configured by the x86 compiler are reused as-is and would keep failing.")
+    }
+    return ("cl.exe targets $Arch, which this installer does not support: the Windows build " +
+        "is x64-only.`n" +
+        "  Intel oneMKL publishes no $Arch build, and the OpenBLAS binaries pinned here are " +
+        "x64. Supplying an $Arch BLAS/LAPACK through -Backend custom is the only route, and " +
+        "it is untested.`n" +
+        "  If you meant to build x64, open 'x64 Native Tools Command Prompt for VS 2022'.")
+}
+
+function Assert-SupportedToolchain {
+    # Left unchecked, a non-x64 toolchain surfaces much later as BLAS++
+    # reporting "BLAS library not found", which points at the wrong thing
+    # entirely: the libraries are present and correct, the linker simply
+    # cannot use them at that architecture.
+    $problem = Get-ToolchainArchitectureProblem (Get-ClTargetArchitecture)
+    if ($problem -ne "") { throw $problem }
 }
 
 function Find-PackageConfigDirectory {
@@ -177,6 +282,7 @@ New-Item -ItemType Directory -Force -Path $resolvedRoot | Out-Null
 if (-not (Get-Command "cl.exe" -ErrorAction SilentlyContinue)) {
     throw "cl.exe is not on PATH. Run from an MSVC developer environment (or ilammy/msvc-dev-cmd in CI)."
 }
+Assert-SupportedToolchain
 
 # ---------------------------------------------------- argument checks ----
 
@@ -229,6 +335,70 @@ if ($Backend -eq "mkl") {
                 break
             }
         }
+    }
+    # Not found: offer to provision it. Auto-provisioning is the default
+    # answer because Windows has no system prefix for third-party libraries,
+    # so per-project acquisition is normal practice rather than a workaround,
+    # and it is what lets a bare machine install in one command. Asking first
+    # keeps a 155 MB download from being a surprise, and states plainly where
+    # it goes and that nothing touches the system.
+    $provisionMkl = $false
+    if (-not $mklLayout -and -not $NoDownload) {
+        Write-Host ""
+        Write-Host "No existing oneMKL found (checked -MklRoot, `$env:MKLROOT, `$env:ONEAPI_ROOT,"
+        Write-Host "and C:\Program Files (x86)\Intel\oneAPI\mkl\latest)."
+        Write-Host ""
+        Write-Host "A pinned, checksum-verified copy (~155 MB) can be downloaded into"
+        Write-Host "  $resolvedRoot"
+        Write-Host "It is used only by this project: nothing is installed system-wide, no PATH"
+        Write-Host "or registry changes, and deleting that directory removes it completely."
+        Write-Host ""
+        # Default yes: the unattended answer must keep CI and a one-command
+        # install on a bare machine working, and this is the same choice
+        # install.sh's ask() makes for its own prompts.
+        $provisionMkl = Read-YesNo "Download oneMKL now?" $true
+        if (-not $provisionMkl) { Write-Host "" }
+    }
+    if (-not $mklLayout -and -not $provisionMkl) {
+        # Reached two ways: -NoDownload, or the question above answered no.
+        # Both mean "no backend is available", so both get the same full list
+        # of ways to supply one; only the reason differs.
+        #
+        # Probing the literal oneAPI path (rather than requiring MKLROOT) is
+        # the polished Windows behaviour: that path IS canonical for oneMKL,
+        # even though Windows has no general system prefix for third-party
+        # libraries. See randnla/reference/windows-software-distribution.md.
+        #
+        # Details to the console, short throw -- the same shape install.ps1's
+        # preflight uses. A long multi-line throw message gets echoed twice by
+        # PowerShell (message, then FullyQualifiedErrorId) and buried in a
+        # stack trace, which makes actionable guidance harder to read, not
+        # easier.
+        $mklRootShown = if ($env:MKLROOT) { $env:MKLROOT } else { "(not set)" }
+        $oneApiShown = if ($env:ONEAPI_ROOT) { Join-Path $env:ONEAPI_ROOT "mkl\latest" } else { "(not set)" }
+        Write-Host ""
+        $why = if ($NoDownload) { "-NoDownload was given" } else { "the download was declined" }
+        Write-Host "No oneMKL installation found, and $why."
+        Write-Host ""
+        Write-Host "  Looked in (in order):"
+        Write-Host "    -MklRoot                                        (not given)"
+        Write-Host "    `$env:MKLROOT                                    $mklRootShown"
+        Write-Host "    `$env:ONEAPI_ROOT\mkl\latest                     $oneApiShown"
+        Write-Host "    C:\Program Files (x86)\Intel\oneAPI\mkl\latest  (default oneAPI location)"
+        Write-Host ""
+        Write-Host "  A directory only counts if it holds mkl_intel_ilp64_dll.lib under lib\ or"
+        Write-Host "  lib\intel64\ alongside a bin\ (or redist\intel64\) DLL directory, so a"
+        Write-Host "  partial install is rejected rather than half-used."
+        Write-Host ""
+        Write-Host "  Pick one:"
+        Write-Host "    1. Install oneMKL:            winget install --id Intel.oneMKL --exact"
+        Write-Host "    2. Use a copy you already have:  -MklRoot `"<path to ...\mkl\latest>`""
+        Write-Host "    3. Use OpenBLAS instead:      -Backend openblas"
+        Write-Host "    4. Let the installer fetch a pinned oneMKL (~155 MB into"
+        Write-Host "       $resolvedRoot; nothing installed system-wide):"
+        Write-Host "       re-run and answer yes, or pass -Yes to skip the question."
+        Write-Host ""
+        throw "No BLAS/LAPACK backend available; see the options above."
     }
     if (-not $mklLayout) {
         # oneMKL comes straight from Intel's official NuGet packages -- plain
@@ -283,10 +453,22 @@ if ($Backend -eq "mkl") {
             (Join-Path $mklLibDir "mkl_core_dll.lib"))) {
         if (-not (Test-Path $required)) { throw "oneMKL install is missing $required." }
     }
-    $backendLibraries = @(
-        (Convert-ToCMakePath (Join-Path $mklLibDir "mkl_intel_ilp64_dll.lib")),
-        (Convert-ToCMakePath (Join-Path $mklLibDir "mkl_sequential_dll.lib")),
-        (Convert-ToCMakePath (Join-Path $mklLibDir "mkl_core_dll.lib")))
+    # Same link-and-run check the other two backends get: one clear pass/fail
+    # here beats a BLAS++ probe cascade three layers down. It catches an
+    # incomplete or mismatched oneMKL (and, belt-and-braces after
+    # Assert-SupportedToolchain, any remaining bitness mismatch) before anything is
+    # built.
+    $mklLibs = @(
+        (Join-Path $mklLibDir "mkl_intel_ilp64_dll.lib"),
+        (Join-Path $mklLibDir "mkl_sequential_dll.lib"),
+        (Join-Path $mklLibDir "mkl_core_dll.lib"))
+    if (-not (Test-BlasLinkage -Libraries $mklLibs -DllDir $mklBin `
+            -Int64 $true -ScratchDir (Join-Path $resolvedRoot "conftest-mkl"))) {
+        throw ("oneMKL at $mklRoot failed a minimal ILP64 dgemm_/dgesv_ link-and-run check. " +
+            "Verify that the install is complete and that its DLL directory ($mklBin) holds " +
+            "the matching runtime DLLs.")
+    }
+    $backendLibraries = @($mklLibs | ForEach-Object { Convert-ToCMakePath $_ })
     $backendLapackLibraries = ""
     # ILP64 because RandBLAS's MKL sparse backend static-asserts that its
     # int64_t sparse indices match sizeof(MKL_INT).
@@ -301,6 +483,29 @@ if ($Backend -eq "mkl") {
     # full LAPACK is included. LP64: no ILP64 OpenBLAS binaries are
     # published for Windows. Without MKL, RandBLAS's MKL sparse
     # acceleration stays off and its portable fallbacks take over.
+    #
+    # Unlike oneMKL there is nothing to auto-discover: OpenBLAS has no
+    # canonical Windows install location (GitHub release zips, vcpkg, conda
+    # and MSYS2 all differ, and the release zips even ship CMake config
+    # files with wrong hardcoded paths). So rather than probe and guess, ask
+    # -- and only when someone is there to answer.
+    if ($script:Interactive -and -not $NoDownload) {
+        if (Read-YesNo "Do you already have OpenBLAS installed?" $false) {
+            Write-Host ""
+            Write-Host "OpenBLAS has no standard layout on Windows, so point at the pieces"
+            Write-Host "directly rather than at a root directory. Re-run with:"
+            Write-Host ""
+            Write-Host "  -Backend custom ``"
+            Write-Host "    -BlasLibraries `"<path>\libopenblas.lib`" ``"
+            Write-Host "    -BackendBinDir `"<directory holding libopenblas.dll>`" ``"
+            Write-Host "    -BlasInt lp64 -BlasFortran add"
+            Write-Host ""
+            Write-Host "Your libraries are checked with a real dgemm_/dgesv_ link-and-run"
+            Write-Host "test before anything is built, so a wrong path fails immediately."
+            Write-Host ""
+            throw "Re-run with -Backend custom to use your own OpenBLAS (see above)."
+        }
+    }
     $openblasVersion = "0.3.34"
     $openblasSha256 = "e9cb6134541f36c27346d5fc5995652f060fba227cebbbabcbda5a5a44d7c76b"
     $openblasRoot = Join-Path $resolvedRoot "openblas-$openblasVersion"

@@ -15,19 +15,36 @@ winget install Git.Git
 winget install Microsoft.VisualStudio.2022.Community --override "--add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"
 ```
 
-Then open **"Developer PowerShell for VS 2022"** from the Start menu (this is
-important -- see section 3), and run:
+Then open **"x64 Native Tools Command Prompt for VS 2022"** from the Start
+menu (the exact entry matters -- see section 3), and run:
 
-```powershell
+```bat
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 cd RandLAPACK
-.\install\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install\install.ps1
 ```
 
-That is the whole install. The script downloads a pinned, checksum-verified
-copy of Intel oneMKL, builds the remaining dependencies, builds RandLAPACK,
-and runs its test suite. Everything lands in a sibling `RandNLA-project\`
-directory; re-running the script reuses what is already built.
+Two details in that last line, both deliberate. It is a `cmd` prompt, so the
+PowerShell script is launched rather than typed directly. And Windows blocks
+PowerShell scripts by default (`Restricted` policy on a fresh machine), so
+`-ExecutionPolicy Bypass` lets this one script run without permanently
+loosening a machine-wide security setting.
+
+That is the whole install. The script uses an Intel oneMKL you already have,
+and otherwise downloads a pinned copy for you, then builds the remaining
+dependencies, builds RandLAPACK, and runs its test suite. Everything lands in
+a sibling `RandNLA-project\` directory; re-running the script reuses what is
+already built.
+
+Unlike Linux and macOS, you are not expected to install a BLAS library first.
+Windows has no system location for third-party libraries, so projects acquire
+their own -- that is what vcpkg, Conan, and NuGet exist for. Anything the
+installer downloads goes inside `RandNLA-project\`, never into your system,
+and deleting that directory removes it completely.
+
+If you would rather supply the library yourself, use `-MklRoot` to point at an
+existing oneMKL, or `-NoDownload` to make a missing one an error instead of a
+download. See §4.
 
 ## 2. How this differs from Linux and macOS
 
@@ -36,7 +53,7 @@ installer does differently:
 
 | | Linux / macOS | Windows |
 |---|---|---|
-| Getting BLAS/LAPACK | one package-manager command (`apt install libopenblas-dev`, `brew install openblas`) | no system package manager for libraries; the installer downloads pinned, SHA256-verified binaries directly from the vendor (Intel's NuGet packages, OpenBLAS's release archives) |
+| Getting BLAS/LAPACK | you install one first (`apt install libopenblas-dev`, `brew install openblas`); the installer errors without it | no system location for libraries exists, so the installer discovers an existing oneMKL and otherwise fetches a pinned copy into the project directory. Pass `-NoDownload` for the Linux/macOS behavior |
 | Where the compiler lives | `gcc`/`clang` always on PATH | MSVC (`cl.exe`) exists only inside a "Developer" shell that Visual Studio sets up per session |
 | Finding shared libraries at run time | the binary itself remembers where its libraries are (RPATH), plus system-wide loader paths | executables have no such memory; Windows searches the executable's **own directory first** and PATH **last**, so the installer copies ("stages") every needed DLL next to each executable |
 | Default BLAS backend | OpenBLAS (Linux CI), Accelerate (macOS CI) | Intel oneMKL, ILP64 sequential (fastest on typical Windows x64 machines, and enables RandBLAS's MKL-accelerated sparse routines) |
@@ -63,10 +80,51 @@ what Visual Studio's own package manager does by default.
   200 MB for the default backend).
 
 The installer checks all of this up front and prints a fix-it command for
-anything missing. The most common mistake is running from a *regular*
-PowerShell: `cl.exe`, `cmake`, and `ninja` are only on PATH inside
-**Developer PowerShell for VS 2022** (Start menu, or "Developer Command
-Prompt" if you prefer cmd).
+anything missing.
+
+Two mistakes account for nearly every failed Windows install, and both are
+about *which shell you start from*:
+
+1. **A regular PowerShell.** `cl.exe`, `cmake`, and `ninja` are on PATH only
+   inside a Visual Studio "developer" shell, which sets them up per session.
+2. **A developer shell of the wrong architecture.** This one is easy to hit
+   because the obvious Start-menu entries are the wrong ones: **"Developer
+   PowerShell for VS 2022"** and **"Developer Command Prompt for VS 2022"**
+   both default to a **32-bit (x86)** toolchain. RandLAPACK and every BLAS
+   backend here are 64-bit, and a 32-bit linker cannot use an x64 import
+   library. Use **"x64 Native Tools Command Prompt for VS 2022"** instead.
+
+You can confirm you are in the right place with:
+
+```
+cl
+```
+
+The banner must end in `for x64`. If it says `for x86`, you are in a 32-bit
+shell. The installer's preflight check will also stop you with this same
+explanation, so you cannot get far down the wrong path.
+
+If you prefer PowerShell to `cmd`, there is no x64 PowerShell entry in the
+Start menu, so ask for the architecture explicitly:
+
+```powershell
+Import-Module "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\Community" -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+```
+
+### Script execution policy
+
+Windows refuses to run PowerShell scripts at all under its default
+`Restricted` policy, with "running scripts is disabled on this system". The
+quick start sidesteps this per-invocation with `-ExecutionPolicy Bypass`,
+which is the smallest hammer: it applies to that one process and changes
+nothing about the machine. If you would rather allow local scripts
+permanently, this is the conventional setting, and it affects only your own
+account:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
 
 ## 4. Choosing a BLAS/LAPACK backend
 
@@ -75,7 +133,7 @@ on a BLAS/LAPACK library of your choice. On Windows the installer supports:
 
 | Backend | Flag | What you get | How it is obtained |
 |---|---|---|---|
-| **oneMKL** (default) | none needed | fastest option on most x64 CPUs; 64-bit integers (ILP64); MKL-accelerated sparse routines in RandBLAS | an already-installed oneAPI is discovered automatically (via `MKLROOT`, `ONEAPI_ROOT`, or the default install location); otherwise Intel's official NuGet packages are downloaded, pinned by version and SHA256 |
+| **oneMKL** (default) | none needed | fastest option on most x64 CPUs; 64-bit integers (ILP64); MKL-accelerated sparse routines in RandBLAS | discovered from an existing install via `-MklRoot`, `MKLROOT`, `ONEAPI_ROOT`, or the default oneAPI location; otherwise Intel's official NuGet packages are downloaded, pinned by version and SHA256. `-NoDownload` turns "not found" into an error |
 | **OpenBLAS** | `-Backend openblas` | solid free backend; 32-bit integers (LP64); RandBLAS's portable sparse fallbacks replace the MKL-only accelerations | official OpenBLAS release binaries, pinned and checksum-verified; the archive is self-contained and includes full LAPACK |
 | **Custom / bring-your-own** | `-Backend custom -BlasLibraries <paths>` | anything BLAS++/LAPACK++ can link -- e.g. AMD AOCL, a local ILP64 OpenBLAS build | you provide the import libraries (and their DLL directory via `-BackendBinDir`); the installer verifies them with a small link-and-run check before building anything |
 
@@ -92,7 +150,15 @@ and OpenBLAS are.
                       (default: ..\RandNLA-project next to the clone).
 -Backend <name>       mkl (default) | openblas | custom.
 -MklRoot <path>       Use this specific oneMKL install (oneAPI layout);
-                      skips discovery and download. Backend mkl only.
+                      skips discovery. Backend mkl only. Invalid paths are
+                      an error, never a silent fallback to something else.
+-NoDownload           Fail instead of downloading a backend that was not
+                      found locally. The default fetches one into
+                      <ProjectDir>; nothing is installed system-wide, and
+                      deleting <ProjectDir> removes it.
+-Yes                  Skip interactive questions, taking each documented
+                      default. Questions are already skipped when stdin is
+                      not a terminal, so CI never needs this.
 -BlasLibraries <p;p>  Backend custom: semicolon-separated .lib paths.
 -LapackLibraries <p>  Backend custom: LAPACK .lib paths, if separate from BLAS.
 -BackendBinDir <path> Backend custom: directory holding the backend's DLLs.
@@ -146,9 +212,23 @@ directory (the installer prints it at the end) next to your `.exe`.
 
 ## 7. Troubleshooting
 
-- **"cl.exe is not on PATH"**: you are in a regular shell. Open "Developer
-  PowerShell for VS 2022" and re-run. If Visual Studio is missing entirely,
-  the preflight message includes the winget install command.
+- **"running scripts is disabled on this system"**: Windows' default
+  PowerShell execution policy. Launch it as the quick start does
+  (`powershell -ExecutionPolicy Bypass -File .\install\install.ps1`), or see
+  "Script execution policy" in section 3.
+- **"cl.exe is not on PATH"**: you are in a regular shell. Open "x64 Native
+  Tools Command Prompt for VS 2022" and re-run. If Visual Studio is missing
+  entirely, the preflight message includes the winget install command.
+- **"cl.exe targets x86"**: you are in a developer shell of the wrong
+  architecture (see section 3). Open "x64 Native Tools Command Prompt for VS
+  2022" instead. If an earlier run already got as far as building
+  dependencies, delete the `RandNLA-project` directory before retrying:
+  dependencies are reused when present, and the ones configured by the 32-bit
+  compiler will keep failing no matter which shell you re-run from.
+- **"BLAS library not found" from BLAS++, with oneMKL clearly installed**:
+  almost always the 32-bit shell above, on a version of the installer that
+  predates the preflight check. The x86 linker rejects the x64 import
+  library, and BLAS++ can only report that its probe did not link.
 - **A download fails with a hash mismatch**: the pinned artifact changed
   upstream or the download was corrupted. Re-run once; if it persists, open
   an issue -- do not bypass the check.
