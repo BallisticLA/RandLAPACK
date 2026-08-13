@@ -10,8 +10,13 @@
 # Windows yet.
 #
 # Options:
-#   -ProjectDir <path>  Where dependencies/builds/installs go
-#                       (default: ..\RandNLA-project next to the clone).
+#   -ProjectDir <path>  Where dependencies/builds/installs go. Defaults to
+#                       $env:RANDNLA_PROJECT_DIR when set, otherwise
+#                       ..\RandNLA-project next to the clone.
+#   -Prefix <path>      Install RandLAPACK itself here instead of
+#                       <ProjectDir>\install\RandLAPACK-install.
+#   -ModifyEnvironment  Persist RANDNLA_PROJECT_DIR for your user account. The
+#                       default touches nothing and prints the setx command.
 #   -Backend <name>     mkl (default) | openblas | custom. See setup.ps1.
 #   -MklRoot <path>     Use this oneMKL install instead of discovery.
 #   -NoDownload         Fail rather than download a backend that was not
@@ -46,6 +51,13 @@ param(
     # Where the dependency stack lives (default: <ProjectDir>\install). CI
     # points this at its shared, cached dependency directory.
     [string]$DependencyRoot = "",
+    # Install RandLAPACK itself here instead of <ProjectDir>\install\RandLAPACK-install.
+    # Dependencies still go in the project directory. For an HPC module tree or
+    # any other prefix a site wants to own.
+    [string]$Prefix = "",
+    # Persist RANDNLA_PROJECT_DIR for this user. Opt-in, mirroring install.sh's
+    # --modify-rc: the default touches nothing and prints the setx line instead.
+    [switch]$ModifyEnvironment,
     [switch]$Fresh,
     [switch]$SkipTests
 )
@@ -107,26 +119,41 @@ if ($preflightProblems.Count -gt 0) {
     $preflightProblems | ForEach-Object { Write-Host "PREREQUISITE MISSING: $_`n" }
     throw "Missing prerequisites ($($preflightProblems.Count)); see the messages above."
 }
-if ($ProjectDir -ne "" -and $ProjectDir.Length -gt 150) {
-    Write-Warning ("-ProjectDir is $($ProjectDir.Length) characters long; deep dependency build " +
-        "paths may exceed Windows' 260-character limit. Prefer a shorter location.")
-}
-
 if (-not (Test-Path (Join-Path $sourceRoot "RandBLAS\CMakeLists.txt"))) {
     Write-Host "Initializing the RandBLAS submodule..."
     Invoke-Checked "git" @("-C", $sourceRoot, "submodule", "update", "--init", "--recursive")
 }
 
+# Precedence matches install.sh exactly: the flag, then RANDNLA_PROJECT_DIR,
+# then a sibling of this clone. Honouring the environment variable is what lets
+# this installer and RandBLAS's use the same project directory, so a machine
+# that has already installed one does not scatter a second tree elsewhere.
 if ($ProjectDir -eq "") {
-    $ProjectDir = Join-Path (Split-Path $sourceRoot -Parent) "RandNLA-project"
+    if ($env:RANDNLA_PROJECT_DIR) {
+        $ProjectDir = $env:RANDNLA_PROJECT_DIR
+    } else {
+        $ProjectDir = Join-Path (Split-Path $sourceRoot -Parent) "RandNLA-project"
+    }
 }
 $ProjectDir = [System.IO.Path]::GetFullPath($ProjectDir)
 if ($DependencyRoot -eq "") {
     $DependencyRoot = Join-Path $ProjectDir "install"
 }
+# Checked after resolution rather than before: previously this only fired for an
+# explicitly-passed -ProjectDir, so a long *default* path -- the common case,
+# since it is derived from wherever the clone happens to sit -- went unwarned.
+if ($ProjectDir.Length -gt 150) {
+    Write-Warning ("The project directory path is $($ProjectDir.Length) characters long; deep " +
+        "dependency build paths may exceed Windows' 260-character limit. Prefer a shorter " +
+        "location, such as C:\RandNLA, via -ProjectDir.")
+}
 $dependencyRoot = [System.IO.Path]::GetFullPath($DependencyRoot)
 $buildDir = Join-Path $ProjectDir "build\RandLAPACK-build"
-$installDir = Join-Path $ProjectDir "install\RandLAPACK-install"
+$installDir = if ($Prefix) {
+    [System.IO.Path]::GetFullPath($Prefix)
+} else {
+    Join-Path $ProjectDir "install\RandLAPACK-install"
+}
 
 Write-Host ""
 Write-Host "RandLAPACK Windows install"
@@ -172,6 +199,17 @@ if (-not $SkipTests) {
         "--output-on-failure")
 }
 
+# Opt-in, mirroring install.sh's --modify-rc. SetEnvironmentVariable at User
+# scope is the Windows equivalent of appending to a shell profile, and the only
+# mechanism that survives opening a new shell -- setting $env: alone would last
+# only for this process.
+if ($ModifyEnvironment) {
+    [Environment]::SetEnvironmentVariable("RANDNLA_PROJECT_DIR", $ProjectDir, "User")
+    Write-Host ""
+    Write-Host "Set RANDNLA_PROJECT_DIR=$ProjectDir for your user account."
+    Write-Host "Open a new shell to pick it up."
+}
+
 Write-Host ""
 Write-Host "RandLAPACK is installed."
 Write-Host "  RandLAPACK_DIR: $installDir\lib\cmake\RandLAPACK"
@@ -179,6 +217,12 @@ Write-Host "  blaspp_DIR:     $env:blaspp_DIR"
 Write-Host "  lapackpp_DIR:   $env:lapackpp_DIR"
 Write-Host "  Random123_DIR:  $env:Random123_DIR"
 Write-Host ""
+if (-not $ModifyEnvironment) {
+    Write-Host "To have RandNLA installers reuse this project directory by default, set:"
+    Write-Host "    setx RANDNLA_PROJECT_DIR `"$ProjectDir`""
+    Write-Host "(or re-run with -ModifyEnvironment)"
+    Write-Host ""
+}
 if ($env:RANDNLA_BLAS_BIN) {
     Write-Host "Runtime DLLs from $env:RANDNLA_BLAS_BIN are staged next to RandLAPACK's"
     Write-Host "test and benchmark executables automatically -- no PATH changes needed."
