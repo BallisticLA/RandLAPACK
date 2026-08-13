@@ -108,7 +108,7 @@ jobs:
               `pwd`/../RandLAPACK
           make -j$(nproc)
           make -j$(nproc) install
-          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability" --output-on-failure
+          ctest --output-on-failure
 
       - name: build and test extras
         run: |
@@ -208,4 +208,4 @@ jobs:
               `pwd`/../RandLAPACK
           make -j$(nproc)
           make -j$(nproc) install
-          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability" --output-on-failure
+          ctest --output-on-failure

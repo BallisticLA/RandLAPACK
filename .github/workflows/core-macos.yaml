@@ -109,7 +109,7 @@ jobs:
           ## RUN below, so its result is not lost: if it starts PASSING, the  ##
           ## job prints a loud warning telling you to delete this block.      ##
           #####################################################################
-          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability|^TestQB\.Polynomial_Decay_general1" \
+          ctest --exclude-regex "^TestQB\.Polynomial_Decay_general1" \
                 --output-on-failure
           echo "::warning title=TEMPORARY macOS suppression is ACTIVE::TestQB.Polynomial_Decay_general1 is quarantined (Apple Accelerate gesdd bug). REVERT once Mark has reviewed the BLAS++/LAPACK++ Accelerate migration. See docs/CI.md."
           if ctest --tests-regex "^TestQB\.Polynomial_Decay_general1" --output-on-failure; then
@@ -228,7 +228,7 @@ jobs:
           ## RUN below, so its result is not lost: if it starts PASSING, the  ##
           ## job prints a loud warning telling you to delete this block.      ##
           #####################################################################
-          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability|^TestQB\.Polynomial_Decay_general1" \
+          ctest --exclude-regex "^TestQB\.Polynomial_Decay_general1" \
                 --output-on-failure
           echo "::warning title=TEMPORARY macOS suppression is ACTIVE::TestQB.Polynomial_Decay_general1 is quarantined (Apple Accelerate gesdd bug). REVERT once Mark has reviewed the BLAS++/LAPACK++ Accelerate migration. See docs/CI.md."
           if ctest --tests-regex "^TestQB\.Polynomial_Decay_general1" --output-on-failure; then

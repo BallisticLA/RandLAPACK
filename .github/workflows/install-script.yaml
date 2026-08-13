@@ -80,7 +80,6 @@ jobs:
       - name: test the installed library
         run: |
           ctest --test-dir RandNLA-project/build/RandLAPACK-build \
-                --exclude-regex "^TestABRIK\.ABRIK_catch_instability" \
                 --output-on-failure
 
       - name: re-run the installer in place (idempotency)
@@ -113,7 +112,6 @@ jobs:
       - name: test the installed library
         run: |
           ctest --test-dir RandNLA-project/build/RandLAPACK-build \
-                --exclude-regex "^TestABRIK\.ABRIK_catch_instability" \
                 --output-on-failure
 
       - name: re-run the installer in place (idempotency)
