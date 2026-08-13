@@ -26,11 +26,17 @@ runs:
     # install-script workflow checks this repo out under RandLAPACK\, where
     # the glob matches nothing and hashFiles() silently returns "" -- the two
     # workflows then read/write DIFFERENT caches while appearing to share.
+    # The version in `path` must match $mklVersion in setup.ps1, which is what
+    # names the directory it creates. It did not: the path still said
+    # 2025.2.0.627 after the bump to 2026.1.0.226, so it pointed at a directory
+    # that never exists. That fails quietly in the worst way -- every MKL leg
+    # re-downloaded 155 MB and then saved a cache entry for a missing path, so
+    # the cache could never hit and nothing ever reported an error.
     - name: cache oneMKL (NuGet)
       if: inputs.blas-backend == 'mkl'
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\onemkl-2025.2.0.627
+        path: ${{ github.workspace }}\..\windows-deps\onemkl-2026.1.0.226
         key: windows-nuget-intel-mkl-2026.1.0.226-r1
 
     - name: cache OpenBLAS (release binaries)
