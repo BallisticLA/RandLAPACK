@@ -12,10 +12,7 @@
 #include <gtest/gtest.h>
 #include <chrono>
 
-// Use cuda kernels.
-#ifndef USE_CUDA
-#define USE_CUDA
-#include "RandLAPACK/drivers/rl_bqrrp_gpu.hh"
+// The GPU drivers and kernels come in with RandLAPACK.hh, under its __CUDACC__ guard.
 
 using GPUSubroutines = RandLAPACK::BQRRPGPUSubroutines;
 
@@ -475,5 +472,4 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     cudaFree(tau_device);
     blas::device_free(d_work_geqrf_opt, lapack_queue);
 }
-#endif
 #endif
