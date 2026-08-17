@@ -12,6 +12,20 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <cstdlib>
+#include <string>
+
+namespace RandLAPACK {
+// Env-gated (read once): RANDLAPACK_SCHOLQR3_SHIFT=theory selects the paper's
+// first-pass shift s = 11*eps*n*trace(G) in the sCholQR3 drivers below.
+inline bool scholqr3_theory_shift() {
+    static const bool v = []() {
+        const char* s = std::getenv("RANDLAPACK_SCHOLQR3_SHIFT");
+        return s != nullptr && std::string(s) == "theory";
+    }();
+    return v;
+}
+} // namespace RandLAPACK
 
 using namespace std::chrono;
 
@@ -125,10 +139,19 @@ class sCholQR3_linops {
 
             // sCholQR3 = three cholqr_iterate passes; iter 1 carries the eps shift
             // right away (shift_factor_iter1), iters 2-3 use shift_factor_iter23.
+            //
+            // RANDLAPACK_SCHOLQR3_SHIFT=theory switches the first pass to the paper's
+            // prescription s = 11*eps*n*trace(G) (FukayaEtAl2020, c = 11). History:
+            // 11*eps*n WAS the original setting, lowered to eps per Oleg after an
+            // iter-2 collapse (shift >> sigma_min^2 leaves G_2 rank-deficient); this
+            // knob exists so campaigns can re-measure that trade on real operators.
             long it[15] = {0};
+            const T sf1 = scholqr3_theory_shift()
+                        ? T(11) * T(n) * std::numeric_limits<T>::epsilon()
+                        : this->shift_factor_iter1;
             int info = cholqr_iterate<T, GLO>(
                 A, R, ldr, this->block_size, /*num_iters=*/3,
-                this->shift_factor_iter1, this->shift_factor_iter23,
+                sf1, this->shift_factor_iter23,
                 this->max_retries, this->shift_growth, this->timing,
                 this->timing ? it : nullptr, &this->n_chol_retries);
             if (info != 0) return info;   // 1/2/3 = the pass that failed
@@ -257,9 +280,13 @@ class sCholQR3_linops_basic {
 
             // Non-blocked sCholQR3 = three cholqr_iterate passes with block_size = 0.
             long it[15] = {0};
+            // Same RANDLAPACK_SCHOLQR3_SHIFT=theory knob as the blocked variant above.
+            const T sf1 = scholqr3_theory_shift()
+                        ? T(11) * T(n) * std::numeric_limits<T>::epsilon()
+                        : this->shift_factor_iter1;
             int info = cholqr_iterate<T, GLO>(
                 A, R, ldr, /*block_size=*/0, /*num_iters=*/3,
-                this->shift_factor_iter1, this->shift_factor_iter23,
+                sf1, this->shift_factor_iter23,
                 this->max_retries, this->shift_growth, this->timing,
                 this->timing ? it : nullptr, &this->n_chol_retries);
             if (info != 0) return info;

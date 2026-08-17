@@ -13,6 +13,8 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <cstdlib>
+#include <string>
 
 namespace RandLAPACK {
 
@@ -326,7 +328,18 @@ int cholqr_primitive(
     // keep the explicit per-block GEMM with R_pre^T to preserve the QRCP-accurate
     // R_pre (a TRSM with the ill-conditioned P would re-amplify the error). The
     // unpreconditioned path forms plain A^T A.
+    //
+    // RANDLAPACK_GRAM_LEFT=gemm forces the per-block GEMM with R_pre^T even for
+    // TRSM_IDENTITY/TRTRI (2026-08-12 experiment: the paper's stability analysis
+    // models the explicit-multiply path, the default runs the TRSM path; this knob
+    // lets a campaign measure both). Only the gemm direction can be forced: making
+    // GEQP3/BQRRP use the TRSM would reintroduce the error their construction avoids.
+    static const bool force_gemm_left = []() {
+        const char* s = std::getenv("RANDLAPACK_GRAM_LEFT");
+        return s != nullptr && std::string(s) == "gemm";
+    }();
     const bool use_trsm_at_end = preconditioned
+                              && !force_gemm_left
                               && (method == PCholQRPrecondMethod::TRSM_IDENTITY
                                || method == PCholQRPrecondMethod::TRTRI);
 
