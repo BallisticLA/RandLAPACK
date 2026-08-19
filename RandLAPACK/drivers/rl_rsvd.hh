@@ -145,7 +145,7 @@ int RSVD<T, RNG>::call(
     // SVD of B
     lapack::gesdd(Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);
     // Adjusting U
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, k, k, 1.0, Q, m, UT_buf, k, 0.0, U, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, k, k, (T) 1.0, Q, m, UT_buf, k, (T) 0.0, U, m);
 
     free(Q);
     free(BT);

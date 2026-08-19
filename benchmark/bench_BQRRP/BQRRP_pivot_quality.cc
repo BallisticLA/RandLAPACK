@@ -1,5 +1,9 @@
 #if defined(__APPLE__)
-int main() {return 0;}
+#include <iostream>
+int main() {
+    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
+    return 1;
+}
 #else
 /*
 Performs computations in order to assess the pivot quality of BQRRP.
@@ -78,9 +82,6 @@ void _LAPACK_gejsv(
         work, lwork_,
         iwork_,
         info_
-        #ifdef LAPACK_FORTRAN_STRLEN_END
-        //, 1, 1, 1, 1, 1, 1
-        #endif
         );
 
     return;
@@ -238,7 +239,7 @@ static void sv_ratio(
     double* buff_workspace  = new double[8 * m * n]();
     int64_t lwork[1]; 
     lwork[0] = 8 * m * n;
-    int64_t iwork[8 * std::min(m,n)];
+    int64_t* iwork = new int64_t[8 * std::min(m, n)]();
     int64_t info[1];
     
     _LAPACK_gejsv(
@@ -288,6 +289,7 @@ static void sv_ratio(
     data_regen(m_info, all_data, state_gen);
 
     delete[] buff_workspace;
+    delete[] iwork;
 }
 
 int main(int argc, char *argv[]) {

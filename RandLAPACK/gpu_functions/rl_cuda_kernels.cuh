@@ -1,10 +1,45 @@
 #pragma once
+
+// USE_CUDA gates every kernel below, and every launch inside the host wrappers; without
+// it the wrappers still compile but throw. It used to be defined by hand in each .cu
+// consumer, so correctness depended on include order: this header is #pragma once, so
+// the first inclusion decided whether the kernels existed at all, and an inclusion that
+// arrived through RandLAPACK.hh silently produced a kernel free build. Deriving it from
+// __CUDACC__ removes that hazard. Consumers no longer define it; the define is kept so
+// that out of tree code still setting it by hand keeps working.
+#if defined(__CUDACC__) && !defined(USE_CUDA)
+#define USE_CUDA
+#endif
+
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cusolverDn.h>
 #include <cooperative_groups.h>
+#include <type_traits>
 
 namespace RandLAPACK::cuda_kernels {
+
+// cuSOLVER's ormqr interface is typed by precision; these templates infer
+// the element type from the arguments and dispatch to the S or D symbol at
+// compile time (if constexpr), so the indirection has no runtime cost.
+template <typename T>
+inline cusolverStatus_t cusolver_ormqr_buffer_size(cusolverDnHandle_t handle, cublasSideMode_t side, cublasOperation_t trans, int m, int n, int k, const T* A, int lda, const T* tau, const T* C, int ldc, int* lwork) {
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>, "cusolver_ormqr_buffer_size supports float and double only");
+    if constexpr (std::is_same_v<T, double>)
+        return cusolverDnDormqr_bufferSize(handle, side, trans, m, n, k, A, lda, tau, C, ldc, lwork);
+    else
+        return cusolverDnSormqr_bufferSize(handle, side, trans, m, n, k, A, lda, tau, C, ldc, lwork);
+}
+template <typename T>
+inline cusolverStatus_t cusolver_ormqr(cusolverDnHandle_t handle, cublasSideMode_t side, cublasOperation_t trans, int m, int n, int k, const T* A, int lda, const T* tau, T* C, int ldc, T* work, int lwork, int* dev_info) {
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>, "cusolver_ormqr supports float and double only");
+    if constexpr (std::is_same_v<T, double>)
+        return cusolverDnDormqr(handle, side, trans, m, n, k, A, lda, tau, C, ldc, work, lwork, dev_info);
+    else
+        return cusolverDnSormqr(handle, side, trans, m, n, k, A, lda, tau, C, ldc, work, lwork, dev_info);
+}
+
 
 // This conditional allows us to make sure that the cuda kernels are only compiled with nvcc.
 #ifdef USE_CUDA

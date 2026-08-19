@@ -1,5 +1,9 @@
 #if defined(__APPLE__)
-int main() {return 0;}
+#include <iostream>
+int main() {
+    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
+    return 1;
+}
 #else
 /*
 QR speed comparison benchmark - runs:
@@ -85,9 +89,6 @@ void _LAPACK_ilaenv(
 
     LAPACK_ilaenv( & ISPEC_, & NAME, & OPTS, 
         N1_, N2_, N3_, N4_
-        #ifdef LAPACK_FORTRAN_STRLEN_END
-        //, 1
-        #endif
         );
     return;
 }
@@ -170,7 +171,7 @@ static void call_wide_qrcp(
             all_data.J[j] = tmp;
         }
         // Apply pivots to A_sk
-        RandLAPACK::util::col_swap(n, m, m, all_data.A.data(), n, all_data.J);
+        RandLAPACK::util::col_swap(n, m, m, all_data.A.data(), n, all_data.J.data());
         // Perform an unpivoted QR on A_sk
         lapack::geqrf(n, m, all_data.A.data(), n, all_data.tau.data());
         auto stop_luqr = steady_clock::now();

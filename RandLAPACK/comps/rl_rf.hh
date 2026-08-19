@@ -120,7 +120,7 @@ int RF<T, RNG>::call(
     }
 
     // Q = orth(A * Omega)
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Omega, n, 0.0, Q, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, (T) 1.0, A, m, Omega, n, (T) 0.0, Q, m);
 
     if(this->cond_check)
         // Writes into this->cond_nums

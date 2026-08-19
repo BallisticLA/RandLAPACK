@@ -1,0 +1,174 @@
+# Exercises install.sh itself -- the one artifact the core workflows never
+# run (they hand-replicate the build recipes instead). Three things are
+# verified per OS:
+#   1. a fresh clone piped through the installer non-interactively builds
+#      and its test suite passes;
+#   2. re-running the installer in place succeeds (idempotent re-runs are
+#      part of the script's contract);
+#   3. the dependency-discovery path (BLASPP_INSTALL_DIR & co.) configures
+#      a second project against already-installed dependencies.
+# The Windows job runs install.ps1 the same way (fresh + idempotent re-run).
+# The Linux/macOS lanes invoke the root install.sh wrapper on purpose: users
+# type `bash install.sh`, so CI exercises the wrapper along with the script.
+name: install-script
+on:
+  pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+  workflow_dispatch:
+  # Only main. A branch with an open pull request is already covered by the
+  # pull_request event above, and firing on both ran every job twice per
+  # commit -- same SHA, same result.
+  push:
+    branches:
+      - main
+
+# One run per ref at a time. Pushing a fix used to leave the superseded run
+# going to completion. Superseding is only safe for pull requests: on main we
+# want every commit validated, not just the newest.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  install-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+
+      - name: configure OS
+        run: |
+          export DEBIAN_FRONTEND="noninteractive"
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
+
+      # blaspp/lapackpp/random123 rarely change; cache their installs keyed
+      # per-OS. On a cache hit the discovery env vars are seeded, so the
+      # installer's reuse path gets exercised; on a miss the full
+      # build-from-source path runs and the installs are copied out for the
+      # cache. Bump the -v suffix to force a from-scratch run.
+      - name: cache dependencies
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: deps-install
+          key: installer-deps-${{ runner.os }}-v1
+
+      # Globbed rather than spelled out: dependency install directories carry
+      # the backend and GPU configuration in their names (blaspp-openblas-cpu-install),
+      # so hardcoding them here would couple CI to that naming and break the
+      # moment it changes.
+      - name: seed discovery variables from cache
+        if: steps.deps-cache.outputs.cache-hit == 'true'
+        run: |
+          set -euo pipefail
+          echo "BLASPP_INSTALL_DIR=$(echo "$GITHUB_WORKSPACE"/deps-install/blaspp-*-install)" >> "$GITHUB_ENV"
+          echo "LAPACKPP_INSTALL_DIR=$(echo "$GITHUB_WORKSPACE"/deps-install/lapackpp-*-install)" >> "$GITHUB_ENV"
+          echo "RANDOM123_INSTALL_DIR=$GITHUB_WORKSPACE/deps-install/random123" >> "$GITHUB_ENV"
+
+      - name: keep a pristine clone for the discovery test
+        run: cp -a RandLAPACK RandLAPACK-discovery
+
+      - name: run the installer (non-interactive)
+        run: |
+          set -euo pipefail
+          bash RandLAPACK/install.sh --yes --no-gpu 2>&1 | tee installer.out
+
+      # Redirected output must carry no ANSI escapes and no carriage returns.
+      # The installer draws a progress bar on a terminal; without this check,
+      # that bar could start filling install.log and every CI transcript with
+      # control characters and nobody would notice until a log was unreadable.
+      - name: piped output is free of terminal control sequences
+        run: |
+          if LC_ALL=C grep -qP '\x1b\[|\r' installer.out; then
+            echo "Found terminal control sequences in non-TTY output:"
+            LC_ALL=C grep -nP '\x1b\[|\r' installer.out | head -20
+            exit 1
+          fi
+          echo "OK: no escape sequences in redirected output."
+
+      - name: populate the dependency cache
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p deps-install
+          cp -a RandNLA-project/install/blaspp-*-install   deps-install/
+          cp -a RandNLA-project/install/lapackpp-*-install deps-install/
+          cp -a RandNLA-project/install/random123          deps-install/
+
+      - name: test the installed library
+        run: |
+          ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --output-on-failure
+
+      - name: re-run the installer in place (idempotency)
+        run: bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu
+
+      - name: install a second project via dependency discovery
+        run: |
+          set -euo pipefail
+          BLASPP_INSTALL_DIR="$(echo "$GITHUB_WORKSPACE"/deps-install/blaspp-*-install)" \
+          LAPACKPP_INSTALL_DIR="$(echo "$GITHUB_WORKSPACE"/deps-install/lapackpp-*-install)" \
+          RANDOM123_INSTALL_DIR="$GITHUB_WORKSPACE/deps-install/random123" \
+          bash RandLAPACK-discovery/install.sh --yes --no-gpu \
+              --project-dir "$GITHUB_WORKSPACE/RandNLA-project-discovery" \
+              | tee discovery.out
+          grep -q "external install" discovery.out
+          test -d RandNLA-project-discovery/build/RandLAPACK-build
+
+  install-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+
+      - name: configure OS
+        run: brew install googletest openblas libomp
+
+      - name: run the installer (non-interactive)
+        run: bash RandLAPACK/install.sh --yes --no-gpu
+
+      - name: test the installed library
+        run: |
+          ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --output-on-failure
+
+      - name: re-run the installer in place (idempotency)
+        run: bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu
+
+  install-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+          submodules: recursive
+
+      - name: initialize MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # Shares the cached dependency stack with core-windows (same keys,
+      # same ..\windows-deps location); install.ps1 then reuses it through
+      # -DependencyRoot instead of rebuilding under its project directory.
+      - name: setup native Windows dependencies
+        uses: ./RandLAPACK/.github/actions/setup-randlapack-deps-windows
+
+      - name: run the installer
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+            -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
+            -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps"
+
+      - name: re-run the installer in place (idempotency)
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+            -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
+            -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps" `
+            -SkipTests

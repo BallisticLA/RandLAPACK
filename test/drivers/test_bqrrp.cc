@@ -139,8 +139,8 @@ class TestBQRRP : public ::testing::Test
             
             lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
 
             error_check(norm_A, all_data, atol);
         }

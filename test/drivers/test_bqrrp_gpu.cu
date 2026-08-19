@@ -12,10 +12,7 @@
 #include <gtest/gtest.h>
 #include <chrono>
 
-// Use cuda kernels.
-#ifndef USE_CUDA
-#define USE_CUDA
-#include "RandLAPACK/drivers/rl_bqrrp_gpu.hh"
+// The GPU drivers and kernels come in with RandLAPACK.hh, under its __CUDACC__ guard.
 
 using GPUSubroutines = RandLAPACK::BQRRPGPUSubroutines;
 
@@ -100,9 +97,9 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         RandBLAS::fill_dense(D, S, state_const);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk.data(), d);
         delete[] S;
-        cudaMemcpy(all_data.A_sk_device, all_data.A_sk.data(), d * n * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(all_data.A_sk_device, all_data.A_sk.data(), d * n * sizeof(T), cudaMemcpyHostToDevice);
 
-        cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(T), cudaMemcpyHostToDevice);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpu.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
@@ -169,7 +166,12 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
 
         auto m = all_data.row;
         auto n = all_data.col;
-        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
+        // The per-column residual check floors at a few hundred eps in
+        // either precision; eps^0.75 leaves that plenty of headroom in
+        // double but not in float, so single precision uses eps^0.60, the
+        // same exponent test_BQRRP_compare_with_CPU already applies to its
+        // R-factor difference.
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), std::is_same<T, double>::value ? 0.75 : 0.60);
 
         BQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 
@@ -191,8 +193,8 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
             lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.R_full.data(), m, all_data.R.data(), all_data.rank);
 
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
 
             error_check(norm_A, all_data, atol);
         }
@@ -273,6 +275,34 @@ TEST_F(TestBQRRP, BQRRP_GPU_070824) {
 
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
+}
+
+// BQRRP_GPU must support single precision. Mirrors
+// BQRRP_GPU_070824 with T = float; exercises the ormqr path through
+// cuSOLVER's S-typed interface. The problem is smaller than the double
+// test: at 5000 x 2800 the float residual accumulates to ~34 eps, just
+// past the shared eps^0.75 tolerance, so the size is chosen to leave
+// that tolerance a healthy margin in single precision.
+TEST_F(TestBQRRP, BQRRP_GPU_single_precision) {
+    int64_t m = 2000;
+    int64_t n = 1000;
+    int64_t k = 1000;
+    double d_factor = 1;
+    int64_t b_sz = 300;
+    int64_t d = d_factor * b_sz;
+    float norm_A = 0;
+    auto state = RandBLAS::RNGState();
+    bool profile_runtime = true;
+
+    BQRRPTestData<float> all_data(m, n, k, d);
+    RandLAPACK::BQRRP_GPU<float, r123::Philox4x32> BQRRP_GPU(profile_runtime, b_sz);
+    BQRRP_GPU.qr_tall = GPUSubroutines::QRTall::cholqr;
+
+    RandLAPACK::gen::mat_gen_info<float> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A.data(), state);
+
+    norm__sektch_and_copy_computational_helper<float, r123::Philox4x32>(norm_A, d, all_data, state);
+    test_BQRRP_general<float, RandLAPACK::BQRRP_GPU<float, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -442,5 +472,4 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     cudaFree(tau_device);
     blas::device_free(d_work_geqrf_opt, lapack_queue);
 }
-#endif
 #endif

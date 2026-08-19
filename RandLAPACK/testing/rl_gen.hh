@@ -395,7 +395,7 @@ void gen_oleg_adversarial_mat(
     for(int i = 11; i < n; ++i)
         V[n * i + i] *= scaling_factor_V;
 
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U, m, V, n, 0.0, A, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T) 1.0, U, m, V, n, (T) 0.0, A, m);
 
     delete[] U;
     delete[] V;
@@ -473,7 +473,7 @@ void gen_kahan_mat(
         C[m * i + i] = 1.0;
     }
 
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, m, 1.0, S, m, C, m, 1.0, A, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, m, (T) 1.0, S, m, C, m, (T) 1.0, A, m);
 
     delete[] S;
     delete[] C;

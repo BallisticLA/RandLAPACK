@@ -1,0 +1,135 @@
+name: core-windows
+on:
+  pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+  workflow_dispatch:
+  # Only main. A branch with an open pull request is already covered by the
+  # pull_request event above, and firing on both ran every job twice per
+  # commit -- same SHA, same result.
+  push:
+    branches:
+      - main
+
+# One run per ref at a time. Pushing a fix used to leave the superseded run
+# going to completion. Superseding is only safe for pull requests: on main we
+# want every commit validated, not just the newest.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Structural gate for the documented *user* path, which the build matrix
+  # below cannot cover: it initializes MSVC with an explicit arch: x64 under
+  # pwsh, so it has never exercised the shell the install docs tell users to
+  # open. That gap is exactly how a 32-bit toolchain reached a collaborator and
+  # failed three layers down as "BLAS library not found".
+  #
+  # One job, not three: every check here asserts a *refusal* or runs pure
+  # logic, so each takes seconds and runner start-up dominates. Splitting them
+  # would triple the Windows runner count for no extra coverage.
+  windows-toolchain-guards:
+    name: windows-toolchain-guards
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pure logic, no MSVC needed. This is the only way to cover arm64 and
+      # arm: we cannot build for them, so no build leg could ever test them.
+      - name: architecture guard decision table
+        shell: powershell
+        run: .\.github\scripts\windows\test-toolchain-guard.ps1
+
+      # Integration counterparts. x86 is the real-world case; amd64_arm64
+      # cross-compiles, yielding an arm64-targeting cl.exe on an ordinary x64
+      # runner, so the arm branch is exercised without ARM hardware.
+      - name: initialize MSVC (x86)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      # Windows PowerShell 5.1, not pwsh: this is what a user actually gets,
+      # and the launch line is verbatim the one INSTALL_WINDOWS.md prescribes,
+      # so the documented invocation itself stays under test.
+      - name: install.ps1 must refuse an x86 toolchain
+        shell: powershell
+        run: .\.github\scripts\windows\assert-toolchain-refused.ps1 -Expect "targets x86"
+
+      - name: initialize MSVC (amd64_arm64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64_arm64
+
+      - name: install.ps1 must refuse an arm64 toolchain
+        shell: powershell
+        run: .\.github\scripts\windows\assert-toolchain-refused.ps1 -Expect "targets arm64"
+
+  build-windows:
+    name: windows-msvc-${{ matrix.backend }}-${{ matrix.int }}-${{ matrix.label }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      # Deliberately small matrix (see docs/CI.md): the mkl legs cover the
+      # default backend serial + OpenMP; ONE openblas leg covers the non-MKL
+      # provisioning and LP64 build. No openblas-openmp (OpenMP x MSVC is
+      # backend-orthogonal and already covered) and no Windows ASan lane.
+      matrix:
+        include:
+          - label: serial
+            backend: mkl
+            int: ilp64
+            openmp: false
+          - label: openmp
+            backend: mkl
+            int: ilp64
+            openmp: true
+          - label: serial
+            backend: openblas
+            int: lp64
+            openmp: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: initialize MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: setup native Windows dependencies
+        uses: ./.github/actions/setup-randlapack-deps-windows
+        with:
+          blas-backend: ${{ matrix.backend }}
+
+      - name: build, install, and test RandLAPACK
+        shell: pwsh
+        run: |
+          $openmp = '${{ matrix.openmp }}' -eq 'true'
+          & "$env:GITHUB_WORKSPACE/.github/scripts/windows/run-ci.ps1" `
+            -Task Core `
+            -WorkRoot "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci" `
+            -Backend '${{ matrix.backend }}' `
+            -OpenMP:$openmp
+
+      # Staged executables must run with NO PATH preparation: this is the
+      # regression gate for app-local DLL staging (Windows searches the exe's
+      # directory first, so a staged exe needs nothing else).
+      - name: run a staged test executable with a stripped PATH
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci/RandLAPACK-build" `
+            -Recurse -Filter "RandLAPACK_tests.exe" | Select-Object -First 1
+          if (-not $exe) { throw "RandLAPACK_tests.exe not found in the build tree." }
+          $env:PATH = "C:\Windows\System32;C:\Windows"
+          # Starting the process at all forces the loader to resolve every
+          # statically imported DLL (BLAS++, LAPACK++, the BLAS backend) from
+          # the staged copies; listing tests proves it end to end. Capture
+          # the full output first -- an early-terminating pipeline (e.g.
+          # Select-Object -First) would kill the process before it exits and
+          # leave $LASTEXITCODE unset.
+          $output = & $exe.FullName --gtest_list_tests 2>&1
+          $exit = $LASTEXITCODE
+          $output | Select-Object -First 5 | Out-Host
+          Write-Host "... ($($output.Count) lines total, exit code $exit)"
+          if ($exit -ne 0) { throw "Staged executable failed with a stripped PATH (exit $exit)." }

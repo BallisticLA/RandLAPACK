@@ -95,11 +95,9 @@ class TestCQRRT : public ::testing::Test
         std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(15) << max_col_norm / col_norm_A << "\n";
         std::cout << "FRO NORM OF (Q'Q - I)/sqrt(n): " << std::scientific << std::setw(2) << norm_0 / std::sqrt((T) n) << "\n\n";
 
-        // eps^0.65 (~6.7e-11 double), loosened from eps^0.7 (~1.1e-11): on macOS
-        // (Apple Accelerate BLAS) the orthogonality metric norm_0/sqrt(n) lands
-        // at ~1.7e-11 for this large full-rank CholeskyQR case, just over the old
-        // bound. That is a normal orthogonality level (Linux/MKL passes with
-        // room); the bound was simply too tight for the less-accurate BLAS.
+        // eps^0.65 rather than eps^0.7: the orthogonality metric lands within
+        // 4x of the tighter bound depending on the BLAS build (first seen with
+        // vcpkg oneMKL sequential on Windows: 4.4e-11 vs eps^0.7 = 1.1e-11).
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.65);
         ASSERT_LE(norm_AQR / norm_A, atol);
         ASSERT_LE(max_col_norm / col_norm_A, atol);

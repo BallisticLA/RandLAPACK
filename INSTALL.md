@@ -20,6 +20,9 @@ of the corresponding instructions in Section 1.
   - GCC 11 or higher
   - Clang 14 or higher (not extensively tested)
   - Intel ICPX (has known issues, see GitHub issue #91)
+  - MSVC (Visual Studio 2022) on native Windows, with Ninja as the build
+    tool (both bundled with the "Desktop development with C++" workload) --
+    see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
 
 ### GPU Support (Optional)
 For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
@@ -71,6 +74,28 @@ build system, *and RandLAPACK requires that they be installed via CMake.*
 
 RandLAPACK's git repository includes a C++ project called *RandBLAS* as a git submodule.
 RandBLAS has BLAS++ and Random123 as dependencies.
+
+### RandBLAS is a pinned submodule
+
+The RandBLAS copy inside this repository is pinned to an exact commit, and
+that pinned copy is the only RandBLAS configuration RandLAPACK is developed
+and tested against. Two rules follow:
+
+1. **Do not develop RandBLAS inside the submodule checkout.** If you want to
+   work on RandBLAS itself, clone it separately
+   (`git clone https://github.com/BallisticLA/RandBLAS.git`) and build and
+   install it as its own project. An installed RandBLAS is not consumed by
+   RandLAPACK, and nothing you install can leak into RandLAPACK builds: the
+   submodule stays authoritative.
+2. **Do not point RandLAPACK at your own RandBLAS working copy.** Version
+   skew between RandLAPACK and RandBLAS is not a supported configuration.
+
+The one sanctioned exception is for *package maintainers* (Spack,
+conda-forge, and similar), whose recipes must build RandBLAS as its own
+package: configuring RandLAPACK with `-DRandLAPACK_EXTERNAL_RandBLAS=ON`
+consumes an installed RandBLAS instead of the submodule, and a configure-time
+gate hard-fails unless that install was built from exactly the commit the
+submodule pins, so skew remains impossible by construction.
 
 We give recipes for installing BLAS++, LAPACK++, and Random123 below.
 Later on, we'll assume these recipes were executed from a directory
@@ -276,3 +301,20 @@ If you're having trouble installing RandLAPACK, you can always refer to [that wo
 The workflow includes statements which print the working directory
 and list the contents of that directory at various points in the installation.
 We do that so that it's easier to infer a valid choice of directory structure for building RandLAPACK.
+
+## 6. Native Windows (MSVC)
+
+RandLAPACK builds natively on Windows with MSVC (Visual Studio 2022). The
+full guide -- prerequisites, the one-command installer, BLAS/LAPACK backend
+choice (oneMKL default, OpenBLAS, bring-your-own), runtime-DLL handling, and
+how the Windows install differs from Linux/macOS -- lives in
+[INSTALL_WINDOWS.md](INSTALL_WINDOWS.md). The short version, from an
+"x64 Native Tools Command Prompt for VS 2022" (the plain "Developer
+PowerShell/Command Prompt for VS 2022" entries default to a 32-bit toolchain
+and will not link the x64 BLAS libraries):
+
+```bat
+git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
+cd RandLAPACK
+powershell -ExecutionPolicy Bypass -File .\install\install.ps1
+```

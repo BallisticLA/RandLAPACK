@@ -4,15 +4,33 @@ on:
     branches-ignore:
       - cqrrp-gpu-benchmarking
   workflow_dispatch:
+  # Only main. A branch with an open pull request is already covered by the
+  # pull_request event above, and firing on both ran every job twice per
+  # commit -- same SHA, same result.
   push:
-    branches-ignore:
-      - cqrrp-gpu-benchmarking
+    branches:
+      - main
+
+# One run per ref at a time. Pushing a fix used to leave the superseded run
+# going to completion. Superseding is only safe for pull requests: on main we
+# want every commit validated, not just the newest.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# BLAS++/LAPACK++/Random123 track their upstream default branches but change
+# rarely; their installs are cached below. Bump the -v suffix in the cache key
+# to force a rebuild against fresh upstream clones.
+#
+# The RandBLAS submodule's own test suite is disabled (-DBUILD_TESTS=OFF):
+# the pinned commit is already tested by RandBLAS's CI, and rebuilding and
+# rerunning its ~450 tests here roughly doubled the job time.
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: submodule update
         run: |
@@ -33,7 +51,18 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
           sudo apt update
 
+      - name: cache dependencies
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/../blaspp-install
+            ${{ github.workspace }}/../lapackpp-install
+            ${{ github.workspace }}/../Random123-install
+          key: core-deps-${{ runner.os }}-v1
+
       - name: install BLAS++
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: |
           cd ..
           git clone https://github.com/icl-utk-edu/blaspp.git
@@ -41,9 +70,10 @@ jobs:
           cd blaspp-build
           pwd
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
-          make -j2 install
+          make -j$(nproc) install
 
       - name: install Random123
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: |
           cd ..
           git clone https://github.com/DEShawResearch/Random123.git
@@ -51,18 +81,18 @@ jobs:
           make prefix=`pwd`/../Random123-install install-include
 
       - name: install LAPACK++
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: |
           cd ..
           git clone https://github.com/icl-utk-edu/lapackpp.git
           mkdir lapackpp-build
           cd lapackpp-build
-          cmake -DCMAKE_BUILD_TYPE=Debug \
+          cmake -DCMAKE_BUILD_TYPE=Release \
               -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
-              -DCMAKE_BINARY_DIR=`pwd` \
               -Dbuild_tests=OFF \
               `pwd`/../lapackpp
-          make -j2 install
+          make -j$(nproc) install
 
       - name: build and test RandLAPACK (Release)
         run: |
@@ -74,10 +104,11 @@ jobs:
               -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/cmake/lapackpp \
               -DRandom123_DIR=`pwd`/../Random123-install/include/ \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
+              -DBUILD_TESTS=OFF \
               `pwd`/../RandLAPACK
-          make -j2
-          make -j2 install
-          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability" --output-on-failure
+          make -j$(nproc)
+          make -j$(nproc) install
+          ctest --output-on-failure
 
       - name: build and test extras
         run: |
@@ -90,7 +121,7 @@ jobs:
             -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
             -DRandom123_DIR=`pwd`/../Random123-install/include/ \
             ../RandLAPACK/extras
-          make -j2
+          make -j$(nproc)
           ctest --output-on-failure
 
       - name: build benchmarks
@@ -98,10 +129,69 @@ jobs:
           cd ..
           mkdir benchmark-build
           cd benchmark-build
-          cmake -DCMAKE_BINARY_DIR=`pwd` \
+          cmake \
             -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake/RandLAPACK \
             ../RandLAPACK/benchmark
-          make -j2
+          make -j$(nproc)
+
+  # Runs in parallel with the Release job instead of doubling its wall time.
+  build-asan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: submodule update
+        run: |
+          git submodule update --init --recursive
+
+      - name: configure OS
+        run: |
+          set -x
+          export DEBIAN_FRONTEND="noninteractive"
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
+
+      - name: cache dependencies
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/../blaspp-install
+            ${{ github.workspace }}/../lapackpp-install
+            ${{ github.workspace }}/../Random123-install
+          key: core-deps-${{ runner.os }}-v1
+
+      - name: install BLAS++
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          cd ..
+          git clone https://github.com/icl-utk-edu/blaspp.git
+          mkdir blaspp-build
+          cd blaspp-build
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
+          make -j$(nproc) install
+
+      - name: install Random123
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          cd ..
+          git clone https://github.com/DEShawResearch/Random123.git
+          cd Random123/
+          make prefix=`pwd`/../Random123-install install-include
+
+      - name: install LAPACK++
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          cd ..
+          git clone https://github.com/icl-utk-edu/lapackpp.git
+          mkdir lapackpp-build
+          cd lapackpp-build
+          cmake -DCMAKE_BUILD_TYPE=Release \
+              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
+              -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
+              -Dbuild_tests=OFF \
+              `pwd`/../lapackpp
+          make -j$(nproc) install
 
       - name: build and test RandLAPACK (Debug/asan)
         run: |
@@ -114,8 +204,8 @@ jobs:
               -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/cmake/lapackpp \
               -DRandom123_DIR=`pwd`/../Random123-install/include/ \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install-asan \
+              -DBUILD_TESTS=OFF \
               `pwd`/../RandLAPACK
-          make -j2
-          make -j2 install
-          ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability" --output-on-failure
-
+          make -j$(nproc)
+          make -j$(nproc) install
+          ctest --output-on-failure

@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <chrono>
+#include <random>
 #include <gtest/gtest.h>
 /*
 TODO #1: Resizing tests.
@@ -169,7 +170,7 @@ class TestUtil : public ::testing::Test
         lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
 
         // Swap columns in A's copy
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy.data(), m, all_data.J.data());
 
         // Create an identity and store Q in it.
         RandLAPACK::util::eye(m, n, all_data.Ident.data());
@@ -185,6 +186,128 @@ class TestUtil : public ::testing::Test
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m);
         std::cout << "||A_piv - QR||_F:  " << std::scientific << norm << "\n";
         ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+    }
+
+    // Pins the gather contract of col_swap (a delegate to LAPACK's LAPMT):
+    // on exit, column i of A holds what was column idx[i] - 1, and the pivot
+    // vector, which serves as LAPMT's internal scratch, is restored on exit.
+    template <typename T>
+    static void 
+    test_col_swp_gather(ColSwpTestData<T> &all_data, int64_t k) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        std::vector<int64_t> J_copy(all_data.J);
+
+        RandLAPACK::util::col_swap(m, n, k, all_data.A.data(), m, all_data.J.data());
+
+        for (int64_t i = 0; i < n; ++i)
+            ASSERT_EQ(all_data.J[i], J_copy[i]) << "pivot vector not restored at " << i;
+        for (int64_t j = 0; j < k; ++j)
+            for (int64_t i = 0; i < m; ++i)
+                ASSERT_EQ(all_data.A[i + j * m], all_data.A_cpy[i + (all_data.J[j] - 1) * m])
+                    << "col " << j << " row " << i << " m=" << m << " n=" << n << " k=" << k;
+    }
+
+    // Structured permutations that stress the cycle-following logic directly:
+    // identity (no cycles), reversal (n/2 two-cycles), rotation (one n-cycle).
+    template <typename T>
+    static void 
+    test_col_swp_structured(ColSwpTestData<T> &all_data) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        T* A = all_data.A.data();
+        T const* orig = all_data.A_cpy.data();
+        std::vector<int64_t> &J = all_data.J;
+
+        std::iota(J.begin(), J.end(), 1);                       // identity
+        RandLAPACK::util::col_swap(m, n, n, A, m, J.data());
+        for (int64_t i = 0; i < m * n; ++i) ASSERT_EQ(A[i], orig[i]);
+
+        for (int64_t i = 0; i < n; ++i) J[i] = n - i;           // reversal
+        RandLAPACK::util::col_swap(m, n, n, A, m, J.data());
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < m; ++i)
+                ASSERT_EQ(A[i + j * m], orig[i + (n - 1 - j) * m]);
+
+        lapack::lacpy(MatrixType::General, m, n, orig, m, A, m);
+        for (int64_t i = 0; i < n; ++i) J[i] = (i + 1) % n + 1; // one n-cycle
+        RandLAPACK::util::col_swap(m, n, n, A, m, J.data());
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < m; ++i)
+                ASSERT_EQ(A[i + j * m], orig[i + ((j + 1) % n) * m]);
+    }
+
+    // The matrix overload must respect lda > m (operating on a submatrix of
+    // a taller allocation) and leave the rows below m untouched.
+    template <typename T>
+    static void 
+    test_col_swp_lda(int64_t m, int64_t lda, int64_t n) {
+
+        std::vector<T> A(lda * n);
+        std::iota(A.begin(), A.end(), 0.0);
+        std::vector<T> orig(A);
+        std::vector<int64_t> J = {3, 1, 6, 2, 5, 4};
+
+        RandLAPACK::util::col_swap(m, n, n, A.data(), lda, J.data());
+
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i < m; ++i)
+                ASSERT_EQ(A[i + j * lda], orig[i + (J[j] - 1) * lda]);
+            for (int64_t i = m; i < lda; ++i)
+                ASSERT_EQ(A[i + j * lda], orig[i + j * lda]) << "padding row touched";
+        }
+    }
+
+    // The integer-vector overload implements LAPMT-style cycle-following
+    // directly (LAPMT itself only handles real matrices). Its pivot vector
+    // is a permutation of 1..k, and entries of A beyond the first k must
+    // stay untouched: the GPU counterpart and CQRRPT-style subvector use
+    // depend on that prefix-only contract.
+    static void 
+    test_col_swp_int_vector(int64_t n, int64_t k, uint32_t seed) {
+
+        std::vector<int64_t> A(n);
+        std::iota(A.begin(), A.end(), 100);
+        std::vector<int64_t> orig(A);
+        std::vector<int64_t> J(k);
+        std::iota(J.begin(), J.end(), 1);
+        std::mt19937_64 gen(seed);
+        std::shuffle(J.begin(), J.end(), gen);
+        std::vector<int64_t> J_copy(J);
+
+        RandLAPACK::util::col_swap(n, k, A.data(), J.data());
+
+        for (int64_t i = 0; i < k; ++i)
+            ASSERT_EQ(J[i], J_copy[i]) << "pivot vector not restored at " << i;
+        for (int64_t i = 0; i < k; ++i)
+            ASSERT_EQ(A[i], orig[J[i] - 1]) << "entry " << i;
+        for (int64_t i = k; i < n; ++i)
+            ASSERT_EQ(A[i], orig[i]) << "entry beyond k touched at " << i;
+    }
+
+    // Efficiency canary. The pre-LAPMT implementation searched the pivot
+    // vector inside its swap loop, costing O(n^2): about 40 seconds at this
+    // size (measured 35 ms at n = 30,000, quadratic scaling). The LAPMT
+    // path runs in milliseconds, so the generous bound below only trips if
+    // the O(n^2) behavior ever comes back.
+    static void 
+    test_col_swp_speed_canary(int64_t n) {
+
+        std::vector<double> A(n);
+        std::iota(A.begin(), A.end(), 0.0);
+        std::vector<int64_t> J(n);
+        for (int64_t i = 0; i < n; ++i) J[i] = (i + 1) % n + 1; // one n-cycle
+
+        auto t0 = steady_clock::now();
+        RandLAPACK::util::col_swap(1, n, n, A.data(), 1, J.data());
+        double sec = std::chrono::duration<double>(steady_clock::now() - t0).count();
+
+        for (int64_t j = 0; j < n; ++j)
+            ASSERT_EQ(A[j], (double) ((j + 1) % n));
+        std::cout << "col_swap n=" << n << " single-cycle: " << sec * 1e3 << " ms\n";
+        ASSERT_LT(sec, 10.0) << "col_swap has lost its O(n) behavior";
     }
 
     template <typename T>
@@ -350,7 +473,7 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
         RandLAPACK::util::transpose_square(A2, n);
         RandBLAS::testing::matrices_approx_equal(
             layout, blas::Op::Trans, n, n, A1, n, A2, n, 
-            __PRETTY_FUNCTION__, __FILE__, __LINE__
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
         );
         delete [] A1;
         delete [] A2;
@@ -382,6 +505,49 @@ TEST_F(TestUtil, test_col_swp) {
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
 
     test_col_swp<double>(all_data);
+}
+
+TEST_F(TestUtil, test_col_swp_gather_full_and_truncated) {
+
+    for (auto [m, n, k, seed] : {std::tuple<int64_t, int64_t, int64_t, uint32_t>
+            {10, 7, 7, 0}, {10, 7, 4, 1}, {1000, 200, 200, 2}, {8, 12, 5, 3},
+            {5, 1, 1, 5}, {6, 9, 1, 6}}) {
+        auto state = RandBLAS::RNGState(seed);
+        ColSwpTestData<double> all_data(m, n);
+        RandBLAS::DenseDist D(m, n);
+        RandBLAS::fill_dense(D, all_data.A.data(), state);
+        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
+        std::iota(all_data.J.begin(), all_data.J.end(), 1);
+        std::mt19937_64 gen(seed);
+        std::shuffle(all_data.J.begin(), all_data.J.end(), gen);
+
+        test_col_swp_gather<double>(all_data, k);
+    }
+}
+
+TEST_F(TestUtil, test_col_swp_structured_permutations) {
+
+    int64_t m = 3;
+    int64_t n = 8;
+    ColSwpTestData<double> all_data(m, n);
+    std::iota(all_data.A.begin(), all_data.A.end(), 0.0);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
+
+    test_col_swp_structured<double>(all_data);
+}
+
+TEST_F(TestUtil, test_col_swp_respects_lda) {
+    test_col_swp_lda<double>(4, 7, 6);
+}
+
+TEST_F(TestUtil, test_col_swp_int_vector) {
+    test_col_swp_int_vector(7, 7, 0);
+    test_col_swp_int_vector(200, 200, 1);
+    test_col_swp_int_vector(2800, 100, 2); // subvector pattern, k << n
+}
+
+TEST_F(TestUtil, test_col_swp_large_permutation_is_fast) {
+    test_col_swp_speed_canary(1000000);
 }
 
 #if !defined(__APPLE__)

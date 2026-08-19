@@ -98,17 +98,11 @@ void _LAPACK_lafrb(
         LAPACK_dlarfb( & side_, & trans_, & direction_, & storev_,  
                     & m_, & n_, & k_, (double *) buff_U, & ldim_U, (double *) buff_T, & ldim_T, 
                     (double *) buff_B, & ldim_B, (double *) buff_W, & ldim_W
-                    #ifdef LAPACK_FORTRAN_STRLEN_END
-                    //, 1, 1, 1, 1
-                    #endif
                     );
     } else if (typeid(T) == typeid(float)) {
         LAPACK_slarfb( & side_, & trans_, & direction_, & storev_,  
                     & m_, & n_, & k_, (float *) buff_U, & ldim_U, (float *) buff_T, & ldim_T, 
                     (float *) buff_B, & ldim_B, (float *) buff_W, & ldim_W
-                    #ifdef LAPACK_FORTRAN_STRLEN_END
-                    //, 1, 1, 1, 1
-                    #endif
                     );
     } else {
         // Unsupported type
@@ -136,9 +130,6 @@ void _LAPACK_larf(
             (double *) tau,
             (double *) C, & ldc_,
             (double *) work
-            #ifdef LAPACK_FORTRAN_STRLEN_END
-            //, 1
-            #endif
             );
     } else if (typeid(T) == typeid(float)) {
         LAPACK_slarf( & side_, & m_, & n_, 
@@ -146,9 +137,6 @@ void _LAPACK_larf(
             (float *) tau,
             (float *) C, & ldc_,
             (float *) work
-            #ifdef LAPACK_FORTRAN_STRLEN_END
-            //, 1
-            #endif
             );
     } else {
         // Unsupported type
@@ -387,9 +375,6 @@ static int64_t NoFLA_QRP_downdate_partial_norms(
     // Some initializations.
     char dlmach_param = 'E';
     tol3z = sqrt( LAPACK_dlamch( & dlmach_param
-    #ifdef LAPACK_FORTRAN_STRLEN_END
-    //, 1
-    #endif
     ) );
     ptr_d  = buff_d;
     ptr_e  = buff_e;
@@ -539,14 +524,14 @@ static int64_t CHOLQR_mod_WY(
         num_stages = std::min( m_A, n_A );
 
     // Find R = A^TA.
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, 1.0, buff_A, ldim_A, 0.0, buff_R, ldim_R);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, (T) 1.0, buff_A, ldim_A, (T) 0.0, buff_R, ldim_R);
 
     // Perform Cholesky factorization on A.
     if (lapack::potrf(Uplo::Upper, n_A, buff_R, ldim_R))
         return 1;
     // Find Q = A * inv(R)
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, (T) 1.0, buff_R, ldim_R, buff_A, ldim_A);
 
     // Perform Householder reconstruction
     lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);

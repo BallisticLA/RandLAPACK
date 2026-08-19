@@ -68,7 +68,7 @@ class TestSpectralPrecondLinearOperator: public ::testing::Test {
         invP_operator(blas::Layout::ColMajor, n, (T) 1.0,  G_mu.data(), n, (T)0.0, G_mu_pre_actual.data(), n);
         RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, n, n, G_mu_pre_actual.data(), n,
-            G_mu_pre_expect.data(), n, __PRETTY_FUNCTION__, 
+            G_mu_pre_expect.data(), n, __RANDBLAS_PRETTY_FUNCTION__, 
             __FILE__, __LINE__
         );
         return;

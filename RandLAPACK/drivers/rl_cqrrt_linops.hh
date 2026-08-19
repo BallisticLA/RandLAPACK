@@ -236,7 +236,7 @@ class CQRRT_linops {
                 delete[] Eye;
                 return 1;
             }
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, Eye, n);
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T) 1.0, A_hat, d, Eye, n);
             if (n > 1) {
                 // Clear the below-diagonal
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &Eye[1], n);
@@ -394,7 +394,7 @@ class CQRRT_linops {
             // R := R_chol * R_sk, where R_sk is the upper triangle of A_hat
             // trmm with Uplo::Upper only reads upper triangle of A_hat (can use ld=d directly)
             // and expects R to be upper triangular on input
-            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R, ldr);
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T) 1.0, A_hat, d, R, ldr);
 
             if(this -> timing)
                 finalize_t_stop = steady_clock::now();
