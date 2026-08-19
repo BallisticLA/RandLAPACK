@@ -632,6 +632,41 @@ TEST_F(TestFunNystromPPv2, AutoBudgetClosesAndEstimates) {
     delete[] G0; delete[] A;
 }
 
+// Regression for the fixed depth cap of 200 (removed 2026-08): on a hard
+// spectrum with a tight eps the certified probe must be free to go deeper
+// than 200 when n and the budget allow it. With the old cap this probe
+// pinned at exactly 200 and the oracle bias floored above eps, so no budget
+// could recover the target accuracy (the kappa >= 1e6 cells of the 2026-07
+// campaign). Geometric spectrum kappa = 1e6, f = log(1+x): the certified
+// depth wants several hundred at this eps.
+TEST_F(TestFunNystromPPv2, AutoProbeDepthNotFixedCapped) {
+    using T = double;
+    const int64_t n = 400;
+    const int64_t m_budget = 20000;
+    const T eps = 1e-6;
+    const T kappa = 1e6;
+
+    // Diagonal A with a geometric spectrum, lambda_i = kappa^{i/(n-1)} in [1, kappa].
+    T *A = new T[n * n]();
+    for (int64_t i = 0; i < n; ++i)
+        A[i + i * n] = std::pow(kappa, (T)i / (T)(n - 1));
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    auto fscalar = [](T x) { return std::log1p(std::max(x, (T)0)); };
+
+    RandBLAS::RNGState<RNG> state(31);
+    RandLAPACK::FunNystromPP<T> driver;
+    T t1 = 0, t2 = 0;
+    (void)driver.call(A_op, fscalar, m_budget, eps, state, t1, t2);
+
+    std::printf("auto depth regression: probed t=%ld (old fixed cap was 200)\n",
+                (long)driver.auto_t);
+    EXPECT_GT(driver.auto_t, 200);   // the old cap would pin this at exactly 200
+    const int64_t spend = driver.auto_probe_matvecs
+                        + driver.auto_k + driver.auto_oracle_matvecs;
+    EXPECT_LE(spend, m_budget);      // budget closure unchanged by the deeper probe
+    delete[] A;
+}
+
 // Infeasible inputs must throw with a descriptive message, not proceed.
 TEST_F(TestFunNystromPPv2, AutoInfeasibleThrows) {
     using T = double;

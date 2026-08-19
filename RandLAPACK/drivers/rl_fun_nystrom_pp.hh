@@ -104,10 +104,14 @@ public:
     LanczosQFA<T> auto_sqfa;
     // Tunables. auto_probe_block is the probe block size b: the depth probe costs
     // at most b*t matvecs, so small b is cheap; the probed t is a per-probe cost
-    // ceiling for the Phase-2 allocation. auto_depth_cap bounds the probe depth;
-    // the probe is additionally capped so it can spend at most half the budget.
+    // ceiling for the Phase-2 allocation. auto_depth_cap optionally bounds the
+    // probe depth: 0 (default) means no fixed cap, so the probe is bounded only
+    // by n and by half the budget. A fixed cap must be opt-in: the old default
+    // of 200 silently floored the oracle bias whenever the certified depth
+    // exceeded it (kappa >= 1e6 in the 2026-07 campaign), and no budget could
+    // buy the accuracy back.
     int64_t auto_probe_block = 4;
-    int64_t auto_depth_cap   = 200;
+    int64_t auto_depth_cap   = 0;
     // VESTIGIAL: Phase-2 batching existed to dodge BlockLanczosQFA's one-block
     // (t*s)^2 dense eigenproblem. The scalar oracle has per-column tridiagonals
     // (no block eigenproblem), so batching buys nothing; the member is kept only
@@ -495,9 +499,11 @@ T FunNystromPP<T>::call(
 
     // ---- 1. Depth probe: adaptive QFA certificate on a small probe block ----
     // Cap the probe depth so it can spend at most half the budget; the harder
-    // cap (n, auto_depth_cap) keeps the certificate eigensolves small.
+    // The probe depth is bounded by n and by half the budget; auto_depth_cap
+    // (when positive) is an additional opt-in fixed cap.
     const int64_t b = std::min(this->auto_probe_block, n);
-    const int64_t probe_cap = std::min({this->auto_depth_cap, n,
+    const int64_t user_cap  = (this->auto_depth_cap > 0) ? this->auto_depth_cap : n;
+    const int64_t probe_cap = std::min({user_cap, n,
                                         std::max((int64_t)1, matvec_budget / (2 * b))});
     if (probe_cap < 1 || b < 1)
         throw std::invalid_argument(
