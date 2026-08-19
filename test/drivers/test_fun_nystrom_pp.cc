@@ -67,10 +67,9 @@ TEST_F(TestFunNystromPPv2, BinaryIoRoundTrip) {
         for (int64_t i = 0; i < m; ++i)
             orig[i + j * m] = (T)(100 * j + i + 1);
 
-    char tmpname[] = "/tmp/rl_v2_bin_roundtrip_XXXXXX.bin";
-    int fd = mkstemps(tmpname, 4);
-    ASSERT_GE(fd, 0);
-    close(fd);
+    // Portable temp path: gtest's per-run TempDir works on Windows too, where
+    // POSIX mkstemps/close do not exist. save_dense_bin creates the file.
+    std::string tmpname = ::testing::TempDir() + "rl_v2_bin_roundtrip.bin";
 
     RandLAPACK::testing::save_dense_bin<T>(tmpname, m, n, orig);
     T *back = new T[m * n];
@@ -80,7 +79,7 @@ TEST_F(TestFunNystromPPv2, BinaryIoRoundTrip) {
     EXPECT_EQ(m_b, m);
     EXPECT_EQ(n_b, n);
     for (int64_t i = 0; i < m * n; ++i) EXPECT_DOUBLE_EQ(back[i], orig[i]);
-    std::remove(tmpname);
+    std::remove(tmpname.c_str());
     delete[] orig;
     delete[] back;
 }
