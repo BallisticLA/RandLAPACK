@@ -12,6 +12,7 @@
 #include <vector>
 #include <chrono>
 #include <numeric>
+#include <algorithm>
 
 using namespace std::chrono;
 
@@ -207,9 +208,14 @@ int CQRRPT<T, RNG>::call(
     // Buffer for column pivoting.
     int64_t* J_buf = new int64_t[n]();
 
+    // LAPACK's geqp3 reads jpvt on entry: a nonzero entry marks that column as
+    // fixed and moves it to the front of the permutation. Zero the caller's J
+    // so its prior contents cannot silently steer the pivoting (issue #168).
+    std::fill(J, J + n, (int64_t) 0);
+
     if(this -> timing)
         saso_t_start = steady_clock::now();
-    
+
     /// Generating a SASO
     RandBLAS::SparseDist DS(d, m, this->nnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
