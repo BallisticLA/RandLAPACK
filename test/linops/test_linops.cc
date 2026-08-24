@@ -110,3 +110,35 @@ TEST_F(TestSpectralPrecondLinearOperator, test_diag_n5_k3) {
 TEST_F(TestSpectralPrecondLinearOperator, test_diag_n5_k4) {
     run_diag<float>(5, 4, 0.1);
 }
+
+// Issue #124: the generic materialize fallback forms buf = A * I by allocating
+// an n by n identity matrix behind the caller's back. That hidden allocation is
+// capped; the type-specific overloads (DenseLinOp, SparseLinOp, CompositeOperator)
+// materialize without forming an identity and carry no cap.
+namespace {
+struct IdentityFallbackProbeOp {
+    using scalar_t = double;
+    void operator()(blas::Side, Layout, Op, Op,
+                    int64_t, int64_t, int64_t, double,
+                    const double*, int64_t, double,
+                    double*, int64_t) {}
+};
+}
+
+TEST(TestMaterializeGuard, generic_fallback_refuses_huge_identity) {
+    IdentityFallbackProbeOp A;
+    int64_t n_over = RandLAPACK::MATERIALIZE_IDENTITY_MAX_DIM + 1;
+    double stub = 0.0;
+    // The guard must fire before the output buffer is touched, so a one-element
+    // stub standing in for the (never-written) output is safe here.
+    EXPECT_THROW(RandLAPACK::materialize(A, n_over, n_over, &stub, n_over), RandLAPACK::Error);
+
+    // Below the cap the generic path still works.
+    int64_t n_small = 4;
+    std::vector<double> buf(n_small * n_small, 1.0);
+    RandLAPACK::materialize(A, n_small, n_small, buf.data(), n_small);
+    // The probe operator writes nothing, so all that must have happened is the
+    // zeroing of the output buffer.
+    for (auto v : buf)
+        ASSERT_EQ(v, 0.0);
+}

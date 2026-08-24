@@ -20,6 +20,16 @@
 
 namespace RandLAPACK {
 
+/// Cap on the dimension the generic materialize fallback will accept. The
+/// fallback forms buf = A * I, which allocates an n by n identity on top of
+/// the caller's buffer; past this dimension that hidden allocation (2 GiB in
+/// double at the cap) is almost certainly unintended. The type-specific
+/// overloads below (DenseLinOp, SparseLinOp, CompositeOperator) materialize
+/// without forming an identity and carry no such cap; operators too large for
+/// the fallback should go through one of those, or apply themselves to
+/// identity blocks under the caller's own memory control. See issue #124.
+inline constexpr int64_t MATERIALIZE_IDENTITY_MAX_DIM = 16384;
+
 /// Materialize a linear operator into a dense column-major buffer.
 ///
 /// Generic fallback: forms buf = A * I  by applying the operator to the
@@ -33,6 +43,12 @@ namespace RandLAPACK {
 template <typename LinOp>
 void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, int64_t ldb) {
     using T = typename LinOp::scalar_t;
+    randlapack_require(n <= MATERIALIZE_IDENTITY_MAX_DIM) << "n=" << n
+        << " exceeds MATERIALIZE_IDENTITY_MAX_DIM=" << MATERIALIZE_IDENTITY_MAX_DIM
+        << ": the generic materialize fallback would allocate an n*n identity ("
+        << (n * n * (int64_t) sizeof(T)) / (1024 * 1024) << " MiB) behind the caller's back."
+        << " Use a type-specific materialize overload, or apply the operator to"
+        << " identity blocks under your own memory control (issue #124)";
     randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     // Zero the output buffer.
     for (int64_t j = 0; j < n; ++j)
