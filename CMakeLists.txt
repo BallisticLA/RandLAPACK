@@ -51,6 +51,7 @@ endif()
 
 include(rl_build_options)
 include(rl_version)
+include(rl_runtime_dlls)
 
 # Find dependencies
 find_package(lapackpp REQUIRED)
@@ -75,7 +76,7 @@ option(RandLAPACK_EXTERNAL_RandBLAS
 # The submodule pin, recorded as a variable so configure-time checks also work
 # in tarball builds (no .git directory). Update alongside every submodule
 # bump; with a git checkout present, the cross-check below enforces that.
-set(RandLAPACK_RandBLAS_PIN "8417f4bb911c6ca3aa83b157a594758d2d4fab8c")
+set(RandLAPACK_RandBLAS_PIN "952251cf9dd386452ea9a88e553c9966513e85d1")
 
 find_package(Git QUIET)
 if (Git_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")

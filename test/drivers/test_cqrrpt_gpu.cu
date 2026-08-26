@@ -11,9 +11,7 @@
 #include <gtest/gtest.h>
 #include <cusolverDn.h>
 
-#ifndef USE_CUDA
-#define USE_CUDA
-#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
+// The GPU drivers and kernels come in with RandLAPACK.hh, under its __CUDACC__ guard.
 
 class TestCQRRPT : public ::testing::Test
 {
@@ -160,4 +158,3 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp) {
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
 }
-#endif
