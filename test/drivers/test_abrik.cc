@@ -367,6 +367,39 @@ TEST_F(TestABRIK, ABRIK_sparse_coo_cqrrt) {
 // ========== Adaptive mode tests ==========
 
 // Adaptive mode converges from a small initial max_krylov_iters.
+/// Resurrection of ABRIK_catch_instability_bad, deleted in edab935 (2026-02-02) along with
+/// its _prelim, _good and _worse siblings. It was the original instability signal: a block
+/// size that is a large fraction of the ambient dimension, driven to the full dimension.
+///
+/// Worth having again now that BK has direct tests, an explicit saturation guard and a
+/// termination-reason enum, so a failure here is diagnosable rather than mysterious.
+///
+/// Scaled down from the historical 4000x4000 with b_sz 1000. That size allocates two 128 MB
+/// buffers before ABRIK runs and drives the Krylov space to 4000 columns, against the
+/// TIMEOUT 300 that every discovered test now carries, and it would be run again under
+/// Debug + asan. This keeps the shape that mattered, b_sz = n/4 with target_rank = n, at a
+/// size that fits the budget. Measured wall time is recorded in the commit message.
+TEST_F(TestABRIK, ABRIK_catch_instability_bad) {
+    int64_t m           = 800;
+    int64_t n           = 800;
+    int64_t b_sz        = 200;
+    int64_t target_rank = 800;
+    int64_t custom_rank = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    ABRIKTestData<double> all_data(m, n);
+    // The historical version also set num_threads_max/num_threads_min; both members were
+    // removed from ABRIK after this test was deleted, and no current test sets them.
+    RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, false, tol);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A, m, all_data.A_buff, m);
+
+    test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
+}
+
 TEST_F(TestABRIK, ABRIK_adaptive_converges) {
     int64_t m    = 200;
     int64_t n    = 100;
