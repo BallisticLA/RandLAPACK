@@ -436,15 +436,26 @@ int64_t rank_check(
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
-    for(int i = 0; i < n; ++i) {
-        if (s[i] <= 5 * std::numeric_limits<T>::epsilon() * s[0])
-            return i - 1;
+    // s is non-increasing, so the first index at or below the threshold IS the rank:
+    // s[0..i-1] are the i retained values. Single exit, so the frees below always run.
+    //
+    // This previously did `return i - 1` from inside the loop, which was wrong twice:
+    // it undercounted the rank by one and returned -1 for an all-zero matrix, and it
+    // returned before the delete[] pair, leaking m*n + n elements on every deficient
+    // input. Shaped after cond_num_check above, which is the copy-paste twin that got
+    // this right.
+    int64_t rank = n;
+    for (int64_t i = 0; i < n; ++i) {
+        if (s[i] <= 5 * std::numeric_limits<T>::epsilon() * s[0]) {
+            rank = i;
+            break;
+        }
     }
 
     delete[] A_cpy;
     delete[] s;
 
-    return n;
+    return rank;
 }
 
 /// Checks whether matrix A has orthonormal columns.
