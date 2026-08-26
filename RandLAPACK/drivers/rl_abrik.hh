@@ -164,13 +164,18 @@ class ABRIK {
         ///     RNG state parameter, required for sketching operator generation.
         ///
         /// @param[out] U
-        ///     Stores m by ((num_iters / 2) * k) orthonormal matrix of left singular vectors.
+        ///     Stores an m by singular_triplets_found orthonormal matrix of left singular
+        ///     vectors. singular_triplets_found is bounded above by
+        ///     ((num_krylov_iters + 1) / 2) * k, with equality unless the rank criterion
+        ///     truncated the terminal block, in which case the rejected columns are not
+        ///     reported. It is a bound, not a width.
         ///
         /// @param[out] V
-        ///     Stores n by ((num_iters / 2) * k) orthonormal matrix of right singular vectors.
+        ///     Stores an n by singular_triplets_found orthonormal matrix of right singular
+        ///     vectors; the same width as U.
         ///
         /// @param[out] Sigma
-        ///     Stores ((num_iters / 2) * k) singular values.
+        ///     Stores singular_triplets_found singular values, in non-increasing order.
         ///
         /// @return = 0: successful exit
         ///

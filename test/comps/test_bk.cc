@@ -42,10 +42,10 @@ class TestBK : public ::testing::Test
     /// was applied to a basis but not folded into the band, replacement columns missing
     /// from the band, and truncated columns left unaccounted for.
     ///
-    /// It also settles a documentation ambiguity. rl_bk.hh:96 calls R an "Upper band matrix
-    /// (stored transposed)", but ABRIK hands the stored buffer straight to gesdd
-    /// (rl_abrik.hh:340), so whether the stored orientation or its transpose is the true
-    /// band is not something the comments pin down. Both orientations are measured and
+    /// It also settled a documentation ambiguity, since corrected. rl_bk.hh used to call R
+    /// an "Upper band matrix (stored transposed)" while ABRIK hands the stored buffer
+    /// straight to gesdd, so the comments did not pin down whether the stored orientation
+    /// or its transpose was the true band. Both orientations are measured and
     /// reported; the assertion accepts whichever the code actually means, and the printed
     /// pair records which one that is.
     template <typename T>

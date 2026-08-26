@@ -162,12 +162,23 @@ class BK {
         ///     Caller must free().
         ///
         /// @param[out] R
-        ///     Upper band matrix (stored transposed), allocated internally with calloc.
-        ///     Caller must free().
+        ///     Band matrix for an odd final iteration: end_rows by end_cols with leading
+        ///     dimension n, allocated internally with calloc. Caller must free().
+        ///     Stored in the orientation that is consumed directly: the buffer AS STORED
+        ///     equals X_ev(:,1:end_rows)' * A * Y_od(:,1:end_cols). That is what
+        ///     TestBK.BK_band_equals_XtAY_* measures (7e-16 on a Gaussian input), and it is
+        ///     the orientation ABRIK hands to lapack::gesdd without transposing.
+        ///     The former phrase "stored transposed" described the per-block transposition
+        ///     performed by util::transposition(..., copy_upper_triangle=1), which leaves
+        ///     each diagonal block lower triangular. It never meant the band as a whole, and
+        ///     it read as the opposite of the truth.
         ///
         /// @param[out] S
-        ///     Lower Hessenberg band matrix, allocated internally with calloc.
-        ///     Caller must free().
+        ///     Band matrix for an even final iteration: end_rows by end_cols with leading
+        ///     dimension n + k, allocated internally with calloc. Caller must free().
+        ///     The extra k rows exist because the diagonal block sits one block below the
+        ///     diagonal (lower Hessenberg). Same orientation convention as R: the buffer as
+        ///     stored is the band.
         ///
         /// @param[out] end_rows
         ///     Number of rows in the band matrix for SVD.
