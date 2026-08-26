@@ -276,8 +276,9 @@ TEST_F(TestRSVD, LinOpDense) {
     printf("A preservation: ||A_after - A_before||_F = %e\n", preservation_err);
     ASSERT_EQ(preservation_err, 0.0);
 
-    // Cleanup
-    delete[] A_saved; delete[] A_copy; delete[] A_check;
+    // Cleanup. A must be freed here and not earlier: it is aliased into A_linop above and
+    // is destructively modified in place by the axpy preservation check just above.
+    delete[] A; delete[] A_saved; delete[] A_copy; delete[] A_check;
     delete[] U1_S; delete[] U2_S;
     free(U1); free(S1); free(V1);
     free(U2); free(S2); free(V2);
