@@ -50,7 +50,7 @@ class TestBK : public ::testing::Test
     /// pair records which one that is.
     template <typename T>
     static void check_band_identity(
-        int64_t m, int64_t n, const T* A, BKOut<T> &out, T rtol
+        int64_t m, int64_t n, int64_t k, const T* A, BKOut<T> &out, T rtol
     ) {
         const int64_t er = out.end_rows;
         const int64_t ec = out.end_cols;
@@ -67,8 +67,12 @@ class TestBK : public ::testing::Test
         T norm_P = lapack::lange(Norm::Fro, er, ec, P, er);
 
         // The band as stored: R (ld n) on an odd final iteration, S (ld n+k) on an even one.
+        // S's leading dimension is n + k, always. It must NOT be derived as n + (er - ec):
+        // that difference is k only when the terminal block is full width, and it is the
+        // last accepted width once the rank criterion truncates, which reads the buffer at
+        // the wrong stride and reports a spurious band-identity failure.
         const T* band = out.final_iter_is_odd ? out.R : out.S;
-        const int64_t ldb = out.final_iter_is_odd ? n : (n + (er - ec));
+        const int64_t ldb = out.final_iter_is_odd ? n : (n + k);
 
         // Orientation 1: band(i,j) as stored.
         T* D1 = new T[er * ec]();
@@ -155,7 +159,7 @@ TEST_F(TestBK, BK_band_equals_XtAY_abrik_basic_config) {
            (long)out.end_cols);
     fflush(stdout);
 
-    check_band_identity<double>(m, n, A, out, 1e-10);
+    check_band_identity<double>(m, n, k, A, out, 1e-10);
 
     // BK's output is exact here (band identity 7e-16, both bases orthonormal). If ABRIK's
     // residual is nonetheless ~1e-8, the loss is downstream. Reproduce ABRIK's own
@@ -511,13 +515,59 @@ TEST_F(TestBK, BK_band_equals_XtAY_even_final_iteration) {
     printf("BASIS orth: ||X'X-I||/sqrt=%.3e  ||Y'Y-I||/sqrt=%.3e\n", oX, oY);
     fflush(stdout);
 
-    check_band_identity<double>(m, n, A, out, 1e-10);
+    check_band_identity<double>(m, n, k, A, out, 1e-10);
 
     delete[] A;
 }
 
 // Diagnostic for the T2 regime (exact rank 25, b_sz 10): BK-level view of why the run
 // stops where it does, since the driver reports only "not_adaptive" in non-adaptive mode.
+/// Band identity at a TRUNCATED EVEN terminal under the cqrrt QR, which nothing else covers.
+///
+/// Exact rank 25 at block size 10. Iteration 4 is even, its X block carries only 5 healthy
+/// columns, and the run stops there with end_rows = 25 > end_cols = 20. So this exercises
+/// the even-side band write (S, leading dimension n + k) at a non-square geometry produced
+/// by the rank criterion, with CQRRT rather than geqrf/ungqr doing the factorisation.
+///
+/// It also records a reachability finding about the even branch's discarded CQRRT status
+/// (rl_bk.hh, the cqrrt arm of the even branch). A sweep of exact ranks 11 to 32 at block
+/// size 10 under cqrrt never produced a zero-width block: every non-multiple of the block
+/// size terminated on an even iteration with final_block_width = r mod 10, between 1 and 9,
+/// and every multiple terminated one iteration earlier through norm_converged, because the
+/// preceding odd iteration had already captured all of A's spectral content. So
+/// block_numerical_rank always fires first with a nonzero healthy prefix, and a fully dead
+/// even-side block does not arise for exact-rank input. The status check added alongside
+/// this test is therefore defensive rather than a fix for observed behaviour.
+TEST_F(TestBK, BK_even_terminal_band_identity_cqrrt) {
+    int64_t m = 200, n = 200, k = 10, r = 25;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    std::vector<double> s(r);
+    for (int i = 0; i < r; ++i) s[i] = std::pow(10.0, -3.0 * i / (r - 1));
+    std::vector<double> S(r * r, 0.0);
+    RandLAPACK::util::diag(r, r, s.data(), r, S.data());
+    double* A = new double[m * n]();
+    RandLAPACK::gen::gen_singvec<double>(m, n, A, r, S.data(), state);
+
+    BKOut<double> out;
+    RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+    bk.qr_exp = RandLAPACK::BKSubroutines::QR_explicit::cqrrt;
+    bk.max_krylov_iters = 40;
+    ASSERT_EQ(bk.call(m, n, A, m, k, out.X_ev, out.Y_od, out.R, out.S,
+                      out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+
+    // Pin the geometry this test exists to cover, so a change of exit route is loud.
+    EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::rank_deficient);
+    EXPECT_FALSE(out.final_iter_is_odd) << "expected an even terminal iteration";
+    EXPECT_EQ(bk.final_block_width, (int64_t) 5);
+    EXPECT_EQ(out.end_rows, (int64_t) 25);
+    EXPECT_EQ(out.end_cols, (int64_t) 20);
+
+    check_band_identity<double>(m, n, k, A, out, 1e-10);
+    delete[] A;
+}
+
 TEST_F(TestBK, BK_diagnose_exact_rank_25) {
     int64_t m = 200, n = 200, k = 10, r = 25;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -541,3 +591,4 @@ TEST_F(TestBK, BK_diagnose_exact_rank_25) {
     fflush(stdout);
     delete[] A;
 }
+

@@ -758,7 +758,29 @@ class BK {
                             if(this -> timing)
                                 qr_t_start = steady_clock::now();
 
-                            CQRRT -> call(m, k, X_i, m, S_ii, n + k, d_factor, state);
+                            // Honour the status, matching the odd branch. Unlike that
+                            // branch there is no stale-buffer hazard here: S_ii is a fresh
+                            // region of S each iteration, zeroed by the initial calloc or
+                            // by the fill after realloc, so a failed factorisation leaves
+                            // zeros rather than a previous block's diagonal, and
+                            // block_numerical_rank below would return 0 and exit anyway.
+                            //
+                            // DEFENSIVE, not a fix for observed behaviour. A sweep of exact
+                            // ranks 11 to 32 at block size 10 under cqrrt never produced a
+                            // zero-width even-side block: non-multiples of the block size
+                            // stop with final_block_width = r mod 10 in [1,9], and
+                            // multiples stop one iteration earlier via norm_converged. See
+                            // TestBK.BK_even_terminal_band_identity_cqrrt. The check earns
+                            // its place because relying on the probe means relying on the
+                            // buffer happening to be zeroed, and because once a narrowed
+                            // block continues instead of terminating, a fully dead even-side
+                            // block becomes reachable.
+                            int cq_status_ev = CQRRT -> call(m, k, X_i, m, S_ii, n + k, d_factor, state);
+                            if (cq_status_ev != 0) {
+                                this -> final_block_width = 0;
+                                this -> termination_reason = BKTermination::rank_deficient;
+                                break;
+                            }
 
                             if(this -> timing) {
                                 qr_t_stop = steady_clock::now();
