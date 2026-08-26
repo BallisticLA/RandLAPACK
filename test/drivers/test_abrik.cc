@@ -97,6 +97,10 @@ class TestABRIK : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
+        // Free any prior pair: these are fixture-owned, and the destructor frees only the
+        // last assignment, so a second call on one TestData would leak the first pair.
+        delete[] all_data.U_cpy;
+        delete[] all_data.V_cpy;
         all_data.U_cpy = new T[m * custom_rank]();
         all_data.V_cpy = new T[n * custom_rank]();
 
