@@ -130,3 +130,81 @@ TEST_F(TestGeneratorsMutateState, random_dense_mutates_state)              { tes
 TEST_F(TestGeneratorsMutateState, sparse_coo_mutates_state)                { test_gen_sparse_coo_mutates_state<double>(); }
 TEST_F(TestGeneratorsMutateState, spd_from_eigvals_mutates_state)          { test_gen_spd_from_eigvals_mutates_state<double>(); }
 TEST_F(TestGeneratorsMutateState, spd_mat_mutates_state)                   { test_gen_spd_mat_mutates_state<double>(); }
+
+
+/// Spectrum-level coverage for gen_bad_cholqr_singvals, which until 2026 returned all ones
+/// for every requested condition number and had no test at all. Its only caller is
+/// gen_bad_cholqr_mat, so the fault was invisible: the matrix documented as "supposed to
+/// make QB fail with CholQR" was the most benign input possible.
+///
+/// bad_cholqr_singvals_realises_cond is the load-bearing one. Before the fix s.back() was
+/// 1.0 regardless of cond, so the realised condition number was 1.
+class TestGenSpectra : public ::testing::Test
+{
+    protected:
+        virtual void SetUp() {};
+        virtual void TearDown() {};
+
+    /// The spectrum must be non-increasing across the whole vector, not just within blocks.
+    template <typename T>
+    static void test_bad_cholqr_singvals_is_monotone() {
+        int64_t k = 1000;
+        for (T cond : {(T) 1e8, (T) 1e10, (T) 1e12}) {
+            auto s = RandLAPACK::gen::gen_bad_cholqr_singvals<T>(k, (T) 0.1, cond);
+            ASSERT_EQ((int64_t) s.size(), k);
+            for (int64_t i = 1; i < k; ++i)
+                ASSERT_LE(s[i], s[i - 1]) << "not monotone at i=" << i << " for cond=" << cond;
+        }
+    }
+
+    /// s[0] is exactly 1 and s[k-1] is 1/cond, so the realised condition number is the
+    /// requested one. This is the assertion that fails outright without the fix.
+    template <typename T>
+    static void test_bad_cholqr_singvals_realises_cond() {
+        int64_t k = 1000;
+        for (T cond : {(T) 1e8, (T) 1e10, (T) 1e12}) {
+            auto s = RandLAPACK::gen::gen_bad_cholqr_singvals<T>(k, (T) 0.1, cond);
+            ASSERT_EQ(s.front(), (T) 1.0);
+            T realised = s.front() / s.back();
+            // A few ulps of slack: the trailing endpoint comes out of std::pow.
+            ASSERT_NEAR(realised / cond, (T) 1.0, (T) 1e-12)
+                << "requested cond=" << cond << " but realised " << realised;
+        }
+    }
+
+    /// The block structure is what makes the Gram matrix numerically indefinite, so pin
+    /// both the leading count and the size of the cliff between the blocks.
+    template <typename T>
+    static void test_bad_cholqr_singvals_block_sizes() {
+        int64_t k = 1000;
+        T frac = (T) 0.1;
+        auto s = RandLAPACK::gen::gen_bad_cholqr_singvals<T>(k, frac, (T) 1e10);
+        int64_t offset = (int64_t) std::floor((double) k * (double) frac);
+
+        for (int64_t i = 0; i < offset; ++i)
+            ASSERT_EQ(s[i], (T) 1.0) << "leading block not all ones at i=" << i;
+        ASSERT_LT(s[offset], (T) 1.0) << "trailing block did not drop";
+        // The cliff is 1 -> 1e-8 by construction.
+        ASSERT_NEAR(s[offset - 1] / s[offset], (T) 1e8, (T) 1e8 * (T) 1e-12);
+    }
+
+    /// Degenerate shapes throw rather than returning a silently wrong spectrum, which is
+    /// how the original fault went unnoticed.
+    template <typename T>
+    static void test_bad_cholqr_singvals_rejects_degenerate_shapes() {
+        // cond below 1e8: the trailing block would rise rather than decay.
+        ASSERT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(1000, (T) 0.1, (T) 1e4),
+                     RandLAPACK::Error);
+        // frac too small: no leading block of ones.
+        ASSERT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(5, (T) 0.1, (T) 1e10),
+                     RandLAPACK::Error);
+        // frac too large: fewer than two decaying values.
+        ASSERT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(10, (T) 1.0, (T) 1e10),
+                     RandLAPACK::Error);
+    }
+};
+
+TEST_F(TestGenSpectra, bad_cholqr_singvals_is_monotone)                  { test_bad_cholqr_singvals_is_monotone<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_realises_cond)                { test_bad_cholqr_singvals_realises_cond<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_block_sizes)                  { test_bad_cholqr_singvals_block_sizes<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_rejects_degenerate_shapes)    { test_bad_cholqr_singvals_rejects_degenerate_shapes<double>(); }
