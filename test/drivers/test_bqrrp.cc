@@ -94,7 +94,7 @@ class TestBQRRP : public ::testing::Test
                 max_idx = i;
             }
         }
-        T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
+        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
 
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(14) << norm_AQR / norm_A << "\n";
