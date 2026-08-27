@@ -23,13 +23,9 @@
 namespace RandLAPACK {
 
 /// Cap on the dimension the generic materialize fallback will accept. The
-/// fallback forms buf = A * I, which allocates an n by n identity on top of
-/// the caller's buffer; past this dimension that hidden allocation (2 GiB in
-/// double at the cap) is almost certainly unintended. The type-specific
-/// overloads below (DenseLinOp, SparseLinOp, CompositeOperator) materialize
-/// without forming an identity and carry no such cap; operators too large for
-/// the fallback should go through one of those, or apply themselves to
-/// identity blocks under the caller's own memory control. See issue #124.
+/// fallback allocates an n by n identity (2 GiB in double at the cap) behind
+/// the caller's buffer. The type-specific overloads below form no identity
+/// and carry no cap.
 inline constexpr int64_t MATERIALIZE_IDENTITY_MAX_DIM = 16384;
 
 /// Materialize a linear operator into a dense column-major buffer.
@@ -48,9 +44,8 @@ void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, 
     randlapack_require(n <= MATERIALIZE_IDENTITY_MAX_DIM) << "n=" << n
         << " exceeds MATERIALIZE_IDENTITY_MAX_DIM=" << MATERIALIZE_IDENTITY_MAX_DIM
         << ": the generic materialize fallback would allocate an n*n identity ("
-        << (n * n * (int64_t) sizeof(T)) / (1024 * 1024) << " MiB) behind the caller's back."
-        << " Use a type-specific materialize overload, or apply the operator to"
-        << " identity blocks under your own memory control (issue #124)";
+        << (n * n * (int64_t) sizeof(T)) / (1024 * 1024) << " MiB)."
+        << " Use a type-specific materialize overload instead";
     randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     // Zero the output buffer.
     for (int64_t j = 0; j < n; ++j)
@@ -106,12 +101,9 @@ void materialize(linops::SparseLinOp<SpMat>& A, int64_t m, int64_t n,
     }
 }
 
-/// Specialization for CompositeOperator: materialize each operand through its
-/// own materialize overload, then form buf = L * R with one gemm. No identity
-/// is built, so this path carries no dimension cap and never routes through
-/// the composite's operator() (safe for testing operator() itself). Scratch is
-/// m*k + k*n for an inner dimension k, versus the fallback's n*n identity.
-/// Nested composites recurse into this overload for each composite operand.
+/// Specialization for CompositeOperator: materialize each operand, then form
+/// buf = L * R with one gemm. Builds no identity, carries no cap, and never
+/// calls the composite's operator(); nested composites recurse.
 template <typename LinOp1, typename LinOp2>
 void materialize(linops::CompositeOperator<LinOp1, LinOp2>& A, int64_t m, int64_t n,
                  typename LinOp1::scalar_t* buf, int64_t ldb) {

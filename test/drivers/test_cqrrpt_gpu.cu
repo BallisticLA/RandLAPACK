@@ -159,11 +159,8 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp) {
     test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
 }
 
-// Regression test for https://github.com/BallisticLA/RandLAPACK/issues/168 on the
-// GPU driver, which carries the identical uninitialized-J-into-geqp3 line as the
-// CPU driver (the QRCP itself runs on the host). See the CPU counterpart in
-// test_cqrrpt.cc for the full rationale: geqp3 reads jpvt on entry, so the prior
-// contents of the caller's J buffer must not influence pivoting.
+// GPU counterpart of CQRRPT_dirty_J_rank_deficient in test_cqrrpt.cc (the QRCP
+// itself runs on the host): dirty J buffers must not influence pivoting.
 TEST_F(TestCQRRPT, CQRRPT_GPU_dirty_J_rank_deficient) {
     int64_t m = 2000;
     int64_t n = 50;
@@ -185,9 +182,8 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_dirty_J_rank_deficient) {
         CQRRPTTestData<double> all_data(m, n, k);
         lapack::lacpy(MatrixType::General, m, n, A_orig.data(), m, all_data.A.data(), m);
 
-        // Trial 0 keeps the zero-initialized J; trials 1 and 2 dirty the buffer
-        // with different nonzero garbage, the way an uninitialized binding-side
-        // buffer arrives.
+        // Trial 0 keeps the zero-initialized J; trials 1 and 2 dirty it with
+        // different nonzero garbage.
         if (trial > 0) {
             for (int64_t i = 0; i < n; ++i)
                 all_data.J[i] = 1 + ((7919 * trial + 31 * i) % n);
@@ -200,8 +196,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_dirty_J_rank_deficient) {
 
         double norm_A = 0;
         norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-        // Same RNG state in every trial, so the sketch is identical and any
-        // difference in the outcome is attributable to the J contents alone.
+        // Same RNG state in every trial, so any difference is due to J alone.
         auto state = RandBLAS::RNGState();
         test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
 

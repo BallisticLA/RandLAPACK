@@ -174,19 +174,13 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 // ============================================================================
 
 /// Materialize a linear operator into a dense column-major matrix via
-/// RandLAPACK::materialize, which dispatches on the operator type:
-///   - DenseLinOp:   direct copy of A_buff
-///   - SparseLinOp:  RandLAPACK::util::sparse_to_dense on A_sp
-///   - CompositeOperator: materialize each operand, then one gemm
-///   - anything else: the generic fallback, A_dense = A_linop * I
+/// RandLAPACK::materialize, which dispatches on the operator type. DenseLinOp,
+/// SparseLinOp and CompositeOperator materialize directly from their storage;
+/// anything else goes through the generic fallback, A_dense = A_linop * I.
 ///
-/// WARNING: the generic fallback materializes through operator(), which makes
-/// it unsuitable for testing operator() itself (circular reasoning). The three
-/// type-specific overloads above never call operator(), so for those types this
-/// function is safe in correctness tests of operator(). For any other operator
-/// type, use it only in tests that assume operator() is correct and need a
-/// dense representation for some other purpose (e.g., computing singular
-/// values, comparing block views against the full operator).
+/// WARNING: the generic fallback materializes through operator(), so for such
+/// types this function cannot be used to test operator() itself (circular
+/// reasoning); use it only where operator() is assumed correct.
 template <typename T, typename LinOp>
 void materialize_linop(LinOp& A_linop, T* A_dense) {
     int64_t m = A_linop.n_rows;

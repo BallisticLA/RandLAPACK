@@ -252,16 +252,10 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
 
-// Regression test for https://github.com/BallisticLA/RandLAPACK/issues/168.
-// LAPACK's geqp3 reads jpvt on entry: a nonzero entry marks that column as fixed
-// and moves it to the front of the permutation. CQRRPT must therefore not let the
-// prior contents of the caller's J buffer influence pivoting. Every in-tree caller
-// passes a value-initialized std::vector, which hides the defect; a binding layer
-// handing over an uninitialized buffer exposed it as nondeterministic rank
-// detection on rank-deficient inputs. This test runs the same rank-deficient
-// factorization with a clean J and then with two differently-dirtied J buffers,
-// at the same RNG state each time; the detected rank and the factorization
-// quality must be identical across all three trials.
+// geqp3 reads jpvt on entry (nonzero marks a fixed column), so the prior
+// contents of the caller's J buffer must not influence pivoting. Run the same
+// rank-deficient factorization with a clean J and with two dirtied J buffers,
+// at the same RNG state each time; rank and factorization quality must match.
 TEST_F(TestCQRRPT, CQRRPT_dirty_J_rank_deficient) {
     int64_t m = 2000;
     int64_t n = 50;
@@ -283,9 +277,8 @@ TEST_F(TestCQRRPT, CQRRPT_dirty_J_rank_deficient) {
         CQRRPTTestData<double> all_data(m, n, k);
         lapack::lacpy(MatrixType::General, m, n, A_orig.data(), m, all_data.A.data(), m);
 
-        // Trial 0 keeps the zero-initialized J that every in-tree caller happens
-        // to provide; trials 1 and 2 dirty the buffer with different nonzero
-        // garbage, the way an uninitialized binding-side buffer arrives.
+        // Trial 0 keeps the zero-initialized J; trials 1 and 2 dirty it with
+        // different nonzero garbage.
         if (trial > 0) {
             for (int64_t i = 0; i < n; ++i)
                 all_data.J[i] = 1 + ((7919 * trial + 31 * i) % n);
@@ -297,8 +290,7 @@ TEST_F(TestCQRRPT, CQRRPT_dirty_J_rank_deficient) {
 
         double norm_A = 0;
         norm_and_copy_computational_helper(norm_A, all_data);
-        // Same RNG state in every trial, so the sketch is identical and any
-        // difference in the outcome is attributable to the J contents alone.
+        // Same RNG state in every trial, so any difference is due to J alone.
         auto state = RandBLAS::RNGState();
         test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 

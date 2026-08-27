@@ -196,9 +196,8 @@ int CQRRPT_GPU<T, RNG>::call(
     // Buffer for column pivoting.
     int64_t* J_buf = new int64_t[n]();
 
-    // LAPACK's geqp3 reads jpvt on entry: a nonzero entry marks that column as
-    // fixed and moves it to the front of the permutation. Zero the caller's J
-    // so its prior contents cannot silently steer the pivoting (issue #168).
+    // geqp3 reads jpvt on entry (nonzero marks a fixed column), so zero the
+    // caller's J to keep its prior contents from steering the pivoting.
     std::fill(J, J + n, (int64_t) 0);
 
     if(this -> timing)

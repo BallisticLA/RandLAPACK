@@ -111,10 +111,8 @@ TEST_F(TestSpectralPrecondLinearOperator, test_diag_n5_k4) {
     run_diag<float>(5, 4, 0.1);
 }
 
-// Issue #124: the generic materialize fallback forms buf = A * I by allocating
-// an n by n identity matrix behind the caller's back. That hidden allocation is
-// capped; the type-specific overloads (DenseLinOp, SparseLinOp, CompositeOperator)
-// materialize without forming an identity and carry no cap.
+// The generic materialize fallback allocates an n by n identity behind the
+// caller's back; that hidden allocation is capped.
 namespace {
 struct IdentityFallbackProbeOp {
     using scalar_t = double;
@@ -129,24 +127,20 @@ TEST(TestMaterializeGuard, generic_fallback_refuses_huge_identity) {
     IdentityFallbackProbeOp A;
     int64_t n_over = RandLAPACK::MATERIALIZE_IDENTITY_MAX_DIM + 1;
     double stub = 0.0;
-    // The guard must fire before the output buffer is touched, so a one-element
-    // stub standing in for the (never-written) output is safe here.
+    // The guard fires before the output buffer is touched, so a stub is safe.
     EXPECT_THROW(RandLAPACK::materialize(A, n_over, n_over, &stub, n_over), RandLAPACK::Error);
 
     // Below the cap the generic path still works.
     int64_t n_small = 4;
     std::vector<double> buf(n_small * n_small, 1.0);
     RandLAPACK::materialize(A, n_small, n_small, buf.data(), n_small);
-    // The probe operator writes nothing, so all that must have happened is the
-    // zeroing of the output buffer.
+    // The probe writes nothing, so only the zeroing of the buffer happened.
     for (auto v : buf)
         ASSERT_EQ(v, 0.0);
 }
 
-// The CompositeOperator overload materializes each operand and multiplies the
-// dense factors with one gemm; it never builds an identity and never calls the
-// composite's operator(), so it is exempt from the fallback's dimension cap
-// and is safe to use when testing operator() itself.
+// The CompositeOperator overload multiplies materialized operands with one
+// gemm: no identity, no cap, no call through the composite's operator().
 TEST(TestMaterializeComposite, matches_reference_product) {
     int64_t m = 7;
     int64_t k = 4;
@@ -181,9 +175,8 @@ TEST(TestMaterializeComposite, matches_reference_product) {
 }
 
 TEST(TestMaterializeComposite, wide_composite_is_exempt_from_identity_cap) {
-    // Wider than the generic fallback allows, but with a small inner dimension,
-    // so the operand-product path materializes it in m*k + k*n scratch where
-    // the fallback would have refused to build the n*n identity.
+    // Wider than the generic fallback allows; the operand-product path handles
+    // it in m*k + k*n scratch.
     int64_t m = 3;
     int64_t k = 2;
     int64_t n = RandLAPACK::MATERIALIZE_IDENTITY_MAX_DIM + 1;
