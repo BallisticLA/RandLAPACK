@@ -118,6 +118,12 @@ jobs:
           grep -q "external install" discovery.out
           test -d RandNLA-project-discovery/build/RandLAPACK-build
 
+      # The installer sends each step's full output to install.log and prints
+      # only progress lines, so on failure the log holds the actual error.
+      - name: show install.log on failure
+        if: failure()
+        run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
+
   install-macos:
     runs-on: macos-latest
     steps:
@@ -155,6 +161,12 @@ jobs:
           grep -qE '^  Backend  *openblas, ' openblas.out
           ctest --test-dir RandNLA-project-openblas/build/RandLAPACK-build \
                 --output-on-failure
+
+      # The installer sends each step's full output to install.log and prints
+      # only progress lines, so on failure the log holds the actual error.
+      - name: show install.log on failure
+        if: failure()
+        run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
 
   install-windows:
     runs-on: windows-2022

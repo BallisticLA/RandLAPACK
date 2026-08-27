@@ -21,6 +21,9 @@
 # Prerequisites and tested configurations are listed in INSTALL_SCRIPT.md.
 
 set -euo pipefail
+# macOS ships bash 3.2, where expanding an EMPTY array under `set -u` is an
+# "unbound variable" error (fixed in bash 4.4). Every possibly-empty array
+# below is therefore expanded as ${arr[@]+"${arr[@]}"}.
 
 usage() {
     # A heredoc rather than a line-range sed over this file's own comment block:
@@ -744,7 +747,7 @@ configure_blaspp_at_width() {
         -Dgpu_backend="$RANDNLA_PROJECT_GPU_AVAIL" \
         -Dblas_int="$width" \
         -Dbuild_tests=OFF \
-        "${BLASPP_BACKEND_FLAGS[@]}" "${OPENMP_FLAGS[@]}" >> "$LOG" 2>&1
+        ${BLASPP_BACKEND_FLAGS[@]+"${BLASPP_BACKEND_FLAGS[@]}"} ${OPENMP_FLAGS[@]+"${OPENMP_FLAGS[@]}"} >> "$LOG" 2>&1
 }
 
 if (( BUILD_BLASPP )); then
@@ -864,7 +867,7 @@ if (( BUILD_LAPACKPP )); then
                 -Dgpu_backend="$RANDNLA_PROJECT_GPU_AVAIL" \
                 -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
                 -Dbuild_tests=OFF \
-                "${LAPACKPP_BACKEND_FLAGS[@]}" "${OPENMP_FLAGS[@]}"
+                ${LAPACKPP_BACKEND_FLAGS[@]+"${LAPACKPP_BACKEND_FLAGS[@]}"} ${OPENMP_FLAGS[@]+"${OPENMP_FLAGS[@]}"}
         }
         run_step "Fetching and configuring LAPACK++ ($LAPACKPP_REF)" configure_lapackpp
         run_build_step "Building and installing LAPACK++" \
@@ -906,7 +909,7 @@ run_step "Configuring RandLAPACK" \
         -DCMAKE_INSTALL_PREFIX="$RANDLAPACK_INSTALL_DIR" \
         -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON \
         -DBUILD_TESTS=OFF -DRandLAPACK_BUILD_TESTS=ON \
-        "${OPENMP_FLAGS[@]}"
+        ${OPENMP_FLAGS[@]+"${OPENMP_FLAGS[@]}"}
 run_build_step "Building and installing RandLAPACK" \
     cmake --build "$RANDLAPACK_BUILD" -j "$JOBS" --target install
 
@@ -1018,7 +1021,7 @@ verify_install() {
         -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
         -DRandom123_DIR="$RANDOM123_DIR" \
         -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" \
-        "${OPENMP_FLAGS[@]}" >> "$LOG" 2>&1
+        ${OPENMP_FLAGS[@]+"${OPENMP_FLAGS[@]}"} >> "$LOG" 2>&1
     cmake --build "$CONFTEST_DIR/build" -j "$JOBS" >> "$LOG" 2>&1
     "$CONFTEST_DIR/build/conftest" > "$CONFTEST_DIR/output.txt" 2>&1
     grep -q '^OK$' "$CONFTEST_DIR/output.txt"
@@ -1059,7 +1062,7 @@ configure_subproject() {  # <source-subdir> <build-dir>
         -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
         -DRandom123_DIR="$RANDOM123_DIR" \
         -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" \
-        "${DISABLE_CUDA_FLAG[@]}" "${OPENMP_FLAGS[@]}"
+        ${DISABLE_CUDA_FLAG[@]+"${DISABLE_CUDA_FLAG[@]}"} ${OPENMP_FLAGS[@]+"${OPENMP_FLAGS[@]}"}
 }
 
 if (( WANT_EXTRAS )); then
