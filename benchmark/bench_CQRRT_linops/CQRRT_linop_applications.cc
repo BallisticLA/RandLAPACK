@@ -19,20 +19,25 @@
 //   ./CQRRT_linop_applications <prec> <outdir> <runs> <mode>
 //          <K.mtx> <M.mtx> <V.mtx> <d_factor> [nnz] [b] [compute_cond] [method_mask] [noise_level] [omega] [power_j]
 //
-// mode        = "irlsq_reg" | "rspec"
-//   NOTE: these are the ONLY accepted values, and an unrecognized mode is NOT diagnosed --
-//   it matches neither dispatch branch, so the run allocates its node, performs no
-//   experiment, writes no CSV, and exits 0. Six SLURM scripts passing the long-removed
-//   "irlsq" were archived on 2026-07-29 for exactly this reason. If you add a mode, add it
-//   here and consider erroring on the unknown case.
-// method_mask = bitmask of Q-less QR variants (default 0b11111 = 31)
-//                 bit 0 ( 1): CQRRT_linop (TRSM_IDENTITY)
-//                 bit 1 ( 2): CholQR
-//                 bit 2 ( 4): sCholQR3
-//                 bit 3 ( 8): sCholQR3_basic
-//                 bit 4 (16): CholQR2
-//                 bit 5 (32): Blendenpik  (NOT in the default mask; pass 63 to include it)
-//   CQRRT_linop_bqrrp (legacy bit 6 / 64) was removed in the 2026-06-05 rework.
+// mode        = "irlsq" | "irlsq_reg" | "rspec"
+//   (main() hard-errors on an unrecognized mode since the 2026-07-29 fix; the old
+//   behavior -- match nothing, write no CSV, exit 0 -- burned six SLURM scripts.)
+// method_mask = bitmask of methods (default 0b11111 = 31)
+//                 bit 0 (  1): CQRRT_linop (TRSM_IDENTITY)
+//                 bit 1 (  2): CholQR
+//                 bit 2 (  4): sCholQR3
+//                 bit 3 (  8): sCholQR3_basic
+//                 bit 4 ( 16): CholQR2
+//                 bit 5 ( 32): Blendenpik, published (warm + cold rows; not in the
+//                              default mask)
+//                 bit 6 ( 64): Blendenpik refined by the shared engine (warm + cold
+//                              rows; see benchmark/refined_blendenpik.hh). NOTE this
+//                              bit was CQRRT_linop_bqrrp until the 2026-06-05 rework
+//                              and was REUSED on 2026-08-10 -- a pre-2026-06 script
+//                              passing 64 gets refine rows, not the BQRRP variant.
+//               rspec mode accepts bits 0-4 only and warns on 32/64.
+//   The campaign mask 127 = bits 0-6 (all five Q-less methods + both Blendenpik
+//   families).
 //
 // Trailing optional args after precond_prec (irlsq / irlsq_reg), added 2026-07-27:
 //   [ir_max_inner] inner-CG iteration cap per outer refinement step (default 200).
@@ -99,6 +104,7 @@
 #include "rl_cholqr_linops.hh"
 #include "rl_scholqr3_linops.hh"
 #include "rl_blendenpik.hh"
+#include "../refined_blendenpik.hh"
 #include "RandLAPACK/testing/rl_memory_tracker.hh"
 
 using std::chrono::steady_clock;
@@ -169,17 +175,31 @@ struct bench_result {
 
     // IR-LSQ-mode fields
     long ir_total_us;
-    long ir_setup_us = 0;  // warm-start x0 build time INSIDE ir_total_us (0 = cold start)
+    long ir_setup_us = 0;  // warm-start x0 build time, its OWN slot (NOT inside
+                           // ir_total_us; 0 = cold start). Assigned since 2026-08-27
+                           // for the Blendenpik rows; it was documented-but-dead
+                           // (never written, always 0) before.
     int  ir_outer_iters;
     int  ir_inner_iters_total;
+    int  lsqr_iters = 0;   // LSQR iterations, where an LSQR phase ran (published
+                           // Blendenpik rows only since the 2026-08-27 refine redesign)
+    int  engine_status = -1;          // restarted_pcg_ne exit status (-1 = engine not used)
+    std::string stop_reason = "n/a";  // named exit condition (see the reason helpers)
+    T    x0_relres = (T)-1;           // true relres of the handed-off warm x0 (refine warm rows)
     T    ls_residual_norm;
     T    ls_solution_error;   // -1 sentinel when undefined (FEM irlsq)
 
     // Inner-CG diagnosis (2026-07-27). ir_inner_iters_total alone cannot say whether a
     // solve converged or merely exhausted its budget -- both used to report success.
     //   ir_inner_capped   : 1 if ANY outer step hit max_inner (0 = all converged,
-    //                       2 = a CG breakdown occurred). -1 for Blendenpik (no IR).
-    //   ir_inner_relres   : worst per-step achieved ||Mz-c||/||c||.
+    //                       2 = a CG breakdown occurred). Since 2026-08-27: published
+    //                       Blendenpik rows carry 0/1 from LSQR's own convergence,
+    //                       refine rows carry real kernel diagnoses; -1 only on
+    //                       failed builds.
+    //   ir_inner_relres   : worst per-step achieved ||Mz-c||/||c|| (NE space).
+    //                       CAVEAT: for published Blendenpik rows this column holds
+    //                       LSQR's final LS-space relres instead; do not compare the
+    //                       two families through this column without saying so.
     //   ir_inner_best_relres / ir_inner_best_iter : the smallest residual seen in the
     //       worst step and the iteration it happened at. best_iter far below the
     //       iteration count means the solve STAGNATED (tolerance below the attainable
@@ -202,6 +222,18 @@ struct bench_result {
     std::vector<long> qr_breakdown;
     std::vector<long> ir_breakdown;
 
+    // Per-round engine records (2026-08-27, capture-all-data decision): filled for
+    // every row that ran the shared engine (IR methods and refine rows); empty for
+    // published Blendenpik rows and failed builds. Written to the *_rounds.csv sidecar.
+    std::vector<int> round_iters, round_status, round_best_iter;
+    std::vector<T>   round_relres, round_best_relres, round_ls_relres;
+
+    // WINDOW ASYMMETRY (documented 2026-08-27, predates the audit rewrite): for
+    // Q-less rows the tracker stops right after the QR build (build-only peak,
+    // matching the build-phase analytical models); for the four Blendenpik-family
+    // rows it stops after run_blendenpik_family returns, so their window also
+    // spans the LSQR/engine solve. Their analytical_kb is the -1 sentinel, so the
+    // peak-vs-model comparison never mixes the two window kinds.
     long peak_rss_kb;
     long analytical_kb;
 };
@@ -212,18 +244,69 @@ struct bench_result {
 // are read-only thereafter.
 //
 // Why they are configurable at all (2026-07-27): the inner-CG budget was hard-coded at
-// 200 per outer step, which with 2 outer steps produced the fixed 400-iteration ceiling
-// seen in the CSVs, and the tolerance was fixed at eps^0.85 (~4.9e-14 in double) -- a
+// 200 per outer step, which with g_ir_n_steps outer steps produced a fixed iteration
+// ceiling in the CSVs, and the tolerance was fixed at eps^0.85 (~4.9e-14 in double) -- a
 // relative-residual target close enough to the floating-point stagnation floor that CG
 // can be unable to reach it regardless of preconditioner quality. Exposing both lets a
 // diagnostic sweep separate those two effects without a rebuild.
 static int    g_ir_max_inner = 200;    // <= 0 => keep the IterRefineLSQ default
 static double g_ir_inner_tol = -1.0;   // <  0 => eps^0.85 in the working precision
 static double g_ir_round_drop = 1e-4;  // per-round CG drop (Oleg 2026-08-07); 0 = legacy fixed-tol rounds
-static int    g_ir_n_steps = 20;       // outer-round cap (2026-08-07, was 4; outer_tol exits early)
+static int    g_ir_n_steps = 50;       // outer-round cap (campaign-canonical 50 since 0812_d2;
+                                       // was 20 through the 0810 era, 4 before 2026-08-07.
+                                       // The cap must not bind before tol + maxit do:
+                                       // native_ill CholQR2 genuinely uses 50 rounds.)
 static double g_ir_outer_tol = -1.0;   // <0 => 10*eps(solve precision); 0 disables early exit
 // (g_ir_warm_start / g_bp_warm_start removed 2026-08-05: IR methods are always
 //  cold; Blendenpik runs as two mask-32 variants, warm and cold.)
+
+// Outer-stagnation window override (2026-08-27): RANDLAPACK_IR_OUTER_STAG, read
+// once. Default 2 (the engine default); 0 disables the LS-floor exit -- the
+// knob exists for the CholQR full-precision diagnostic cell, which must show
+// the flat trajectory rather than exit at it. Env rather than CLI so the
+// campaign arg layout stays frozen.
+static int ir_outer_stag_window() {
+    static const int w = []() {
+        const char* s = std::getenv("RANDLAPACK_IR_OUTER_STAG");
+        if (s == nullptr || *s == '\0') return 2;
+        return std::atoi(s);
+    }();
+    return w;
+}
+
+// Named exit conditions for the CSV (2026-08-27): distinguishes "hit the LS floor
+// honestly" from "ran out of budget", which shared a flag value before.
+static const char* pcg_stop_reason(int st) {
+    switch (st) {
+        case 0: return "tol";       case 1: return "budget";
+        case 2: return "breakdown"; case 3: return "rounds";
+        case 4: return "floor";     default: return "unknown";
+    }
+}
+static const char* lsqr_stop_reason(bool converged, int stop_test) {
+    if (!converged) return "budget";
+    return (stop_test == 2) ? "ne_floor" : "tol";
+}
+
+// Environment provenance for every results CSV (2026-08-27, audit M1): these env
+// knobs change the algorithms without changing the row labels, so a CSV that does
+// not echo them cannot identify its own campaign arm.
+static void write_env_provenance(std::ofstream& out) {
+    auto env_or = [](const char* key) -> std::string {
+        const char* s = std::getenv(key);
+        return (s != nullptr && *s != '\0') ? std::string(s) : std::string("(unset)");
+    };
+    out << "# env RANDLAPACK_GRAM_LEFT=" << env_or("RANDLAPACK_GRAM_LEFT")
+        << " RANDLAPACK_SCHOLQR3_SHIFT=" << env_or("RANDLAPACK_SCHOLQR3_SHIFT")
+        << " RANDLAPACK_BLAS2_THREADS=" << env_or("RANDLAPACK_BLAS2_THREADS")
+        << " RANDLAPACK_FFT_THREADS=" << env_or("RANDLAPACK_FFT_THREADS")
+        << " RANDLAPACK_SOLVE_FFT_MATCH=" << env_or("RANDLAPACK_SOLVE_FFT_MATCH")
+        << " RANDLAPACK_GIT_COMMIT=" << env_or("RANDLAPACK_GIT_COMMIT") << "\n";
+    out << "# ir knobs: max_inner=" << g_ir_max_inner << " inner_tol=" << g_ir_inner_tol
+        << " round_drop=" << g_ir_round_drop << " n_steps=" << g_ir_n_steps
+        << " outer_tol=" << g_ir_outer_tol
+        << " outer_stag_window=" << ir_outer_stag_window() << "\n";
+}
 
 // Summarize an IterRefineLSQ run's inner-CG behavior into the CSV fields.
 //
@@ -270,6 +353,196 @@ static void record_inner_cg_diagnosis(const RandLAPACK::IterRefineLSQ<T>& ir,
         res.ir_inner_best_relres = ir.inner_best_relres_per_step[worst_idx];
     if (worst_idx < ir.inner_best_iter_per_step.size())
         res.ir_inner_best_iter = ir.inner_best_iter_per_step[worst_idx];
+}
+
+// Same diagnosis, from a raw engine history (the refine rows bypass IterRefineLSQ
+// since 2026-08-27). Identical severity ranking.
+template <typename T>
+static void record_inner_cg_diagnosis(const RandLAPACK::PCGRoundHistory<T>& h,
+                                      bench_result<T>& res) {
+    if (h.status.empty()) return;
+    auto severity = [](int status) -> int {
+        switch (status) {
+            case 2:  return 3;   // Breakdown
+            case 1:  return 2;   // HitCap
+            case 3:  return 1;   // Stagnated
+            default: return 0;   // Converged
+        }
+    };
+    size_t worst_idx = 0;
+    for (size_t i = 1; i < h.status.size(); ++i)
+        if (severity(h.status[i]) > severity(h.status[worst_idx])) worst_idx = i;
+    if (h.status[worst_idx] == 0) {
+        for (size_t i = 0; i < h.relres.size(); ++i)
+            if (h.relres[i] > h.relres[worst_idx]) worst_idx = i;
+    }
+    res.ir_inner_capped      = h.status[worst_idx];
+    res.ir_inner_relres      = h.relres[worst_idx];
+    res.ir_inner_best_relres = h.best_relres[worst_idx];
+    res.ir_inner_best_iter   = h.best_iter[worst_idx];
+}
+
+// Round-record copiers for the *_rounds.csv sidecar (2026-08-27).
+template <typename T>
+static void copy_round_records(const RandLAPACK::PCGRoundHistory<T>& h, bench_result<T>& res) {
+    res.round_iters       = h.iters;
+    res.round_status      = h.status;
+    res.round_best_iter   = h.best_iter;
+    res.round_relres      = h.relres;
+    res.round_best_relres = h.best_relres;
+    res.round_ls_relres   = h.ls_relres;
+}
+template <typename T>
+static void record_ir_outputs(const RandLAPACK::IterRefineLSQ<T>& ir, bench_result<T>& res) {
+    res.engine_status = ir.engine_status;
+    res.stop_reason   = pcg_stop_reason(ir.engine_status);
+    res.round_iters       = ir.inner_iters_per_step;
+    res.round_status      = ir.inner_status_per_step;
+    res.round_best_iter   = ir.inner_best_iter_per_step;
+    res.round_relres      = ir.inner_relres_per_step;
+    res.round_best_relres = ir.inner_best_relres_per_step;
+    res.round_ls_relres   = ir.ls_relres_per_step;
+}
+
+// Shared method-mask decode (2026-08-27): the three per-path copies had already
+// diverged (the rspec copy silently ignored bits 32/64; the console echo showed
+// bits 0-4 only). with_blendenpik = false (rspec) warns on 32/64 instead.
+static std::vector<std::string> decode_method_mask(int64_t method_mask, bool with_blendenpik) {
+    std::vector<std::string> algs;
+    if (method_mask & 1)   algs.push_back("CQRRT_linop");
+    if (method_mask & 2)   algs.push_back("CholQR");
+    if (method_mask & 4)   algs.push_back("sCholQR3");
+    if (method_mask & 8)   algs.push_back("sCholQR3_basic");
+    if (method_mask & 16)  algs.push_back("CholQR2");
+    if (with_blendenpik) {
+        if (method_mask & 32) {   // published: its own sketch-and-solve warm start + cold
+            algs.push_back("Blendenpik");
+            algs.push_back("Blendenpik_cold");
+        }
+        if (method_mask & 64) {   // refined by the shared engine (refined_blendenpik.hh)
+            algs.push_back("Blendenpik_refine");
+            algs.push_back("Blendenpik_cold_refine");
+        }
+    } else if (method_mask & (32 | 64)) {
+        std::cerr << "Warning: method_mask bits 32/64 (Blendenpik families) are not "
+                     "available in this mode and are ignored.\n";
+    }
+    return algs;
+}
+
+// ============================================================================
+// Shared Blendenpik-family dispatch (published + refined rows), used by BOTH the
+// irlsq path (run_benchmark_inner) and the irlsq_reg path. Extracted 2026-08-27:
+// the two per-path copies had drifted into different wrong accountings (audit:
+// the warm refine row silently ran cold in both paths -- the exact-string
+// warm_start test was false for "Blendenpik_refine" -- and the refinement phase
+// was missing from the time columns in both, from the iteration count in one).
+// ============================================================================
+template <typename T, typename RNG, typename GLO>
+static void run_blendenpik_family(
+    GLO& A_op, const T* b, int64_t m, T* x_ls, int64_t n, T* R_T,
+    T d_factor, int64_t sketch_nnz, RandBLAS::RNGState<RNG> state,
+    const std::string& alg_name, T tol, T outer_tol_eff,
+    RandLAPACK::PeakRSSTracker& mem, bench_result<T>& res)
+{
+    const bool is_ref = (alg_name.find("_refine") != std::string::npos);
+    const bool warm   = (alg_name == "Blendenpik") || (alg_name == "Blendenpik_refine");
+    const int  max_inner = (g_ir_max_inner > 0) ? g_ir_max_inner : 200;
+    const int  budget    = max_inner * g_ir_n_steps;   // same budget the IR methods get
+    const T    inner_tol = (g_ir_inner_tol > 0) ? (T)g_ir_inner_tol
+                         : std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
+
+    if (is_ref) {
+        // Refined rows: init_only sketch-and-solve x0, ALL iterative work in the
+        // shared engine, no internal LSQR (see benchmark/refined_blendenpik.hh).
+        // Engine knobs mirror what IterRefineLSQ passes for the Q-less rows.
+        const bool paced = (g_ir_round_drop > 0);
+        const T drop      = paced ? (T)g_ir_round_drop : inner_tol;
+        const T abs_guard = paced ? inner_tol : (T)0;
+        std::fill(x_ls, x_ls + n, (T)0);
+        auto rr = RandLAPACK::bench::run_refined_blendenpik<T, RNG>(
+            A_op, b, m, x_ls, n, d_factor, sketch_nnz, state, warm,
+            outer_tol_eff, budget, max_inner, drop, g_ir_n_steps - 1,
+            /*stag_window=*/20, /*stag_rel_improve=*/(T)1e-3, abs_guard,
+            ir_outer_stag_window());
+        res.qr_status = rr.qr_status;
+        res.peak_rss_kb = mem.stop();
+        if (res.qr_status != 0) return;
+        res.qr_time_us  = rr.qr_us;
+        res.ir_setup_us = rr.setup_us;                 // x0 build (0 for the cold row)
+        res.x0_relres   = rr.x0_relres;                // warm-start quality (-1 cold)
+        std::copy(rr.R.begin(), rr.R.end(), R_T);
+        res.qr_breakdown.assign(11, 0);
+        res.analytical_kb = -1;                        // no analytical model for Blendenpik rows
+        res.ir_total_us          = rr.solve_us;        // the WHOLE refinement solve (was missing)
+        res.ir_outer_iters       = rr.rounds;          // real round count (was clobbered to 1)
+        res.ir_inner_iters_total = rr.iters;           // engine inner CG only: single unit
+        res.lsqr_iters           = 0;                  // no LSQR phase in the redesigned rows
+        res.engine_status = rr.status;
+        res.stop_reason   = pcg_stop_reason(rr.status);
+        record_inner_cg_diagnosis(rr.history, res);
+        copy_round_records(rr.history, res);
+        // ir_breakdown in the IterRefineLSQ layout [total, inner_cg, trsm, fwd, adj, other].
+        long op_outer = (rr.t_fwd_us  - rr.history.t_fwd_inner_us)
+                      + (rr.t_adj_us  - rr.history.t_adj_inner_us)
+                      + (rr.t_trsm_us - rr.history.t_trsm_inner_us);
+        long other = rr.solve_us - rr.history.t_inner_us - op_outer;
+        if (other < 0) other = 0;
+        res.ir_breakdown = {rr.solve_us, rr.history.t_inner_us, rr.t_trsm_us,
+                            rr.t_fwd_us, rr.t_adj_us, other};
+        return;
+    }
+
+    // Published rows: sketch + QR + LSQR (warm = its own sketch-and-solve x0).
+    RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, tol);
+    bp.nnz        = sketch_nnz;
+    bp.warm_start = warm;
+    bp.max_iters  = budget;
+    std::fill(x_ls, x_ls + n, (T)0);
+    res.qr_status = bp.call(A_op, b, m, x_ls, n, d_factor, state);
+    res.peak_rss_kb = mem.stop();
+    if (res.qr_status != 0) return;
+    res.qr_time_us  = bp.times[0] + bp.times[1];       // sketch + QR
+    res.ir_setup_us = warm ? bp.times[4] : 0;          // warm x0 build (in NO column before 2026-08-27)
+    std::copy(bp.R_out.begin(), bp.R_out.end(), R_T);
+    res.qr_breakdown.assign(11, 0);
+    res.analytical_kb = -1;
+    // No IR loop: reuse the diagnosis columns from LSQR's own convergence signals.
+    res.ir_inner_capped = bp.converged ? 0 : 1;
+    res.ir_inner_relres = bp.final_relres;
+    res.ir_total_us          = bp.times[2];
+    res.ir_outer_iters       = 1;
+    res.ir_inner_iters_total = bp.lsqr_iters;   // LSQR iters in the CG-iters slot (published rows only)
+    res.lsqr_iters           = bp.lsqr_iters;
+    res.engine_status = -1;                     // the pcg engine did not run
+    res.stop_reason   = lsqr_stop_reason(bp.converged, bp.lsqr_stop_test);
+    // ir_breakdown from LSQR's op split (exposed 2026-08-27; all-zero rows before).
+    if (bp.lsqr_op_times.size() >= 3) {
+        long fwd = bp.lsqr_op_times[0], adj = bp.lsqr_op_times[1], trsm = bp.lsqr_op_times[2];
+        long other = bp.times[2] - (fwd + adj + trsm);
+        if (other < 0) other = 0;
+        res.ir_breakdown = {bp.times[2], 0, trsm, fwd, adj, other};   // no kernel split in LSQR
+    }
+}
+
+// Per-round sidecar writer (2026-08-27): one row per (algorithm, run, round) for
+// every row that ran the shared engine.
+template <typename T>
+static void write_rounds_csv(const std::string& filename,
+                             const std::vector<bench_result<T>>& results) {
+    std::ofstream out(filename);
+    out << "# Per-round engine records (restarted_pcg_ne / IterRefineLSQ), 2026-08-27.\n"
+        << "# inner_status: 0 Converged, 1 HitCap, 2 Breakdown, 3 Stagnated.\n"
+        << "algorithm,run,round,inner_iters,inner_status,inner_relres,best_relres,best_iter,ls_relres\n";
+    for (const auto& r : results) {
+        for (size_t k = 0; k < r.round_iters.size(); ++k) {
+            out << r.alg_name << "," << r.run_idx << "," << (k + 1) << ","
+                << r.round_iters[k] << "," << r.round_status[k] << ","
+                << std::scientific << std::setprecision(6) << r.round_relres[k] << ","
+                << r.round_best_relres[k] << "," << r.round_best_iter[k] << ","
+                << r.round_ls_relres[k] << "\n";
+        }
+    }
 }
 
 // Estimate ||A||_2 via power iteration on A^T A. O(iters * (m+n) memory) — no materialization.
@@ -390,11 +663,13 @@ static void write_irlsq_results(
         << "# OpenMP threads: 1\n"
 #endif
         ;
+    write_env_provenance(out);
     out << "algorithm,run,m,n,qr_status,qr_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,"
            "ir_total_us,ir_outer_iters,ir_inner_iters_total,"
            "ls_residual_norm,ls_solution_error,"
-           "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond\n";
+           "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond,"
+           "ir_setup_us,lsqr_iters,engine_status,stop_reason,x0_relres\n";
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
             << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
@@ -406,7 +681,10 @@ static void write_irlsq_results(
             << std::scientific << std::setprecision(6) << r.ir_inner_relres << ","
             << std::scientific << std::setprecision(6) << r.ir_inner_best_relres << ","
             << r.ir_inner_best_iter << ","
-            << std::scientific << std::setprecision(6) << r.cond_precond
+            << std::scientific << std::setprecision(6) << r.cond_precond << ","
+            << r.ir_setup_us << "," << r.lsqr_iters << "," << r.engine_status << ","
+            << r.stop_reason << ","
+            << std::scientific << std::setprecision(6) << r.x0_relres
             << "\n";
     }
 }
@@ -420,7 +698,9 @@ static void write_irlsq_breakdown(
     out << "# Sparse IR-LSQ Benchmark runtime breakdown (microseconds)\n"
         << "# QR breakdown layout depends on algorithm (see CQRRT_linop_applications.cc).\n"
         << "# IR-LSQ breakdown (6): outer_total, inner_cg_total, trsm_total, fwd_total, adj_total, other\n"
-        << "#   (x_0 = 0, so ir_total_us in the results CSV matches outer_total here up to overhead)\n"
+        << "#   (ir_total_us in the results CSV equals outer_total here for every row family;\n"
+        << "#    since 2026-08-27 Blendenpik rows carry real IR entries too: refine rows the\n"
+        << "#    engine split, published rows the LSQR op split with a 0 inner_cg slot)\n"
         << "algorithm,run,phase,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10\n";
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << ",QR";
@@ -579,34 +859,9 @@ static int run_benchmark_inner(
     const std::vector<T>* b_ptr,        // M-vector RHS
     const std::vector<T>* x_true_ptr)   // N-vector ground truth (sparse only); nullptr otherwise
 {
-    // Build the ordered list of selected algorithm names from the bitmask.
-    //   bit 0  ( 1): CQRRT_linop
-    //   bit 1  ( 2): CholQR
-    //   bit 2  ( 4): sCholQR3
-    //   bit 3  ( 8): sCholQR3_basic
-    //   bit 4  (16): CholQR2
-    //   bit 5  (32): Blendenpik (sketch + QR + LSQR; independent LSQ solver)
-    //   bit 6  (64): CQRRT_linop_bqrrp  [DROPPED in 2026-06-05 rework]
-    std::vector<std::string> selected_algs;
-    if (method_mask & 1)   selected_algs.push_back("CQRRT_linop");
-    if (method_mask & 2)   selected_algs.push_back("CholQR");
-    if (method_mask & 4)   selected_algs.push_back("sCholQR3");
-    if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
-    if (method_mask & 16)  selected_algs.push_back("CholQR2");
-    if (method_mask & 32) {
-        selected_algs.push_back("Blendenpik");        // its own sketch-and-solve warm start
-        selected_algs.push_back("Blendenpik_cold");   // same solver, x0 = 0
-    }
-    if (method_mask & 64) {
-        // Blendenpik's preconditioner run through OUR refinement solver (2026-08-10).
-        // As published Blendenpik is sketch + QR + LSQR with no refinement, so the
-        // suite otherwise compares its R through a different solver than every Q-less
-        // method uses, conflating preconditioner quality with solver structure. These
-        // rows keep the published ones intact and add the like-for-like comparison,
-        // started from Blendenpik's warm and cold answers respectively.
-        selected_algs.push_back("Blendenpik_refine");
-        selected_algs.push_back("Blendenpik_cold_refine");
-    }
+    // Ordered list of selected algorithm names from the bitmask (shared decode;
+    // see decode_method_mask and the mask documentation in the file header).
+    std::vector<std::string> selected_algs = decode_method_mask(method_mask, /*with_blendenpik=*/true);
 
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
@@ -701,56 +956,18 @@ static int run_benchmark_inner(
 
             std::fill(R, R + n * n, (T)0);
             auto state = run_states[run_idx];
-            long blendenpik_lsqr_us = 0; int blendenpik_lsqr_iters = 0;  // Blendenpik solve stats
 
             // ---- QR dispatch (lifted verbatim from CQRRT_linop_irlsq.cc; +Blendenpik) ----
             std::cout << "[Run " << run_idx << ", " << alg_name << "] QR ... " << std::flush;
             RandLAPACK::PeakRSSTracker mem; mem.start();
             if (alg_name.rfind("Blendenpik", 0) == 0) {
-                // Independent sketch-and-precondition LSQ solver: sketch -> QR -> LSQR.
-                // Produces x_ls directly (no mu, no IR-LSQ). R_out holds the sketch R factor
-                // used for the Q = A R^{-1} orthogonality check.
-                RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, tol);
-                bp.nnz = sketch_nnz;
-                bp.warm_start = (alg_name == "Blendenpik");   // "_cold" => x0 = 0
-                // Match the inner-solve budget the Q-less QR methods get from the IR
-                // driver (max_inner per step x 2 steps), so the comparison is not
-                // decided by an accidental cap difference.
-                bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * g_ir_n_steps;
-                std::fill(x_ls, x_ls + n, (T)0);
-                res.qr_status = bp.call(A_op, b_ptr->data(), m, x_ls, n, d_factor, state);
-                res.peak_rss_kb = mem.stop();
-                if (res.qr_status == 0) {
-                    res.qr_time_us = bp.times[0] + bp.times[1];       // sketch + QR (preconditioner build)
-                    std::copy(bp.R_out.begin(), bp.R_out.end(), R);   // sketch R factor for orth
-                    res.qr_breakdown.assign(11, 0);
-                    res.analytical_kb = 0;
-                    // Blendenpik has no IR loop, so reuse the inner-CG diagnosis columns:
-                    // capped = 0/1 from LSQR's own convergence flag, relres = its residual.
-                    res.ir_inner_capped = bp.converged ? 0 : 1;
-                    res.ir_inner_relres = bp.final_relres;
-                    blendenpik_lsqr_us    = bp.times[2];
-                    blendenpik_lsqr_iters = bp.lsqr_iters;
-                    if (alg_name.find("_refine") != std::string::npos) {
-                        // Refine Blendenpik's own answer with the shared engine, so the
-                        // only difference from a Q-less row is which R is used.
-                        T* x_bp = new T[n];
-                        std::copy(x_ls, x_ls + n, x_bp);
-                        RandLAPACK::IterRefineLSQ<T> ir(
-                            (g_ir_inner_tol > 0) ? (T)g_ir_inner_tol : tol,
-                            (g_ir_max_inner > 0) ? g_ir_max_inner : 200,
-                            g_ir_n_steps, true, false);
-                        ir.round_drop = (T)g_ir_round_drop;
-                        ir.outer_tol = (g_ir_outer_tol >= 0) ? (T)g_ir_outer_tol
-                                     : (T)10 * std::numeric_limits<T>::epsilon();
-                        ir.warm_x0 = x_bp;
-                        int st = ir.call(A_op, R, n, b_ptr->data(), m, x_ls, n);
-                        if (st != 0) std::cerr << "Warning: refine status " << st << "\n";
-                        res.ir_outer_iters = ir.outer_iters_done;
-                        record_inner_cg_diagnosis(ir, res);
-                        delete[] x_bp;
-                    }
-                }
+                // Shared Blendenpik-family dispatch (published + refined rows); fills
+                // every accounting field itself -- see run_blendenpik_family. The
+                // per-path copies this replaces are the 2026-08-27 audit's C1/C2/M1.
+                T outer_tol_eff = (g_ir_outer_tol >= 0) ? (T)g_ir_outer_tol
+                                : (T)10 * std::numeric_limits<T>::epsilon();
+                run_blendenpik_family<T, RNG>(A_op, b_ptr->data(), m, x_ls, n, R,
+                    d_factor, sketch_nnz, state, alg_name, tol, outer_tol_eff, mem, res);
             } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<T> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.block_size = block_size;
@@ -828,11 +1045,11 @@ static int run_benchmark_inner(
             {
                 const std::vector<T>& b = *b_ptr;
                 if (alg_name.rfind("Blendenpik", 0) == 0) {
-                    // x_ls was already computed by Blendenpik's own LSQR above; no IR-LSQ.
-                    std::cout << ". LSQR ... " << std::flush;
-                    res.ir_total_us         = blendenpik_lsqr_us;
-                    res.ir_outer_iters       = 1;
-                    res.ir_inner_iters_total = blendenpik_lsqr_iters;   // LSQR iters in the CG-iters slot
+                    // x_ls and every solve-accounting field were already produced by
+                    // run_blendenpik_family; nothing to overwrite here. (The old post
+                    // block clobbered ir_total_us / ir_outer_iters / ir_inner_iters_total
+                    // with LSQR-only values, erasing the refinement -- audit M1/M2.)
+                    std::cout << ". solve recorded ... " << std::flush;
                 } else {
                     std::cout << ". IR-LSQ ... " << std::flush;
                     auto ls_t0 = steady_clock::now();
@@ -852,6 +1069,7 @@ static int run_benchmark_inner(
                     ir.round_drop = (T)g_ir_round_drop;
                     ir.outer_tol = (g_ir_outer_tol >= 0) ? (T)g_ir_outer_tol
                                  : (T)10 * std::numeric_limits<T>::epsilon();
+                    ir.outer_stag_window = ir_outer_stag_window();
                     int ir_status = ir.call(A_op, R, n, b.data(), m, x_ls, n);
                     auto ls_t1 = steady_clock::now();
                     if (ir_status != 0) {
@@ -863,6 +1081,7 @@ static int run_benchmark_inner(
                     res.ir_inner_iters_total = 0;
                     for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
                     record_inner_cg_diagnosis(ir, res);
+                    record_ir_outputs(ir, res);
                     if (!ir.times.empty()) res.ir_breakdown = ir.times;
                 }
 
@@ -905,11 +1124,14 @@ static int run_benchmark_inner(
 
     std::string results_file   = output_dir + "/" + time_buf + "_irlsq_results.csv";
     std::string breakdown_file = output_dir + "/" + time_buf + "_irlsq_breakdown.csv";
+    std::string rounds_file    = output_dir + "/" + time_buf + "_irlsq_rounds.csv";
     write_irlsq_results<T>(results_file, all_results, m, n, input_nnz, input_label,
                            noise_level, d_factor, sketch_nnz, block_size, method_mask);
     std::cout << "\nIR-LSQ results written to " << results_file << "\n";
     write_irlsq_breakdown<T>(breakdown_file, all_results);
     std::cout << "IR-LSQ breakdown written to " << breakdown_file << "\n";
+    write_rounds_csv<T>(rounds_file, all_results);
+    std::cout << "IR-LSQ per-round records written to " << rounds_file << "\n";
 
     delete[] R; delete[] x_ls; delete[] Ax;
     return 0;
@@ -931,14 +1153,9 @@ static int run_rspec_benchmark(
     const std::string& K_file, const std::string& M_file, const std::string& V_file,
     double omega, int64_t power_j)
 {
-    // Build the list of selected algorithm names from the bitmask (same as run_benchmark_inner).
-    // bit 6 (64) = CQRRT_linop_bqrrp removed in the 2026-06-05 rework.
-    std::vector<std::string> selected_algs;
-    if (method_mask & 1)   selected_algs.push_back("CQRRT_linop");
-    if (method_mask & 2)   selected_algs.push_back("CholQR");
-    if (method_mask & 4)   selected_algs.push_back("sCholQR3");
-    if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
-    if (method_mask & 16)  selected_algs.push_back("CholQR2");
+    // Shared decode; rspec has no Blendenpik rows, so bits 32/64 now WARN instead
+    // of being silently ignored (the old per-path copy's behavior).
+    std::vector<std::string> selected_algs = decode_method_mask(method_mask, /*with_blendenpik=*/false);
 
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
@@ -1234,7 +1451,11 @@ static int run_rspec_benchmark(
             std::cout << "done\n";
 
             auto rspec_t1 = steady_clock::now();
-            res.rspec_total_us = duration_cast<microseconds>(rspec_t1 - rspec_t0).count();
+            // Exclude the orth-loss diagnostic from the headline total (2026-08-27,
+            // audit m5): it is a pure verification quantity costing a full extra
+            // n-column pass of the C^j chain and was contaminating rspec_total_us.
+            // It stays visible as rr_breakdown[0].
+            res.rspec_total_us = duration_cast<microseconds>(rspec_t1 - rspec_t0).count() - orth_us;
             res.rr_breakdown = {orth_us, rr_build_us, syevd_us, resid_us};
 
             std::cout << "    Top eigvals: ";
@@ -1291,7 +1512,8 @@ static void write_irlsq_reg_results(
         << "# method_mask=" << method_mask << "\n"
         << "# kappa_target=" << kappa_target << " mu=" << mu << "\n"
         << "# precond_prec=" << precond_prec << " solve_prec=" << solve_prec << "\n"
-        << "# blendenpik=warm+cold (IR methods always cold x0; 2026-08-05 policy)\n"
+        << "# blendenpik=warm+cold (IR methods always cold x0; 2026-08-05 policy);"
+        << " refine rows = init_only x0 + shared engine (2026-08-27)\n"
         << "# A_hat = [A; mu*I];  R = chol(A^T A + mu^2 I) built in precond_prec,\n"
         << "#   used as right preconditioner for IterRefineLSQ run in solve_prec.\n"
 #ifdef _OPENMP
@@ -1300,10 +1522,12 @@ static void write_irlsq_reg_results(
         << "# OpenMP threads: 1\n"
 #endif
         ;
+    write_env_provenance(out);
     out << "algorithm,run,m,n,qr_status,qr_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,ir_total_us,ir_outer_iters,ir_inner_iters_total,"
            "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec,chol_retries,"
-           "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond,ir_setup_us\n";
+           "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond,ir_setup_us,"
+           "lsqr_iters,engine_status,stop_reason,x0_relres\n";
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
             << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
@@ -1320,7 +1544,9 @@ static void write_irlsq_reg_results(
             << std::scientific << std::setprecision(6) << r.ir_inner_best_relres << ","
             << r.ir_inner_best_iter << ","
             << std::scientific << std::setprecision(6) << r.cond_precond << ","
-            << r.ir_setup_us
+            << r.ir_setup_us << ","
+            << r.lsqr_iters << "," << r.engine_status << "," << r.stop_reason << ","
+            << std::scientific << std::setprecision(6) << r.x0_relres
             << "\n";
     }
 }
@@ -1359,26 +1585,8 @@ static int run_irlsq_reg(
 {
     namespace rl = RandLAPACK::linops;
 
-    std::vector<std::string> selected_algs;
-    if (method_mask & 1)   selected_algs.push_back("CQRRT_linop");
-    if (method_mask & 2)   selected_algs.push_back("CholQR");
-    if (method_mask & 4)   selected_algs.push_back("sCholQR3");
-    if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
-    if (method_mask & 16)  selected_algs.push_back("CholQR2");
-    if (method_mask & 32) {   // independent sketch+QR+LSQR, warm + cold variants
-        selected_algs.push_back("Blendenpik");
-        selected_algs.push_back("Blendenpik_cold");
-    }
-    if (method_mask & 64) {
-        // Blendenpik's OWN preconditioner and answer handed to our refinement
-        // solver (2026-08-10). As published Blendenpik is sketch + QR + LSQR with
-        // no refinement, so comparing it against Q-less methods that all refine
-        // conflates preconditioner quality with solver structure. The published
-        // rows stay untouched; these two add the like-for-like comparison from
-        // its warm and cold answers.
-        selected_algs.push_back("Blendenpik_refine");
-        selected_algs.push_back("Blendenpik_cold_refine");
-    }
+    // Shared decode (see decode_method_mask and the file-header mask docs).
+    std::vector<std::string> selected_algs = decode_method_mask(method_mask, /*with_blendenpik=*/true);
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
         return 1;
@@ -1520,51 +1728,19 @@ static int run_irlsq_reg(
             std::fill(R_P, R_P + n * n, (P_precond)0);
             auto state = run_states[run_idx];
             const bool is_bp = (alg_name.rfind("Blendenpik", 0) == 0);
-            long bp_lsqr_us = 0; int bp_lsqr_iters = 0;
 
             std::cout << "[Run " << run_idx << ", " << alg_name << "] QR(" << precond_prec_str
                       << ") ... " << std::flush;
             RandLAPACK::PeakRSSTracker mem; mem.start();
             if (is_bp) {
-                // Independent Blendenpik in SOLVE precision on the BASE operator J_Ts (no mu,
-                // no augmented A_hat): sketch -> Householder QR -> LSQR, producing x_ls directly.
-                RandLAPACK::Blendenpik_linops<T_solve, RNG> bp(true, tol_T);
-                bp.nnz = sketch_nnz;
-                bp.warm_start = (alg_name == "Blendenpik");   // "_cold" => x0 = 0
-                // Same inner-solve budget as the IR methods (see the irlsq path).
-                bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * g_ir_n_steps;
-                std::fill(x_ls, x_ls + n, (T_solve)0);
-                res.qr_status = bp.call(J_Ts, b.data(), m, x_ls, n, (T_solve)d_factor, state);
-                res.peak_rss_kb = mem.stop();
-                if (res.qr_status == 0) {
-                    res.qr_time_us = bp.times[0] + bp.times[1];          // sketch + QR (preconditioner build)
-                    std::copy(bp.R_out.begin(), bp.R_out.end(), R_T);    // R_T = sketch R factor (orth + kappa)
-                    res.qr_breakdown.assign(11, 0); res.analytical_kb = 0;
-                    res.ir_inner_capped = bp.converged ? 0 : 1;
-                    res.ir_inner_relres = bp.final_relres;
-                    bp_lsqr_us = bp.times[2]; bp_lsqr_iters = bp.lsqr_iters;
-                    if (alg_name.find("_refine") != std::string::npos) {
-                        // Refine Blendenpik's own answer with the shared engine, so the
-                        // only difference from a Q-less row is which R is used.
-                        T_solve* x_bp = new T_solve[n];
-                        std::copy(x_ls, x_ls + n, x_bp);
-                        RandLAPACK::IterRefineLSQ<T_solve> ir(
-                            (g_ir_inner_tol > 0) ? (T_solve)g_ir_inner_tol : tol_T,
-                            (g_ir_max_inner > 0) ? g_ir_max_inner : 200,
-                            g_ir_n_steps, true, false);
-                        ir.round_drop = (T_solve)g_ir_round_drop;
-                        ir.outer_tol = (g_ir_outer_tol >= 0) ? (T_solve)g_ir_outer_tol
-                                     : (T_solve)10 * std::numeric_limits<T_solve>::epsilon();
-                        ir.warm_x0 = x_bp;
-                        int st_ref = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
-                        if (st_ref != 0)
-                            std::cerr << "Warning: Blendenpik refine status " << st_ref << "\n";
-                        res.ir_outer_iters = ir.outer_iters_done;
-                        record_inner_cg_diagnosis(ir, res);
-                        bp_lsqr_iters += ir.inner_iters_total();
-                        delete[] x_bp;
-                    }
-                }
+                // Shared Blendenpik-family dispatch, in SOLVE precision on the BASE
+                // operator J_Ts (no mu, no augmented A_hat); fills every accounting
+                // field itself and writes the sketch R factor into R_T directly.
+                T_solve outer_tol_eff = (g_ir_outer_tol >= 0) ? (T_solve)g_ir_outer_tol
+                                      : (T_solve)10 * std::numeric_limits<T_solve>::epsilon();
+                run_blendenpik_family<T_solve, RNG>(J_Ts, b.data(), m, x_ls, n, R_T,
+                    (T_solve)d_factor, sketch_nnz, state, alg_name, tol_T, outer_tol_eff,
+                    mem, res);
             } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
@@ -1620,13 +1796,12 @@ static int run_irlsq_reg(
             // Orthogonality loss of Q = A R^{-1} (base A in solve precision).
             res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size, &res.cond_precond);
 
-            // Solve in solve precision. Blendenpik already solved (its own LSQR above);
+            // Solve in solve precision. Blendenpik-family rows already solved and
+            // recorded everything inside run_blendenpik_family (the old post block
+            // here clobbered their time/round/iteration fields -- audit C2/M2);
             // everyone else runs IR-LSQ with R as the right preconditioner.
             if (is_bp) {
-                std::cout << ". LSQR(" << solve_prec_str << ") ... " << std::flush;
-                res.ir_total_us         = bp_lsqr_us;
-                res.ir_outer_iters       = 1;
-                res.ir_inner_iters_total = bp_lsqr_iters;   // LSQR iters in the CG-iters slot
+                std::cout << ". solve(" << solve_prec_str << ") recorded ... " << std::flush;
             } else {
                 std::cout << ". IR-LSQ(" << solve_prec_str << ") ... " << std::flush;
                 auto ls_t0 = steady_clock::now();
@@ -1642,6 +1817,7 @@ static int run_irlsq_reg(
                 ir.round_drop = (T_solve)g_ir_round_drop;
                 ir.outer_tol = (g_ir_outer_tol >= 0) ? (T_solve)g_ir_outer_tol
                              : (T_solve)10 * std::numeric_limits<T_solve>::epsilon();
+                ir.outer_stag_window = ir_outer_stag_window();
                 int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
                 auto ls_t1 = steady_clock::now();
                 if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
@@ -1650,6 +1826,7 @@ static int run_irlsq_reg(
                 res.ir_inner_iters_total = 0;
                 for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
                 record_inner_cg_diagnosis(ir, res);
+                record_ir_outputs(ir, res);
                 if (!ir.times.empty()) res.ir_breakdown = ir.times;
             }
 
@@ -1680,12 +1857,15 @@ static int run_irlsq_reg(
     std::string time_buf = make_run_timestamp();
     std::string results_file   = output_dir + "/" + time_buf + "_irlsq_reg_results.csv";
     std::string breakdown_file = output_dir + "/" + time_buf + "_irlsq_reg_breakdown.csv";
+    std::string rounds_file    = output_dir + "/" + time_buf + "_irlsq_reg_rounds.csv";
     write_irlsq_reg_results<T_solve>(results_file, all_results, m, n, nnz_K,
         "L^{-1} K (V D) (M=" + M_file + ")", d_factor, sketch_nnz, block_size, method_mask,
         kappa_target, (double)mu_P, precond_prec_str, solve_prec_str);
     std::cout << "\nIR-LSQ-reg results written to " << results_file << "\n";
     write_irlsq_breakdown<T_solve>(breakdown_file, all_results);
     std::cout << "IR-LSQ-reg breakdown written to " << breakdown_file << "\n";
+    write_rounds_csv<T_solve>(rounds_file, all_results);
+    std::cout << "IR-LSQ-reg per-round records written to " << rounds_file << "\n";
     return 0;
 }
 
@@ -1777,7 +1957,8 @@ int run_benchmark(int argc, char* argv[]) {
     int64_t sketch_nnz  = opt_long(1, 4);
     int64_t block_size  = opt_long(2, 0);
     bool compute_cond   = (opt_long(3, 0) != 0);
-    int64_t method_mask = opt_long(4, 31);   // bits 0..4: CQRRT_linop, CholQR, sCholQR3, sCholQR3_basic, CholQR2
+    int64_t method_mask = opt_long(4, 31);   // see the file-header mask docs (bit 32
+                                             // published Blendenpik, bit 64 refined; campaign mask 127)
     T noise_level       = (T)opt_double(5, 0.05);
     double omega        = opt_double(6, 0.0);
     int64_t power_j     = opt_long(7, 1);
@@ -1801,11 +1982,12 @@ int run_benchmark(int argc, char* argv[]) {
                      "the job scripts.\n";
         return 1;
     }
-    // Outer-round cap (2026-08-07, Max: 20, was 4). Under the paced scheme
-    // rounds are shallow and outer_tol exits early, so well-preconditioned
-    // methods use a handful of rounds while weakly-preconditioned ones get
-    // room to keep descending instead of being budget-truncated.
-    g_ir_n_steps = (int)opt_long(14, 20);
+    // Outer-round cap. Campaign-canonical 50 since 0812_d2 (was 20 through the
+    // 0810 era, 4 before 2026-08-07): under the paced scheme rounds are shallow
+    // and outer_tol exits early, so well-preconditioned methods use a handful of
+    // rounds while weakly-preconditioned ones get room to keep descending
+    // (native_ill CholQR2 genuinely uses 50) instead of being budget-truncated.
+    g_ir_n_steps = (int)opt_long(14, 50);
     if (g_ir_n_steps < 1) {
         std::cerr << "Error: ir_n_steps must be >= 1.\n";
         return 1;
@@ -1855,12 +2037,15 @@ int run_benchmark(int argc, char* argv[]) {
               << "  sketch_nnz: " << sketch_nnz << "\n"
               << "  block_size: " << block_size << "\n"
               << "  compute_cond: " << (compute_cond ? "yes" : "no") << "\n"
-              << "  method_mask: " << method_mask
-              << " (linop=" << (method_mask&1)
-              << " CholQR=" << ((method_mask>>1)&1)
-              << " sCholQR3=" << ((method_mask>>2)&1)
-              << " sCholQR3_basic=" << ((method_mask>>3)&1)
-              << " CholQR2=" << ((method_mask>>4)&1) << ")\n"
+              << "  method_mask: " << method_mask << " (";
+    // Full decoded roster (2026-08-27; the old echo showed bits 0-4 only, so a
+    // mask-127 job log never revealed that Blendenpik/refine rows were selected).
+    {
+        auto echo_algs = decode_method_mask(method_mask, /*with_blendenpik=*/true);
+        for (size_t i = 0; i < echo_algs.size(); ++i)
+            std::cout << (i ? " " : "") << echo_algs[i];
+    }
+    std::cout << ")\n"
               << "  noise_level: " << noise_level << "\n"
               << "  omega: " << omega << "\n"
               << "  power_j: " << power_j << "\n"

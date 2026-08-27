@@ -5,7 +5,8 @@
 // with A = [T; sqrt(lambda) I], rhs = [b; 0], T an m x n prolate-kernel Toeplitz matrix.
 // T is matrix-free (FFT circulant embedding, ext_toeplitz_linop.hh). Q-less QR right
 // preconditioners (unpreconditioned / CholQR / CholQR2 / sCholQR3 / sCholQR3_basic /
-// CQRRT / Blendenpik) build R; the solve is matrix-free LSQR on A with right precond R.
+// CQRRT / Blendenpik) build R; the solve is matrix-free restarted PCG-NE (default)
+// or LSQR on A with right preconditioner R.
 //
 // Double precision only. Records accuracy (Oleg's metrics) + speed (build/solve
 // time) + storage (peak RSS, analytical) + Cholesky shift-retry count.
@@ -17,30 +18,38 @@
 // reproduce those).
 //   lsqr    = matrix-free LSQR on the right-preconditioned operator;
 //   pcg_ne  = restarted PCG on the right-preconditioned normal equations
-//             (rl_restarted_pcg_ne.hh; reference restarted_pcg_ne, restart after a
-//             1e-2 recursive-residual drop, true LS + NE residuals recomputed at
-//             every restart). Per-restart inner cap and restart count are aligned
-//             with the FEM2 benchmark (2026-08-06, Max): cap 500 = the campaign
-//             IR_MAX_INNER, and 3 restarts after the first round (up to 4 rounds),
-//             the IterRefineLSQ inner_restarts convention. The restart bound also
-//             stops the solver from spinning to maxit when tol sits below the
-//             normal-equations double-precision floor (see the 08-06 local run:
-//             LS relres floors near 1.7e-6 while the NE residual is at 1e-12).
-// Blendenpik rows always solve with LSQR (the solver is part of that method; the
-// reference has no Blendenpik), so their 'solver' column says lsqr in both modes.
+//             (rl_restarted_pcg_ne.hh; reference restarted_pcg_preconditioned_
+//             normal_eq, restart after a pcg_restart_drop recursive-residual drop
+//             with true LS + NE residuals recomputed at every restart).
+// PUBLISHED Blendenpik rows (mask 32) solve with LSQR, the solver that is part of
+// that method; the REFINED rows (mask 128) run the shared pcg_ne engine
+// unconditionally, whatever the solver CLI says, and their 'solver' column says
+// pcg_ne (fixed 2026-08-27; they were mislabeled lsqr in lsqr mode before).
 //
 // CLI: <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> <tol> <maxit>
-//      <d_factor> <sketch_nnz> [seed] [num_runs] [solver] [pcg_restart_maxit] [pcg_max_restarts]
+//      <d_factor> <sketch_nnz> [seed] [num_runs] [solver] [pcg_restart_maxit]
+//      [pcg_max_restarts] [pcg_restart_drop]
 //   method_mask bits: 1 CQRRT, 2 CholQR, 4 sCholQR3, 8 sCholQR3_basic, 16 CholQR2,
-//                     32 Blendenpik, 64 unpreconditioned,
-//                     128 Blendenpik + our refinement solver (warm and cold rows).
+//                     32 Blendenpik (published; warm and cold rows),
+//                     64 unpreconditioned,
+//                     128 Blendenpik refined by the shared engine (warm and cold
+//                         rows; see benchmark/refined_blendenpik.hh for the
+//                         2026-08-27 row semantics: init_only sketch-and-solve x0,
+//                         ALL iterative work in pcg_ne, no internal LSQR).
 //   num_runs (default 1): repetitions per method, all recorded (one CSV row each,
 //   'run' column). The MATLAB plotters aggregate (best run by default).
 //   solver (default "pcg_ne"): "pcg_ne" (alias "restarted_pcg_ne") or "lsqr".
 //   pcg_restart_maxit (default 500): inner CG cap per restart, pcg_ne only.
-//   pcg_max_restarts (default 20 since 2026-08-07; was 3): additional rounds after the first (< 0 unlimited),
-//   pcg_ne only. Default 3 = up to 4 TOTAL outer rounds, matching the FEM2
-//   benchmark's ir_n_steps = 4.
+//   pcg_max_restarts (default 50 since 2026-08-27; 20 through the 0810 era, 3
+//   before 2026-08-07): additional rounds after the first (< 0 unlimited), pcg_ne
+//   only. 50 is the campaign-canonical value (the 0812_d2 setting): the round cap
+//   must not bind before tol and maxit do (the FEM2 native_ill CholQR2 cell
+//   genuinely uses 50 rounds).
+//   pcg_restart_drop (default 1e-4 since 2026-08-27, the engine/Oleg pacing; the
+//   campaigns through 0812_d2 ran a hardcoded 1e-2): per-round relative residual
+//   drop that ends a round, pcg_ne only. Now CLI-exposed so both LS benchmarks
+//   run the SAME pacing (FEM2 was already at 1e-4; the audit found the two
+//   benchmarks comparing round counts across different pacing regimes).
 //
 // Warm start policy (2026-08-05, Max): the sketch-and-solve x0 warm start is
 // Blendenpik-only. Bit 32 therefore runs TWO variants -- "Blendenpik" (its own
@@ -55,6 +64,7 @@
 #include "RandLAPACK/testing/rl_memory_tracker.hh"
 #include "RandLAPACK/testing/rl_test_utils.hh"
 #include "../../extras/linops/ext_toeplitz_linop.hh"
+#include "../refined_blendenpik.hh"
 
 #include <RandBLAS.hh>
 #include <blas.hh>
@@ -148,7 +158,8 @@ static void compute_orth_and_cond(AOp& A, const double* R, int64_t mtot, int64_t
 int main(int argc, char** argv) {
     if (argc < 12) {
         std::fprintf(stderr, "usage: %s <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> "
-                             "<tol> <maxit> <d_factor> <sketch_nnz> [seed] [num_runs]\n", argv[0]);
+                             "<tol> <maxit> <d_factor> <sketch_nnz> [seed] [num_runs] [solver] "
+                             "[pcg_restart_maxit] [pcg_max_restarts] [pcg_restart_drop]\n", argv[0]);
         return 1;
     }
     std::string prec = argv[1];          // "double" (v1)
@@ -182,17 +193,22 @@ int main(int argc, char** argv) {
     }
     const bool use_pcg = (solver == "pcg_ne");
     const int    pcg_restart_maxit = (argc > 15) ? std::stoi(argv[15]) : 500;
-    // max_restarts counts ADDITIONAL rounds after the first, so 3 = up to 4 total
-    // outer rounds, matching the FEM2 benchmark's ir_n_steps = 4 (2026-08-06, Max:
-    // same outer budget in both benchmarks; 4 covers the kappa ~ 1e12 end of the
-    // 08-06 probe).
-    // Round cap 20 (2026-08-07, Max; was 3): under the 1e-4 restart pacing the
-    // engine default now carries, rounds are what pace convergence, and 3 rounds
-    // budget-truncated the unpreconditioned baseline five orders above tol while
-    // dressing it up as fast. tol + maxit remain the binding constraints.
-    const int    pcg_max_restarts  = (argc > 16) ? std::stoi(argv[16]) : 20;
-    const double pcg_restart_drop  = 1e-2;
+    // max_restarts counts ADDITIONAL rounds after the first. Default 50, the
+    // campaign-canonical value (0812_d2): the round cap must not bind before tol
+    // and maxit do. History: 3 through 08-06 (budget-truncated the unpreconditioned
+    // baseline five orders above tol while dressing it up as fast), 20 through the
+    // 0810 era, 50 since.
+    const int    pcg_max_restarts  = (argc > 16) ? std::stoi(argv[16]) : 50;
+    // Per-round pacing, CLI-exposed 2026-08-27 (default = the engine/Oleg 1e-4;
+    // a hardcoded 1e-2 ran here through 0812_d2 while FEM2 ran 1e-4, so round
+    // counts were not comparable across the two benchmarks).
+    const double pcg_restart_drop  = (argc > 17) ? std::stod(argv[17]) : 1e-4;
+    if (!(pcg_restart_drop > 0.0 && pcg_restart_drop < 1.0)) {
+        std::fprintf(stderr, "pcg_restart_drop must lie in (0,1) (got %s)\n", argv[17]);
+        return 1;
+    }
     int64_t block_size = 256;
+    const double relnoise = 1e-11;   // data noise level (hoisted so the CSV header echoes it)
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }
 
     std::printf("=== Toeplitz LS benchmark: m=%lld n=%lld omega=%.4f lambda_rel=%.1e mask=%lld solver=%s ===\n",
@@ -204,7 +220,7 @@ int main(int argc, char** argv) {
     for (int64_t j = 0; j < n; ++j) r[j] = prolate(j, omega);
 
     // 2. Toeplitz operator + augmented A = [T; sqrt(lambda) I].
-    rle::ToeplitzLinOp<double> T(c.data(), m, r.data(), n, 8);
+    rle::ToeplitzLinOp<double> T(c.data(), m, r.data(), n);
 
     double lam_max = power_lambda_max(T, m, n, 50);
     double lambda  = lambda_rel * lam_max;
@@ -231,7 +247,7 @@ int main(int argc, char** argv) {
     std::vector<double> b(m);
     T(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, 1, n, 1.0, x_true.data(), n, 0.0, b.data(), m);
     double b_clean_norm = blas::nrm2(m, b.data(), 1);
-    { double relnoise = 1e-11; std::vector<double> e(m); for (auto& v : e) v = nd(rng);
+    { std::vector<double> e(m); for (auto& v : e) v = nd(rng);
       double en = blas::nrm2(m, e.data(), 1);
       for (int64_t i = 0; i < m; ++i) b[i] += e[i]/std::max(en,1e-300)*relnoise*b_clean_norm; }
     double b_norm = blas::nrm2(m, b.data(), 1);
@@ -261,6 +277,21 @@ int main(int argc, char** argv) {
                          (wu_status == 0) ? R_wu.data() : nullptr,
                          (wu_status == 0) ? n : (int64_t)0,
                          rhs.data(), x_wu.data(), tol, tol, 5, it_wu, lt_wu, &rr_wu);
+        // Sketch + geqrf warmup at the campaign dimensions (added 2026-08-27):
+        // CholQR exercises neither the RandBLAS sparse-sketch fill/apply nor
+        // MKL's first geqrf, and CQRRT is always the FIRST timed row, so at
+        // num_runs=1 those one-time initializations landed inside its build bar.
+        {
+            auto wu_state = RandBLAS::RNGState<RNG>((uint32_t)seed);
+            int64_t d_wu = std::max<int64_t>((int64_t)(d_factor * (double)n), n);
+            std::vector<double> Ask_wu(d_wu * n), tau_wu(n);
+            RandBLAS::SparseDist DS_wu(d_wu, mtot, sketch_nnz);
+            RandBLAS::SparseSkOp<double, RNG> S_wu(DS_wu, wu_state);
+            RandBLAS::fill_sparse(S_wu);
+            A_hat(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                  d_wu, n, mtot, 1.0, S_wu, 0.0, Ask_wu.data(), d_wu);
+            lapack::geqrf(d_wu, n, Ask_wu.data(), d_wu, tau_wu.data());
+        }
     }
     std::printf("done\n");
 
@@ -277,14 +308,16 @@ int main(int argc, char** argv) {
     }
     if (method_mask & 64) algs.push_back("unpreconditioned");
     if (method_mask & 128) {
-        // Blendenpik's preconditioner handed to OUR refinement solver (2026-08-10).
-        // As published, Blendenpik is sketch + QR + LSQR with no refinement, so the
-        // suite otherwise compares its preconditioner through a different solver
-        // than every Q-less method uses, conflating preconditioner quality with
-        // solver structure. These two rows keep the published rows intact and add
-        // the like-for-like comparison: same R, same restarted-PCG refinement, one
-        // started from Blendenpik's warm (sketch-and-solve) answer and one from its
-        // cold answer.
+        // Blendenpik's preconditioner and its sketch-and-solve x0 handed to OUR
+        // shared engine (semantics redesigned 2026-08-27; see
+        // benchmark/refined_blendenpik.hh). As published, Blendenpik is
+        // sketch + QR + LSQR, so the suite otherwise compares its preconditioner
+        // through a different solver than every Q-less method uses, conflating
+        // preconditioner quality with solver structure. These two rows keep the
+        // published rows intact and add the like-for-like comparison: same R,
+        // ALL iterative work in the shared pcg_ne engine, one row started from
+        // the sketch-and-solve x0 (warm) and one from zero (cold). No internal
+        // LSQR runs, so the iteration count has one unit.
         algs.push_back("Blendenpik_refine");
         algs.push_back("Blendenpik_cold_refine");
     }
@@ -294,19 +327,72 @@ int main(int argc, char** argv) {
         std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", std::localtime(&t)); tstamp = buf; }
     std::string csv = outdir + "/" + tstamp + "_toeplitz_ls_results.csv";
     std::ofstream out(csv);
+    // Provenance header (expanded 2026-08-27, audit): full argv, every constant a
+    // reproduction needs, and the env knobs that change the algorithms without
+    // changing the row labels. A CSV must identify its own campaign arm.
+    auto env_or = [](const char* key) -> std::string {
+        const char* s = std::getenv(key);
+        return (s != nullptr && *s != '\0') ? std::string(s) : std::string("(unset)");
+    };
     out << "# Toeplitz LS benchmark m=" << m << " n=" << n << " omega=" << omega
         << " lambda=" << lambda << " tol=" << tol << " d_factor=" << d_factor
         << " solver=" << solver;
-    if (use_pcg) out << " pcg_restart_maxit=" << pcg_restart_maxit
-                     << " pcg_max_restarts=" << pcg_max_restarts;
+    if (use_pcg || (method_mask & 128)) out << " pcg_restart_maxit=" << pcg_restart_maxit
+                     << " pcg_max_restarts=" << pcg_max_restarts
+                     << " pcg_restart_drop=" << pcg_restart_drop;
     out << "\n";
-    out << "# blendenpik=warm+cold (all Q-less methods cold; 2026-08-05 policy)"
+    out << "# blendenpik=warm+cold (all Q-less methods cold; 2026-08-05 policy);"
+        << " refine rows = init_only x0 + shared engine (2026-08-27)"
         << " num_runs=" << num_runs << "\n";
+    out << "# seed=" << seed << " maxit=" << maxit << " method_mask=" << method_mask
+        << " sketch_nnz=" << sketch_nnz << " relnoise=" << relnoise
+        << " block_size=" << block_size << "\n";
+    out << "# env RANDLAPACK_GRAM_LEFT=" << env_or("RANDLAPACK_GRAM_LEFT")
+        << " RANDLAPACK_SCHOLQR3_SHIFT=" << env_or("RANDLAPACK_SCHOLQR3_SHIFT")
+        << " RANDLAPACK_BLAS2_THREADS=" << env_or("RANDLAPACK_BLAS2_THREADS")
+        << " RANDLAPACK_FFT_THREADS=" << env_or("RANDLAPACK_FFT_THREADS")
+        << " RANDLAPACK_SOLVE_FFT_MATCH=" << env_or("RANDLAPACK_SOLVE_FFT_MATCH")
+        << " RANDLAPACK_GIT_COMMIT=" << env_or("RANDLAPACK_GIT_COMMIT") << "\n";
+    out << "# argv:"; for (int i = 0; i < argc; ++i) out << " " << argv[i]; out << "\n";
     out << "algorithm,run,m,n,qr_status,qr_time_us,solve_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,iterations,solver_flag,solver_relres,aug_relres,normal_relres,"
            "data_relres,recovery_error,cond_estimate,chol_retries,"
            "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us,"
-           "solver,pcg_restarts\n";   // fwd/adj/trsm 2026-07-29; setup_us 2026-07-31; run 2026-08-05; solver+restarts 2026-08-06
+           "solver,pcg_rounds,"
+           "lsqr_iters,stop_reason,t_inner_us,t_fwd_inner_us,t_adj_inner_us,"
+           "t_trsm_inner_us,t_overhead_us,total_row_us,x0_relres\n";
+    // Column notes: pcg_rounds (renamed from pcg_restarts 2026-08-27) holds TOTAL
+    // rounds run, which is what the engine reports. iterations = engine inner CG
+    // iterations (or LSQR iterations for the published Blendenpik rows and lsqr
+    // mode); lsqr_iters is nonzero only where an LSQR phase ran. stop_reason names
+    // the exit (tol/budget/rounds/floor/breakdown for pcg; tol/ne_floor/budget for
+    // lsqr). t_*_inner_us = inside the CG kernel; t_overhead_us = solve total minus
+    // kernel wall (restart-loop residual recomputations + solver vector work).
+    // total_row_us = wall clock of build + setup + solve (metrics excluded; for
+    // Blendenpik_cold_refine it also contains the executed-but-unused x0 build
+    // kept for phase parity with the warm row -- see refined_blendenpik.hh).
+
+    // Per-round sidecar (2026-08-27, capture-all-data decision): one row per
+    // (algorithm, run, round) for every pcg_ne solve, from PCGRoundHistory.
+    std::string csv_rounds = outdir + "/" + tstamp + "_toeplitz_ls_rounds.csv";
+    std::ofstream out_rounds(csv_rounds);
+    out_rounds << "algorithm,run,round,inner_iters,inner_status,inner_relres,"
+                  "best_relres,best_iter,ls_relres\n";
+
+    // stop_reason mapping (2026-08-27): names the exit condition so the CSV can
+    // distinguish "hit the LS floor honestly" from "ran out of budget", which
+    // shared a flag value before.
+    auto pcg_reason = [](int st) -> const char* {
+        switch (st) {
+            case 0: return "tol";       case 1: return "budget";
+            case 2: return "breakdown"; case 3: return "rounds";
+            case 4: return "floor";     default: return "unknown";
+        }
+    };
+    auto lsqr_reason = [](int st, int test) -> const char* {
+        if (st != 0) return "budget";
+        return (test == 2) ? "ne_floor" : "tol";
+    };
 
     std::vector<double> R(n*n), x(n), Tx(m), Ax(mtot);
 
@@ -321,7 +407,9 @@ int main(int argc, char** argv) {
         auto state = RandBLAS::RNGState<RNG>((uint32_t)seed);
         if (run_idx > 0) state.key.incr(run_idx);
         int qr_status = 0, iters = 0, flag = 0, chol_retries = 0;
-        long qr_us = 0, solve_us = 0, peak_kb = 0, analytical_kb = 0;
+        // analytical_kb: -1 = "no analytical model for this row" (fixed 2026-08-27;
+        // the old 0 was indistinguishable from zero bytes in the storage figure).
+        long qr_us = 0, solve_us = 0, peak_kb = 0, analytical_kb = -1;
         // Solve-time DECOMPOSITION (added 2026-07-29 to localize a timing anomaly).
         // rl_lsqr already computes these into times[0..2] but the benchmark previously
         // recorded only times[3] (the total), which made the solve column impossible to
@@ -335,11 +423,16 @@ int main(int argc, char** argv) {
         //     is invalid at 4 iterations (setup dominates) yet fine at 471, which by itself
         //     manufactures a large apparent gap between preconditioned and unpreconditioned
         //     runs. Reporting the parts removes that trap.
-        // -1 means "not measured for this method" (Blendenpik exposes only a lumped solve).
+        // -1 means "not measured for this method".
         long solve_fwd_us = -1, solve_adj_us = -1, solve_trsm_us = -1;
-        long setup_us = 0;   // 0 always for Q-less methods (cold); warm Blendenpik's x0 is embedded
-        int pcg_restarts = -1;       // outer restart rounds; -1 = not the pcg_ne solver
+        long setup_us = 0;           // x0-build time: Blendenpik warm rows only (0 = no x0 built)
+        int pcg_rounds = -1;         // TOTAL engine rounds run; -1 = not the pcg_ne engine
         double solver_relres = -1;   // solver's own relative residual at termination
+        int lsqr_iters_col = 0;      // LSQR iterations, where an LSQR phase ran
+        double x0_relres = -1;       // true relres of the handed-off warm x0 (refine warm rows)
+        std::string stop_reason = "n/a";
+        rl::PCGRoundHistory<double> hist;   // engine per-round records (pcg rows)
+        bool have_hist = false;
         bool is_bp     = (alg.rfind("Blendenpik", 0) == 0)
                       && (alg.find("_refine") == std::string::npos);
         bool have_R = false, is_unprec = (alg == "unpreconditioned");
@@ -349,32 +442,34 @@ int main(int argc, char** argv) {
 
         bool is_bp_ref = (alg.find("_refine") != std::string::npos);
         if (is_bp_ref) {
-            // Phase 1: Blendenpik exactly as published (warm or cold), untimed split
-            // shared with the published rows -- qr_us is its sketch+QR, solve_us will
-            // be REPLACED below by the refinement solve so the two are comparable.
-            rl::Blendenpik_linops<double, RNG> bp(true, tol);
-            bp.nnz = sketch_nnz;
-            bp.warm_start = (alg == "Blendenpik_refine");   // "_cold_refine" => x0 = 0
-            bp.max_iters = maxit;
-            qr_status = bp.call(A_hat, rhs.data(), mtot, x.data(), n, d_factor, state);
+            // Shared refined-Blendenpik dispatch (2026-08-27): init_only sketch-and-
+            // solve x0, then ALL iterative work in the shared engine. Runs pcg_ne
+            // regardless of the solver CLI (the engine IS the row's definition).
+            // See benchmark/refined_blendenpik.hh for the accounting contract.
+            const bool warm = (alg == "Blendenpik_refine");
+            auto rres = rl::bench::run_refined_blendenpik<double, RNG>(
+                A_hat, rhs.data(), mtot, x.data(), n,
+                d_factor, sketch_nnz, state, warm,
+                tol, maxit, pcg_restart_maxit, pcg_restart_drop, pcg_max_restarts);
+            qr_status = rres.qr_status;
             if (qr_status == 0) {
-                qr_us = bp.times[0] + bp.times[1];
-                std::copy(bp.R_out.begin(), bp.R_out.end(), R.begin());
+                qr_us    = rres.qr_us;
+                setup_us = rres.setup_us;    // x0 build (0 for the cold row)
+                x0_relres = rres.x0_relres;  // warm-start quality (-1 cold)
+                std::copy(rres.R.begin(), rres.R.end(), R.begin());
                 have_R = true;
-                // Phase 2: refine Blendenpik's own answer with the shared engine.
-                std::vector<double> x_bp(x.begin(), x.begin() + n);
-                long lt[4] = {0};
-                flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, R.data(), n, rhs.data(),
-                                                    x.data(), tol, maxit, iters,
-                                                    pcg_restart_maxit, pcg_restart_drop,
-                                                    pcg_max_restarts, &pcg_restarts, lt,
-                                                    &solver_relres, 20, 1e-3, 0.0, nullptr,
-                                                    /*x0=*/x_bp.data());
-                solve_us = lt[3];
-                solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];
-                // Blendenpik's own LSQR iterations are part of reaching x0, so report
-                // the total the row actually spent.
-                iters += bp.lsqr_iters;
+                flag          = rres.status;
+                iters         = rres.iters;          // engine inner CG only
+                lsqr_iters_col = 0;                  // no LSQR phase in these rows
+                pcg_rounds    = rres.rounds;
+                solver_relres = rres.solver_relres;
+                solve_us      = rres.solve_us;
+                solve_fwd_us  = rres.t_fwd_us;
+                solve_adj_us  = rres.t_adj_us;
+                solve_trsm_us = rres.t_trsm_us;
+                hist = std::move(rres.history);
+                have_hist = true;
+                stop_reason = pcg_reason(flag);
             }
             peak_kb = mem.stop();
         } else if (is_bp) {
@@ -388,19 +483,38 @@ int main(int argc, char** argv) {
             qr_status = bp.call(A_hat, rhs.data(), mtot, x.data(), n, d_factor, state);
             peak_kb = mem.stop();
             if (qr_status == 0) { qr_us = bp.times[0] + bp.times[1]; solve_us = bp.times[2];
-                iters = bp.lsqr_iters; std::copy(bp.R_out.begin(), bp.R_out.end(), R.begin()); have_R = true;
+                // setup_us = the warm x0 build (ormqr + trsv + one operator apply),
+                // now measured in bp.times[4]; it was in NO column before 2026-08-27.
+                setup_us = bp.warm_start ? bp.times[4] : 0;
+                iters = bp.lsqr_iters; lsqr_iters_col = bp.lsqr_iters;
+                std::copy(bp.R_out.begin(), bp.R_out.end(), R.begin()); have_R = true;
                 // Report the same convergence signals as the other methods: flag 0/1 for
                 // met-tolerance / hit-cap, and a real solver residual instead of -1.
                 flag = bp.converged ? 0 : 1;
-                solver_relres = bp.final_relres; }
+                solver_relres = bp.final_relres;
+                stop_reason = lsqr_reason(flag, bp.lsqr_stop_test);
+                // LSQR's internal op split, exposed 2026-08-27 (was discarded, which
+                // forced -1 sentinels into these columns for every Blendenpik row).
+                if (bp.lsqr_op_times.size() >= 3) {
+                    solve_fwd_us = bp.lsqr_op_times[0];
+                    solve_adj_us = bp.lsqr_op_times[1];
+                    solve_trsm_us = bp.lsqr_op_times[2];
+                } }
         } else if (is_unprec) {
             long lt[4] = {0};
             if (use_pcg) {
                 flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(),
                                                     tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
-                                                    pcg_max_restarts, &pcg_restarts, lt, &solver_relres);
+                                                    pcg_max_restarts, &pcg_rounds, lt, &solver_relres,
+                                                    20, 1e-3, 0.0, &hist);
+                have_hist = true;
+                stop_reason = pcg_reason(flag);
             } else {
-                flag = rl::lsqr<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+                int lsqr_test = 0;
+                flag = rl::lsqr<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(), tol, tol,
+                                        maxit, iters, lt, &solver_relres, &lsqr_test);
+                lsqr_iters_col = iters;
+                stop_reason = lsqr_reason(flag, lsqr_test);
             }
             solve_us = lt[3]; peak_kb = mem.stop();
             solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];  // t_trsm is 0 here (no R)
@@ -443,16 +557,27 @@ int main(int argc, char** argv) {
                 if (use_pcg) {
                     flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(),
                                                         tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
-                                                        pcg_max_restarts, &pcg_restarts, lt, &solver_relres);
+                                                        pcg_max_restarts, &pcg_rounds, lt, &solver_relres,
+                                                        20, 1e-3, 0.0, &hist);
+                    have_hist = true;
+                    stop_reason = pcg_reason(flag);
                 } else {
-                    flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+                    int lsqr_test = 0;
+                    flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol,
+                                            maxit, iters, lt, &solver_relres, &lsqr_test);
+                    lsqr_iters_col = iters;
+                    stop_reason = lsqr_reason(flag, lsqr_test);
                 }
                 solve_us = lt[3];
                 solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];
             }
             peak_kb = mem.stop();
         }
-        (void)duration_cast<microseconds>(steady_clock::now() - t0).count();
+        // Whole-row wall clock: build + setup + solve (metrics excluded; they are
+        // computed below, after this timestamp). Resurrected 2026-08-27: a total
+        // that the parts must sum to is what exposes dropped time slices, and its
+        // absence is how the refine rows' missing phase went unnoticed.
+        long total_row_us = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
         // Metrics (Oleg's set: solver/data/aug/normal relres, recovery, orth, cond).
         double orth_err = -1, aug_relres = -1, data_relres = -1, normal_relres = -1, recov = -1;
@@ -474,10 +599,16 @@ int main(int argc, char** argv) {
             recov = std::sqrt(re) / std::max(x_true_norm, 1e-300);
         }
 
-        std::printf("  qr_status=%d iters=%d flag=%d qr_us=%ld solve_us=%ld peak_kb=%ld\n",
-                    qr_status, iters, flag, qr_us, solve_us, peak_kb);
-        // Solve breakdown, also echoed to the job log so the anomaly is visible without
-        // pulling the CSV. `other` = LSQR's own vector work + one-time setup.
+        std::printf("  qr_status=%d iters=%d flag=%d reason=%s qr_us=%ld setup_us=%ld solve_us=%ld total_row_us=%ld peak_kb=%ld\n",
+                    qr_status, iters, flag, stop_reason.c_str(), qr_us, setup_us, solve_us, total_row_us, peak_kb);
+        // Solve breakdown, also echoed to the job log so anomalies are visible
+        // without pulling the CSV. For pcg rows `other` contains the solver's
+        // vector work, allocation, and (until every op is individually timed) any
+        // residue; the restart-loop operator recomputations are inside fwd/adj/trsm
+        // since 2026-08-27. Per-iteration numbers divide by INNER iterations and
+        // include the per-round recomputation ops, so they overstate the pure
+        // iteration cost when rounds ~ iters; the inner-only columns are the
+        // trustworthy per-iteration source.
         if (solve_fwd_us >= 0) {
             long other = solve_us - (solve_fwd_us + solve_adj_us + solve_trsm_us);
             std::printf("  solve breakdown: fwd=%ld adj=%ld trsm=%ld other=%ld us"
@@ -490,17 +621,41 @@ int main(int argc, char** argv) {
         std::printf("  orth=%.3e solver_relres=%.3e aug=%.3e normal=%.3e data=%.3e recovery=%.3e cond=%.3e retries=%d\n",
                     orth_err, solver_relres, aug_relres, normal_relres, data_relres, recov, cond_est, chol_retries);
 
+        // Inner-kernel/overhead split (pcg rows; -1 where no history exists).
+        long t_inner_us = -1, t_fwd_in = -1, t_adj_in = -1, t_trsm_in = -1, t_overhead_us = -1;
+        if (have_hist) {
+            t_inner_us = hist.t_inner_us;
+            t_fwd_in   = hist.t_fwd_inner_us;
+            t_adj_in   = hist.t_adj_inner_us;
+            t_trsm_in  = hist.t_trsm_inner_us;
+            t_overhead_us = solve_us - hist.t_inner_us;
+        }
+
         out << alg << "," << run_idx << "," << m << "," << n << "," << qr_status << "," << qr_us << "," << solve_us << ","
             << peak_kb << "," << analytical_kb << ","
             << std::scientific << orth_err << "," << iters << "," << flag << ","
             << solver_relres << "," << aug_relres << "," << normal_relres << ","
             << data_relres << "," << recov << "," << cond_est << "," << chol_retries << ","
             << solve_fwd_us << "," << solve_adj_us << "," << solve_trsm_us << "," << setup_us << ","
-            << ((is_bp || !use_pcg) ? "lsqr" : "pcg_ne") << "," << pcg_restarts << "\n";
+            << (is_bp_ref ? "pcg_ne" : ((is_bp || !use_pcg) ? "lsqr" : "pcg_ne")) << "," << pcg_rounds << ","
+            << lsqr_iters_col << "," << stop_reason << ","
+            << t_inner_us << "," << t_fwd_in << "," << t_adj_in << "," << t_trsm_in << ","
+            << t_overhead_us << "," << total_row_us << "," << x0_relres << "\n";
         out.flush();   // partial results survive a scheduler kill mid-campaign
+
+        if (have_hist) {
+            for (size_t r = 0; r < hist.iters.size(); ++r) {
+                out_rounds << alg << "," << run_idx << "," << (r + 1) << ","
+                           << hist.iters[r] << "," << hist.status[r] << ","
+                           << std::scientific << hist.relres[r] << "," << hist.best_relres[r] << ","
+                           << hist.best_iter[r] << "," << hist.ls_relres[r] << "\n";
+            }
+            out_rounds.flush();
+        }
     }
     }
+    out_rounds.close();
     out.close();
-    std::printf("\nresults -> %s\n", csv.c_str());
+    std::printf("\nresults -> %s\nrounds  -> %s\n", csv.c_str(), csv_rounds.c_str());
     return 0;
 }
