@@ -20,6 +20,9 @@ of the corresponding instructions in Section 1.
   - GCC 11 or higher
   - Clang 14 or higher (not extensively tested)
   - Intel ICPX (has known issues, see GitHub issue #91)
+  - MSVC (Visual Studio 2022) on native Windows, with Ninja as the build
+    tool (both bundled with the "Desktop development with C++" workload) --
+    see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
 
 ### GPU Support (Optional)
 For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
@@ -310,3 +313,20 @@ If you're having trouble installing RandLAPACK, you can always refer to [that wo
 The workflow includes statements which print the working directory
 and list the contents of that directory at various points in the installation.
 We do that so that it's easier to infer a valid choice of directory structure for building RandLAPACK.
+
+## 6. Native Windows (MSVC)
+
+RandLAPACK builds natively on Windows with MSVC (Visual Studio 2022). The
+full guide -- prerequisites, the one-command installer, BLAS/LAPACK backend
+choice (oneMKL default, OpenBLAS, bring-your-own), runtime-DLL handling, and
+how the Windows install differs from Linux/macOS -- lives in
+[INSTALL_WINDOWS.md](INSTALL_WINDOWS.md). The short version, from an
+"x64 Native Tools Command Prompt for VS 2022" (the plain "Developer
+PowerShell/Command Prompt for VS 2022" entries default to a 32-bit toolchain
+and will not link the x64 BLAS libraries):
+
+```bat
+git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
+cd RandLAPACK
+powershell -ExecutionPolicy Bypass -File .\install\install.ps1
+```

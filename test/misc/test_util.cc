@@ -473,7 +473,7 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
         RandLAPACK::util::transpose_square(A2, n);
         RandBLAS::testing::matrices_approx_equal(
             layout, blas::Op::Trans, n, n, A1, n, A2, n, 
-            __PRETTY_FUNCTION__, __FILE__, __LINE__
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
         );
         delete [] A1;
         delete [] A2;

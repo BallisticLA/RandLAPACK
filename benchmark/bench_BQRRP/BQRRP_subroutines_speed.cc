@@ -82,9 +82,6 @@ void _LAPACK_ilaenv(
 
     LAPACK_ilaenv( & ISPEC_, & NAME, & OPTS, 
         N1_, N2_, N3_, N4_
-        #ifdef LAPACK_FORTRAN_STRLEN_END
-        //, 1
-        #endif
         );
     return;
 }
