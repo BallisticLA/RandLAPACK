@@ -13,11 +13,7 @@
 #include <random>
 #include <gtest/gtest.h>
 
-// Use cuda kernels.
-#ifndef USE_CUDA
-#define USE_CUDA
-
-#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
+// The GPU drivers and kernels come in with RandLAPACK.hh, under its __CUDACC__ guard.
 
 using namespace std::chrono;
 
@@ -523,4 +519,3 @@ TEST_F(TestUtil_GPU, test_ger_gpu) {
     
     ger_gpu(alpha, all_data);
 }
-#endif

@@ -1,4 +1,16 @@
 #pragma once
+
+// USE_CUDA gates every kernel below, and every launch inside the host wrappers; without
+// it the wrappers still compile but throw. It used to be defined by hand in each .cu
+// consumer, so correctness depended on include order: this header is #pragma once, so
+// the first inclusion decided whether the kernels existed at all, and an inclusion that
+// arrived through RandLAPACK.hh silently produced a kernel free build. Deriving it from
+// __CUDACC__ removes that hazard. Consumers no longer define it; the define is kept so
+// that out of tree code still setting it by hand keeps working.
+#if defined(__CUDACC__) && !defined(USE_CUDA)
+#define USE_CUDA
+#endif
+
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>

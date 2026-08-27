@@ -12,10 +12,7 @@
 #include <gtest/gtest.h>
 #include <chrono>
 
-// Use cuda kernels.
-#ifndef USE_CUDA
-#define USE_CUDA
-#include "RandLAPACK/drivers/rl_bqrrp_gpu.hh"
+// The GPU drivers and kernels come in with RandLAPACK.hh, under its __CUDACC__ guard.
 
 using GPUSubroutines = RandLAPACK::BQRRPGPUSubroutines;
 
@@ -146,7 +143,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
                 max_idx = i;
             }
         }
-        T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
+        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(14) << norm_AQR / norm_A << "\n";
@@ -256,7 +253,6 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
     	}
     }
 };
-#if !defined(__APPLE__)
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_GPU_070824) {
     int64_t m = 5000;//5000;
@@ -475,5 +471,4 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     cudaFree(tau_device);
     blas::device_free(d_work_geqrf_opt, lapack_queue);
 }
-#endif
 #endif
