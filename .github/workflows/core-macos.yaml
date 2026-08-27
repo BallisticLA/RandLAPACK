@@ -20,6 +20,15 @@ concurrency:
 
 # Dependency installs are cached and the RandBLAS submodule's own test suite
 # is disabled; see core-linux.yaml for the reasoning.
+#
+# macOS builds use Apple's NEW Accelerate interface (LAPACK 3.12 on current
+# SDKs) -- the legacy default is LAPACK 3.2.1 from 2009, with a broken
+# divide-and-conquer gesdd and none of the routines BQRRP/HQRRP need. The
+# defines.h check makes a silent fallback to the legacy interface a hard
+# failure. Requires blaspp/lapackpp masters at or past icl-utk-edu/blaspp#134
+# and icl-utk-edu/lapackpp#88 (both merged 2026-08-27). The cache key carries
+# an "accelerate" tag because earlier caches hold dependencies built without
+# -Dblas=accelerate.
 
 jobs:
   build:
@@ -47,17 +56,19 @@ jobs:
             ${{ github.workspace }}/../blaspp-install
             ${{ github.workspace }}/../lapackpp-install
             ${{ github.workspace }}/../Random123-install
-          key: core-deps-${{ runner.os }}-v1
+          key: core-deps-${{ runner.os }}-accelerate-v1
 
-      - name: install BLAS++
+      - name: install BLAS++ (new Accelerate)
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: |
           cd ..
           git clone https://github.com/icl-utk-edu/blaspp.git
           mkdir blaspp-build
           cd blaspp-build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
           make -j$(sysctl -n hw.ncpu) install
+          grep -q ACCELERATE_NEW_LAPACK ../blaspp-install/include/blas/defines.h \
+            || { echo "::error::BLAS++ did not select Apple's new Accelerate interface"; exit 1; }
 
       - name: install Random123
         if: steps.deps-cache.outputs.cache-hit != 'true'
@@ -96,27 +107,7 @@ jobs:
               `pwd`/../RandLAPACK
           make -j$(sysctl -n hw.ncpu)
           make -j$(sysctl -n hw.ncpu) install
-          #####################################################################
-          ## TEMPORARY -- REVERT THIS ENTIRE BLOCK                            ##
-          ##                                                                  ##
-          ## TestQB.Polynomial_Decay_general1 fails on Apple Silicon because  ##
-          ## Apple's OLD Accelerate LAPACK has a broken divide-and-conquer    ##
-          ## gesdd. It is quarantined here ONLY to stop core-macos being      ##
-          ## permanently red, which trained everyone to ignore this job.      ##
-          ##                                                                  ##
-          ## REVERT AS SOON AS Mark has reviewed the BLAS++ / LAPACK++ work   ##
-          ## that migrates to the new Accelerate interface. The test is still ##
-          ## RUN below, so its result is not lost: if it starts PASSING, the  ##
-          ## job prints a loud warning telling you to delete this block.      ##
-          #####################################################################
-          ctest --exclude-regex "^TestQB\.Polynomial_Decay_general1" \
-                --output-on-failure
-          echo "::warning title=TEMPORARY macOS suppression is ACTIVE::TestQB.Polynomial_Decay_general1 is quarantined (Apple Accelerate gesdd bug). REVERT once Mark has reviewed the BLAS++/LAPACK++ Accelerate migration. See docs/CI.md."
-          if ctest --tests-regex "^TestQB\.Polynomial_Decay_general1" --output-on-failure; then
-            echo "::warning title=DELETE THE macOS SUPPRESSION::TestQB.Polynomial_Decay_general1 now PASSES. The Accelerate gesdd bug appears fixed -- remove the quarantine block in .github/workflows/core-macos.yaml and the note in docs/CI.md."
-          else
-            echo "::notice title=Quarantined test still failing (expected)::TestQB.Polynomial_Decay_general1 still fails, as expected while Apple's old Accelerate gesdd is in use. The suppression is still needed."
-          fi
+          ctest --output-on-failure
 
       - name: build and test extras
         run: |
@@ -165,17 +156,19 @@ jobs:
             ${{ github.workspace }}/../blaspp-install
             ${{ github.workspace }}/../lapackpp-install
             ${{ github.workspace }}/../Random123-install
-          key: core-deps-${{ runner.os }}-v1
+          key: core-deps-${{ runner.os }}-accelerate-v1
 
-      - name: install BLAS++
+      - name: install BLAS++ (new Accelerate)
         if: steps.deps-cache.outputs.cache-hit != 'true'
         run: |
           cd ..
           git clone https://github.com/icl-utk-edu/blaspp.git
           mkdir blaspp-build
           cd blaspp-build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
           make -j$(sysctl -n hw.ncpu) install
+          grep -q ACCELERATE_NEW_LAPACK ../blaspp-install/include/blas/defines.h \
+            || { echo "::error::BLAS++ did not select Apple's new Accelerate interface"; exit 1; }
 
       - name: install Random123
         if: steps.deps-cache.outputs.cache-hit != 'true'
@@ -215,24 +208,4 @@ jobs:
               `pwd`/../RandLAPACK
           make -j$(sysctl -n hw.ncpu)
           make -j$(sysctl -n hw.ncpu) install
-          #####################################################################
-          ## TEMPORARY -- REVERT THIS ENTIRE BLOCK                            ##
-          ##                                                                  ##
-          ## TestQB.Polynomial_Decay_general1 fails on Apple Silicon because  ##
-          ## Apple's OLD Accelerate LAPACK has a broken divide-and-conquer    ##
-          ## gesdd. It is quarantined here ONLY to stop core-macos being      ##
-          ## permanently red, which trained everyone to ignore this job.      ##
-          ##                                                                  ##
-          ## REVERT AS SOON AS Mark has reviewed the BLAS++ / LAPACK++ work   ##
-          ## that migrates to the new Accelerate interface. The test is still ##
-          ## RUN below, so its result is not lost: if it starts PASSING, the  ##
-          ## job prints a loud warning telling you to delete this block.      ##
-          #####################################################################
-          ctest --exclude-regex "^TestQB\.Polynomial_Decay_general1" \
-                --output-on-failure
-          echo "::warning title=TEMPORARY macOS suppression is ACTIVE::TestQB.Polynomial_Decay_general1 is quarantined (Apple Accelerate gesdd bug). REVERT once Mark has reviewed the BLAS++/LAPACK++ Accelerate migration. See docs/CI.md."
-          if ctest --tests-regex "^TestQB\.Polynomial_Decay_general1" --output-on-failure; then
-            echo "::warning title=DELETE THE macOS SUPPRESSION::TestQB.Polynomial_Decay_general1 now PASSES. The Accelerate gesdd bug appears fixed -- remove the quarantine block in .github/workflows/core-macos.yaml and the note in docs/CI.md."
-          else
-            echo "::notice title=Quarantined test still failing (expected)::TestQB.Polynomial_Decay_general1 still fails, as expected while Apple's old Accelerate gesdd is in use. The suppression is still needed."
-          fi
+          ctest --output-on-failure
