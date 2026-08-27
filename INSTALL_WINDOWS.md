@@ -58,7 +58,7 @@ where cl
 ```bat
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 cd RandLAPACK
-powershell -ExecutionPolicy Bypass -File .\install\install.ps1
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 ```
 
 Two details in that last line, both deliberate. It is a `cmd` prompt, so the
@@ -287,16 +287,16 @@ Worked examples:
 
 ```powershell
 # Default: oneMKL, discovered or downloaded.
-.\install\install.ps1
+.\installers\install.ps1
 
 # OpenBLAS instead of MKL.
-.\install\install.ps1 -Backend openblas
+.\installers\install.ps1 -Backend openblas
 
 # You already installed the oneAPI toolkit somewhere non-standard.
-.\install\install.ps1 -MklRoot "D:\intel\oneAPI\mkl\latest"
+.\installers\install.ps1 -MklRoot "D:\intel\oneAPI\mkl\latest"
 
 # AMD AOCL, downloaded manually beforehand.
-.\install\install.ps1 -Backend custom `
+.\installers\install.ps1 -Backend custom `
     -BlasLibraries "C:\AOCL\lib\AOCL-LibBlis-Win-MT-dll.lib;C:\AOCL\lib\AOCL-LibFlame-Win-MT-dll.lib" `
     -BackendBinDir "C:\AOCL\bin"
 ```
@@ -326,7 +326,7 @@ directory (the installer prints it at the end) next to your `.exe`.
 
 - **"running scripts is disabled on this system"**: Windows' default
   PowerShell execution policy. Launch it as the quick start does
-  (`powershell -ExecutionPolicy Bypass -File .\install\install.ps1`), or see
+  (`powershell -ExecutionPolicy Bypass -File .\installers\install.ps1`), or see
   "Script execution policy" in section 3.
 - **"cl.exe is not on PATH"**: you are in a regular shell. Open "x64 Native
   Tools Command Prompt for VS 2022" and re-run. If Visual Studio is missing

@@ -55,8 +55,9 @@ LAPACK 3.12 on current SDKs): build BLAS++ with `-Dblas=accelerate` using a
 BLAS++/LAPACK++ version that carries new-Accelerate support, and the correct
 interface propagates to LAPACK++ and RandLAPACK automatically. Verify by
 checking that the installed `include/blas/defines.h` contains
-`ACCELERATE_NEW_LAPACK`. Alternatively, use Homebrew OpenBLAS (what
-`install.sh` does on macOS).
+`ACCELERATE_NEW_LAPACK`. This is what `install.sh` does on macOS (it also
+refuses a build that silently fell back to the legacy interface).
+Alternatively, use Homebrew OpenBLAS (`install.sh --blas=openblas`).
 
 ### Note on Directory Names
 On some systems, library directories are called `lib` while on others they're called `lib64`. Adjust paths accordingly in the CMake configuration commands below.
@@ -328,5 +329,5 @@ and will not link the x64 BLAS libraries):
 ```bat
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 cd RandLAPACK
-powershell -ExecutionPolicy Bypass -File .\install\install.ps1
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 ```
