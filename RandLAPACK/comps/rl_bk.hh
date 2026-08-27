@@ -752,22 +752,42 @@ class BK {
                         {
                             int64_t r_blk = block_numerical_rank<T>(w, R_ii, n, norm_A, tau_eff);
                             if (r_blk < w) {
-                                // Accept the healthy prefix, then stop. Accepting it is what
-                                // lets end_cols be read straight off y_cols: the old formula
-                                // end_cols = full_cols - (k - width) was computing exactly
-                                // this, by reconstructing it from `iter` instead.
-                                // (Continuing rather than stopping lands in a later step.)
-                                this->final_block_width = r_blk;
-                                this->termination_reason = BKTermination::rank_deficient;
-                                if (r_blk > 0) {
-                                    y_cols += r_blk;
-                                    w_last  = r_blk;
-                                    ++this->narrowed_blocks;
+                                // Zero the REJECTED COLUMNS of the diagonal block. Their true
+                                // value is zero by the band's block-bidiagonal structure, and
+                                // the error this introduces is bounded by tau*||A||, which is
+                                // exactly the order the criterion just declared negligible.
+                                // That bound is the mathematical content of prune-and-narrow.
+                                //
+                                // A no-op while the loop still breaks here, because those
+                                // positions lie beyond end_cols. It stops being a no-op the
+                                // moment a narrowed block continues: end_cols then grows past
+                                // them and they become interior to the reported band, with
+                                // nothing else ever overwriting them.
+                                //
+                                // Note the copy above cannot simply be narrowed to r_blk
+                                // instead: util::transposition writes column i of the factor
+                                // into ROW i of R_ii, so restricting it would drop genuine
+                                // subdiagonal entries belonging to fully accepted columns.
+                                for (int64_t j = r_blk; j < w; ++j)
+                                    for (int64_t i = 0; i < w; ++i)
+                                        R_ii[i + j * n] = T(0);
+
+                                // A fully dead block means the subspace cannot grow at all;
+                                // that is a genuine terminal condition.
+                                if (r_blk == 0) {
+                                    this->final_block_width = 0;
+                                    this->termination_reason = BKTermination::rank_deficient;
+                                    break;
                                 }
-                                break;
+                                // PRUNE AND NARROW: keep the healthy prefix and carry on with a
+                                // narrower block, rather than stopping with the right basis
+                                // short. w_last carries the reduced width to the next
+                                // iteration, which is what makes the block widths variable.
+                                ++this->narrowed_blocks;
                             }
-                            y_cols += w;
-                            w_last  = w;
+                            y_cols += r_blk;
+                            w_last  = r_blk;
+                            this->final_block_width = r_blk;
                         }
 
                         // Buffer growth and pointer derivation both happen at the top of the
@@ -911,20 +931,30 @@ class BK {
                         {
                             int64_t r_blk = block_numerical_rank<T>(w, S_ii, n + k, norm_A, tau_eff);
                             if (r_blk < w) {
-                                // Accept the healthy prefix, then stop; see the odd branch.
-                                // The old formula end_rows = full_cols + width was computing
-                                // exactly this by reconstructing it from `iter`.
-                                this->final_block_width = r_blk;
-                                this->termination_reason = BKTermination::rank_deficient;
-                                if (r_blk > 0) {
-                                    x_cols += r_blk;
-                                    w_last  = r_blk;
-                                    ++this->narrowed_blocks;
+                                // Zero the REJECTED ROWS of the diagonal block; see the odd
+                                // branch for why the true value there is zero and why this is
+                                // a no-op only until a narrowed block continues. Rows rather
+                                // than columns because S_ii is written upper-triangular by
+                                // lacpy, where R_ii is lower.
+                                for (int64_t j = 0; j < w; ++j)
+                                    for (int64_t i = r_blk; i < w; ++i)
+                                        S_ii[i + j * (n + k)] = T(0);
+
+                                if (r_blk == 0) {
+                                    this->final_block_width = 0;
+                                    this->termination_reason = BKTermination::rank_deficient;
+                                    break;
                                 }
-                                break;
+                                // PRUNE AND NARROW on the left side; see the odd branch. THIS is
+                                // the half that fixes the shortfall. The left basis runs a block
+                                // ahead of the right, so it reaches the numerical rank first;
+                                // stopping here is what stranded the right basis up to k columns
+                                // short and left the leading triplets non-convergent.
+                                ++this->narrowed_blocks;
                             }
-                            x_cols += w;
-                            w_last  = w;
+                            x_cols += r_blk;
+                            w_last  = r_blk;
+                            this->final_block_width = r_blk;
                         }
 
                         // Buffer growth and pointer derivation both happen at the top of the

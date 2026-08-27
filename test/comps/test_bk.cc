@@ -558,11 +558,16 @@ TEST_F(TestBK, BK_even_terminal_band_identity_cqrrt) {
                       out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
 
     // Pin the geometry this test exists to cover, so a change of exit route is loud.
+    // These numbers changed when continuation landed, and the change is the point: the run
+    // used to stop at iteration 4 with end_rows = 25 > end_cols = 20, stranding the right
+    // basis 5 columns short. It now narrows to 5, continues, completes the right basis, and
+    // stops at iteration 6 when the next block probes to zero width.
     EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::rank_deficient);
     EXPECT_FALSE(out.final_iter_is_odd) << "expected an even terminal iteration";
-    EXPECT_EQ(bk.final_block_width, (int64_t) 5);
+    EXPECT_EQ(bk.final_block_width, (int64_t) 0) << "terminal block probed to zero width";
+    EXPECT_GE(bk.narrowed_blocks, (int64_t) 1) << "continuation must actually have fired";
     EXPECT_EQ(out.end_rows, (int64_t) 25);
-    EXPECT_EQ(out.end_cols, (int64_t) 20);
+    EXPECT_EQ(out.end_cols, (int64_t) 25);
 
     check_band_identity<double>(m, n, k, A, out, 1e-10);
     delete[] A;
@@ -592,3 +597,59 @@ TEST_F(TestBK, BK_diagnose_exact_rank_25) {
     delete[] A;
 }
 
+
+
+/// Rank 39 at block size 10 is the one rank in 20..40 that does not certify r of r under the
+/// DEFAULT tau, and this test records why: it is threshold sensitivity in tau, not the
+/// stranding mechanism that prune-and-narrow fixes.
+///
+/// With tau defaulting to n*eps (4.44e-14 at n = 200), the tenth column of the iteration-6
+/// block carries a reorthogonalisation residual just above tau*||A||, so the block is
+/// accepted at full width and the left basis reaches 40 columns for a rank-39 matrix. The
+/// run then exits through norm_converged on an ODD terminal with end_rows = 40 > end_cols =
+/// 39, and the single junk left column prevents any triplet from certifying.
+///
+/// Raising tau to 1e-12 makes it behave exactly like ranks 37, 38 and 40: the block narrows,
+/// the run continues, and it stops at iteration 8 with end_rows = end_cols = 39.
+///
+/// This is NOT a regression from continuation: rank 39 measured claimed 39 / certified 0
+/// before Phase 3 as well. The default tau is deliberately left alone, because the
+/// ill-conditioned regime (kappa 1e10, 155 of 200 certified) depends on tau being small
+/// enough not to discard genuine trailing directions. That trade-off is exactly what the
+/// user-facing tau knob exists for.
+TEST_F(TestBK, BK_rank_39_is_a_tau_sensitivity_not_a_shortfall) {
+    int64_t m = 200, n = 200, k = 10, r = 39;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    auto run = [&](double tau_val, int64_t &er, int64_t &ec, int &reason, int64_t &narrowed) {
+        auto state = RandBLAS::RNGState();
+        std::vector<double> s(r);
+        for (int i = 0; i < r; ++i) s[i] = std::pow(10.0, -3.0 * i / (r - 1));
+        std::vector<double> S(r * r, 0.0);
+        RandLAPACK::util::diag(r, r, s.data(), r, S.data());
+        double* A = new double[m * n]();
+        RandLAPACK::gen::gen_singvec<double>(m, n, A, r, S.data(), state);
+        BKOut<double> out;
+        RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+        bk.max_krylov_iters = 40;
+        bk.tau = tau_val;
+        ASSERT_EQ(bk.call(m, n, A, m, k, out.X_ev, out.Y_od, out.R, out.S,
+                          out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+        er = out.end_rows; ec = out.end_cols;
+        reason = (int) bk.termination_reason; narrowed = bk.narrowed_blocks;
+        delete[] A;
+    };
+
+    int64_t er = 0, ec = 0, narrowed = 0; int reason = 0;
+
+    // Default tau: over-accepts the left basis by one column.
+    run(0.0, er, ec, reason, narrowed);
+    EXPECT_EQ(er, (int64_t) 40) << "default tau accepts a junk 40th left column";
+    EXPECT_EQ(ec, (int64_t) 39);
+
+    // A slightly larger tau rejects it and the run completes symmetrically.
+    run(1e-12, er, ec, reason, narrowed);
+    EXPECT_EQ(er, (int64_t) 39);
+    EXPECT_EQ(ec, (int64_t) 39);
+    EXPECT_GE(narrowed, (int64_t) 1) << "continuation must have fired";
+}

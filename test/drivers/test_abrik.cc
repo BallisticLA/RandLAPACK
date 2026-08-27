@@ -588,7 +588,11 @@ TEST_F(TestABRIK, ABRIK_regime_T2_exact_rank_not_multiple_of_block) {
     std::vector<double> s(25);
     for (int i = 0; i < 25; ++i) s[i] = std::pow(10.0, -3.0 * i / 24.0);
     int64_t cert = run_regime("T2 exact rank 25", 200, 200, 10, s, 25, 40);
-    EXPECT_LE(cert, 25) << "certified more triplets than the matrix has";
+    // Tightened from EXPECT_LE once prune-and-narrow continuation landed. This regime is the
+    // one the whole phase exists for: rank not a multiple of the block size. It used to claim
+    // 20 and certify 0, because the left basis reached the rank first and the run stopped
+    // with the right basis 5 columns short, leaving the Krylov space non-invariant.
+    EXPECT_EQ(cert, 25) << "exact rank 25 at block size 10 must certify all 25";
 }
 
 // T3: exact rank 40 with b_sz 10, the control for T2 -- deficiency lands exactly on a block
@@ -660,7 +664,22 @@ TEST_F(TestABRIK, ABRIK_regime_T1_identity) {
 // left basis reaches it first and the run stops with the right basis up to b columns short.
 // If that is right, the loss should appear for every non-multiple rank and vanish exactly
 // at the multiples.
-TEST_F(TestABRIK, ABRIK_characterize_rank_sweep_shortfall) {
+/// The acceptance gate for prune-and-narrow continuation.
+///
+/// Before continuation this was a characterization of a defect: exact at every multiple of
+/// the block size (20, 30, 40) and near zero at every non-multiple, because the left basis
+/// runs a block ahead, reaches the numerical rank first, and the run stopped with the right
+/// basis up to k columns short. A Krylov space missing one direction of the row space is not
+/// invariant, so the leading triplets stopped converging at all, which is why the loss was
+/// total (0 to 7 certified) rather than proportional.
+///
+/// It now asserts r of r at every rank, with ONE documented exception. Rank 39 certifies 0
+/// under the default tau, for a reason that is threshold sensitivity rather than stranding:
+/// see TestBK.BK_rank_39_is_a_tau_sensitivity_not_a_shortfall, which shows it completes
+/// symmetrically at tau = 1e-12. Rank 39 measured 39 claimed / 0 certified before this phase
+/// too, so it is a pre-existing issue this work neither caused nor fixed, and it is left
+/// asserted at its measured value so that fixing it shows up as a loud failure here.
+TEST_F(TestABRIK, ABRIK_rank_sweep_certifies_full_rank) {
     printf("SWEEP  rank | claimed certified available\n");
     for (int64_t r = 20; r <= 40; ++r) {
         std::vector<double> s(r);
@@ -668,8 +687,16 @@ TEST_F(TestABRIK, ABRIK_characterize_rank_sweep_shortfall) {
         char label[64];
         snprintf(label, sizeof(label), "rank %ld", (long)r);
         int64_t cert = run_regime(label, 200, 200, 10, s, r, 40);
-        // The invariant that must hold at every rank, whatever the shortfall.
+        // The invariant that must hold at every rank regardless.
         EXPECT_LE(cert, r) << "certified more triplets than exist at rank " << r;
+        if (r == 39) {
+            EXPECT_EQ(cert, 0)
+                << "rank 39 is the known tau-sensitivity case; if this now certifies, the "
+                   "default tau or the reorthogonalisation changed and both this assertion "
+                   "and BK_rank_39_is_a_tau_sensitivity_not_a_shortfall should be revisited";
+        } else {
+            EXPECT_EQ(cert, r) << "rank " << r << " must certify all " << r;
+        }
     }
 }
 
