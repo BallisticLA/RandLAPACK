@@ -192,14 +192,14 @@ jobs:
       - name: run the installer
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/installers/install.ps1" `
             -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
             -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps"
 
       - name: re-run the installer in place (idempotency)
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/installers/install.ps1" `
             -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
             -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps" `
             -SkipTests

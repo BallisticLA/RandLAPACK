@@ -81,7 +81,7 @@ function Invoke-Checked {
     }
 }
 
-# Architecture detection is shared with install/install.ps1 rather than
+# Architecture detection is shared with installers/install.ps1 rather than
 # duplicated; see that file's note. $PSScriptRoot is
 # <repo>\.github\actions\setup-randlapack-deps-windows.
 $archHelper = Join-Path $PSScriptRoot "..\..\scripts\windows\toolchain-arch.ps1"

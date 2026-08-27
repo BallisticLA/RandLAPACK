@@ -1,7 +1,7 @@
 # Using RandLAPACK's Automated Install Script
 
-The installer scripts live in the `install/` directory (`install/install.sh`
-for Linux/macOS, `install/install.ps1` for native Windows); a small wrapper is
+The installer scripts live in the `installers/` directory (`installers/install.sh`
+for Linux/macOS, `installers/install.ps1` for native Windows); a small wrapper is
 kept at the repository root so `bash install.sh` keeps working.
 
 This guide explains how to use the `install.sh` script to automatically install
@@ -13,7 +13,7 @@ a quick, streamlined setup process. If you need fine-grained control over
 dependency configurations, refer to RandLAPACK's `INSTALL.md` instead.
 
 > **Windows users:** this document describes the Linux/macOS installer
-> (`install.sh`). The native Windows companion is `install\install.ps1`,
+> (`install.sh`). The native Windows companion is `installers\install.ps1`,
 > documented in [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) -- prerequisites,
 > every option, backend selection, and troubleshooting.
 

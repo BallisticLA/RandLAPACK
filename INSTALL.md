@@ -329,5 +329,5 @@ and will not link the x64 BLAS libraries):
 ```bat
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 cd RandLAPACK
-powershell -ExecutionPolicy Bypass -File .\install\install.ps1
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 ```

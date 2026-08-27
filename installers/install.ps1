@@ -1,7 +1,7 @@
 # RandLAPACK native Windows installer -- the companion to install.sh.
 # Full guide, including how to get an x64 toolchain: INSTALL_WINDOWS.md
 #
-#   powershell -ExecutionPolicy Bypass -File .\install\install.ps1
+#   powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 #
 # Builds or reuses the dependencies (a BLAS/LAPACK backend, GoogleTest,
 # Random123, BLAS++, LAPACK++) under <ProjectDir>\install, then configures,
