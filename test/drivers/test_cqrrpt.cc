@@ -251,6 +251,55 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
+
+// geqp3 reads jpvt on entry (nonzero marks a fixed column), so the prior
+// contents of the caller's J buffer must not influence pivoting. Run the same
+// rank-deficient factorization with a clean J and with two dirtied J buffers,
+// at the same RNG state each time; rank and factorization quality must match.
+TEST_F(TestCQRRPT, CQRRPT_dirty_J_rank_deficient) {
+    int64_t m = 2000;
+    int64_t n = 50;
+    int64_t k = 40;
+    double d_factor = 2;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    // Generate the rank-deficient input once.
+    auto gen_state = RandBLAS::RNGState();
+    std::vector<double> A_orig(m * n, 0.0);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, A_orig.data(), gen_state);
+
+    int64_t rank_ref = -1;
+    for (int trial = 0; trial < 3; ++trial) {
+        CQRRPTTestData<double> all_data(m, n, k);
+        lapack::lacpy(MatrixType::General, m, n, A_orig.data(), m, all_data.A.data(), m);
+
+        // Trial 0 keeps the zero-initialized J; trials 1 and 2 dirty it with
+        // different nonzero garbage.
+        if (trial > 0) {
+            for (int64_t i = 0; i < n; ++i)
+                all_data.J[i] = 1 + ((7919 * trial + 31 * i) % n);
+        }
+
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        CQRRPT.qrcp = Subroutines::QRCP::geqp3;
+
+        double norm_A = 0;
+        norm_and_copy_computational_helper(norm_A, all_data);
+        // Same RNG state in every trial, so any difference is due to J alone.
+        auto state = RandBLAS::RNGState();
+        test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+
+        if (trial == 0)
+            rank_ref = all_data.rank;
+        ASSERT_EQ(all_data.rank, rank_ref);
+    }
+}
+
 // Using L2 norm rank estimation here is similar to using raive estimation.
 // Fro norm underestimates rank even worse.
 TEST_F(TestCQRRPT, CQRRPT_bad_orth) {

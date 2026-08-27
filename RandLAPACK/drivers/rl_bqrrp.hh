@@ -319,7 +319,8 @@ int BQRRP<T, RNG>::call(
         internal_nb = std::min(internal_nb, b_sz);
         block_rank = b_sz;
 
-        // Zero-out data - may not be necessary
+        // Zero-out data. The J_buffer fill is required: geqp3 reads jpvt on
+        // entry and treats any nonzero entry as a fixed column.
         std::fill(&J_buffer[0], &J_buffer[n], 0);
         std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
         std::fill(&Work2[0], &Work2[n], (T) 0.0);
