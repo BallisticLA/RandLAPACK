@@ -173,20 +173,20 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 // Linear Operator Materialization and Analysis
 // ============================================================================
 
-/// Materialize a linear operator into a dense column-major matrix.
-/// Computes A_dense = A_linop * I by applying the operator to the identity.
+/// Materialize a linear operator into a dense column-major matrix via
+/// RandLAPACK::materialize, which dispatches on the operator type:
+///   - DenseLinOp:   direct copy of A_buff
+///   - SparseLinOp:  RandLAPACK::util::sparse_to_dense on A_sp
+///   - CompositeOperator: materialize each operand, then one gemm
+///   - anything else: the generic fallback, A_dense = A_linop * I
 ///
-/// WARNING: This function uses operator() to materialize, which makes it
-/// unsuitable for testing operator() itself (circular reasoning). For
-/// correctness tests of individual linop types, prefer type-specific
-/// materialization:
-///   - DenseLinOp:   copy A_buff directly
-///   - SparseLinOp:  use RandLAPACK::util::sparse_to_dense on A_sp
-///   - CompositeOperator: materialize each operand independently, then
-///     compute the product with blas::gemm
-/// This function is appropriate for tests that assume operator() is correct
-/// and need a dense representation for some other purpose (e.g., computing
-/// singular values, comparing block views against the full operator).
+/// WARNING: the generic fallback materializes through operator(), which makes
+/// it unsuitable for testing operator() itself (circular reasoning). The three
+/// type-specific overloads above never call operator(), so for those types this
+/// function is safe in correctness tests of operator(). For any other operator
+/// type, use it only in tests that assume operator() is correct and need a
+/// dense representation for some other purpose (e.g., computing singular
+/// values, comparing block views against the full operator).
 template <typename T, typename LinOp>
 void materialize_linop(LinOp& A_linop, T* A_dense) {
     int64_t m = A_linop.n_rows;

@@ -5,12 +5,14 @@
 //
 // Generic fallback: multiply by the identity matrix.
 // Overloaded specializations avoid that cost when the underlying storage is
-// directly accessible (DenseLinOp, SparseLinOp).
+// directly accessible (DenseLinOp, SparseLinOp) or reachable through the
+// operands (CompositeOperator).
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
 #include "rl_dense_linop.hh"
 #include "rl_sparse_linop.hh"
+#include "rl_composite_linop.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
@@ -102,6 +104,30 @@ void materialize(linops::SparseLinOp<SpMat>& A, int64_t m, int64_t n,
         lapack::lacpy(lapack::MatrixType::General, m, n, tmp, m, buf, ldb);
         delete[] tmp;
     }
+}
+
+/// Specialization for CompositeOperator: materialize each operand through its
+/// own materialize overload, then form buf = L * R with one gemm. No identity
+/// is built, so this path carries no dimension cap and never routes through
+/// the composite's operator() (safe for testing operator() itself). Scratch is
+/// m*k + k*n for an inner dimension k, versus the fallback's n*n identity.
+/// Nested composites recurse into this overload for each composite operand.
+template <typename LinOp1, typename LinOp2>
+void materialize(linops::CompositeOperator<LinOp1, LinOp2>& A, int64_t m, int64_t n,
+                 typename LinOp1::scalar_t* buf, int64_t ldb) {
+    using T = typename LinOp1::scalar_t;
+    randlapack_require(m == A.n_rows) << "m=" << m << " must equal A.n_rows=" << A.n_rows << " for materialize specialization";
+    randlapack_require(n == A.n_cols) << "n=" << n << " must equal A.n_cols=" << A.n_cols << " for materialize specialization";
+    randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
+    int64_t k = A.left_op.n_cols;
+    T* L = new T[m * k]();
+    T* R = new T[k * n]();
+    materialize(A.left_op, m, k, L, m);
+    materialize(A.right_op, k, n, R, k);
+    blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, n, k, (T)1.0, L, m, R, k, (T)0.0, buf, ldb);
+    delete[] L;
+    delete[] R;
 }
 
 } // end namespace RandLAPACK
