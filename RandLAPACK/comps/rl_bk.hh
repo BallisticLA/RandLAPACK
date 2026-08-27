@@ -112,9 +112,22 @@ class BK {
         /// default from the problem size", which is done inside call_impl where n is known.
         T tau;
         /// Width of the terminal block after truncation; equals k unless the rank criterion
-        /// rejected part of it. Needed because end_cols/end_rows can no longer be
-        /// reconstructed from `iter` alone.
+        /// rejected part of it. Diagnostic only: end_rows/end_cols are read straight off the
+        /// accepted-column counters and no longer need to be reconstructed from it.
         int64_t final_block_width;
+        /// Number of blocks the rank criterion narrowed over the run. Lets a test assert
+        /// that the mechanism FIRED, not merely that the answer came out right.
+        int64_t narrowed_blocks;
+        /// Resume state. Everything the loop needs to pick up where it left off, saved on
+        /// exit and restored by resume(). Previously the resume path reconstructed all of
+        /// this from `iter` by fixed-width arithmetic, which is silently wrong the moment a
+        /// block is not exactly k wide. Saving it makes resume a restore rather than a
+        /// reconstruction, which removes that hazard instead of fencing it off.
+        int64_t saved_x_cols;
+        int64_t saved_y_cols;
+        int64_t saved_w_last;
+        int64_t saved_alloc_X_cols;
+        int64_t saved_alloc_Y_cols;
 
         BK(
             bool verb,
@@ -134,6 +147,12 @@ class BK {
             termination_reason = BKTermination::max_iters_reached;
             tau = 0;                 // 0 => derive n*eps inside call_impl
             final_block_width = 0;
+            narrowed_blocks = 0;
+            saved_x_cols = 0;
+            saved_y_cols = 0;
+            saved_w_last = 0;
+            saved_alloc_X_cols = 0;
+            saved_alloc_Y_cols = 0;
         }
 
         /// Builds the block Krylov subspaces and band matrices for a truncated SVD.
@@ -345,8 +364,19 @@ class BK {
                     << "; the band buffers and the rank-deficiency probes assume k <= min(m, n)";
 
                 // Loop state: initialized differently for fresh start vs resume.
-                int64_t iter, iter_od, iter_ev;
-                int64_t curr_X_cols, curr_Y_cols;
+                int64_t iter;
+                // ACCEPTED columns of each basis. Unambiguous by construction: they advance
+                // only on acceptance, after the rank probe, never as a pending reservation.
+                // The old curr_X_cols/curr_Y_cols were pre-advanced before the block they
+                // reserved was written, so they meant "accepted plus pending" and flipped
+                // meaning twice per iteration cycle. At exit, end_rows == x_cols and
+                // end_cols == y_cols.
+                int64_t x_cols, y_cols;
+                // Width of the most recently accepted block, equivalently the width the next
+                // iteration will build. Non-increasing over the run, in [1, k].
+                int64_t w_last;
+                // Allocated column counts, tracked apart from the accepted counts.
+                int64_t alloc_X_cols, alloc_Y_cols;
                 T norm_R;
                 T* Y_i;
                 T* X_i;
@@ -374,7 +404,7 @@ class BK {
                     if(this -> timing)
                         allocation_t_start = steady_clock::now();
 
-                    iter = 0; iter_od = 0; iter_ev = 0;
+                    iter = 0; x_cols = 0; y_cols = 0; w_last = k;
                     end_rows = 0; end_cols = 0;
                     norm_R = 0;
 
@@ -391,35 +421,44 @@ class BK {
                         R     = ( T * ) calloc( n * k, sizeof( T ) );
                         S     = ( T * ) calloc( (n + k) * k, sizeof( T ) );
                     }
-                    curr_Y_cols = k;
-                    curr_X_cols = k;
+                    alloc_Y_cols = prealloc ? max_Y_cols : k;
+                    alloc_X_cols = prealloc ? max_X_cols : k;
 
-                    // Initialize pointers.
+                    // The prologue below writes its blocks at offset zero. Every band and
+                    // block pointer used inside the loop is derived at the top of its own
+                    // branch from x_cols/y_cols, so there is nothing else to initialize.
                     Y_i  = Y_od;
                     X_i  = X_ev;
                     R_i  = NULL;
-                    R_ii = R;
-                    S_i  = S;
-                    S_ii = &S[k];
+                    R_ii = NULL;
+                    S_i  = NULL;
+                    S_ii = NULL;
 
                     if(this -> timing) {
                         allocation_t_stop  = steady_clock::now();
                         allocation_t_dur   = duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
                     }
                 } else {
-                    // Resume: reconstruct loop state from stored members
+                    // Resume: RESTORE loop state, do not reconstruct it.
                     // Only valid after a prior call() that terminated with max_iters_reached.
-                    iter     = this->num_krylov_iters;
-                    norm_R   = this->norm_R_end;
-                    iter_od  = 1 + iter / 2;
-                    iter_ev  = (iter + 1) / 2;
-                    curr_X_cols = (1 + iter_ev) * k;
-                    curr_Y_cols = iter_od * k;
+                    //
+                    // This used to derive iter_od, iter_ev, both column counts and all six
+                    // pointers from `iter` by fixed-width arithmetic, which is silently wrong
+                    // the moment any earlier block is narrower than k. Saving the four scalars
+                    // instead removes that hazard rather than fencing it off, and the pointers
+                    // need no reconstruction at all because every branch derives its own.
+                    iter         = this->num_krylov_iters;
+                    norm_R       = this->norm_R_end;
+                    x_cols       = this->saved_x_cols;
+                    y_cols       = this->saved_y_cols;
+                    w_last       = this->saved_w_last;
+                    alloc_X_cols = this->saved_alloc_X_cols;
+                    alloc_Y_cols = this->saved_alloc_Y_cols;
 
                     // Grow buffers if the new max_krylov_iters requires more space
                     // than was allocated in the previous call.
                     if (prealloc) {
-                        if (max_X_cols > curr_X_cols) {
+                        if (max_X_cols > alloc_X_cols) {
                             X_ev = ( T * ) realloc(X_ev, m * max_X_cols * sizeof( T ));
                             R    = ( T * ) realloc(R,    n * max_X_cols * sizeof( T ));
                             if (!X_ev || !R) {
@@ -427,10 +466,11 @@ class BK {
                                 X_ev = nullptr; Y_od = nullptr; R = nullptr; S = nullptr;
                                 return -1;
                             }
-                            std::fill(&X_ev[m * curr_X_cols], &X_ev[m * max_X_cols], T(0));
-                            std::fill(&R[n * curr_X_cols],    &R[n * max_X_cols],    T(0));
+                            std::fill(&X_ev[m * alloc_X_cols], &X_ev[m * max_X_cols], T(0));
+                            std::fill(&R[n * alloc_X_cols],    &R[n * max_X_cols],    T(0));
+                            alloc_X_cols = max_X_cols;
                         }
-                        if (max_Y_cols > curr_Y_cols) {
+                        if (max_Y_cols > alloc_Y_cols) {
                             Y_od = ( T * ) realloc(Y_od, n * max_Y_cols * sizeof( T ));
                             S    = ( T * ) realloc(S,    (n + k) * max_Y_cols * sizeof( T ));
                             if (!Y_od || !S) {
@@ -438,18 +478,11 @@ class BK {
                                 X_ev = nullptr; Y_od = nullptr; R = nullptr; S = nullptr;
                                 return -1;
                             }
-                            std::fill(&Y_od[n * curr_Y_cols],       &Y_od[n * max_Y_cols],       T(0));
-                            std::fill(&S[(n + k) * curr_Y_cols], &S[(n + k) * max_Y_cols], T(0));
+                            std::fill(&Y_od[n * alloc_Y_cols],   &Y_od[n * max_Y_cols],   T(0));
+                            std::fill(&S[(n + k) * alloc_Y_cols], &S[(n + k) * max_Y_cols], T(0));
+                            alloc_Y_cols = max_Y_cols;
                         }
                     }
-
-                    // Reconstruct pointers into (potentially reallocated) buffers.
-                    X_i  = &X_ev[m * (curr_X_cols - k)];
-                    Y_i  = &Y_od[n * (curr_Y_cols - k)];
-                    R_i  = &R[iter_ev * k];
-                    R_ii = &R[(n * k * iter_ev) + k + (k * (iter_ev - 1))];
-                    S_i  = &S[(n + k) * k * (iter_od - 1)];
-                    S_ii = &S[(n + k) * k * (iter_od - 1) + k + ((iter_od - 1) * k)];
 
                     // Advance past the completed iteration so the while-loop starts at the next one.
                     ++iter;
@@ -574,7 +607,10 @@ class BK {
                     }
 
                     // Advance odd iteration count.
-                    ++iter_od;
+                    // The prologue's X block is accepted unconditionally: it is orth(A*Omega)
+                    // and is never rank-probed.
+                    x_cols = k;
+                    w_last = k;
                     // Advance iteration count.
                     ++iter;
                 }
@@ -585,10 +621,44 @@ class BK {
                         main_loop_t_start = steady_clock::now();
 
                     if (iter % 2 != 0) {
+                        // ODD: build a Y block from the last accepted X block, write the R band.
+                        //
+                        // Pointers are DERIVED here rather than advanced at the end of the
+                        // previous branch. That collapses three copies of the same arithmetic
+                        // (fresh init, resume reconstruction, end-of-branch advance) into one.
+                        //   x_row = start row of the source X block, also the band's row offset
+                        //   R_i   = w by y_cols off-diagonal block, ld n
+                        //   R_ii  = w by w diagonal block at (x_row, y_cols), ld n
+                        const int64_t w     = w_last;
+                        const int64_t x_row = x_cols - w;
+
+                        // Growth FIRST, before the pointers are derived and before the GEMM
+                        // below writes into the new block. The old code grew X_ev in this
+                        // branch as a pre-advance for the NEXT (even) iteration, which kept
+                        // the destination in bounds by staying one block ahead. Growth is now
+                        // regrouped by index space (odd owns Y_od and R, even owns X_ev and S),
+                        // so it has to happen before the write rather than an iteration early.
+                        if (!prealloc && y_cols + w > alloc_Y_cols) {
+                            int64_t want = y_cols + w;
+                            T* Y_new = ( T * ) realloc(Y_od, n * want * sizeof( T ));
+                            T* R_new = ( T * ) realloc(R,    n * want * sizeof( T ));
+                            if (Y_new) Y_od = Y_new;
+                            if (R_new) R    = R_new;
+                            if (!Y_new || !R_new) return cleanup_and_fail();
+                            std::fill(&Y_od[n * alloc_Y_cols], &Y_od[n * want], T(0));
+                            std::fill(&R[n * alloc_Y_cols],    &R[n * want],    T(0));
+                            alloc_Y_cols = want;
+                        }
+
+                        X_i  = &X_ev[m * x_row];
+                        Y_i  = &Y_od[n * y_cols];
+                        R_i  = &R[x_row];
+                        R_ii = &R[n * y_cols + x_row];
+
                         if(this -> timing)
                             gemm_A_t_start = steady_clock::now();
                         // Y_i = A' * X_i
-                        A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, X_i, m, 0.0, Y_i, n);
+                        A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, w, m, 1.0, X_i, m, 0.0, Y_i, n);
 
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
@@ -596,13 +666,6 @@ class BK {
                             allocation_t_start  = steady_clock::now();
                         }
 
-                        // Grow X_ev buffer
-                        curr_X_cols += k;
-                        if (!prealloc) {
-                            X_ev = ( T * ) realloc(X_ev, m * curr_X_cols * sizeof( T ));
-                        }
-                        // Move the X_i pointer
-                        X_i = &X_ev[m * (curr_X_cols - k)];
 
 
                         if(this -> timing) {
@@ -611,16 +674,16 @@ class BK {
                             reorth_t_start  = steady_clock::now();
                         }
 
-                        if (iter != 1) {
+                        if (y_cols > 0) {
                             // R_i' = Y_i' * Y_od
-                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);
+                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, w, y_cols, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);
 
                             // Y_i = Y_i - Y_od * R_i
-                            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
+                            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, w, y_cols, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
 
                             // Reorthogonalization
-                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, Y_orth_buf, k);
-                            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, Y_orth_buf, k, 1.0, Y_i, n);
+                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, w, y_cols, n, 1.0, Y_i, n, Y_od, n, 0.0, Y_orth_buf, k);
+                            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, w, y_cols, -1.0, Y_od, n, Y_orth_buf, k, 1.0, Y_i, n);
                         }
 
                         if(this -> timing) {
@@ -641,7 +704,7 @@ class BK {
                             // (rl_cqrrt.hh, diag_is_nonzero / potrf failure), which is
                             // precisely the condition we must not discard.
                             std::fill(R_11_trans, R_11_trans + k * k, (T)0.0);
-                            int cq_status = CQRRT -> call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
+                            int cq_status = CQRRT -> call(n, w, Y_i, n, R_11_trans, k, d_factor, state);
                             if (cq_status != 0) {
                                 this->final_block_width = 0;
                                 this->termination_reason = BKTermination::rank_deficient;
@@ -649,7 +712,7 @@ class BK {
                             }
                             // Copy R_ii over to R's (in transposed format).
 
-                            util::transposition(0, k, R_11_trans, k, R_ii, n, 1);
+                            util::transposition(0, w, R_11_trans, k, R_ii, n, 1);
                             if(this -> timing) {
                                 qr_t_stop = steady_clock::now();
                                 qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
@@ -658,7 +721,7 @@ class BK {
                             // [Y_i, R_ii] = qr(Y_i, 0)
                             if(this -> timing)
                                 qr_t_start = steady_clock::now();
-                            lapack::geqrf(n, k, Y_i, n, tau);
+                            lapack::geqrf(n, w, Y_i, n, tau);
 
                             if(this -> timing) {
                                 qr_t_stop = steady_clock::now();
@@ -667,7 +730,7 @@ class BK {
                             }
 
                             // Copy R_ii over to R's (in transposed format).
-                            util::transposition(0, k, Y_i, n, R_ii, n, 1);
+                            util::transposition(0, w, Y_i, n, R_ii, n, 1);
 
                             if(this -> timing) {
                                 r_cpy_t_stop  = steady_clock::now();
@@ -676,7 +739,7 @@ class BK {
                             }
 
                             // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be.
-                            lapack::ungqr(n, k, k, Y_i, n, tau);
+                            lapack::ungqr(n, w, w, Y_i, n, tau);
 
                             if(this -> timing) {
                                 ungqr_t_stop  = steady_clock::now();
@@ -687,36 +750,65 @@ class BK {
                         // Rank criterion, right basis. Relative to ||A||, reads the whole
                         // trailing block, and yields a width so the healthy prefix survives.
                         {
-                            int64_t r_blk = block_numerical_rank<T>(k, R_ii, n, norm_A, tau_eff);
-                            if (r_blk < k) {
+                            int64_t r_blk = block_numerical_rank<T>(w, R_ii, n, norm_A, tau_eff);
+                            if (r_blk < w) {
+                                // Accept the healthy prefix, then stop. Accepting it is what
+                                // lets end_cols be read straight off y_cols: the old formula
+                                // end_cols = full_cols - (k - width) was computing exactly
+                                // this, by reconstructing it from `iter` instead.
+                                // (Continuing rather than stopping lands in a later step.)
                                 this->final_block_width = r_blk;
                                 this->termination_reason = BKTermination::rank_deficient;
+                                if (r_blk > 0) {
+                                    y_cols += r_blk;
+                                    w_last  = r_blk;
+                                    ++this->narrowed_blocks;
+                                }
                                 break;
                             }
+                            y_cols += w;
+                            w_last  = w;
                         }
 
-                        // Grow R buffer
-                        if (!prealloc) {
-                            T* R_new = ( T * ) realloc(R, n * curr_X_cols * sizeof( T ));
-                            if (!R_new) return cleanup_and_fail();
-                            R = R_new;
-                            T* temp_r = &R[n * (curr_X_cols - k)];
-                            std::fill(temp_r, temp_r + n*k, 0.0);
-                        }
-
-                        // Advance R pointers
-                        R_i = &R[(iter_ev + 1) * k];
-                        R_ii = &R[(n * k * (iter_ev + 1)) + k + (k * (iter_ev))];
-
-                        // Advance even iteration count;
-                        ++iter_ev;
+                        // Buffer growth and pointer derivation both happen at the top of the
+                        // branch now, so there is nothing to advance here.
                     }
                     else {
+                        // EVEN: build an X block from the last accepted Y block, write the S band.
+                        //
+                        // S is indexed the same way as R, (row = X column, col = Y column), and
+                        // its leading dimension is n + k because the diagonal block sits one
+                        // block BELOW the diagonal. Narrowing only ever reduces w, so it can
+                        // only increase the slack in that extra k rows: the deepest write is
+                        // row x_cols + w - 1, and the saturation guard holds x_cols <= n.
+                        const int64_t w     = w_last;
+                        const int64_t y_col = y_cols - w;
+
+                        // Growth FIRST; see the odd branch. S is sized by the X-column count
+                        // because that bounds its ROW extent (S_ii sits at row x_cols), and
+                        // x_cols >= y_cols always, so it also covers S's y_col column offset.
+                        if (!prealloc && x_cols + w > alloc_X_cols) {
+                            int64_t want = x_cols + w;
+                            T* X_new = ( T * ) realloc(X_ev, m * want * sizeof( T ));
+                            T* S_new = ( T * ) realloc(S,    (n + k) * want * sizeof( T ));
+                            if (X_new) X_ev = X_new;
+                            if (S_new) S    = S_new;
+                            if (!X_new || !S_new) return cleanup_and_fail();
+                            std::fill(&X_ev[m * alloc_X_cols], &X_ev[m * want], T(0));
+                            std::fill(&S[(n + k) * alloc_X_cols], &S[(n + k) * want], T(0));
+                            alloc_X_cols = want;
+                        }
+
+                        Y_i  = &Y_od[n * y_col];
+                        X_i  = &X_ev[m * x_cols];
+                        S_i  = &S[(n + k) * y_col];
+                        S_ii = &S[(n + k) * y_col + x_cols];
+
                         if(this -> timing)
                             gemm_A_t_start = steady_clock::now();
 
                         // X_i = A * Y_i
-                        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
+                        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, w, n, 1.0, Y_i, n, 0.0, X_i, m);
 
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
@@ -724,13 +816,6 @@ class BK {
                             allocation_t_start  = steady_clock::now();
                         }
 
-                        // Grow Y_od buffer
-                        curr_Y_cols += k;
-                        if (!prealloc) {
-                            Y_od = ( T * ) realloc(Y_od, n * curr_Y_cols * sizeof( T ));
-                        }
-                        // Move the Y_i pointer
-                        Y_i = &Y_od[n * (curr_Y_cols - k)];
 
                         if(this -> timing) {
                             allocation_t_stop  = steady_clock::now();
@@ -739,14 +824,14 @@ class BK {
                         }
 
                         // S_i = X_ev' * X_i
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
+                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, x_cols, w, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
 
                         //X_i = X_i - X_ev * S_i;
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
+                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, w, x_cols, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
 
                         // Reorthogonalization
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, X_orth_buf, n + k);
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, X_orth_buf, n + k, 1.0, X_i, m);
+                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, x_cols, w, m, 1.0, X_ev, m, X_i, m, 0.0, X_orth_buf, n + k);
+                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, w, x_cols, -1.0, X_ev, m, X_orth_buf, n + k, 1.0, X_i, m);
 
                         if(this -> timing) {
                             reorth_t_stop  = steady_clock::now();
@@ -775,7 +860,7 @@ class BK {
                             // buffer happening to be zeroed, and because once a narrowed
                             // block continues instead of terminating, a fully dead even-side
                             // block becomes reachable.
-                            int cq_status_ev = CQRRT -> call(m, k, X_i, m, S_ii, n + k, d_factor, state);
+                            int cq_status_ev = CQRRT -> call(m, w, X_i, m, S_ii, n + k, d_factor, state);
                             if (cq_status_ev != 0) {
                                 this -> final_block_width = 0;
                                 this -> termination_reason = BKTermination::rank_deficient;
@@ -792,7 +877,7 @@ class BK {
                             if(this -> timing)
                                 qr_t_start = steady_clock::now();
 
-                            lapack::geqrf(m, k, X_i, m, tau);
+                            lapack::geqrf(m, w, X_i, m, tau);
 
                             if(this -> timing) {
                                 qr_t_stop = steady_clock::now();
@@ -801,7 +886,7 @@ class BK {
                             }
 
                             // Copy S_ii over to S's space under S_i (offset down by iter_od * k)
-                            lapack::lacpy(MatrixType::Upper, k, k, X_i, m, S_ii, n + k);
+                            lapack::lacpy(MatrixType::Upper, w, w, X_i, m, S_ii, n + k);
 
                             if(this -> timing) {
                                 s_cpy_t_stop  = steady_clock::now();
@@ -810,7 +895,7 @@ class BK {
                             }
 
                             // Convert X_i into an explicit form. It is now stored in X_ev as it should be
-                            lapack::ungqr(m, k, k, X_i, m, tau);
+                            lapack::ungqr(m, w, w, X_i, m, tau);
 
                             if(this -> timing) {
                                 ungqr_t_stop  = steady_clock::now();
@@ -824,33 +909,26 @@ class BK {
                         // is written upper-triangular by lacpy, where R is lower; the shared
                         // helper reads the full square sub-block so both are handled.
                         {
-                            int64_t r_blk = block_numerical_rank<T>(k, S_ii, n + k, norm_A, tau_eff);
-                            if (r_blk < k) {
+                            int64_t r_blk = block_numerical_rank<T>(w, S_ii, n + k, norm_A, tau_eff);
+                            if (r_blk < w) {
+                                // Accept the healthy prefix, then stop; see the odd branch.
+                                // The old formula end_rows = full_cols + width was computing
+                                // exactly this by reconstructing it from `iter`.
                                 this->final_block_width = r_blk;
                                 this->termination_reason = BKTermination::rank_deficient;
+                                if (r_blk > 0) {
+                                    x_cols += r_blk;
+                                    w_last  = r_blk;
+                                    ++this->narrowed_blocks;
+                                }
                                 break;
                             }
+                            x_cols += w;
+                            w_last  = w;
                         }
 
-                        if(this -> timing) {
-                            allocation_t_start  = steady_clock::now();
-                        }
-
-                        // Grow S buffer
-                        if (!prealloc) {
-                            T* S_new = ( T * ) realloc(S, (n + k) * curr_Y_cols * sizeof( T ));
-                            if (!S_new) return cleanup_and_fail();
-                            S = S_new;
-                            T* temp_s = &S[(n + k)* (curr_Y_cols - k)];
-                            std::fill(temp_s, temp_s + (n + k) * k, 0.0);
-                        }
-
-                        // Advance S pointers
-                        S_i  = &S[(n + k) * k * iter_od];
-                        S_ii = &S[(n + k) * k * iter_od + k + (iter_od * k)];
-
-                        // Advance odd iteration count;
-                        ++iter_od;
+                        // Buffer growth and pointer derivation both happen at the top of the
+                        // branch now, so there is nothing to advance here.
 
                         if(this -> timing) {
                             allocation_t_stop  = steady_clock::now();
@@ -873,8 +951,16 @@ class BK {
                     // norm_converged almost never fired and rank_deficient silently absorbed
                     // terminations belonging to this criterion: before this fix
                     // ABRIK_adaptive_norm_converged itself terminated as rank_deficient.
+                    //
+                    // Trapezoidal, not square. x_cols >= y_cols always, and after a narrowing
+                    // the two differ, so a square y_cols by y_cols window would silently drop
+                    // the R_i rows belonging to the last accepted X block. Legal because every
+                    // written entry is on or below the diagonal: R_ii starts at row
+                    // x_cols - w >= y_cols, which is its own column offset, and is itself
+                    // lower triangular. Identical to the old square call whenever nothing has
+                    // narrowed.
                     if (iter % 2 != 0)
-                        norm_R = lapack::lantr(Norm::Fro, Uplo::Lower, Diag::NonUnit, iter_ev * k, iter_ev * k, R, n);
+                        norm_R = lapack::lantr(Norm::Fro, Uplo::Lower, Diag::NonUnit, x_cols, y_cols, R, n);
 
                     if(this -> timing) {
                         norm_t_stop       = steady_clock::now();
@@ -934,7 +1020,15 @@ class BK {
                     // the narrower odd/R path for no reason. There can be at most one even
                     // iteration after the final odd one, so guarding the odd side alone
                     // bounds both.
-                    if ((((iter + 1) % 2) != 0) && (((iter + 1) / 2) * k + k > n)) {
+                    //
+                    // Stated as the memory bound it always was: x_cols > n. Under fixed widths
+                    // this is exactly the old expression, since ((iter + 1) / 2) * k was y_cols
+                    // and x_cols was y_cols + k at the end of an even iteration. x_cols changes
+                    // nowhere but the even branch, so one check per even iteration covers every
+                    // change to it, and it is sufficient for the whole next iteration pair: the
+                    // next odd writes R_ii at rows [x_cols - w, x_cols) with ld n, and the next
+                    // even writes S_ii at rows [x_cols, x_cols + w) with ld n + k.
+                    if ((iter % 2 == 0) && (x_cols > n)) {
                         this->termination_reason = BKTermination::saturated;
                         break;
                     }
@@ -944,45 +1038,31 @@ class BK {
                 // Set output state
                 this->norm_R_end = norm_R;
                 this->num_krylov_iters = iter;
-                // end_cols is the number of orthonormal Y_od columns actually built (the V-basis
-                // width): one k-column block is appended per odd-branch completion. After `iter`
-                // half-steps that count is ceil(iter/2) blocks of k columns.
+                // end_rows and end_cols are read straight off the accepted-column counters.
                 //
-                // The scalar form ((iter + 1) / 2) * k does the integer division before the
-                // multiply. This matters: the old (iter * k + 1) / 2 divided after multiplying,
-                // which is identical only when the final iteration is even or k == 1, but on an
-                // odd final iteration with even k it undercounts by k/2 and gesdd then silently
-                // drops k/2 singular triplets. An odd final iteration is reachable via a
-                // rank-deficient break in the odd branch, an odd max_krylov_iters, or an odd
-                // checkpoint value.
+                // This replaces a reconstruction from `iter` that needed a separate truncation
+                // adjustment per parity, because x_cols and y_cols already ARE those two
+                // quantities. Verified equivalent in every case the old formula handled:
                 //
-                // Truncation. When the rank criterion rejected part of the terminal block,
-                // only final_block_width of its k columns are real and the rest must not be
-                // reported. The two sides need DIFFERENT adjustments, which is why a single
-                // formula could not express it and why final_block_width has to be carried
-                // out of the loop rather than recovered from `iter`:
+                //   odd terminal, full width   old end_cols = ((iter+1)/2)*k = y_cols
+                //   odd terminal, truncated    old end_cols = full_cols - (k - width),
+                //                              and y_cols = prev_y_cols + width, which is
+                //                              the same number since full_cols = prev_y_cols + k
+                //   even terminal, full width  old end_rows = full_cols + k = x_cols
+                //   even terminal, truncated   old end_rows = full_cols + width = x_cols
                 //
-                //   odd terminal  -> the truncated block is a Y (right) block, so end_cols
-                //                    loses the rejected columns while end_rows keeps the
-                //                    full X width. end_rows == end_cols therefore stops
-                //                    holding, and forcing it would silently re-admit the
-                //                    junk columns as basis width.
-                //   even terminal -> the truncated block is an X (left) block, so end_cols
-                //                    is untouched and only end_rows shrinks.
-                //
-                // Getting this backwards is invisible to a test that asserts on end_cols
-                // alone: on the even side the count is already correct and it is the LEFT
-                // basis that is contaminated.
-                const int64_t full_cols = ((iter + 1) / 2) * k;
-                const bool truncated = (this->termination_reason == BKTermination::rank_deficient)
-                                       && (this->final_block_width < k);
-                if (iter % 2 != 0) {
-                    end_cols = truncated ? full_cols - (k - this->final_block_width) : full_cols;
-                    end_rows = full_cols;
-                } else {
-                    end_cols = full_cols;
-                    end_rows = full_cols + (truncated ? this->final_block_width : k);
-                }
+                // The parity-dependent adjustment disappears because the counters are already
+                // per-side; final_block_width survives as a diagnostic only.
+                end_rows = x_cols;
+                end_cols = y_cols;
+
+                // Save resume state, so resume() restores rather than reconstructs.
+                this->saved_x_cols       = x_cols;
+                this->saved_y_cols       = y_cols;
+                this->saved_w_last       = w_last;
+                this->saved_alloc_X_cols = alloc_X_cols;
+                this->saved_alloc_Y_cols = alloc_Y_cols;
+
                 final_iter_is_odd = (iter % 2 != 0);
 
                 // Free internal temporaries (NOT X_ev, Y_od, R, S; those are returned to caller)
