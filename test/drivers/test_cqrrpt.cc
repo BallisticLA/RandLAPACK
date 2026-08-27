@@ -91,7 +91,7 @@ class TestCQRRPT : public ::testing::Test
                 max_idx = i;
             }
         }
-        T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
+        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(15) << norm_AQR / norm_A << "\n";
@@ -228,7 +228,6 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
-#if !defined(__APPLE__)
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
     int64_t m = 10000;
     int64_t n = 200;
@@ -252,7 +251,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
-#endif
+
 // Regression test for https://github.com/BallisticLA/RandLAPACK/issues/168.
 // LAPACK's geqp3 reads jpvt on entry: a nonzero entry marks that column as fixed
 // and moves it to the front of the permutation. CQRRPT must therefore not let the

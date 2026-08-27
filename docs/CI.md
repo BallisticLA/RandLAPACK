@@ -15,8 +15,8 @@ the thing we tell users to type is itself under test).
 | core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no (new) |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial; each leg ends with a stripped-PATH run of a staged test executable | no (new) |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
-| install-script | `install-macos` | macos-latest | `install.sh`: fresh install, idempotent re-run | **yes** |
-| install-script | `install-windows` | windows-2022 | `install/install.ps1`: fresh install, idempotent re-run | no (new) |
+| install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, explicit `--blas=openblas` install | **yes** |
+| install-script | `install-windows` | windows-2022 | `installers/install.ps1`: fresh install, idempotent re-run | no (new) |
 
 Required-check names match **job** names (`build`, `install-linux`,
 `install-macos`), not "workflow / job" display names. The two Windows jobs
@@ -37,34 +37,20 @@ candidates once they have a green track record.
   `cancel-in-progress` is deliberately false: every commit there should be
   validated, not just the newest.
 
-- **`TestQB.Polynomial_Decay_general1` is QUARANTINED on macOS -- THIS IS
-  TEMPORARY AND MUST BE REVERTED.** The test fails on Apple Silicon because
-  Apple's default (old) Accelerate LAPACK has a broken divide-and-conquer
-  `gesdd`. It was previously left failing as a canary, which made core-macos
-  permanently red and trained everyone to ignore the job -- a red CI lane that
-  is always red reports nothing.
-
-  **Revert once Apple's new Accelerate interface is in use**, i.e. when both
-  of these land (order matters -- icl-utk-edu/lapackpp#88 needs the
-  `defines.h` from icl-utk-edu/blaspp#134):
-    - <https://github.com/icl-utk-edu/blaspp/pull/134> -- New Apple Accelerate
-      support, a rebased and completed continuation of the stalled
-      <https://github.com/icl-utk-edu/blaspp/pull/74>
-    - <https://github.com/icl-utk-edu/lapackpp/pull/88> -- Support Apple's new
-      Accelerate interface
-
-  Then RandLAPACK PR #155 (retire legacy-Accelerate accommodations) becomes
-  mergeable, `TestQB.Polynomial_Decay_general1` should pass on its own, and
-  the "DELETE THE macOS SUPPRESSION" warning below will fire. Delete the
-  marked block in `.github/workflows/core-macos.yaml` (both `build` and
-  `build-asan`) and this entry.
-
-  The canary is deliberately preserved: the test is still *run*, separately,
-  and cannot fail the job. Every macOS run prints a warning that the
-  suppression is active, and if the test ever **passes** the job prints a
-  louder one telling you to delete the quarantine -- which is exactly the
-  signal the old always-red arrangement was supposed to provide. A local fix
-  exists (reference SVD via `gesvd`) but is intentionally unmerged.
+- **core-macos builds BLAS++ with `-Dblas=accelerate` and hard-fails if the
+  new interface is not selected.** Apple ships two LAPACKs in Accelerate: the
+  legacy default (3.2.1, from 2009) has a broken divide-and-conquer `gesdd`
+  and lacks routines BQRRP/HQRRP need; the new interface (macOS >= 13.3,
+  `ACCELERATE_NEW_LAPACK`, LAPACK 3.12 on current SDKs) fixes both. Support
+  landed upstream on 2026-08-27 (icl-utk-edu/blaspp#134 and
+  icl-utk-edu/lapackpp#88), so both jobs `grep` for `ACCELERATE_NEW_LAPACK`
+  in the installed `defines.h` and fail loudly rather than let a silent
+  fallback to the legacy interface reintroduce wrong SVDs. The
+  `TestQB.Polynomial_Decay_general1` quarantine that used to live here (a
+  temporary shield against the legacy `gesdd` bug, PR #157) is reverted; the
+  test runs normally again. The dependency cache key carries an
+  "accelerate" tag because earlier caches hold dependencies built without
+  `-Dblas=accelerate`.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). The pinned commit is already
   tested by RandBLAS's CI; rebuilding its ~450 tests in every RandLAPACK job
@@ -189,5 +175,5 @@ means frozen upstream — bump the suffix when upstream matters.
 - Installer lanes: `bash install.sh --yes --no-gpu` from a fresh clone.
 - Windows (from an MSVC developer prompt in the repository root):
   `.github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies
-  [-Backend openblas]` reproduces a core-windows leg; `.\install\install.ps1`
+  [-Backend openblas]` reproduces a core-windows leg; `.\installers\install.ps1`
   reproduces install-windows.

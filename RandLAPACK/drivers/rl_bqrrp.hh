@@ -162,10 +162,6 @@ int BQRRP<T, RNG>::call(
     int64_t* J,
     RandBLAS::RNGState<RNG> &state
 ){
-    #ifdef __APPLE__
-    UNUSED(m); UNUSED(n); UNUSED(A); UNUSED(lda); UNUSED(d_factor); UNUSED(tau); UNUSED(J); UNUSED(state);
-    throw std::runtime_error("BQRRP is not supported when BLAS is linked against Apple Accelerate.");
-    #else
     // Input parameter validation. Bad inputs would otherwise lead to a
     // downstream BLAS/LAPACK failure or, worse, a segfault -- both fatal
     // when BQRRP is called through a binding layer (e.g. MEX/MATLAB).
@@ -662,7 +658,6 @@ int BQRRP<T, RNG>::call(
         cols -= b_sz;
     }
     delete[] J_buffer;
-    #endif
     return 0;
 }
 
