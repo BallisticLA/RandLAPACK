@@ -31,6 +31,7 @@
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_blas2_threads.hh"
+#include "rl_exceptions.hh"
 #include "rl_lapackpp.hh"
 #include "rl_lsqr.hh"
 #include "../linops/rl_concepts.hh"
@@ -63,14 +64,18 @@ class Blendenpik_linops {
         /// the exact same x0 Blendenpik uses, isolating the initialization effect.
         bool init_only;
 
-        // [0]=sketch, [1]=qr, [2]=lsqr, [3]=total  (microseconds)
+        // [0]=sketch, [1]=qr, [2]=lsqr, [3]=total, [4]=x0 setup  (microseconds).
+        // Slot 4 (added 2026-08-27) is the sketch-and-solve x0 build (ormqr +
+        // trsv + one operator apply for r0); it was previously inside [3] only,
+        // so callers reporting [0]+[1] and [2] silently dropped it.
         std::vector<long> times;
 
         Blendenpik_linops(bool time_subroutines, T ep) {
             timing    = time_subroutines;
             tol       = (ep > (T)0) ? ep : std::numeric_limits<T>::epsilon();
-            max_iters = 0;   // 0 => default cap (4n) chosen in call()
-            nnz       = 4;   // sparse projection, 4 nnz/col (as CQRRT)
+            max_iters = 0;   // callers MUST set this before call(); see the require below
+            nnz       = 4;   // sparse projection, 4 nnz/col (benchmark CLI overrides;
+                             // NOT the CQRRT default, which is 2)
             lsqr_iters = 0;
             warm_start = true;
             init_only  = false;
@@ -84,26 +89,34 @@ class Blendenpik_linops {
         {
             using clock = std::chrono::steady_clock;
             using std::chrono::duration_cast; using std::chrono::microseconds;
-            long t_sketch = 0, t_qr = 0, t_lsqr = 0;
+            long t_sketch = 0, t_qr = 0, t_lsqr = 0, t_x0 = 0;
             auto total_start = clock::now();
-            if (init_only) warm_start = true;   // x0 is the whole output
+            // Local view only: init_only implies a warm start (x0 IS the output),
+            // but must not mutate the member (2026-08-27; the old assignment made
+            // a reused object silently warm-started on later calls).
+            const bool ws = warm_start || init_only;
 
             int64_t d = (int64_t)(d_factor * (T)n);
             if (d < n) d = n;
 
+            // Allocation (and its first-touch zeroing) is timed INTO the sketch
+            // slot (2026-08-27): the Q-less drivers all time their allocations
+            // into the build total, and leaving Blendenpik's outside every slot
+            // made its build bar incomparable (~2 ms even at m=800, growing with
+            // the sketch size).
+            auto t0 = clock::now();
             T* Ask = new T[d * n]();   // sketch (d x n, ColMajor)
             T* tau = new T[n]();
             T* R   = new T[n * n]();   // preconditioner (upper triangular)
-            T* Sb  = warm_start ? new T[d]() : nullptr;   // sketched RHS, for x0
-            T* x0  = warm_start ? new T[n]() : nullptr;
-            T* r0  = warm_start ? new T[m]() : nullptr;
+            T* Sb  = ws ? new T[d]() : nullptr;   // sketched RHS, for x0
+            T* x0  = ws ? new T[n]() : nullptr;
+            T* r0  = ws ? new T[m]() : nullptr;
             auto cleanup = [&]() {
                 delete[] Ask; delete[] tau; delete[] R;
                 delete[] Sb; delete[] x0; delete[] r0;
             };
 
             // ---- Step 1: Ask = S A   (sparse SASO, applied from the right by the operator) ----
-            auto t0 = clock::now();
             RandBLAS::SparseDist DS(d, m, this->nnz);
             RandBLAS::SparseSkOp<T, RNG> S(DS, state);
             state = S.next_state;
@@ -112,7 +125,7 @@ class Blendenpik_linops {
               d, n, m, (T)1.0, S, (T)0.0, Ask, d);
             // Sketch the RHS with the SAME S, so x0 solves the sketched LS problem
             // min ||Ask x - Sb||. Treat b as an m x 1 matrix.
-            if (warm_start) {
+            if (ws) {
                 RandBLAS::sketch_general(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
                                          d, 1, m, (T)1.0, S, 0, 0, b, m, (T)0.0, Sb, d);
             }
@@ -133,9 +146,11 @@ class Blendenpik_linops {
 
             // ---- Step 3: sketch-and-solve initial guess  x0 = R^{-1} (Q^T (S b)) ----
             // Q is the implicit factor from geqrf(Ask); apply Q^T with ormqr rather than
-            // forming it, then one triangular solve. Cost is O(d n) + O(n^2), negligible
-            // next to the sketch QR that already happened.
-            if (warm_start) {
+            // forming it, then one triangular solve. The dominant cost is the one full
+            // operator apply for r0. Timed into its own slot (times[4]) since
+            // 2026-08-27; callers reporting sketch+qr and lsqr dropped it before.
+            if (ws) {
+                t0 = clock::now();
                 lapack::ormqr(blas::Side::Left, blas::Op::Trans, d, 1, n, Ask, d, tau, Sb, d);
                 std::copy(Sb, Sb + n, x0);
                 { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
@@ -146,6 +161,7 @@ class Blendenpik_linops {
                 A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
                   m, 1, n, (T)1.0, x0, n, (T)0.0, r0, m);
                 for (int64_t i = 0; i < m; ++i) r0[i] = b[i] - r0[i];
+                if (timing) t_x0 = duration_cast<microseconds>(clock::now() - t0).count();
             }
 
             // init_only: the sketch-and-solve x0 IS the answer; skip LSQR. Report the
@@ -158,7 +174,7 @@ class Blendenpik_linops {
                 final_relres = (nb > (T)0) ? blas::nrm2(m, r0, 1) / nb : (T)-1;
                 if (timing) {
                     long total = duration_cast<microseconds>(clock::now() - total_start).count();
-                    this->times = {t_sketch, t_qr, 0, total};
+                    this->times = {t_sketch, t_qr, 0, total, t_x0};
                 }
                 R_out.assign(R, R + n * n);
                 cleanup();
@@ -166,15 +182,21 @@ class Blendenpik_linops {
             }
 
             // ---- Step 4: LSQR on A with right preconditioner R; x = R^{-1} y ----
-            int cap = (max_iters > 0) ? max_iters : (int)std::min<int64_t>(4 * n, 1000);
-            long lsqr_times[4] = {0, 0, 0, 0};
+            // The old silent fallback min(4n, 1000) handicapped any caller that
+            // forgot to set the cap by up to 3x against the CLI budget (measured
+            // before 2026-08-05); it is now a hard error instead.
+            randlapack_require(max_iters > 0)
+                << "Blendenpik_linops: set max_iters before call() (no default cap)";
+            long lt[4] = {0, 0, 0, 0};
             t0 = clock::now();
             int st = RandLAPACK::lsqr<T>(A, m, n, R, n,
-                                         warm_start ? r0 : b, x,
-                                         tol, tol, cap, lsqr_iters, lsqr_times, &final_relres);
+                                         ws ? r0 : b, x,
+                                         tol, tol, max_iters, lsqr_iters, lt, &final_relres,
+                                         &lsqr_stop_test);
             if (timing) t_lsqr = duration_cast<microseconds>(clock::now() - t0).count();
+            lsqr_op_times.assign(lt, lt + 4);
             // Undo the shift: LSQR solved for the correction, so add the initial guess back.
-            if (warm_start) {
+            if (ws) {
                 blas::axpy(n, (T)1.0, x0, 1, x, 1);
                 // LSQR normalized its residual by ||r0||, not ||b||. Rescale so the
                 // reported number means the same thing as for every other method
@@ -194,7 +216,7 @@ class Blendenpik_linops {
 
             if (timing) {
                 long total = duration_cast<microseconds>(clock::now() - total_start).count();
-                this->times = {t_sketch, t_qr, t_lsqr, total};
+                this->times = {t_sketch, t_qr, t_lsqr, total, t_x0};
             }
             // Expose the sketch R factor so the caller can report Q = A R^{-1} orthogonality.
             R_out.assign(R, R + n * n);
@@ -213,6 +235,13 @@ class Blendenpik_linops {
         /// requested this from lsqr, so its CSV column was structurally -1 while every
         /// other method carried a real number.
         T final_relres = (T)-1;
+        /// Which LSQR stopping test ended the run: 1 = S1 (residual), 2 = S2
+        /// (normal-equation test; fires at the LS floor), 0 = iteration cap.
+        int lsqr_stop_test = 0;
+        /// LSQR's internal operator split [fwd_us, adj_us, trsm_us, total_us] from
+        /// the last call. Exposed 2026-08-27; previously measured and discarded,
+        /// which forced -1 sentinels into the benchmarks' op-split columns.
+        std::vector<long> lsqr_op_times;
 };
 
 

@@ -32,8 +32,11 @@
 //     achievable accuracy on hard problems (second deliberate deviation from the
 //     reference; measured A/B in the round-residual comment below).
 //   * The loop exits when ||b - A x|| / ||b|| <= tol (success), when the TOTAL
-//     inner-iteration budget max_iters is exhausted, or when the inner CG breaks
-//     down (indefinite H apply, a sign the factor R is unusable).
+//     inner-iteration budget max_iters is exhausted, when the round budget
+//     max_restarts is spent, when the inner CG breaks down (indefinite H apply,
+//     a sign the factor R is unusable), or when outer_stag_window consecutive
+//     rounds fail to improve the true LS residual (the LS-floor exit). Each exit
+//     has its own status code; see @returns.
 //
 // The convergence test is on the true LS residual, matching the reference; the
 // inner drop tolerance only paces the restarts.
@@ -64,7 +67,8 @@ template <typename T>
 struct PCGRoundHistory {
     std::vector<int> iters;          ///< inner CG iterations of the round
     std::vector<int> status;         ///< InnerCGStatus of the round (as int)
-    std::vector<T>   relres;         ///< kernel relres at round exit
+    std::vector<T>   relres;         ///< kernel relres of the RETURNED iterate (the
+                                     ///< best-iterate relres on Stagnated/HitCap exits)
     std::vector<T>   best_relres;    ///< best kernel relres seen in the round
     std::vector<int> best_iter;      ///< iteration achieving best_relres
     std::vector<T>   ls_relres;      ///< true LS relres after the round
@@ -121,8 +125,20 @@ struct PCGRoundHistory {
 ///                      Added 2026-08-10 so a solver's own answer (e.g.
 ///                      Blendenpik's) can be handed to iterative refinement,
 ///                      separating preconditioner quality from solver structure.
-/// @returns 0 if the LS tolerance was met; 1 if the iteration budget was exhausted;
-///          2 if the inner CG broke down or made no progress (reference flag 2).
+/// @param[in]  outer_stag_window  consecutive rounds without a stag_rel_improve
+///                      drop of the TRUE LS residual (measured against the last
+///                      significant improvement, mirroring the inner kernel) that
+///                      end the loop as an LS-floor exit. <= 0 disables the outer
+///                      exit. Decoupled from stag_window (2026-08-27); previously
+///                      one knob silently controlled both mechanisms.
+/// @returns 0 if the LS tolerance was met;
+///          1 if the total inner-iteration budget was exhausted;
+///          2 if the inner CG broke down or made no progress (reference flag 2);
+///          3 if the outer round budget (max_restarts) was spent;
+///          4 if the run ended at its LS floor (outer stagnation exit, or an
+///            exactly-zero NE residual with the LS tolerance still unmet).
+///          Codes 3 and 4 were folded into 1 before 2026-08-27; callers that only
+///          test zero/nonzero are unaffected.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 int restarted_pcg_ne(
     GLO& A, int64_t m, int64_t n,
@@ -140,7 +156,8 @@ int restarted_pcg_ne(
     T stag_rel_improve = (T)1e-3,
     T inner_abs_tol = (T)0,
     PCGRoundHistory<T>* history = nullptr,
-    const T* x0 = nullptr)
+    const T* x0 = nullptr,
+    int outer_stag_window = 2)
 {
     randlapack_require(restart_drop > (T)0 && restart_drop < (T)1)
         << "restarted_pcg_ne: restart_drop must lie in (0,1)";
@@ -150,6 +167,10 @@ int restarted_pcg_ne(
     using clock = std::chrono::steady_clock;
     using std::chrono::duration_cast;
     using std::chrono::microseconds;
+    // One width for the whole solve: narrows width-capped kernels (the Toeplitz
+    // FFT) to the trsv width so the inner loop pays no team re-formation per
+    // width transition. No-op for operators that do not consult the context.
+    SolveWidthScope solve_scope(n);
     long t_fwd = 0, t_adj = 0, t_trsm = 0;
     // Inner/outer attribution: apply_H is called both inside the CG kernel and
     // by the restart loop's residual recomputations. The flag routes each op's
@@ -165,7 +186,7 @@ int restarted_pcg_ne(
     // Workspaces (raw T*, freed on every return path via cleanup()).
     T* z    = new T[n]();     // preconditioned solution, x = R^{-1} z
     T* g    = new T[n]();     // normal-equation right-hand side R^{-T} A^T b
-    T* r_ne = new T[n]();     // true NE residual g - H z
+    T* r_ne = new T[n]();     // NE residual in the stable form R^{-T} A^T (b - A x)
     T* dz   = new T[n]();     // inner CG correction
     T* p    = new T[n]();     // CG direction
     T* q    = new T[n]();     // holds H p
@@ -258,23 +279,34 @@ int restarted_pcg_ne(
     // 2026-08-06 change removed).
     T relres;
     if (x0 == nullptr) {
+        // z = 0, so x = 0 exactly and ||b - A x|| / ||b|| = 1 with no arithmetic:
+        // the full apply the recovery lambda would burn here (one FFT-class
+        // operator apply plus a trsv on a zero vector) is skipped (2026-08-27).
         std::copy(g, g + n, r_ne);
-        relres = recover_x_and_relres();
+        std::fill(x, x + n, (T)0);
+        relres = (bnorm > (T)0) ? (T)1 : (T)0;
     } else {
         std::copy(x0, x0 + n, z);
         if (prec) {
             auto ts = clock::now();
-            blas::trmv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, z, 1);
+            { Blas2ThreadGuard tg(n);   // trmv degrades unguarded like trsv
+                blas::trmv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, z, 1);
+            }
             t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
         }
         relres = recover_x_and_relres();          // leaves wm = b - A x
+        auto ta = clock::now();
         A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
           n, 1, m, (T)1.0, wm, m, (T)0.0, r_ne, n);
+        t_adj += duration_cast<microseconds>(clock::now() - ta).count();
         if (prec) {
-            Blas2ThreadGuard tg(n);
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, r_ne, 1);
+            auto ts = clock::now();
+            { Blas2ThreadGuard tg(n);
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, r_ne, 1);
+            }
+            t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
         }
     }
 
@@ -286,20 +318,29 @@ int restarted_pcg_ne(
     int restarts = 0;
     int status = 1;
 
-    // Outer stagnation state (2026-08-07): when tol sits below the problem's
-    // achievable LS floor (e.g. a data noise floor above the requested
-    // tolerance), every round reaches the floor and further rounds burn
-    // iterations without progress. Two consecutive rounds whose true-residual
-    // improvement is below stag_rel_improve end the loop with the honest
-    // not-converged status. Follows the kernel's stagnation switch: disabled
-    // when stag_window <= 0.
+    // Outer stagnation state (2026-08-07; reference semantics fixed 2026-08-27):
+    // when tol sits below the problem's achievable LS floor (e.g. a data noise
+    // floor above the requested tolerance), every round reaches the floor and
+    // further rounds burn iterations without progress. outer_stag_window
+    // consecutive rounds without a significant CUMULATIVE improvement over the
+    // last significant drop end the loop as an LS-floor exit (status 4). The
+    // reference advances only on a significant improvement, mirroring the inner
+    // kernel: the old per-round reference update killed steady slow descent
+    // (e.g. 0.05% per round) after two rounds. Disabled when
+    // outer_stag_window <= 0.
     T   ls_stag_ref    = relres;
     int ls_flat_rounds = 0;
 
     while (relres > tol && iters_done < max_iters) {
-        if (max_restarts >= 0 && restarts > max_restarts) break;   // round budget spent
+        if (max_restarts >= 0 && restarts > max_restarts) { status = 3; break; }  // round budget spent
         T ne_norm = blas::nrm2(n, r_ne, 1);
-        if (ne_norm == (T)0) { status = 0; break; }     // exact NE solution reached
+        if (ne_norm == (T)0) {
+            // Exactly-zero NE residual: x is the LS minimizer. That meets the
+            // caller's tolerance only if the LS residual itself does; otherwise
+            // this is the LS floor, not convergence (fixed 2026-08-27).
+            status = (relres <= tol) ? 0 : 4;
+            break;
+        }
 
         ++restarts;
         int inner_cap = std::min(restart_maxit, max_iters - iters_done);
@@ -351,13 +392,17 @@ int restarted_pcg_ne(
         // converge to kappa ~ 1e11 and beyond), so the FFT apply's rounding is a
         // necessary ingredient; the benchmark is the regression harness for this.
         {
+            auto ta = clock::now();
             A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
               n, 1, m, (T)1.0, wm, m, (T)0.0, r_ne, n);
+            t_adj += duration_cast<microseconds>(clock::now() - ta).count();
             if (prec) {
+                auto ts = clock::now();
                 { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
                     blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
                                blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, r_ne, 1);
                 }
+                t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
             }
         }
 
@@ -372,14 +417,23 @@ int restarted_pcg_ne(
 
         if (relres <= tol) { status = 0; break; }
         if (inner_flag == 2) { status = 2; break; }      // breakdown: R unusable
-        if (inner_iters == 0) { status = 2; break; }     // no progress possible
-        if (stag_window > 0) {
+        // A zero-iteration round changes nothing, so the loop must end either
+        // way; gate the MEANING on the kernel status, not the count (2026-08-27):
+        // a round whose target was already met at entry is the LS floor (the NE
+        // target cannot improve the true residual further), not a breakdown.
+        if (inner_iters == 0) {
+            status = (rep.status == InnerCGStatus::Converged) ? 4 : 2;
+            break;
+        }
+        if (outer_stag_window > 0) {
             if (relres >= ls_stag_ref * ((T)1 - stag_rel_improve)) {
-                if (++ls_flat_rounds >= 2) break;        // LS floor reached: stop
+                if (++ls_flat_rounds >= outer_stag_window) {
+                    status = 4; break;                   // LS floor reached: stop
+                }
             } else {
                 ls_flat_rounds = 0;
+                ls_stag_ref = relres;   // reference advances on significant drops only
             }
-            if (relres < ls_stag_ref) ls_stag_ref = relres;
         }
     }
 

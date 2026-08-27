@@ -102,15 +102,18 @@ private:
 // ---------------------------------------------------------------------------
 
 // CQRRT_linops (TRSM_IDENTITY / GEQP3).
-// Peak during the blocked Gram + Cholesky moment:
-//   A_hat(d*n) + tau(n) + R_sk_inv(n*n) + G(n*n) + G_backup(n*n) + A_pre(m*b_eff)
-// = d*n + n + 3*n*n + m*b_eff. The G + G_backup pair is the Cholesky workspace
-// and (per the 2026-06-05 rework) the snapshot used for adaptive-shift retries.
+// Peak during the blocked Gram + Cholesky moment (recounted 2026-08-27 against
+// the post-2a2577e allocation lifetimes; the old formula understated by
+// n*n + n*b_eff, about 545 MB at n = 8256 double):
+//   A_hat(d*n) + tau(n) + P(n*n) + R_pre(n*n) + G(n*n)
+//   + G_backup(n*n, allocated inside cholqr_primitive whenever retries are
+//     enabled, which is the driver default) + A_temp(m*b_eff) + Z_buf(n*b_eff)
+// = d*n + n + 4*n*n + (m + n)*b_eff.
 template <typename T>
 static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
     int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (d * n + n + 3L * n * n + (long)m * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (d * n + n + 4L * n * n + (long)(m + n) * b_eff);
     return bytes / 1024;
 }
 
@@ -144,30 +147,27 @@ static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t blo
     return bytes / 1024;
 }
 
-// sCholQR3_linops (post-2026-06-05 rework with adaptive-shift retries enabled).
-// Persistent driver scratches: G(n*n) + R_pre(n*n) + P_prev(n*n) + A_temp(m*b_eff)
-//   + Z_buf(n*b_eff) = 3*n*n + (m+n)*b_eff.
-// Iter-1 cholqr_primitive also allocates its own G(n*n) + G_backup(n*n) +
-//   A_temp(m*b_eff) transiently (freed before iters 2/3 start), so the peak is:
-//     3*n*n + (m+n)*b_eff + 2*n*n + m*b_eff = 5*n*n + (2m+n)*b_eff.
-// Iter-2 / iter-3 cholqr_primitive only adds a single G_backup(n*n), which is
-//   strictly smaller than iter-1's transient set, so iter-1 dominates the peak.
+// sCholQR3_linops (recounted 2026-08-27 against the post-2a2577e lifetimes; the
+// old formula overstated by n*n + m*b_eff by assuming iter-1's primitive
+// transients coexist with the iters-2/3 scratch, which the refactor sequenced:
+// iter 1's primitive frees its own G/G_backup/A_temp BEFORE the iters-2/3
+// scratch is allocated).
+// Peak moment (iters 2/3): driver persistent G(n*n) + R_pre(n*n) + P_prev(n*n)
+//   + primitive G_backup(n*n) + A_temp(m*b_eff) + Z_buf(n*b_eff)
+// = 4*n*n + (m+n)*b_eff, which also bounds the iter-1 moment.
 template <typename T>
 static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (5L * n * n + (long)(2L * m + n) * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (4L * n * n + (long)(m + n) * b_eff);
     return bytes / 1024;
 }
 
-// sCholQR3_linops_basic (post-2026-06-05 refactor; non-blocked b_eff = n):
-// Same primitive structure as sCholQR3_linops with block_size=0. Plugging
-// b_eff = n into the blocked formula 5*n*n + (2m+n)*b_eff gives:
-//   5*n*n + (2m + n)*n  =  6*n*n + 2*m*n.
-// (Identical accounting to the legacy basic formula by coincidence, since the
-// b_eff = n collapse cancels the persistent + transient split.)
+// sCholQR3_linops_basic (recounted 2026-08-27; same sequencing argument as the
+// blocked variant): b_eff = n collapse of 4*n*n + (m+n)*b_eff gives
+//   4*n*n + (m + n)*n = 5*n*n + m*n.
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
-    long bytes = static_cast<long>(sizeof(T)) * (6L * n * n + 2L * (long)m * n);
+    long bytes = static_cast<long>(sizeof(T)) * (5L * n * n + (long)m * n);
     return bytes / 1024;
 }
 

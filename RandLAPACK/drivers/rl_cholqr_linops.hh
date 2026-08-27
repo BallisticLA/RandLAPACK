@@ -30,7 +30,6 @@ class CholQR_linops {
 
         bool timing;
         bool test_mode;
-        T eps;
 
         // Q-factor for test mode (only allocated if test_mode = true)
         T* Q;
@@ -64,7 +63,7 @@ class CholQR_linops {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            eps = ep;
+            (void)ep;   // stored `eps` member removed 2026-08-27: it was never read
             block_size = 0;
             test_mode = enable_test_mode;
             Q = nullptr;
@@ -155,7 +154,6 @@ class CholQR2_linops {
     public:
         bool timing;
         bool test_mode;
-        T eps;
 
         // Q-factor for test mode (only allocated if test_mode = true)
         T* Q;
@@ -192,7 +190,7 @@ class CholQR2_linops {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            eps = ep;
+            (void)ep;   // stored `eps` member removed 2026-08-27: it was never read
             block_size = 0;
             test_mode = enable_test_mode;
             Q = nullptr;
@@ -275,7 +273,9 @@ inline long cholqr2_linops_analytical_kb(int64_t m, int64_t n, int64_t block_siz
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
     int64_t bytes = (int64_t)sizeof(T) *
         ( 4 * n * n        // G + R_pre + P_prev + G_backup (peak; iter-2 retry)
-        + 2 * m * b_eff    // A_temp (driver) + A_temp (primitive); same allocation in practice
+        + m * b_eff        // A_temp: driver and primitive buffers are SEQUENTIAL,
+                           // not coexistent (recounted 2026-08-27; the old formula
+                           // double-counted them as 2*m*b_eff)
         + n * b_eff        // Z_buf
         );
     return bytes / 1024;

@@ -43,7 +43,6 @@ struct ToeplitzLinOp {
 
     const int64_t n_rows;   // = m (rows of T)
     const int64_t n_cols;   // = n (cols of T)
-    int64_t block_size;     // RHS blocking hint (FFTs are applied column-by-column here)
 
     int64_t L;                       // circulant length, power of two >= m+n-1
     std::complex<T>* Femb  = nullptr; // fft of forward embedding (length L)
@@ -51,10 +50,24 @@ struct ToeplitzLinOp {
     std::complex<T>* work  = nullptr; // scratch (length L), reused per column
     DFTI_DESCRIPTOR_HANDLE desc = nullptr;
 
+    // Batched-apply state (2026-08-27): multi-column applies (the sketch and Gram
+    // build paths hand this operator up to block_size columns per call) go through
+    // a DFTI_NUMBER_OF_TRANSFORMS descriptor in batches of kFFTBatch columns,
+    // rather than one serial FFT pair per column. Memory: kFFTBatch * L complex
+    // (at L = 2^19 double that is ~8 MB per batch column, 128 MB at 16).
+    // The single-RHS path (the CG loop) is untouched. The batched descriptor is
+    // (re)committed only when the batch width changes.
+    static constexpr int64_t kFFTBatch = 16;
+    std::complex<T>* work_b = nullptr;   // lazily allocated, kFFTBatch * L
+    DFTI_DESCRIPTOR_HANDLE desc_b = nullptr;
+    int64_t batch_committed = 0;
+
     /// @param c  first column of T (length m).
     /// @param r  first row of T (length n).  Requires c[0] == r[0].
-    ToeplitzLinOp(const T* c, int64_t m, const T* r, int64_t n, int64_t block_size_ = 8)
-        : n_rows(m), n_cols(n), block_size(block_size_)
+    /// (The former trailing block_size parameter was removed 2026-08-27: it was
+    /// never read; multi-RHS blocking is handled internally via kFFTBatch.)
+    ToeplitzLinOp(const T* c, int64_t m, const T* r, int64_t n)
+        : n_rows(m), n_cols(n)
     {
         randlapack_require(m >= 1 && n >= 1) << "ToeplitzLinOp: m,n must be >= 1";
         randlapack_require(std::abs((double)c[0] - (double)r[0])
@@ -82,8 +95,9 @@ struct ToeplitzLinOp {
     }
 
     ~ToeplitzLinOp() {
-        if (desc)  DftiFreeDescriptor(&desc);
-        delete[] Femb; delete[] FembT; delete[] work;
+        if (desc)   DftiFreeDescriptor(&desc);
+        if (desc_b) DftiFreeDescriptor(&desc_b);
+        delete[] Femb; delete[] FembT; delete[] work; delete[] work_b;
     }
 
     ToeplitzLinOp(const ToeplitzLinOp&) = delete;
@@ -115,17 +129,28 @@ struct ToeplitzLinOp {
         randlapack_require(m == out_rows) << "ToeplitzLinOp: output row dim mismatch";
         randlapack_require(k == in_rows)  << "ToeplitzLinOp: inner dim mismatch";
 
-        for (int64_t j = 0; j < nrhs; ++j) {
-            const T* bj = B + j * ldb;
-            T*       cj = C + j * ldc;
-            // work = [ bj(0..in_rows-1) ; 0 ... ]  (complex, imag=0)
+        // Effective FFT width: the configured cap, further narrowed by an active
+        // solve-width context (SolveWidthScope, 2026-08-27). Inside a solver the
+        // trsv runs at a narrow ACTUAL width, and alternating team widths cost
+        // the wide region ~300 us per re-formation on the benchmark node, so the
+        // solve loop runs at ONE width. Build-phase applies see no context.
+        int fft_cap = RandLAPACK::fft_thread_cap();
+        {
+            int ctx = RandLAPACK::solve_context_width();
+            if (ctx > 0 && (fft_cap <= 0 || ctx < fft_cap)) fft_cap = ctx;
+        }
+
+        if (nrhs == 1) {
+            // Single right-hand side (the CG/LSQR loops): the original in-place path.
+            const T* bj = B;
+            T*       cj = C;
             for (int64_t i = 0; i < in_rows; ++i) work[i] = std::complex<T>(bj[i], (T)0);
             for (int64_t i = in_rows; i < L; ++i) work[i] = std::complex<T>((T)0, (T)0);
             {   // Cap the transform's threads: MKL's threaded FFT intermittently
                 // stalls 16-32 ms per call at full width on this class of machine,
                 // which a solver converging in a few applies cannot average out.
                 // See rl_blas2_threads.hh for the measurements.
-                RandLAPACK::Blas2ThreadGuard fftg(RandLAPACK::fft_thread_cap(), 0);
+                RandLAPACK::Blas2ThreadGuard fftg(fft_cap, 0);
                 DftiComputeForward(desc, work);
                 for (int64_t i = 0; i < L; ++i) work[i] *= Fuse[i];
                 DftiComputeBackward(desc, work);   // scaled by 1/L
@@ -136,11 +161,53 @@ struct ToeplitzLinOp {
             // indeterminate memory by zero, which is 0 for normal values but NaN for a
             // trap representation. Branch on beta rather than trusting the buffer.
             if (beta == (T)0) {
-                for (int64_t i = 0; i < out_rows; ++i)
-                    cj[i] = alpha * work[i].real();
+                for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * work[i].real();
             } else {
-                for (int64_t i = 0; i < out_rows; ++i)
-                    cj[i] = alpha * work[i].real() + beta * cj[i];
+                for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * work[i].real() + beta * cj[i];
+            }
+            return;
+        }
+
+        // Multi-column path (sketch / Gram builds): batched transforms, kFFTBatch
+        // columns per DFTI call (2026-08-27; previously one serial FFT pair per
+        // column, ~66k serial transforms per method at ISAAC-large scale).
+        if (work_b == nullptr) work_b = new std::complex<T>[kFFTBatch * L];
+        for (int64_t j0 = 0; j0 < nrhs; j0 += kFFTBatch) {
+            const int64_t bs = std::min<int64_t>(kFFTBatch, nrhs - j0);
+            if (bs != batch_committed) {
+                if (desc_b) DftiFreeDescriptor(&desc_b);
+                constexpr DFTI_CONFIG_VALUE prec = std::is_same_v<T, double> ? DFTI_DOUBLE : DFTI_SINGLE;
+                DftiCreateDescriptor(&desc_b, prec, DFTI_COMPLEX, 1, (MKL_LONG)L);
+                DftiSetValue(desc_b, DFTI_PLACEMENT, DFTI_INPLACE);
+                DftiSetValue(desc_b, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L));
+                DftiSetValue(desc_b, DFTI_NUMBER_OF_TRANSFORMS, (MKL_LONG)bs);
+                DftiSetValue(desc_b, DFTI_INPUT_DISTANCE,  (MKL_LONG)L);
+                DftiSetValue(desc_b, DFTI_OUTPUT_DISTANCE, (MKL_LONG)L);
+                DftiCommitDescriptor(desc_b);
+                batch_committed = bs;
+            }
+            for (int64_t j = 0; j < bs; ++j) {
+                const T* bj = B + (j0 + j) * ldb;
+                std::complex<T>* wj = work_b + j * L;
+                for (int64_t i = 0; i < in_rows; ++i) wj[i] = std::complex<T>(bj[i], (T)0);
+                for (int64_t i = in_rows; i < L; ++i) wj[i] = std::complex<T>((T)0, (T)0);
+            }
+            {   RandLAPACK::Blas2ThreadGuard fftg(fft_cap, 0);
+                DftiComputeForward(desc_b, work_b);
+                for (int64_t j = 0; j < bs; ++j) {
+                    std::complex<T>* wj = work_b + j * L;
+                    for (int64_t i = 0; i < L; ++i) wj[i] *= Fuse[i];
+                }
+                DftiComputeBackward(desc_b, work_b);   // scaled by 1/L
+            }
+            for (int64_t j = 0; j < bs; ++j) {
+                T* cj = C + (j0 + j) * ldc;
+                const std::complex<T>* wj = work_b + j * L;
+                if (beta == (T)0) {
+                    for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * wj[i].real();
+                } else {
+                    for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * wj[i].real() + beta * cj[i];
+                }
             }
         }
     }

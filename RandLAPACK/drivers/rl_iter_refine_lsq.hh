@@ -129,9 +129,16 @@ struct IterRefineLSQ {
     /// OUTER EARLY EXIT (added 2026-08-06, structure unification with
     /// restarted_pcg_ne): stop refining once the TRUE residual ||b - Jx|| / ||b||
     /// is at or below this value, checked between rounds where the residual is
-    /// recomputed anyway. 0 (the default) disables the check: run exactly
-    /// n_refine_steps rounds.
+    /// recomputed anyway. 0 (the default) disables THIS check only; the run can
+    /// still end before n_refine_steps rounds via the engine's LS-floor
+    /// stagnation exit (see outer_stag_window) or a terminal inner-CG condition.
     T outer_tol;
+    /// Consecutive rounds without significant true-residual improvement that end
+    /// the run as an LS-floor exit (forwarded to restarted_pcg_ne; see its
+    /// documentation). <= 0 disables the floor exit. Decoupled from
+    /// inner_stag_window on 2026-08-27; before that the inner knob silently
+    /// controlled both mechanisms with a hardwired 2-round window.
+    int outer_stag_window = 2;
     /// Optional initial iterate to refine (length n), or nullptr for the cold
     /// start that every Q-less method uses. Added 2026-08-10 so another solver's
     /// answer (Blendenpik's) can be handed to refinement, which separates
@@ -160,8 +167,15 @@ struct IterRefineLSQ {
     ///       preconditioner is weak; more iterations would help)
     std::vector<T>   inner_best_relres_per_step;
     std::vector<int> inner_best_iter_per_step;
+    /// True LS relative residual after each round (engine ls_relres, added
+    /// 2026-08-27 for the per-round campaign sidecar records).
+    std::vector<T> ls_relres_per_step;
     /// Final relative residual ||b - J x|| / ||b|| (or ||b - J x|| if ||b|| == 0).
     T final_residual_norm;
+    /// The engine's exit status, verbatim (see restarted_pcg_ne @returns:
+    /// 0 tol met, 1 budget, 2 breakdown, 3 round budget, 4 LS floor). Recorded
+    /// so callers can report WHY a run ended, not just whether it converged.
+    int engine_status = 1;
     /// Total inner CG iterations summed over all rounds, for callers that report a
     /// single iteration count.
     int inner_iters_total() const {
@@ -199,9 +213,10 @@ struct IterRefineLSQ {
     /// @param ldr   Leading dimension of R.
     /// @param b     Right-hand side, length m.
     /// @param m     Number of rows of J / length of b.
-    /// @param x     Solution buffer, length n. Always COLD-STARTED: any incoming
-    ///              content is zeroed (the 2026-08-05 policy; the sketch-and-solve
-    ///              warm start is Blendenpik-only).
+    /// @param x     Solution buffer, length n. Incoming content is ignored: the
+    ///              start is cold (the 2026-08-05 policy for Q-less methods)
+    ///              unless warm_x0 is set, in which case THAT iterate is refined
+    ///              (2026-08-10, Blendenpik handoff).
     /// @param n     Number of columns of J / length of x.
     ///
     /// @returns 0 on success; nonzero on inner-CG breakdown.
@@ -242,7 +257,8 @@ struct IterRefineLSQ {
             timing ? times4 : nullptr,
             &final_rel,
             inner_stag_window, inner_stag_rel_improve,
-            abs_guard, &hist, warm_x0);
+            abs_guard, &hist, warm_x0, outer_stag_window);
+        engine_status = st;
 
         // Republish the engine's per-round records under the historical names.
         inner_iters_per_step       = hist.iters;
@@ -250,6 +266,7 @@ struct IterRefineLSQ {
         inner_relres_per_step      = hist.relres;
         inner_best_relres_per_step = hist.best_relres;
         inner_best_iter_per_step   = hist.best_iter;
+        ls_relres_per_step         = hist.ls_relres;
         outer_iters_done    = rounds;
         final_residual_norm = final_rel;
 

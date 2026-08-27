@@ -20,7 +20,6 @@
 
 #include "rl_blaspp.hh"
 #include "rl_blas2_threads.hh"
-#include "rl_lapackpp.hh"
 #include "../linops/rl_concepts.hh"
 
 #include <chrono>
@@ -48,6 +47,12 @@ namespace RandLAPACK {
 /// @param[out] final_relres optional: the solver's own ||b - Ã y|| / ||b|| at
 ///                      termination (the Paige-Saunders S1 estimate). For a right
 ///                      preconditioner this equals ||b - A x|| / ||b|| since Ã y = A x.
+/// @param[out] stop_test optional: WHICH test ended the run: 1 = S1 (residual met
+///                      btol), 2 = S2 (normal-equation test met atol; fires at the
+///                      LS floor even when the residual is far above btol), 0 = the
+///                      iteration cap. Callers comparing convergence flags against
+///                      restarted_pcg_ne (whose only success test is the true LS
+///                      residual) need this to tell S2 successes apart (2026-08-27).
 /// @returns 0 if a stopping test was met; 1 if the iteration cap was hit.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 int lsqr(
@@ -57,13 +62,17 @@ int lsqr(
     T atol, T btol, int max_iters,
     int& iters_done,
     long* times = nullptr,
-    T* final_relres = nullptr)
+    T* final_relres = nullptr,
+    int* stop_test = nullptr)
 {
     using clock = std::chrono::steady_clock;
     using std::chrono::duration_cast;
     using std::chrono::microseconds;
+    // One width for the whole solve (see SolveWidthScope in rl_blas2_threads.hh).
+    SolveWidthScope solve_scope(n);
     long t_fwd = 0, t_adj = 0, t_trsm = 0;
     auto total_start = clock::now();
+    if (stop_test) *stop_test = 0;
 
     const bool prec = (R != nullptr);
 
@@ -116,7 +125,7 @@ int lsqr(
     T beta = blas::nrm2(m, u, 1);
     T bnorm = beta;
     for (int64_t i = 0; i < n; ++i) x[i] = (T)0;
-    if (beta == (T)0) { iters_done = 0; cleanup(); if (times) { times[0]=t_fwd; times[1]=t_adj; times[2]=t_trsm; times[3]=duration_cast<microseconds>(clock::now()-total_start).count(); } if (final_relres) *final_relres = (T)0; return 0; }
+    if (beta == (T)0) { iters_done = 0; cleanup(); if (times) { times[0]=t_fwd; times[1]=t_adj; times[2]=t_trsm; times[3]=duration_cast<microseconds>(clock::now()-total_start).count(); } if (final_relres) *final_relres = (T)0; if (stop_test) *stop_test = 1; return 0; }
     blas::scal(m, (T)1.0 / beta, u, 1);
 
     apply_AtildeT(u, v);
@@ -125,7 +134,9 @@ int lsqr(
     std::copy(v, v + n, w);
 
     T phibar = beta, rhobar = alpha;
-    T anorm2 = (T)0;
+    // Frobenius-norm accumulator for the S2 test; starts from the init-phase
+    // alpha_1 (previously omitted, slightly understating the estimate).
+    T anorm2 = alpha * alpha;
     iters_done = 0;
     int status = 1;
 
@@ -164,8 +175,8 @@ int lsqr(
         T rnorm = phibar;                       // ||b - Ã y||
         T arnorm = phibar * alpha * std::abs(c); // ||Ã^T r||
         iters_done = it;
-        if (rnorm <= btol * bnorm) { status = 0; break; }
-        if (anorm * rnorm > (T)0 && arnorm <= atol * anorm * rnorm) { status = 0; break; }
+        if (rnorm <= btol * bnorm) { status = 0; if (stop_test) *stop_test = 1; break; }
+        if (anorm * rnorm > (T)0 && arnorm <= atol * anorm * rnorm) { status = 0; if (stop_test) *stop_test = 2; break; }
     }
 
     // Undo the preconditioner: x = R^{-1} y  (y currently in x).

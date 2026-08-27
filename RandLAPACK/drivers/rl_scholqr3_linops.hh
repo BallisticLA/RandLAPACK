@@ -50,7 +50,6 @@ class sCholQR3_linops {
 
         bool timing;
         bool test_mode;
-        T eps;
 
         // Q-factor for test mode (only allocated if test_mode = true)
         T* Q;
@@ -103,7 +102,7 @@ class sCholQR3_linops {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            eps = ep;
+            (void)ep;   // stored `eps` member removed 2026-08-27: it was never read
             block_size = 0;
             test_mode = enable_test_mode;
             Q = nullptr;
@@ -204,7 +203,6 @@ class sCholQR3_linops_basic {
 
         bool timing;
         bool test_mode;
-        T eps;
 
         T* Q;
         int64_t Q_rows;
@@ -240,7 +238,7 @@ class sCholQR3_linops_basic {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            eps = ep;
+            (void)ep;   // stored `eps` member removed 2026-08-27: it was never read
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;

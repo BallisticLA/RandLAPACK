@@ -119,8 +119,10 @@ inline int blas2_thread_cap(int64_t n) {
 ///
 /// Capping the transform is the vendor-recommended remedy for single small
 /// transforms (Intel advises reducing the thread count rather than expecting a
-/// lone FFT to scale; batching via DFTI_NUMBER_OF_TRANSFORMS is the alternative,
-/// and is unavailable to us because CG produces one right-hand side at a time).
+/// lone FFT to scale). Batching via DFTI_NUMBER_OF_TRANSFORMS is the remedy for
+/// the multi-column build path (sketch and Gram applies, added 2026-08-27); the
+/// CG loop still produces one right-hand side at a time and keeps this cap,
+/// further narrowed by SolveWidthScope while a solver is running.
 constexpr int kDefaultFFTThreads = 16;
 
 
@@ -134,6 +136,61 @@ inline int fft_thread_cap() {
     }();
     return cap;
 }
+
+
+/// Solve-scoped width matching (2026-08-27). Alternating OpenMP team widths cost
+/// the wider region ~300 us per re-formation on the benchmark node (libgomp,
+/// dual-socket Gold 6430; five-probe elimination record in the knowledge-base doc
+/// openmp-team-width-interleave-penalty.md). Inside an iterative solve the trsv
+/// runs at blas2_thread_cap(n) ACTUAL width, and widths can only be equalized
+/// DOWNWARD: MKL does not form wide teams for small trsv, so raising the trsv
+/// request does not remove the alternation (measured 2026-08-12, arm B). The
+/// scope below therefore narrows every width-capped kernel that consults it
+/// (currently the Toeplitz FFT apply) to the trsv width for the duration of a
+/// solver call, so the inner loop runs at ONE width. Build-phase applies see no
+/// active scope and keep their own calibrated caps.
+/// RANDLAPACK_SOLVE_FFT_MATCH=0 disables the matching (read once; for A/B probes).
+inline bool solve_width_match_enabled() {
+    static const bool on = []() {
+        const char* s = std::getenv("RANDLAPACK_SOLVE_FFT_MATCH");
+        return !(s != nullptr && s[0] == '0' && s[1] == '\0');
+    }();
+    return on;
+}
+
+/// The active solve-context width for the calling thread; 0 = no active scope.
+inline int& solve_context_width_ref() {
+    thread_local int width = 0;
+    return width;
+}
+inline int solve_context_width() { return solve_context_width_ref(); }
+
+/// RAII solve-width context. Instantiated by the iterative solvers for their
+/// whole duration; width-capped kernels take min(own cap, context width) while
+/// one is active. Nesting restores the enclosing context on destruction.
+class SolveWidthScope {
+    public:
+        /// @param n  preconditioner dimension; the context width is the trsv cap
+        ///           blas2_thread_cap(n), the narrow width the loop already pays.
+        explicit SolveWidthScope(int64_t n) {
+            const int cap = blas2_thread_cap(n);
+            if (solve_width_match_enabled() && cap > 0) {
+                prev_ = solve_context_width_ref();
+                solve_context_width_ref() = cap;
+                active_ = true;
+            }
+        }
+        ~SolveWidthScope() {
+            if (active_) solve_context_width_ref() = prev_;
+        }
+        SolveWidthScope(const SolveWidthScope&) = delete;
+        SolveWidthScope& operator=(const SolveWidthScope&) = delete;
+        SolveWidthScope(SolveWidthScope&&) = delete;
+        SolveWidthScope& operator=(SolveWidthScope&&) = delete;
+    private:
+        int  prev_   = 0;
+        bool active_ = false;
+};
 
 
 /// RAII cap on the calling thread's MKL thread count. Construct in the narrowest

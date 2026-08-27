@@ -87,8 +87,10 @@ class CQRRT : public CQRRTalg<T, RNG> {
         bool timing;
         T eps;
 
-        // 10 entries: saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total
-        // Matches CQRRT_linops timing indices for direct comparison.
+        // 10 entries: saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total.
+        // NOT index-compatible with CQRRT_linops's 11-entry layout (that one starts
+        // with an alloc slot); a plotter must dispatch on the layout, not assume the
+        // indices line up (comment corrected 2026-08-27 -- it used to claim they match).
         std::vector<long> times;
         /// Total measured wall-clock (microseconds) of the last call(), or -1 if timing
         /// was off. Every driver in this family packs the total as the LAST times[] entry,
@@ -229,7 +231,6 @@ class CQRRT_linops {
 
         bool timing;
         bool test_mode;
-        T eps;
 
         // Q-factor for test mode (only allocated if test_mode = true)
         T* Q;
@@ -249,7 +250,6 @@ class CQRRT_linops {
         long total_us() const { return times.empty() ? -1L : times.back(); }
 
         int64_t nnz;
-        bool use_dense_sketch;
         CQRRTLinopPrecond precond_method;
         T bqrrp_block_ratio;
         int64_t block_size;
@@ -270,9 +270,9 @@ class CQRRT_linops {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            eps = ep;
+            (void)ep;   // kept in the signature for call-site compatibility; the
+                        // stored `eps` member was never read and was removed 2026-08-27
             nnz = 2;
-            use_dense_sketch = false;
             block_size = 0;
             precond_method = PCholQRPrecondMethod::TRSM_IDENTITY;
             bqrrp_block_ratio = (T)1.0;
@@ -307,7 +307,16 @@ class CQRRT_linops {
 
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
+            // Input validation (added 2026-08-27, mirroring the dense driver: this
+            // class validated nothing, and d_factor < 1 gives d < n, which reads
+            // out of bounds in the lacpy of the upper n x n block below).
+            randlapack_require(m >= n) << "CQRRT_linops: operator must be tall (m=" << m << " < n=" << n << ")";
+            randlapack_require(n >= 1) << "CQRRT_linops: n must be >= 1";
+            randlapack_require(d_factor >= (T)1.0) << "CQRRT_linops: d_factor=" << d_factor << " must be >= 1.0";
+            randlapack_require(ldr >= n) << "CQRRT_linops: ldr=" << ldr << " < n=" << n;
+            randlapack_require(R != nullptr) << "CQRRT_linops: R buffer is null";
             int64_t d = (int64_t)(d_factor * (T)n);
+            if (d < n) d = n;
             int64_t b_eff = (this->block_size > 0 && this->block_size < n)
                           ? this->block_size : n;
 
@@ -323,15 +332,10 @@ class CQRRT_linops {
             if (this->timing) { t1 = steady_clock::now(); alloc_dur = duration_cast<microseconds>(t1 - t0).count(); }
 
             // ---- Step 1: Sketch M^sk = S * A ----
+            // (Sparse SASO only; the dead `use_dense_sketch` knob -- never set true
+            // anywhere in the tree -- was removed 2026-08-27.)
             if (this->timing) t0 = steady_clock::now();
-            if (this->use_dense_sketch) {
-                RandBLAS::DenseDist DD(d, m);
-                RandBLAS::DenseSkOp<T, RNG> S(DD, state);
-                state = S.next_state;
-                RandBLAS::fill_dense(S);
-                A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                  d, n, m, (T)1.0, S, (T)0.0, A_hat, d);
-            } else {
+            {
                 RandBLAS::SparseDist DS(d, m, this->nnz);
                 RandBLAS::SparseSkOp<T, RNG> S(DS, state);
                 state = S.next_state;

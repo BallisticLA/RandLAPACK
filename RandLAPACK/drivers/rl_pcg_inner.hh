@@ -133,9 +133,16 @@ int pcg_inner(FApplyM&& apply_M, const T* c, int64_t n,
 
         T pMp = blas::dot(n, cg_p, 1, cg_Mp, 1);
         if (!(pMp > 0)) {
+            // Hand back the BEST iterate here too (2026-08-27): before this fix
+            // the breakdown path alone returned the last iterate, which the
+            // caller then folded into its solution. rep.relres matches the
+            // returned iterate, consistent with the Stagnated/HitCap exits.
+            // Note the M apply of this aborted iteration ran but is not counted
+            // in rep.iters (iters = COMPLETED CG iterations, everywhere).
+            std::copy(cg_zbest, cg_zbest + n, z);
             rep.iters  = it;
             rep.status = InnerCGStatus::Breakdown;
-            rep.relres = std::sqrt(rs_old) / c_norm;
+            rep.relres = rep.best_relres;
             return 1;  // CG breakdown (loss of orthogonality / non-SPD M)
         }
         T alpha = rs_old / pMp;
