@@ -125,11 +125,17 @@ jobs:
         with:
           path: RandLAPACK
 
+      # Deliberately no `brew install openblas`: the default macOS backend is
+      # Accelerate through Apple's new interface, and this lane proves that
+      # the default needs no Homebrew BLAS.
       - name: configure OS
-        run: brew install googletest openblas libomp
+        run: brew install googletest libomp
 
       - name: run the installer (non-interactive)
-        run: bash RandLAPACK/install.sh --yes --no-gpu
+        run: |
+          set -euo pipefail
+          bash RandLAPACK/install.sh --yes --no-gpu | tee installer.out
+          grep -qE '^  Backend  *accelerate, ILP64' installer.out
 
       - name: test the installed library
         run: |
@@ -138,6 +144,17 @@ jobs:
 
       - name: re-run the installer in place (idempotency)
         run: bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu
+
+      # Homebrew OpenBLAS remains a supported route; keep it exercised.
+      - name: install with --blas=openblas into a second project
+        run: |
+          set -euo pipefail
+          brew install openblas
+          bash RandLAPACK/install.sh --yes --no-gpu --blas=openblas \
+              --project-dir "$GITHUB_WORKSPACE/RandNLA-project-openblas" | tee openblas.out
+          grep -qE '^  Backend  *openblas, ' openblas.out
+          ctest --test-dir RandNLA-project-openblas/build/RandLAPACK-build \
+                --output-on-failure
 
   install-windows:
     runs-on: windows-2022

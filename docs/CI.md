@@ -15,7 +15,7 @@ the thing we tell users to type is itself under test).
 | core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no (new) |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial; each leg ends with a stripped-PATH run of a staged test executable | no (new) |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
-| install-script | `install-macos` | macos-latest | `install.sh`: fresh install, idempotent re-run | **yes** |
+| install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, explicit `--blas=openblas` install | **yes** |
 | install-script | `install-windows` | windows-2022 | `install/install.ps1`: fresh install, idempotent re-run | no (new) |
 
 Required-check names match **job** names (`build`, `install-linux`,

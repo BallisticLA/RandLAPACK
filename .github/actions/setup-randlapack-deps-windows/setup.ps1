@@ -652,12 +652,13 @@ if (Test-Path (Join-Path $random123Install "include\Random123\philox.h")) {
 $blasppInstall = Join-Path $resolvedRoot "blaspp-$backendId-install"
 # Reuse only on an intact install: a partially restored cache directory must
 # trigger a rebuild, not silently skip it.
-# Upstream, pinned to the commit that merged the MSVC fix (PR #132,
-# 2026-08-06). Not in a release yet: the latest tag, v2025.05.28, predates it.
-# Move to a tag once one includes it. Declared once and used for both the
-# clone and the reuse stamp, so the two cannot drift.
+# Upstream, pinned to the commit that merged new-Apple-Accelerate support
+# (PR #134, 2026-08-27), which also contains the MSVC fix (PR #132). Not in a
+# release yet: the latest tag, v2025.05.28, predates both. Move to a tag once
+# one includes them. Declared once and used for both the clone and the reuse
+# stamp, so the two cannot drift.
 $blasppUrl = "https://github.com/icl-utk-edu/blaspp.git"
-$blasppRef = "30571853f980d3a2a1737124ea4789e025a5e045"
+$blasppRef = "2d8d4e937ac46fffab33d4174a4fc7659726dbda"
 $blasppSource = "$blasppUrl@$blasppRef"
 $blasppReusable = (Test-Path $blasppInstall) -and (Get-ChildItem -Path $blasppInstall -Recurse `
     -Filter "blasppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `
@@ -693,10 +694,11 @@ $blasppDir = Find-PackageConfigDirectory $blasppInstall "blaspp"
 # --------------------------------------------------------------- LAPACK++ ----
 
 $lapackppInstall = Join-Path $resolvedRoot "lapackpp-$backendId-install"
-# Upstream, pinned to the commit that merged the MSVC fix (PR #87,
-# 2026-08-06); likewise not yet in a release. Declared once, as above.
+# Upstream, pinned to the commit that merged the LAPACK++ half of
+# new-Accelerate support (PR #88, 2026-08-27), which also contains the MSVC
+# fix (PR #87); likewise not yet in a release. Declared once, as above.
 $lapackppUrl = "https://github.com/icl-utk-edu/lapackpp.git"
-$lapackppRef = "40b9d0daf29b6f1f3fa58bc3f22bd6cfb2c67fe4"
+$lapackppRef = "b9439cf3c26d1655d88e7f510ae8b4f82fbeb687"
 $lapackppSource = "$lapackppUrl@$lapackppRef"
 $lapackppReusable = (Test-Path $lapackppInstall) -and (Get-ChildItem -Path $lapackppInstall -Recurse `
     -Filter "lapackppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `

@@ -31,11 +31,11 @@ Usage: bash install.sh [options]
 
 Backend selection:
   --blas=BACKEND        auto | openblas | mkl | accelerate | custom
-                        (default: auto -- OpenBLAS on macOS, MKL on Linux when
-                        MKLROOT is set, otherwise OpenBLAS)
+                        (default: auto -- Accelerate on macOS, MKL on Linux
+                        when MKLROOT is set, otherwise OpenBLAS)
   --blas-int=WIDTH      ilp64 | lp64. Defaults to ilp64 wherever the backend
                         can actually provide it, falling back to lp64 with a
-                        warning. Accelerate is lp64-only and rejects ilp64.
+                        warning. Accelerate ILP64 requires macOS 13.3 or newer.
   --blas-libraries=L    Link line for --blas=custom, used for both BLAS and
                         LAPACK, e.g. "/opt/aocl/lib/libflame.so;/opt/aocl/lib/libblis.so"
 
@@ -152,14 +152,6 @@ fi
 if [[ -n "$BLAS_LIBRARIES_ARG" && "$BLAS_BACKEND" != "custom" ]]; then
     die "--blas-libraries only applies to --blas=custom (backend is '$BLAS_BACKEND')"
 fi
-# Checked here rather than during backend resolution, which happens after GPU
-# detection: a contradiction between two flags should be reported before the
-# user is asked anything. "auto" never resolves to accelerate, so testing the
-# literal value is sufficient.
-if [[ "$BLAS_BACKEND" == "accelerate" && "$BLAS_INT_CHOICE" == "ilp64" ]]; then
-    die "--blas-int=ilp64 is not available with Accelerate: BLAS++ implements only Apple's legacy LP64 interface (upstream icl-utk-edu/lapackpp#43). Use --blas=openblas or --blas=mkl for ILP64."
-fi
-
 if [[ -z "$JOBS" ]]; then
     JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 fi
@@ -484,28 +476,34 @@ source_is_current() { stamp_matches "$1" "$2@$3"; }
 # what they build.
 #==============================================================================
 BLASPP_URL="https://github.com/icl-utk-edu/blaspp.git"
-# The commit that merged the MSVC portability fix (blaspp PR #132, 2026-08-06).
-# Not in a release yet -- the latest tag, v2025.05.28, predates it.
-BLASPP_REF="30571853f980d3a2a1737124ea4789e025a5e045"
+# The commit that merged new-Apple-Accelerate support (blaspp PR #134,
+# 2026-08-27); also contains the MSVC portability fix (PR #132). Not in a
+# release yet -- the latest tag, v2025.05.28, predates both.
+BLASPP_REF="2d8d4e937ac46fffab33d4174a4fc7659726dbda"
 LAPACKPP_URL="https://github.com/icl-utk-edu/lapackpp.git"
-LAPACKPP_REF="40b9d0daf29b6f1f3fa58bc3f22bd6cfb2c67fe4"
+# The commit that merged the LAPACK++ half of new-Accelerate support
+# (lapackpp PR #88, 2026-08-27).
+LAPACKPP_REF="b9439cf3c26d1655d88e7f510ae8b4f82fbeb687"
 RANDOM123_URL="https://github.com/DEShawResearch/Random123.git"
 RANDOM123_REF="v1.14.0"
 
 #==============================================================================
 # Backend resolution.
 #
-# "auto" picks OpenBLAS on macOS and MKL on Linux when MKLROOT says it is
+# "auto" picks Accelerate on macOS and MKL on Linux when MKLROOT says it is
 # installed, OpenBLAS otherwise. The choice is always printed, because a silent
 # default is the thing people later cannot explain.
 #
-# macOS deliberately defaults to Homebrew OpenBLAS rather than Accelerate.
-# Apple's legacy Accelerate has a broken divide-and-conquer gesdd, and
-# RandLAPACK calls gesdd in rl_rsvd, rl_abrik, rl_revd2, rl_preconditioners and
-# rl_util -- so Accelerate would quietly return wrong singular values across
-# most of the SVD-based drivers. This is why core-macos quarantines
-# TestQB.Polynomial_Decay_general1 (see issue #159). --blas=accelerate is
-# allowed, with a warning.
+# macOS defaults to Accelerate through Apple's NEW interface (macOS >= 13.3,
+# ACCELERATE_NEW_LAPACK, LAPACK 3.12 on current SDKs), which the pinned BLAS++
+# and LAPACK++ support (icl-utk-edu/blaspp#134, icl-utk-edu/lapackpp#88, issue
+# #165). Apple's LEGACY interface (LAPACK 3.2.1) has a broken divide-and-
+# conquer gesdd -- RandLAPACK calls gesdd in rl_rsvd, rl_abrik, rl_revd2,
+# rl_preconditioners and rl_util -- and lacks routines BQRRP needs, which is
+# why the default used to be Homebrew OpenBLAS. A silent fall-back to the
+# legacy interface is caught twice: a hard defines.h check right after the
+# BLAS++ build, and the numerical gesdd conftest before the summary.
+# Homebrew OpenBLAS remains available with --blas=openblas.
 #==============================================================================
 BREW_PREFIX=""
 if [[ "$UNAME_S" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
@@ -516,17 +514,13 @@ fi
 
 if [[ "$BLAS_BACKEND" == "auto" ]]; then
     if [[ "$UNAME_S" == "Darwin" ]]; then
-        BLAS_BACKEND="openblas"
+        BLAS_BACKEND="accelerate"
     elif [[ -n "${MKLROOT:-}" && -d "${MKLROOT:-}" ]]; then
         BLAS_BACKEND="mkl"
     else
         BLAS_BACKEND="openblas"
     fi
     note "Selected BLAS backend: $BLAS_BACKEND (from --blas=auto)"
-fi
-
-if [[ "$BLAS_BACKEND" == "accelerate" ]]; then
-    record_warning "Apple's legacy Accelerate has a broken divide-and-conquer gesdd. RandLAPACK calls gesdd in rl_rsvd, rl_abrik, rl_revd2, rl_preconditioners and rl_util, so SVD-based drivers may return wrong results. TestQB.Polynomial_Decay_general1 is expected to fail. Prefer --blas=openblas until BLAS++ adopts Apple's new Accelerate interface (issue #159)."
 fi
 
 # Integer width: prefer ILP64 wherever the backend can genuinely provide it.
@@ -536,21 +530,17 @@ fi
 # an oversized dimension throws rather than truncating -- but a header/library
 # disagreement is NOT guarded and shows up as an absurd workspace size or a run
 # that never finishes. The conftest below is what catches that.
+#
+# Accelerate: Apple's new interface (macOS >= 13.3) carries ILP64, selected by
+# ACCELERATE_LAPACK_ILP64, and the pinned BLAS++ wires blas_int=int64 to it
+# (icl-utk-edu/blaspp#134). On macOS older than 13.3 the int64 probe fails, so
+# "auto" falls back to LP64 with the usual warning and an explicit
+# --blas-int=ilp64 fails the BLAS++ configure rather than silently downgrading.
 WIDTH_ORDER=()
-case "$BLAS_BACKEND" in
-    accelerate)
-        if [[ "$BLAS_INT_CHOICE" == "ilp64" ]]; then
-            die "--blas-int=ilp64 is not available with Accelerate: BLAS++ implements only Apple's legacy LP64 interface (upstream icl-utk-edu/lapackpp#43). Use --blas=openblas or --blas=mkl for ILP64."
-        fi
-        WIDTH_ORDER=(int32)
-        ;;
-    *)
-        case "$BLAS_INT_CHOICE" in
-            ilp64) WIDTH_ORDER=(int64) ;;
-            lp64)  WIDTH_ORDER=(int32) ;;
-            auto)  WIDTH_ORDER=(int64 int32) ;;
-        esac
-        ;;
+case "$BLAS_INT_CHOICE" in
+    ilp64) WIDTH_ORDER=(int64) ;;
+    lp64)  WIDTH_ORDER=(int32) ;;
+    auto)  WIDTH_ORDER=(int64 int32) ;;
 esac
 
 # blaspp's own backend selector; its matcher accepts "apple" or "accelerate".
@@ -820,6 +810,17 @@ if (( BUILD_BLASPP )); then
             BLAS_INT_BUILT="int64"
         else
             BLAS_INT_BUILT="int32"
+        fi
+
+        # Accelerate must be Apple's NEW interface. The legacy one (LAPACK
+        # 3.2.1) computes gesdd incorrectly on Apple Silicon and lacks
+        # routines BQRRP needs, so a silent fall-back would produce a library
+        # that is wrong at runtime. Failing here, right after the BLAS++
+        # build, names the actual cause; letting it ride would surface later
+        # as a gesdd conftest failure or as wrong driver results.
+        if [[ "$BLAS_BACKEND" == "accelerate" ]] \
+                && ! grep -q 'ACCELERATE_NEW_LAPACK' "$BLASPP_INSTALL/include/blas/defines.h" 2>/dev/null; then
+            die "BLAS++ selected Apple's LEGACY Accelerate interface, whose gesdd returns wrong results (issue #165). The new interface needs macOS 13.3 or newer. On older macOS, use --blas=openblas (after 'brew install openblas')."
         fi
         if [[ "$BLAS_INT_BUILT" != "$BLAS_INT_RESOLVED" ]]; then
             note "  [blaspp] requested $BLAS_INT_RESOLVED, BLAS++ selected $BLAS_INT_BUILT"

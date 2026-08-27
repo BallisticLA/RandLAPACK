@@ -156,7 +156,7 @@ with an environment-variable equivalent:
 
 ```
 --blas=BACKEND        auto | openblas | mkl | accelerate | custom
-                      (default: auto -- OpenBLAS on macOS, MKL on Linux when
+                      (default: auto -- Accelerate on macOS, MKL on Linux when
                       MKLROOT is set, otherwise OpenBLAS)
 --blas-int=WIDTH      ilp64 | lp64 (default: ilp64 where the backend can
                       provide it; see section 6)
@@ -344,7 +344,7 @@ well work; it is simply untested.
 | Ubuntu (latest) | gcc | OpenBLAS | LP64 | none | yes |
 | Ubuntu (latest) | gcc | oneMKL | ILP64 | none | yes |
 | Ubuntu (latest) | clang | OpenBLAS | LP64 | none | yes |
-| macOS 14/15 | Apple Clang | Accelerate | LP64 | none | no (see below) |
+| macOS 14/15 | Apple Clang | Accelerate (new interface) | ILP64 | none | no (see below) |
 | Windows | MSVC | oneMKL | ILP64 | none | yes (`/openmp:llvm`) |
 
 The installer lanes additionally cover a fresh install, an idempotent re-run,
@@ -368,7 +368,7 @@ backend can genuinely provide it:
 |---|---|---|
 | `mkl` | ILP64 | `mkl_intel_ilp64` is a separate library, so requesting it actually selects it |
 | `openblas` | LP64, with a warning | there is only `-lopenblas`, so the request selects nothing |
-| `accelerate` | LP64 | BLAS++ implements only Apple's legacy interface (upstream `icl-utk-edu/lapackpp#43`) |
+| `accelerate` | ILP64 on macOS >= 13.3 | Apple's new interface ships ILP64 in the framework, and BLAS++ selects it (`icl-utk-edu/blaspp#134`); older macOS falls back to LP64 with a warning |
 | `custom` | whatever you pass | you named the library, so its width is yours to state |
 
 The OpenBLAS row deserves explaining, because it is counter-intuitive. BLAS++
@@ -405,18 +405,21 @@ wrong numbers but nonsense control values — a misread workspace query becomes 
 absurd `lwork`, and the run dies in allocation or never finishes. The
 verification step exists to catch that at install time.
 
-### 6.4 macOS: why OpenBLAS rather than Accelerate
+### 6.4 macOS: Accelerate, through Apple's new interface only
 
-The macOS default is Homebrew OpenBLAS, and that is a correctness decision, not
-an oversight. Apple's legacy Accelerate has a broken divide-and-conquer `gesdd`,
-and RandLAPACK calls `gesdd` in `rl_rsvd.hh`, `rl_abrik.hh`, `rl_revd2.hh`,
-`rl_preconditioners.hh` and `rl_util.hh` — so on Accelerate most of the
-SVD-based drivers can return wrong results. This is why `core-macos` quarantines
-`TestQB.Polynomial_Decay_general1` (issue #159).
+The macOS default is Accelerate, selected through Apple's **new** interface
+(macOS >= 13.3, `ACCELERATE_NEW_LAPACK`, LAPACK 3.12 on current SDKs), which
+the pinned BLAS++/LAPACK++ support (`icl-utk-edu/blaspp#134`,
+`icl-utk-edu/lapackpp#88`). No Homebrew BLAS is needed for the default build.
 
-`--blas=accelerate` is allowed and warns. The default will move to Accelerate
-once BLAS++ adopts Apple's new interface, which carries both the `gesdd` fix and
-ILP64.
+Apple's **legacy** interface (LAPACK 3.2.1, from 2009) is a different story: its
+divide-and-conquer `gesdd` returns wrong results on Apple Silicon, and RandLAPACK
+calls `gesdd` in `rl_rsvd.hh`, `rl_abrik.hh`, `rl_revd2.hh`,
+`rl_preconditioners.hh` and `rl_util.hh`. The installer therefore refuses a
+build in which BLAS++ silently fell back to the legacy interface (checked
+against BLAS++'s generated `defines.h` right after the build, and again
+numerically by the `gesdd` conftest). On macOS older than 13.3, use
+`--blas=openblas` (after `brew install openblas`).
 
 ---
 
