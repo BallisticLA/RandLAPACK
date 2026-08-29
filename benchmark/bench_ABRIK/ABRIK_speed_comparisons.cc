@@ -8,12 +8,17 @@ All algorithms run to a fixed total matvec budget. ABRIK uses BK call()/resume()
 so no work is repeated; a convergence curve is produced in a single pass.
 
 Output CSV (long format, one data point per row):
-  run, method, b_sz, total_matvecs, err, elapsed_us
+  run, method, b_sz, total_matvecs, actual_matvecs, err, elapsed_us
 
   run         = run index in [0, num_runs)
   method      = ABRIK | Spectra | RSVD | GESDD
   b_sz        = block size (0 for Spectra/GESDD)
-  total_matvecs = matrix-vector products consumed
+  total_matvecs  = matrix-vector products REQUESTED (the budget handed to the method)
+  actual_matvecs = matrix-vector products actually spent. Equal to total_matvecs for
+                   ABRIK, RSVD and GESDD, whose budgets are expressed directly in
+                   matvecs. For Spectra they differ: its restart schedule is derived
+                   from the budget rather than metered against it, so the two columns
+                   must be compared before any per-matvec claim is made about it.
   err         = SVD residual: sqrt(||S^{-1}AV-U||^2 + ||(A'U)S^{-1}-V||^2)
   elapsed_us  = wall-clock microseconds
                 ABRIK:   cumulative BK + SVD extraction (not residual check)
@@ -98,7 +103,8 @@ static T residual_via_linop(LinOp& A_op, T* U, T* V, T* Sigma, int64_t k) {
 // Run Spectra with a fixed total matvec budget.
 template <typename T, typename EigenMatType, RandLAPACK::linops::LinearOperator LinOp>
 static T run_svds(const EigenMatType& A_eigen, LinOp& A_op,
-                  int64_t budget_mv, int64_t target_rank, long& dur_svds) {
+                  int64_t budget_mv, int64_t target_rank, long& dur_svds,
+                  int64_t& actual_mv) {
     using EMatrix = typename EigenTypes<T>::Matrix;
     using EVector = typename EigenTypes<T>::Vector;
 
@@ -113,6 +119,12 @@ static T run_svds(const EigenMatType& A_eigen, LinOp& A_op,
     BenchmarkUtil::BudgetedPartialSVDSolver<EigenMatType> svds(A_eigen, nev, ncv);
     svds.compute(max_restarts);
     dur_svds = duration_cast<microseconds>(steady_clock::now() - t0).count();
+
+    // What Spectra ACTUALLY spent, as opposed to what it was asked for.
+    // num_operations() counts A'A applications; each is two applications of A, so total
+    // matvecs with A is twice that. This is the conversion the header of
+    // ext_budgeted_svd_solver.hh states, applied here rather than left implicit.
+    actual_mv = 2 * (int64_t) svds.num_operations();
 
     EMatrix U_sp = svds.matrix_U(nev);
     EMatrix V_sp = svds.matrix_V(nev);
@@ -186,8 +198,9 @@ static void run_with_budget(
             auto state_alg = state_run;
             algs.ABRIK.call_with_checkpoints(A_op, b_sz, target_rank, cp_iters,
                 [&](int64_t total_mv, long elapsed_us, T residual) {
-                    outfile << run << ", ABRIK, " << b_sz << ", " << total_mv << ", "
-                            << residual << ", " << elapsed_us << "\n";
+                    // ABRIK meters its own matvecs, so requested and actual coincide.
+                    outfile << run << ", ABRIK, " << b_sz << ", " << total_mv << ", " << total_mv
+                            << ", " << residual << ", " << elapsed_us << "\n";
                     outfile.flush();
                     printf("  mv=%ld  err=%e  t=%ld us\n", total_mv, residual, elapsed_us);
                 }, state_alg);
@@ -197,10 +210,13 @@ static void run_with_budget(
         printf("\n=== Spectra (run %d) ===\n", run);
         for (auto budget_mv : checkpoint_matvecs) {
             long dur_svds = 0;
-            T err_svds = svds_fn(budget_mv, dur_svds);
-            outfile << run << ", Spectra, 0, " << budget_mv << ", " << err_svds << ", " << dur_svds << "\n";
+            int64_t actual_mv = 0;
+            T err_svds = svds_fn(budget_mv, dur_svds, actual_mv);
+            outfile << run << ", Spectra, 0, " << budget_mv << ", " << actual_mv << ", "
+                    << err_svds << ", " << dur_svds << "\n";
             outfile.flush();
-            printf("  mv=%ld  err=%e  t=%ld us\n", budget_mv, err_svds, dur_svds);
+            printf("  mv_req=%ld  mv_actual=%ld  err=%e  t=%ld us\n",
+                   budget_mv, (long)actual_mv, err_svds, dur_svds);
         }
 
         // RSVD: one independent call per checkpoint budget, largest block size
@@ -216,7 +232,8 @@ static void run_with_budget(
             int64_t k_r_target = std::min(target_rank, k_r);
             T err_rsvd = residual_via_linop(A_op, U_r, V_r, S_r, k_r_target);
             free(U_r); free(V_r); free(S_r);
-            outfile << run << ", RSVD, " << max_b << ", " << budget_mv << ", " << err_rsvd << ", " << dur_rsvd << "\n";
+            outfile << run << ", RSVD, " << max_b << ", " << budget_mv << ", " << budget_mv << ", "
+                    << err_rsvd << ", " << dur_rsvd << "\n";
             outfile.flush();
             printf("  mv=%ld  k_r=%ld  err=%e  t=%ld us\n", budget_mv, k_r, err_rsvd, dur_rsvd);
         }
@@ -239,7 +256,8 @@ static void run_with_budget(
             T err_SVD = residual_via_linop(A_op, U_g, V_g, S_g, target_rank);
             printf("  err=%e  t=%ld us\n", err_SVD, dur_svd);
 
-            outfile << "0, GESDD, 0, 0, " << err_SVD << ", " << dur_svd << "\n";
+            // GESDD is a direct factorisation, not matvec-budgeted; both columns stay 0.
+            outfile << "0, GESDD, 0, 0, 0, " << err_SVD << ", " << dur_svd << "\n";
             outfile.flush();
 
             delete[] A_svd; delete[] U_g; delete[] S_g; delete[] VT_g; delete[] V_g;
@@ -315,7 +333,12 @@ static void run_benchmark(int argc, char *argv[]) {
             << "# Spectra/RSVD elapsed = wall clock for that independent call\n"
             << "# Residual: sqrt(||S^{-1}AV-U||^2_F + ||(A'U)S^{-1}-V||^2_F)\n"
             << "# GESDD is deterministic and runs once (reported under run=0)\n";
-    outfile << "run, method, b_sz, total_matvecs, err, elapsed_us\n";
+    // total_matvecs is the REQUESTED budget; actual_matvecs is what the method spent.
+    // They coincide by construction for ABRIK, RSVD and GESDD, whose budget is expressed
+    // directly in matvecs. They do NOT coincide for Spectra, whose restart schedule is
+    // derived from the budget rather than metered against it, which is why every per-matvec
+    // claim about Spectra was withheld until this column existed.
+    outfile << "run, method, b_sz, total_matvecs, actual_matvecs, err, elapsed_us\n";
     outfile.flush();
 
     auto t_total = steady_clock::now();
@@ -325,8 +348,8 @@ static void run_benchmark(int argc, char *argv[]) {
             A_op(m, n, *mat.csc);
         T norm_A = A_op.fro_nrm();
 
-        auto svds_fn = [&](int64_t budget_mv, long& dur) -> T {
-            return run_svds<T>(*mat.eigen_sparse, A_op, budget_mv, target_rank, dur);
+        auto svds_fn = [&](int64_t budget_mv, long& dur, int64_t& actual_mv) -> T {
+            return run_svds<T>(*mat.eigen_sparse, A_op, budget_mv, target_rank, dur, actual_mv);
         };
 
         run_with_budget<T>(A_op, svds_fn, norm_A, target_rank,
@@ -338,8 +361,8 @@ static void run_benchmark(int argc, char *argv[]) {
         T norm_A = A_op.fro_nrm();
 
         Eigen::Map<const EMatrix> A_eigen(A_dense, m, n);
-        auto svds_fn = [&](int64_t budget_mv, long& dur) -> T {
-            return run_svds<T, EMatrix>(A_eigen, A_op, budget_mv, target_rank, dur);
+        auto svds_fn = [&](int64_t budget_mv, long& dur, int64_t& actual_mv) -> T {
+            return run_svds<T, EMatrix>(A_eigen, A_op, budget_mv, target_rank, dur, actual_mv);
         };
 
         run_with_budget<T>(A_op, svds_fn, norm_A, target_rank,
