@@ -110,6 +110,63 @@ class TestBK : public ::testing::Test
     static T orth_err(const T* Q, int64_t rows, int64_t cols) {
         return RandLAPACK::testing::orthogonality_error<T>(Q, rows, cols);
     }
+    /// call(p) must equal call(p1) followed by resume(p), bitwise. Shared by the full-width case
+    /// and the narrowed case; `expect_narrowed` demands that the checkpoint leg actually crossed
+    /// a narrowing, so the narrowed variant cannot silently degrade into a second copy of the
+    /// full-width one.
+    static void check_resume_equals_single_shot(
+        int64_t m, int64_t n, int64_t k, int p1, int p, const double* A_src, bool expect_narrowed
+    ) {
+        double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+        double* A = new double[m * n]();
+        std::copy(A_src, A_src + m * n, A);
+        RandLAPACK::linops::DenseLinOp<double> A_op(m, n, A, m, Layout::ColMajor);
+
+        BKOut<double> one;
+        {
+            auto state = RandBLAS::RNGState();
+            RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+            bk.max_krylov_iters = p;
+            ASSERT_EQ(bk.call(A_op, k, one.X_ev, one.Y_od, one.R, one.S,
+                              one.end_rows, one.end_cols, one.final_iter_is_odd, state), 0);
+        }
+
+        BKOut<double> two;
+        {
+            auto state = RandBLAS::RNGState();
+            RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+            bk.max_krylov_iters = p1;
+            ASSERT_EQ(bk.call(A_op, k, two.X_ev, two.Y_od, two.R, two.S,
+                              two.end_rows, two.end_cols, two.final_iter_is_odd, state), 0);
+            ASSERT_EQ(bk.termination_reason, RandLAPACK::BKTermination::max_iters_reached)
+                << "resume is only defined after max_iters_reached; the premise of this test";
+            if (expect_narrowed) {
+                ASSERT_GE(bk.narrowed_blocks, (int64_t) 1)
+                    << "this variant exists to resume ACROSS a narrowing, but none occurred "
+                       "before the checkpoint; the configuration no longer tests what it claims";
+            }
+            bk.max_krylov_iters = p;
+            ASSERT_EQ(bk.resume(A_op, k, two.X_ev, two.Y_od, two.R, two.S,
+                                two.end_rows, two.end_cols, two.final_iter_is_odd, state), 0);
+        }
+
+        printf("RESUME%s single(%d): rows=%ld cols=%ld | %d then resume(%d): rows=%ld cols=%ld\n",
+               expect_narrowed ? "-NARROWED" : "",
+               p, (long)one.end_rows, (long)one.end_cols,
+               p1, p, (long)two.end_rows, (long)two.end_cols);
+        fflush(stdout);
+
+        ASSERT_EQ(one.end_rows, two.end_rows);
+        ASSERT_EQ(one.end_cols, two.end_cols);
+        ASSERT_EQ(one.final_iter_is_odd, two.final_iter_is_odd);
+        for (int64_t i = 0; i < m * one.end_rows; ++i)
+            ASSERT_EQ(one.X_ev[i], two.X_ev[i]) << "X_ev differs at " << i;
+        for (int64_t i = 0; i < n * one.end_cols; ++i)
+            ASSERT_EQ(one.Y_od[i], two.Y_od[i]) << "Y_od differs at " << i;
+
+        delete[] A;
+    }
+
 };
 
 
@@ -652,4 +709,139 @@ TEST_F(TestBK, BK_rank_39_is_a_tau_sensitivity_not_a_shortfall) {
     EXPECT_EQ(er, (int64_t) 39);
     EXPECT_EQ(ec, (int64_t) 39);
     EXPECT_GE(narrowed, (int64_t) 1) << "continuation must have fired";
+}
+
+/// Resume ACROSS a narrowing. This is the guard for the persisted resume state, and it is the
+/// case the old code could not have survived.
+///
+/// Before Phase 3, resume() reconstructed curr_X_cols = (1 + iter_ev) * k and
+/// curr_Y_cols = iter_od * k from the iteration count, which is correct only while every
+/// block is exactly k wide. It was latent rather than broken because narrowing terminated the
+/// loop, so a narrowed state could never reach resume(). Continuation makes it reachable: a
+/// narrowed run now ends at max_iters_reached, which is precisely the state ABRIK resumes
+/// from. Saving the four scalars instead of recomputing them is what makes this test pass;
+/// with the old arithmetic the two legs would diverge from the first post-checkpoint block.
+///
+/// Exact rank 25 at block size 10 narrows the left block to 5 at iteration 4, so a checkpoint
+/// at 5 sits after the narrowing, and the helper asserts that it really did.
+TEST_F(TestBK, BK_resume_equals_single_shot_across_a_narrowing) {
+    int64_t m = 200, n = 200, k = 10, r = 25;
+
+    std::vector<double> sv(r);
+    for (int i = 0; i < r; ++i) sv[i] = std::pow(10.0, -3.0 * i / (r - 1));
+    std::vector<double> S(r * r, 0.0);
+    RandLAPACK::util::diag(r, r, sv.data(), r, S.data());
+    double* A = new double[m * n]();
+    {
+        auto gs = RandBLAS::RNGState();
+        RandLAPACK::gen::gen_singvec<double>(m, n, A, r, S.data(), gs);
+    }
+
+    check_resume_equals_single_shot(m, n, k, /*p1=*/5, /*p=*/8, A, /*expect_narrowed=*/true);
+    delete[] A;
+}
+
+
+/// Matvec accounting. BK applies the operator in exactly three places: once in the prologue
+/// (NoTrans), once per odd iteration (Trans, forming Y from X), and once per even iteration
+/// (NoTrans, forming X from Y). One application per iteration, no more, and the prologue
+/// counts as iteration 1. Nothing checked that until now, so a stray extra apply, or a
+/// reorthogonalisation pass silently routed through the operator, would have cost matvecs
+/// without any test noticing. The counts are exact integers, so there is no tolerance here.
+class CountingLinOp {
+    public:
+        using scalar_t = double;
+        const int64_t n_rows;
+        const int64_t n_cols;
+        RandLAPACK::linops::DenseLinOp<double> inner;
+        mutable int64_t n_notrans = 0;
+        mutable int64_t n_trans   = 0;
+
+        CountingLinOp(int64_t m, int64_t n, const double* A, int64_t lda)
+            : n_rows(m), n_cols(n), inner(m, n, A, lda, Layout::ColMajor) {}
+
+        // BK needs the Frobenius norm to anchor the rank criterion. Pass-through, and
+        // deliberately NOT counted: it is not an operator application.
+        double fro_nrm() { return inner.fro_nrm(); }
+
+        // The 12-argument form required by the LinearOperator concept.
+        void operator()(Layout layout, Op trans_A, Op trans_B,
+                        int64_t m, int64_t n, int64_t k, double alpha,
+                        const double* B, int64_t ldb, double beta, double* C, int64_t ldc) {
+            (*this)(Side::Left, layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
+        }
+
+        // The 13-argument form BK actually calls.
+        void operator()(Side side, Layout layout, Op trans_A, Op trans_B,
+                        int64_t m, int64_t n, int64_t k, double alpha,
+                        const double* B, int64_t ldb, double beta, double* C, int64_t ldc) {
+            if (trans_A == Op::Trans) ++n_trans; else ++n_notrans;
+            inner(side, layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
+        }
+};
+
+/// File-scope RAII holder for BK's four calloc'd outputs. Mirrors the fixture's BKOut, which
+/// is a protected nested type and so not visible to a free function.
+struct BKOutFree {
+    double* X_ev = nullptr;
+    double* Y_od = nullptr;
+    double* R    = nullptr;
+    double* S    = nullptr;
+    int64_t end_rows = 0;
+    int64_t end_cols = 0;
+    bool final_iter_is_odd = false;
+    ~BKOutFree() { free(X_ev); free(Y_od); free(R); free(S); }
+};
+
+static void check_matvec_accounting(int64_t m, int64_t n, int64_t k, int budget,
+                                    const double* A_src, const char* label) {
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    CountingLinOp op(m, n, A_src, m);
+    BKOutFree out;
+    auto state = RandBLAS::RNGState();
+    RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+    bk.max_krylov_iters = budget;
+    ASSERT_EQ(bk.call(op, k, out.X_ev, out.Y_od, out.R, out.S,
+                      out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+
+    const int64_t iters = bk.num_krylov_iters;
+    printf("MATVEC %-22s iters=%2ld notrans=%2ld trans=%2ld reason=%d\n",
+           label, (long)iters, (long)op.n_notrans, (long)op.n_trans,
+           (int)bk.termination_reason);
+    fflush(stdout);
+
+    // iters + 1, not iters. The prologue applies A once (X = A*Omega) BEFORE iter is
+    // incremented to 1, so it is not counted by num_krylov_iters; the loop then applies A
+    // exactly once per iteration 1..iters. Measured 41 at iters=40 and 7 at iters=6.
+    EXPECT_EQ(op.n_notrans + op.n_trans, iters + 1)
+        << "one operator application per iteration, plus the prologue, and no more";
+    // Parity is pinned: the prologue is NoTrans, odd iterations are Trans (Y from X) and
+    // even iterations are NoTrans (X from Y).
+    EXPECT_EQ(op.n_trans,   (iters + 1) / 2) << "one per odd iteration";
+    EXPECT_EQ(op.n_notrans, iters / 2 + 1)   << "one per even iteration, plus the prologue";
+}
+
+TEST_F(TestBK, BK_matvec_count_matches_iterations) {
+    int64_t m = 400, n = 200, k = 10;
+    double* A = new double[m * n]();
+    auto gs = RandBLAS::RNGState();
+    RandLAPACK::gen::mat_gen_info<double> mi(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(mi, A, gs);
+    check_matvec_accounting(m, n, k, 40, A, "gaussian budget40");
+    delete[] A;
+}
+
+/// Second case terminates EARLY, through the rank criterion rather than the budget, so the
+/// count is checked against work actually done rather than against a budget the run exhausts.
+TEST_F(TestBK, BK_matvec_count_on_early_termination) {
+    int64_t m = 200, n = 200, k = 10, r = 25;
+    std::vector<double> sv(r);
+    for (int i = 0; i < r; ++i) sv[i] = std::pow(10.0, -3.0 * i / (r - 1));
+    std::vector<double> S(r * r, 0.0);
+    RandLAPACK::util::diag(r, r, sv.data(), r, S.data());
+    double* A = new double[m * n]();
+    auto gs = RandBLAS::RNGState();
+    RandLAPACK::gen::gen_singvec<double>(m, n, A, r, S.data(), gs);
+    check_matvec_accounting(m, n, k, 40, A, "rank25 early-exit");
+    delete[] A;
 }
