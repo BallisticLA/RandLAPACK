@@ -900,3 +900,59 @@ TEST_F(TestBK, BK_matvec_count_on_early_termination) {
     check_matvec_accounting(m, n, k, 40, A, "rank25 early-exit");
     delete[] A;
 }
+
+/// What block_numerical_rank actually guarantees about conditioning, as opposed to what
+/// Balabanov Thm 5.6 guarantees about Algorithm 7.
+///
+/// The absolute bound cond(retained) <= 10 n^1.5 r / tau is NOT asserted here, deliberately.
+/// It is vacuous in this regime: at k = 10 and our default tau it evaluates to 7.1e+16,
+/// while double precision cannot represent a condition number above 1/eps = 4.5e+15. An
+/// assertion on it would pass on every input including a broken one, which is worse than no
+/// assertion because it looks like coverage. The theorem also requires tau >= 4 n^1.5 r u
+/// (1.4e-13 at k = 10), which our default 4.4e-14 does not satisfy, and it is stated for a
+/// strong rank-revealing QR on normalized columns, which this is not. See the commentary on
+/// block_numerical_rank in rl_bk.hh.
+///
+/// What IS true, testable, and the reason the knob exists: raising tau retains fewer columns
+/// and bounds their conditioning more tightly. This asserts exactly that, monotonically,
+/// against a triangular factor with a known geometrically decaying diagonal.
+TEST_F(TestBK, BK_criterion_conditioning_improves_with_tau) {
+    const int64_t k = 12;
+    const double norm_A = 1.0;
+
+    // Upper-triangular factor with diagonal 1, 1e-2, 1e-4, ... so the condition number of the
+    // leading r-by-r block is exactly 1e2*(r-1). Off-diagonals kept small so the diagonal
+    // governs the conditioning and the expected answer stays analytic.
+    std::vector<double> Rii(k * k, 0.0);
+    for (int64_t j = 0; j < k; ++j) {
+        Rii[j + j * k] = std::pow(10.0, -2.0 * (double) j);
+        for (int64_t i = 0; i < j; ++i) Rii[i + j * k] = 1e-6 * Rii[j + j * k];
+    }
+
+    const double taus[] = {1e-20, 1e-14, 1e-10, 1e-6, 1e-2};
+    int64_t prev_r = k + 1;
+    double  prev_cond = std::numeric_limits<double>::infinity();
+
+    for (double tau : taus) {
+        int64_t r = RandLAPACK::block_numerical_rank<double>(k, Rii.data(), k, norm_A, tau);
+        ASSERT_GE(r, (int64_t) 0);
+        ASSERT_LE(r, k);
+
+        // Conditioning of what was retained, from the diagonal, which governs it here.
+        double cond = (r >= 1) ? (Rii[0] / Rii[(r - 1) + (r - 1) * k]) : 1.0;
+        printf("TAUCOND tau=%.1e  retained=%2ld  cond(retained)=%.3e\n", tau, (long)r, cond);
+        fflush(stdout);
+
+        // Monotone in both: a larger tau never retains more, and never retains something
+        // worse conditioned.
+        EXPECT_LE(r, prev_r)       << "raising tau must not retain MORE columns";
+        EXPECT_LE(cond, prev_cond) << "raising tau must not retain worse-conditioned columns";
+        prev_r = r; prev_cond = cond;
+    }
+
+    // And the knob has to actually bite across that range, or the monotonicity above is
+    // satisfied trivially by a constant.
+    int64_t r_loose  = RandLAPACK::block_numerical_rank<double>(k, Rii.data(), k, norm_A, 1e-20);
+    int64_t r_tight  = RandLAPACK::block_numerical_rank<double>(k, Rii.data(), k, norm_A, 1e-2);
+    EXPECT_GT(r_loose, r_tight) << "tau must change how much is retained, or it is not a knob";
+}

@@ -54,8 +54,38 @@ struct BKSubroutines {
 /// ||R||_2 of the factorization it is revealing, which for a whole-matrix factorization is
 /// the matrix scale. Anchoring to a *block's* own scale does not survive blocking -- a
 /// wholly dead block has no healthy reference, and a block-relative rule then flags nothing
-/// (measured: 0 of 5 seeds on an exactly-rank-40 input, residual 3.0e+00). Theorem 5.6 of
-/// that paper is the contract this buys: cond(retained) <= 10 n^1.5 r / tau.
+/// (measured: 0 of 5 seeds on an exactly-rank-40 input, residual 3.0e+00).
+///
+/// ON THEOREM 5.6, WHICH THIS DOES NOT INHERIT. Earlier revisions of this comment cited
+/// Thm 5.6 as "the contract this buys": cond(X_(1:r)) <= 10 n^1.5 r / tau. Read against the
+/// paper, that citation claims more than it can. Three reasons, none of them fatal to the
+/// criterion but all of them fatal to the claim:
+///
+/// 1. HYPOTHESIS VIOLATED BY OUR DEFAULT. Thm 5.6 requires tau >= 4 n^1.5 r u, a LOWER bound
+///    on tau. With u = eps/2 and a k = 10 block that is 1.4e-13; reading n as the ambient
+///    column count instead gives 1.3e-11 at n = 200. Our default tau_eff = n*eps is 4.4e-14
+///    at n = 200, which is below both, by 3x to 280x. The theorem simply does not apply at
+///    the tau we ship.
+/// 2. VACUOUS EVEN WHERE IT APPLIES. At tau = 1.4e-13 the bound reads cond <= 2.3e+16, and
+///    at our default it reads 7.1e+16. Double precision cannot express a condition number
+///    above 1/eps = 4.5e+15, so the bound permits more ill-conditioning than the arithmetic
+///    can represent. An assertion on it would pass on every input, including a broken one.
+/// 3. DIFFERENT ALGORITHM. Thm 5.6 is stated for Alg. 7 using STRONG rank-revealing QR on a
+///    matrix with NORMALIZED COLUMNS. This criterion pivots nothing and runs on a band block
+///    produced by geqrf or CQRRT. The shape of the rule is borrowed; the guarantee is not.
+///
+/// So the anchor and the trailing-block test are taken from Alg. 7, and that is all. What is
+/// actually asserted about conditioning is the relative, measured property in
+/// TestBK.BK_criterion_conditioning_improves_with_tau: retained conditioning falls
+/// monotonically as tau rises. That is testable and it is what the knob is for.
+///
+/// Worth noting the same conclusion arrives from the other direction. Rank 39 at block size
+/// 10 is the one rank in 20..40 that fails to certify under the default tau and behaves
+/// correctly from tau = 1e-12 upward (see BK_rank_39_is_a_tau_sensitivity_not_a_shortfall).
+/// Theory wants at least 1.4e-13; measurement wants at least 1e-12. Both say the default is
+/// small. It is deliberately left alone anyway, because the ill-conditioned regime needs a
+/// small tau not to discard genuine trailing directions, and that trade-off is the whole
+/// reason tau is user-facing.
 ///
 /// Reads the full square sub-block rather than one triangle, so it is correct for both
 /// bands: R is stored lower-triangular by util::transposition, while S_ii is written upper
