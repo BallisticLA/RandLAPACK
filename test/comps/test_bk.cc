@@ -66,7 +66,62 @@ class TestBK : public ::testing::Test
                    (T)1.0, out.X_ev, m, AY, m, (T)0.0, P, er);
         T norm_P = lapack::lange(Norm::Fro, er, ec, P, er);
 
-        // The band as stored: R (ld n) on an odd final iteration, S (ld n+k) on an even one.
+        // Band sparsity. Measured first with a block-norm map, then asserted; the map showed
+        // a clean lower block-bidiagonal support at k = 10, er = 110, ec = 100:
+        //
+        //   R (odd terminal, ld n)            S (even terminal, ld n+k)
+        //   diagonal blocks   2.2e-01           diagonal blocks   3.8e-01 .. 2.2e-01
+        //   subdiagonal       1.3e-01           subdiagonal       1.7e-01 .. 6.7e-02
+        //   ABOVE  diagonal   EXACTLY 0         ABOVE  diagonal   ~5e-17, computed
+        //   BELOW  subdiag    ~3.5e-17          BELOW  subdiag    EXACTLY 0
+        //
+        // The two are structural mirrors, and that asymmetry is the point: the odd branch
+        // fills a ROW strip of R (rows of the current X block, all previous Y columns) while
+        // the even branch fills a COLUMN strip of S. So each band has one side that is merely
+        // at roundoff and one side that was never touched at all, and they are opposite sides.
+        // Asserting a single rule for both is wrong; the first version of this check did that
+        // and failed on R at entry (20,0), which is below R's subdiagonal and therefore
+        // computed rather than exact.
+        //
+        // The two assertions below are stated in ENTRY indices rather than block indices, so
+        // they stay valid once the rank criterion narrows a block: widths only ever shrink, so
+        // the true support only tightens and these bounds stay conservative.
+        //
+        // This catches what the identity alone cannot. A band that is dense but happens to
+        // equal X'AY would pass the identity; loss of the block-bidiagonal structure through
+        // reorthogonalisation drift is exactly the failure this sees and the identity does not.
+        {
+            const T* bnd = out.final_iter_is_odd ? out.R : out.S;
+            const int64_t ld = out.final_iter_is_odd ? n : (n + k);
+            T nrm = 0;
+            for (int64_t j = 0; j < ec; ++j)
+                for (int64_t i = 0; i < er; ++i) nrm += bnd[i + j*ld] * bnd[i + j*ld];
+            nrm = std::sqrt(nrm);
+
+            for (int64_t j = 0; j < ec; ++j) {
+                for (int64_t i = 0; i < er; ++i) {
+                    const T v = bnd[i + j * ld];
+                    if (j >= i + k) {
+                        // Strictly above the diagonal band.
+                        if (out.final_iter_is_odd)
+                            ASSERT_EQ(v, T(0)) << "R entry (" << i << "," << j
+                                << ") is above the band and is never written";
+                        else
+                            ASSERT_LE(std::abs(v), rtol * nrm) << "S entry (" << i << "," << j
+                                << ") is above the band and should be at roundoff";
+                    } else if (i >= j + 2 * k) {
+                        // Strictly below the subdiagonal band.
+                        if (out.final_iter_is_odd)
+                            ASSERT_LE(std::abs(v), rtol * nrm) << "R entry (" << i << "," << j
+                                << ") is below the band and should be at roundoff";
+                        else
+                            ASSERT_EQ(v, T(0)) << "S entry (" << i << "," << j
+                                << ") is below the band and is never written";
+                    }
+                }
+            }
+        }
+
         // S's leading dimension is n + k, always. It must NOT be derived as n + (er - ec):
         // that difference is k only when the terminal block is full width, and it is the
         // last accepted width once the rank criterion truncates, which reads the buffer at
