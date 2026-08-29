@@ -194,8 +194,8 @@ TEST_F(TestPowerOp, composite_inner) {
     int64_t n = 18;
     vector<double> D1(n * n), D2(n * n);
     RNGState<> state(77);
-    RandBLAS::fill_dense(RandBLAS::DenseDist(n, n), D1.data(), state);
-    RandBLAS::fill_dense(RandBLAS::DenseDist(n, n), D2.data(), state);
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(n, n), D1.data(), state);
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(n, n), D2.data(), state);
     for (auto& v : D1) v *= 0.1;
     for (auto& v : D2) v *= 0.1;
 
@@ -222,4 +222,112 @@ TEST_F(TestPowerOp, composite_inner) {
     apply_power_reference(A_dense.data(), n, 2, x.data(), y_ref.data());
 
     ASSERT_LE(rel_err(y_pow.data(), y_ref.data(), n), 1e-9);
+}
+
+// SkOp overload: applying A^2 to a DenseSkOp must match applying A^2 to that
+// same operator's explicit dense materialization (same seed, same distribution).
+// Regression test for the bug where the SkOp overload always materialized S in
+// ColMajor but reported a RowMajor leading dimension to RowMajor callers.
+TEST_F(TestPowerOp, skop_matches_manual_materialization_colmajor) {
+    int64_t n = 12, d = 4;
+    vector<double> A(n * n);
+    RNGState<> state(55);
+    RandBLAS::fill_dense(RandBLAS::DenseDist(n, n), A.data(), state);
+    for (auto& v : A) v *= 0.1;
+
+    RandLAPACK::linops::DenseLinOp<double> A_op(n, n, A.data(), n, Layout::ColMajor);
+    RandLAPACK::linops::PowerOp<RandLAPACK::linops::DenseLinOp<double>> A_pow(A_op, 2);
+
+    RandBLAS::DenseDist D(n, d);
+    RNGState<> skop_state(9);
+    RandBLAS::DenseSkOp<double> S(D, skop_state);
+
+    vector<double> C_sk(n * d, 0.0);
+    A_pow(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+          n, d, n, 1.0, S, 0.0, C_sk.data(), n);
+
+    // D's natural layout is ColMajor here (tall, major_axis == Long by default),
+    // so this manual materialization has the same memory layout as S_dense above.
+    vector<double> S_dense(n * d);
+    RNGState<> skop_state2(9);
+    RandBLAS::fill_dense(D, S_dense.data(), skop_state2);
+
+    vector<double> C_manual(n * d, 0.0);
+    A_pow(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+          n, d, n, 1.0, S_dense.data(), n, 0.0, C_manual.data(), n);
+
+    ASSERT_LE(rel_err(C_sk.data(), C_manual.data(), n * d), 1e-12);
+}
+
+// SkOp overload under RowMajor: two DenseLinOps storing the identical abstract
+// matrix (one ColMajor, one RowMajor) must produce the identical abstract result
+// when hit with the same DenseSkOp (same seed) under each op's own layout.
+// Before the fix this failed because S was always materialized ColMajor while the
+// RowMajor call read it back with a RowMajor leading dimension (transposed S).
+TEST_F(TestPowerOp, skop_rowmajor_matches_colmajor) {
+    int64_t n = 12, d = 4;
+    vector<double> A_cm(n * n);
+    RNGState<> state(56);
+    RandBLAS::fill_dense(RandBLAS::DenseDist(n, n), A_cm.data(), state);
+    for (auto& v : A_cm) v *= 0.1;
+
+    // Same abstract matrix, stored RowMajor.
+    vector<double> A_rm(n * n);
+    for (int64_t i = 0; i < n; ++i)
+        for (int64_t j = 0; j < n; ++j)
+            A_rm[i * n + j] = A_cm[i + j * n];
+
+    RandLAPACK::linops::DenseLinOp<double> A_op_cm(n, n, A_cm.data(), n, Layout::ColMajor);
+    RandLAPACK::linops::DenseLinOp<double> A_op_rm(n, n, A_rm.data(), n, Layout::RowMajor);
+    RandLAPACK::linops::PowerOp<RandLAPACK::linops::DenseLinOp<double>> A_pow_cm(A_op_cm, 2);
+    RandLAPACK::linops::PowerOp<RandLAPACK::linops::DenseLinOp<double>> A_pow_rm(A_op_rm, 2);
+
+    RandBLAS::DenseDist D(n, d);
+    RNGState<> skop_state_cm(10);
+    RandBLAS::DenseSkOp<double> S_cm(D, skop_state_cm);
+    RNGState<> skop_state_rm(10);
+    RandBLAS::DenseSkOp<double> S_rm(D, skop_state_rm);
+
+    vector<double> C_col(n * d, 0.0);
+    A_pow_cm(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+             n, d, n, 1.0, S_cm, 0.0, C_col.data(), n);
+
+    vector<double> C_row(n * d, 0.0);
+    A_pow_rm(Side::Left, Layout::RowMajor, Op::NoTrans, Op::NoTrans,
+             n, d, n, 1.0, S_rm, 0.0, C_row.data(), d);
+
+    double err = 0.0, ref = 0.0;
+    for (int64_t i = 0; i < n; ++i) {
+        for (int64_t j = 0; j < d; ++j) {
+            double diff = C_col[i + j * n] - C_row[j + i * d];
+            err += diff * diff;
+            ref += C_col[i + j * n] * C_col[i + j * n];
+        }
+    }
+    ASSERT_LE(std::sqrt(err / ref), 1e-12);
+}
+
+// SkOp overload: a SparseSkOp under RowMajor must throw. The overload only knows
+// how to materialize a SparseSkOp in ColMajor (see rl_power_linop.hh); RowMajor
+// callers must be rejected rather than silently handed a transposed S.
+TEST_F(TestPowerOp, skop_sparse_rowmajor_throws) {
+    int64_t n = 10, d = 3;
+    vector<double> A(n * n);
+    RNGState<> state(64);
+    RandBLAS::fill_dense(RandBLAS::DenseDist(n, n), A.data(), state);
+    for (auto& v : A) v *= 0.1;
+
+    RandLAPACK::linops::DenseLinOp<double> A_op(n, n, A.data(), n, Layout::ColMajor);
+    RandLAPACK::linops::PowerOp<RandLAPACK::linops::DenseLinOp<double>> A_pow(A_op, 2);
+
+    RandBLAS::SparseDist SDist(n, d, 2, RandBLAS::Axis::Short);
+    RNGState<> skop_state(11);
+    RandBLAS::SparseSkOp<double> S(SDist, skop_state);
+    RandBLAS::fill_sparse(S);
+
+    vector<double> C(n * d, 0.0);
+    ASSERT_THROW(
+        A_pow(Side::Left, Layout::RowMajor, Op::NoTrans, Op::NoTrans,
+              n, d, n, 1.0, S, 0.0, C.data(), d),
+        RandLAPACK::Error);
 }

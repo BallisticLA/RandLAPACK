@@ -49,13 +49,18 @@ class CholQR_linops {
         // Column-block size for Gram and Q materialization. <=0 or >=n means no blocking.
         int64_t block_size;
 
-        // Adaptive-shift safety net (Oleg's prescription): the first attempt is always
-        // unshifted (shift_factor is hard-wired to 0 in call()); only if potrf breaks
+        // Adaptive-shift safety net: the first attempt is always unshifted
+        // (shift_factor is hard-wired to 0 in call()); only if potrf breaks
         // down does the primitive seed the shift at eps*trace(G) and grow it
-        // x shift_growth. max_retries < 0 = unbounded (no ceiling) — retry until PD.
+        // x shift_growth. max_retries < 0 = unbounded (no ceiling), retry until PD.
         int max_retries;
         T   shift_growth;
         int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
+        /// Per-pass shift record from the last call: the absolute diagonal shift the
+        /// successful potrf carried (0 = unshifted) and that pass's Gram trace. A
+        /// nonzero shift means R factors G + s I, not G (preconditioner semantics).
+        T chol_applied_shifts[1] = {T(0)};
+        T chol_gram_traces[1]    = {T(0)};
 
         CholQR_linops(
             bool time_subroutines,
@@ -63,8 +68,8 @@ class CholQR_linops {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            (void)ep;   // stored `eps` member removed 2026-08-27: it was never read
-            block_size = 0;
+            (void)ep;   // kept in the signature for call-site compatibility; unused
+            block_size = kDefaultGramBlockSize;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -101,14 +106,17 @@ class CholQR_linops {
                 A, R, ldr, this->block_size, /*num_iters=*/1,
                 /*shift_iter1=*/T(0), /*shift_iter_rest=*/T(0),
                 this->max_retries, this->shift_growth, this->timing,
-                this->timing ? it : nullptr, &this->n_chol_retries);
+                this->timing ? it : nullptr, &this->n_chol_retries,
+                this->chol_applied_shifts, this->chol_gram_traces);
+            // 1 = the (only) pass failed; the cause (retry exhaustion, singular
+            // preconditioner, non-finite shift, invalid input) is on stderr.
             if (info != 0) return info;
 
             // Test mode: materialize Q = A * R^{-1} (outside the timing region).
             if (this->test_mode) {
                 if (this->timing) t0 = steady_clock::now();
                 T* Q_buf = new T[m * n];
-                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf, m);
                 this->Q_rows = m;
                 this->Q_cols = n;
                 // The class owns Q (the destructor frees it), so release any buffer from a
@@ -141,13 +149,16 @@ class CholQR_linops {
 /// the primitive seed the shift at eps * trace(G) (= ||A||_F^2 for iter 1, ~ n for
 /// the iter-2 preconditioned Gram) and grow it x shift_growth, retrying unboundedly
 /// (max_retries < 0) until the Gram is PD. Starting unshifted
-/// avoids biasing R_1 on well-conditioned inputs — an always-on eps shift was found
+/// avoids biasing R_1 on well-conditioned inputs: an always-on eps shift was found
 /// to leave CholQR2 *less* orthogonal than a single unshifted CholQR pass; the retry
 /// still rescues Gram matrices driven non-PD by rounding.
 ///
-/// Status codes from call():
-///   1  if iter-1 cholqr_primitive exhausted retries
-///   2  if iter-2 cholqr_primitive exhausted retries
+/// Status codes from call(): the 1-based pass whose factorization failed, 0 on
+/// success. The failure can have any cause cholqr_primitive reports (retry
+/// exhaustion, a singular preconditioner, a non-finite shift, or invalid
+/// input); see stderr for which one fired.
+///   1  pass 1 (unpreconditioned CholQR) failed
+///   2  pass 2 (preconditioned on R_1) failed
 ///
 template <typename T>
 class CholQR2_linops {
@@ -183,6 +194,10 @@ class CholQR2_linops {
         int max_retries;
         T   shift_growth;
         int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
+        /// Per-pass shift record from the last call (pass 1, pass 2): absolute shift
+        /// the successful potrf carried (0 = unshifted) and that pass's Gram trace.
+        T chol_applied_shifts[2] = {T(0), T(0)};
+        T chol_gram_traces[2]    = {T(0), T(0)};
 
         CholQR2_linops(
             bool time_subroutines,
@@ -190,8 +205,8 @@ class CholQR2_linops {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            (void)ep;   // stored `eps` member removed 2026-08-27: it was never read
-            block_size = 0;
+            (void)ep;   // kept in the signature for call-site compatibility; unused
+            block_size = kDefaultGramBlockSize;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -229,14 +244,17 @@ class CholQR2_linops {
                 A, R, ldr, this->block_size, /*num_iters=*/2,
                 this->shift_factor_iter1, this->shift_factor_iter2,
                 this->max_retries, this->shift_growth, this->timing,
-                this->timing ? it : nullptr, &this->n_chol_retries);
-            if (info != 0) return info;   // 1 or 2 = the pass that failed
+                this->timing ? it : nullptr, &this->n_chol_retries,
+                this->chol_applied_shifts, this->chol_gram_traces);
+            // 1 or 2 = the 1-based pass that failed (retry exhaustion, singular
+            // preconditioner, non-finite shift, or invalid input; see stderr).
+            if (info != 0) return info;
 
             // ---- Test mode: materialize Q = A * R^{-1} via blocked linop calls ----
             if (this->test_mode) {
                 if (this->timing) t0 = steady_clock::now();
                 T* Q_buf = new T[m * n];
-                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf, m);
                 this->Q_rows = m;
                 this->Q_cols = n;
                 // The class owns Q (the destructor frees it), so release any buffer from a
@@ -260,25 +278,5 @@ class CholQR2_linops {
         }
 };
 
-
-// Analytical peak working memory for CholQR2_linops, mirroring the analytic_kb
-// helpers used by CholQR_linops / sCholQR3_linops. Sum of class-member scratches:
-//   G, R_pre, P_prev (3 n^2) + A_temp (m * b_eff) + Z_buf (n * b_eff)
-//   + G_backup (n^2) when max_retries > 0
-//   + cholqr_primitive's transient G + A_temp during iter 1 (n^2 + m*b_eff)
-// We report the iter-2 peak (which dominates: persistent class scratches +
-// active primitive scratches), conservatively assuming max_retries > 0.
-template <typename T>
-inline long cholqr2_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size) {
-    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    int64_t bytes = (int64_t)sizeof(T) *
-        ( 4 * n * n        // G + R_pre + P_prev + G_backup (peak; iter-2 retry)
-        + m * b_eff        // A_temp: driver and primitive buffers are SEQUENTIAL,
-                           // not coexistent (recounted 2026-08-27; the old formula
-                           // double-counted them as 2*m*b_eff)
-        + n * b_eff        // Z_buf
-        );
-    return bytes / 1024;
-}
 
 } // end namespace RandLAPACK

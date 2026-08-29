@@ -92,8 +92,8 @@ TEST_F(TestTransposedOp, composite_inner) {
     int64_t m = 20, p = 15, n = 12;
     vector<double> D1(m * p), D2(p * n);
     RNGState<> state(13);
-    RandBLAS::fill_dense(RandBLAS::DenseDist(m, p), D1.data(), state);
-    RandBLAS::fill_dense(RandBLAS::DenseDist(p, n), D2.data(), state);
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(m, p), D1.data(), state);
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(p, n), D2.data(), state);
 
     RandLAPACK::linops::DenseLinOp<double> D1_op(m, p, D1.data(), m, Layout::ColMajor);
     RandLAPACK::linops::DenseLinOp<double> D2_op(p, n, D2.data(), p, Layout::ColMajor);

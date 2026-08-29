@@ -3,6 +3,7 @@
 #include "ext_solver_linop_util.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
+#include "rl_exceptions.hh"
 #include "../misc/ext_util.hh"
 
 #include <RandBLAS.hh>
@@ -94,6 +95,8 @@ struct CholSolverLinOp {
     /// In-memory source matrix, set by the CSR constructor (empty for the
     /// file-based constructor). Eigen holds it only to feed the Cholesky
     /// factorization in factorize(); every solve uses the extracted L via RandBLAS.
+    /// Released (resized to empty, storage freed) once factorize() has consumed it,
+    /// so has_memory_ stays true afterward but no longer implies A_memory_ holds data.
     bool has_memory_ = false;
     Eigen::SparseMatrix<T> A_memory_;
 
@@ -128,6 +131,9 @@ struct CholSolverLinOp {
         factorization_done(false),
         has_memory_(true) {
         randblas_require(n_rows == n_cols); // Must be square for Cholesky
+        randlapack_require(A_csr.index_base == RandBLAS::sparse_data::IndexBase::Zero)
+            << "CholSolverLinOp: CSR constructor requires index_base == Zero, got index_base="
+            << static_cast<int>(A_csr.index_base);
         // CSR -> Eigen via triplets (Eigen's setFromTriplets needs a container; this
         // is part of the Eigen factorization setup, not the solve path).
         std::vector<Eigen::Triplet<T>> triplets;
@@ -185,6 +191,11 @@ public:
             randblas_require(A_memory_.rows() == n_rows);
             randblas_require(A_memory_.cols() == n_cols);
             chol_solver.compute(A_memory_);
+            // A_memory_'s release is deferred until factorization is confirmed
+            // successful (below the info() and isCompressed() checks): releasing
+            // it here would leave a retried factorize() on this same input
+            // computing over an emptied 0x0 matrix instead of reproducing the
+            // real SPD failure.
         } else {
             Eigen::SparseMatrix<T, Eigen::ColMajor> A_eigen;
             RandLAPACK_extras::eigen_sparse_from_matrix_market<T>(matrix_file, A_eigen);
@@ -194,13 +205,25 @@ public:
         }
 
         if (chol_solver.info() != Eigen::Success) {
-            randblas_require(false);
+            std::string source = has_memory_ ? "in-memory CSR matrix" : ("file " + matrix_file);
+            randlapack_require(false)
+                << "CholSolverLinOp::factorize: Eigen Cholesky failed with info="
+                << static_cast<int>(chol_solver.info()) << " on " << source
+                << " (matrix is not symmetric positive definite)";
         }
 
         // Step 3: Extract L as a concrete sparse matrix so we can access its raw arrays.
         // chol_solver.matrixL() returns a view; assigning materializes it.
         L_sparse = chol_solver.matrixL();
         randblas_require(L_sparse.isCompressed());
+
+        // A_memory_ is consumed once factorization is confirmed successful;
+        // release its storage now rather than holding it for the operator's
+        // remaining lifetime (every solve uses L, not A).
+        if (has_memory_) {
+            A_memory_.resize(0, 0);
+            A_memory_.data().squeeze();
+        }
 
         // Step 4: Extract permutation vectors from P A P^T = L L^T.
         // Eigen permutation convention: P_sigma(e_i) = e_{sigma(i)}, so

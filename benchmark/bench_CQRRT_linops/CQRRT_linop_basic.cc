@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <cmath>
 #include <ctime>
+#include <unistd.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -33,16 +34,40 @@ using std::chrono::steady_clock;
 using std::chrono::duration_cast;
 using std::chrono::microseconds;
 
-// Common quality + timing fields shared by all algorithms
+// Shared helpers (cqrrt_bench_common.hh): env-knob provenance, the
+// per-pass Cholesky-shift fold, and argv/host CSV provenance.
+using RandLAPACK::bench::write_env_line;
+using RandLAPACK::bench::fold_chol_shift;
+using RandLAPACK::bench::quote_join_argv;
+using RandLAPACK::bench::get_hostname;
+
+// Common quality + timing fields shared by all algorithms. Every field
+// defaults to a -1/failure sentinel (never a silently-perfect 0) so a
+// skipped or failed algorithm reads unambiguously in the CSV.
 template <typename T>
 struct alg_quality {
-    T orth_error;               // ||Q^T Q - I|| / sqrt(n)
-    bool is_orthonormal;        // Is full Q block orthonormal?
-    int64_t max_orth_cols;      // Maximum orthonormal prefix
-    long time;                  // Total computation time (microseconds)
-    long peak_rss_kb;           // Peak RSS increase during algorithm call (KB)
-    long analytical_kb;         // Analytical peak working memory (KB)
-    std::vector<long> breakdown; // Per-subroutine timings (excludes total)
+    int qr_status = -1;         // 0 = success; driver's own code on failure;
+                                 // -1 = not yet run (skip_dense, or a bug if
+                                 // still -1 after run_algorithms returns)
+    T orth_error = (T)-1;       // ||Q^T Q - I|| / sqrt(n)
+    bool is_orthonormal = false; // Is full Q block orthonormal?
+    int64_t max_orth_cols = -1; // Maximum orthonormal prefix
+    long time = -1;              // Total computation time (microseconds)
+    long peak_rss_kb = -1;       // Peak RSS increase during algorithm call (KB)
+    long analytical_kb = -1;     // Analytical peak working memory (KB)
+    std::vector<long> breakdown; // Per-subroutine timings (excludes total);
+                                  // always sized to the algorithm's fixed
+                                  // slot count (10/5/17/10) regardless of
+                                  // success, failure, or skip_dense, so the
+                                  // breakdown CSV row is always full-width.
+    int chol_retries = -1;       // -1 = the row failed, or was skipped
+                                  // (dense_cqrrt under skip_dense=1); every
+                                  // algorithm in this file, including dense
+                                  // CQRRT_expl, has an adaptive Cholesky-shift
+                                  // retry mechanism, so -1 no longer means
+                                  // "no mechanism"
+    T chol_shift_abs = (T)-1;
+    T chol_shift_rel = (T)-1;
 };
 
 template <typename T>
@@ -108,27 +133,19 @@ static std::vector<scaling_result<T>> run_algorithms(
     // Single reusable Q buffer for uniform Q = A * R^{-1} computation across all algorithms
     T* Q_uniform = new T[m * n];
 
+    // RSS window (unified): every algorithm's peak_rss_kb is measured around
+    // its OWN single timed call() below, all with test_mode=false. CQRRT_linop
+    // and CholQR used to run a SEPARATE untimed pre-call for the RSS
+    // measurement, whose stated rationale ("excludes the test_mode=true
+    // Q-factor allocation") never applied, since the timed call was already
+    // test_mode=false, so that extra pass measured nothing the timed call's
+    // own window wouldn't. Dropped in favor of the single-window scheme
+    // sCholQR3 already used.
+
     // ============================================================
     // Run CQRRT (preconditioned Cholesky QR) - multiple runs
     // ============================================================
-    // Peak RSS measured separately with test_mode=false to exclude Q-factor allocation.
-    // With column-blocking, test_mode reallocates A_pre from m*b_eff to m*n for Q.
     {
-        // RSS measurement (test_mode=false)
-        long cqrrt_peak_rss_kb = 0;
-        {
-            T* R_rss = new T[n * n]();
-            auto state_rss = run_states[0];
-            RandLAPACK::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
-            CQRRT_rss.nnz = sketch_nnz;
-            CQRRT_rss.block_size = block_size;
-            RandLAPACK::PeakRSSTracker cqrrt_mem;
-            cqrrt_mem.start();
-            CQRRT_rss.call(A_linop, R_rss, n, d_factor, state_rss);
-            cqrrt_peak_rss_kb = cqrrt_mem.stop();
-            delete[] R_rss;
-        }
-
         T* R_cqrrt = new T[n * n];
         for (int64_t run = 0; run < num_runs; ++run) {
             std::fill(R_cqrrt, R_cqrrt + n * n, (T)0);
@@ -137,17 +154,32 @@ static std::vector<scaling_result<T>> run_algorithms(
             RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, false);  // timing=true, test_mode=false
             CQRRT_QR.nnz = sketch_nnz;
             CQRRT_QR.block_size = block_size;
-            CQRRT_QR.call(A_linop, R_cqrrt, n, d_factor, state_copy);
 
-            results[run].cqrrt.time = CQRRT_QR.times[10];  // total_t_dur
-            results[run].cqrrt.peak_rss_kb = cqrrt_peak_rss_kb;
-            results[run].cqrrt.breakdown.assign(CQRRT_QR.times.begin(), CQRRT_QR.times.begin() + 10);
+            RandLAPACK::PeakRSSTracker cqrrt_mem;
+            cqrrt_mem.start();
+            int status = CQRRT_QR.call(A_linop, R_cqrrt, n, d_factor, state_copy);
+            results[run].cqrrt.peak_rss_kb = cqrrt_mem.stop();
+            results[run].cqrrt.qr_status = status;
 
-            // Uniform Q computation for every run: Q = A * R^{-1} via operator
-            compute_Q_from_R(A_linop, R_cqrrt, n, Q_uniform, m, n);
-            results[run].cqrrt.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
-            results[run].cqrrt.is_orthonormal = (results[run].cqrrt.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            results[run].cqrrt.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
+            if (status == 0) {
+                results[run].cqrrt.time = CQRRT_QR.total_us();
+                results[run].cqrrt.breakdown.assign(CQRRT_QR.times.begin(), CQRRT_QR.times.end() - 1);
+                results[run].cqrrt.chol_retries = CQRRT_QR.n_chol_retries;
+                fold_chol_shift(results[run].cqrrt.chol_shift_abs, results[run].cqrrt.chol_shift_rel,
+                                 CQRRT_QR.chol_applied_shifts, CQRRT_QR.chol_gram_traces, 1);
+
+                // Uniform Q computation for every run: Q = A * R^{-1} via operator
+                compute_Q_from_R(A_linop, R_cqrrt, n, Q_uniform, m, n);
+                results[run].cqrrt.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
+                results[run].cqrrt.is_orthonormal = (results[run].cqrrt.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
+                results[run].cqrrt.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
+            } else {
+                // Failure: no valid R, so no Q and no orthogonality metrics.
+                // Full-width -1 breakdown (never a truncated/empty vector).
+                results[run].cqrrt.breakdown.assign(10, -1L);
+                std::cerr << "Warning: CQRRT_linop call() failed (run=" << run
+                          << ", status=" << status << "); quality/timing fields set to -1.\n";
+            }
         }
         delete[] R_cqrrt;
     }
@@ -155,39 +187,37 @@ static std::vector<scaling_result<T>> run_algorithms(
     // ============================================================
     // Run CholQR (unpreconditioned Cholesky QR) - multiple runs
     // ============================================================
-    // Peak RSS measured separately with test_mode=false to exclude Q-factor allocation.
-    // With column-blocking, test_mode reallocates A_temp from m*b_eff to m*n for Q.
     {
-        // RSS measurement (test_mode=false)
-        long cholqr_peak_rss_kb = 0;
-        {
-            T* R_rss = new T[n * n]();
-            RandLAPACK::CholQR_linops<T> CholQR_rss(false, tol, false);
-            CholQR_rss.block_size = block_size;
-            RandLAPACK::PeakRSSTracker cholqr_mem;
-            cholqr_mem.start();
-            CholQR_rss.call(A_linop, R_rss, n);
-            cholqr_peak_rss_kb = cholqr_mem.stop();
-            delete[] R_rss;
-        }
-
         T* R_cholqr = new T[n * n];
         for (int64_t run = 0; run < num_runs; ++run) {
             std::fill(R_cholqr, R_cholqr + n * n, (T)0);
 
             RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, false);  // timing=true, test_mode=false
             CholQR_alg.block_size = block_size;
-            CholQR_alg.call(A_linop, R_cholqr, n);
 
-            results[run].cholqr.time = CholQR_alg.times[5];  // total
-            results[run].cholqr.peak_rss_kb = cholqr_peak_rss_kb;
-            results[run].cholqr.breakdown.assign(CholQR_alg.times.begin(), CholQR_alg.times.begin() + 5);
+            RandLAPACK::PeakRSSTracker cholqr_mem;
+            cholqr_mem.start();
+            int status = CholQR_alg.call(A_linop, R_cholqr, n);
+            results[run].cholqr.peak_rss_kb = cholqr_mem.stop();
+            results[run].cholqr.qr_status = status;
 
-            // Uniform Q computation for every run
-            compute_Q_from_R(A_linop, R_cholqr, n, Q_uniform, m, n);
-            results[run].cholqr.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
-            results[run].cholqr.is_orthonormal = (results[run].cholqr.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            results[run].cholqr.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
+            if (status == 0) {
+                results[run].cholqr.time = CholQR_alg.total_us();
+                results[run].cholqr.breakdown.assign(CholQR_alg.times.begin(), CholQR_alg.times.end() - 1);
+                results[run].cholqr.chol_retries = CholQR_alg.n_chol_retries;
+                fold_chol_shift(results[run].cholqr.chol_shift_abs, results[run].cholqr.chol_shift_rel,
+                                 CholQR_alg.chol_applied_shifts, CholQR_alg.chol_gram_traces, 1);
+
+                // Uniform Q computation for every run
+                compute_Q_from_R(A_linop, R_cholqr, n, Q_uniform, m, n);
+                results[run].cholqr.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
+                results[run].cholqr.is_orthonormal = (results[run].cholqr.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
+                results[run].cholqr.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
+            } else {
+                results[run].cholqr.breakdown.assign(5, -1L);
+                std::cerr << "Warning: CholQR call() failed (run=" << run
+                          << ", status=" << status << "); quality/timing fields set to -1.\n";
+            }
         }
         delete[] R_cholqr;
     }
@@ -205,18 +235,28 @@ static std::vector<scaling_result<T>> run_algorithms(
 
             RandLAPACK::PeakRSSTracker scholqr3_mem;
             scholqr3_mem.start();
-            sCholQR3_alg.call(A_linop, R_scholqr3, n);
+            int status = sCholQR3_alg.call(A_linop, R_scholqr3, n);
             results[run].scholqr3.peak_rss_kb = scholqr3_mem.stop();
+            results[run].scholqr3.qr_status = status;
 
-            results[run].scholqr3.time = sCholQR3_alg.times[17];  // total
-            // breakdown (17): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest
-            results[run].scholqr3.breakdown.assign(sCholQR3_alg.times.begin(), sCholQR3_alg.times.begin() + 17);
+            if (status == 0) {
+                results[run].scholqr3.time = sCholQR3_alg.total_us();
+                // breakdown (17): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest
+                results[run].scholqr3.breakdown.assign(sCholQR3_alg.times.begin(), sCholQR3_alg.times.end() - 1);
+                results[run].scholqr3.chol_retries = sCholQR3_alg.n_chol_retries;
+                fold_chol_shift(results[run].scholqr3.chol_shift_abs, results[run].scholqr3.chol_shift_rel,
+                                 sCholQR3_alg.chol_applied_shifts, sCholQR3_alg.chol_gram_traces, 3);
 
-            // Uniform Q computation (same as all other algorithms)
-            compute_Q_from_R(A_linop, R_scholqr3, n, Q_uniform, m, n);
-            results[run].scholqr3.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
-            results[run].scholqr3.is_orthonormal = (results[run].scholqr3.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            results[run].scholqr3.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
+                // Uniform Q computation (same as all other algorithms)
+                compute_Q_from_R(A_linop, R_scholqr3, n, Q_uniform, m, n);
+                results[run].scholqr3.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
+                results[run].scholqr3.is_orthonormal = (results[run].scholqr3.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
+                results[run].scholqr3.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
+            } else {
+                results[run].scholqr3.breakdown.assign(17, -1L);
+                std::cerr << "Warning: sCholQR3 call() failed (run=" << run
+                          << ", status=" << status << "); quality/timing fields set to -1.\n";
+            }
         }
         delete[] R_scholqr3;
     }
@@ -251,43 +291,72 @@ static std::vector<scaling_result<T>> run_algorithms(
             dense_alg.compute_Q = false;
             dense_alg.orthogonalization = false;
             dense_alg.nnz = sketch_nnz;
-            dense_alg.call(m, n, A_materialized, m, R_dense, n, d_factor, state_copy);
+            int status = dense_alg.call(m, n, A_materialized, m, R_dense, n, d_factor, state_copy);
 
             results[run].dense_cqrrt.peak_rss_kb = dense_mem.stop();
+            results[run].dense_cqrrt.qr_status = status;
 
             delete[] A_materialized;  // No longer needed (Q computed via operator)
 
-            // Total = materialization + algorithm total (Q excluded from algo total)
-            results[run].dense_cqrrt.time = materialize_time + dense_alg.times[9];
-            // Breakdown matches linop CQRRT layout: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest
-            results[run].dense_cqrrt.breakdown = {
-                materialize_time,
-                dense_alg.times[0],  // saso
-                dense_alg.times[1],  // qr
-                0L,                  // trtri (always 0 for dense)
-                dense_alg.times[3],  // precond
-                dense_alg.times[4],  // gram
-                0L,                  // trmm_gram (always 0 for dense)
-                dense_alg.times[6],  // potrf
-                dense_alg.times[7],  // finalize
-                dense_alg.times[8],  // rest
-            };
+            if (status == 0) {
+                // Total = materialization + algorithm total (Q excluded from algo total)
+                results[run].dense_cqrrt.time = materialize_time + dense_alg.total_us();
+                // Breakdown matches linop CQRRT layout: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest
+                results[run].dense_cqrrt.breakdown = {
+                    materialize_time,
+                    dense_alg.times[0],  // saso
+                    dense_alg.times[1],  // qr
+                    0L,                  // trtri (always 0 for dense)
+                    dense_alg.times[3],  // precond
+                    dense_alg.times[4],  // gram
+                    0L,                  // trmm_gram (always 0 for dense)
+                    dense_alg.times[6],  // potrf
+                    dense_alg.times[7],  // finalize
+                    dense_alg.times[8],  // rest
+                };
+                // Dense CQRRT (rl_cqrrt.hh CQRRT, not CQRRT_linops) has
+                // the same adaptive Cholesky-shift retry as the other three
+                // algorithms; fold its record the same
+                // way the other rows do (single shift-record entry, npasses=1,
+                // same as CQRRT_linops's own single-pass record).
+                results[run].dense_cqrrt.chol_retries = dense_alg.n_chol_retries;
+                fold_chol_shift(results[run].dense_cqrrt.chol_shift_abs, results[run].dense_cqrrt.chol_shift_rel,
+                                 dense_alg.chol_applied_shifts, dense_alg.chol_gram_traces, 1);
 
-            // Uniform Q computation for every run
-            compute_Q_from_R(A_linop, R_dense, n, Q_uniform, m, n);
-            results[run].dense_cqrrt.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
-            results[run].dense_cqrrt.is_orthonormal = (results[run].dense_cqrrt.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            results[run].dense_cqrrt.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
+                // Uniform Q computation for every run
+                compute_Q_from_R(A_linop, R_dense, n, Q_uniform, m, n);
+                results[run].dense_cqrrt.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
+                results[run].dense_cqrrt.is_orthonormal = (results[run].dense_cqrrt.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
+                results[run].dense_cqrrt.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
+            } else {
+                results[run].dense_cqrrt.breakdown.assign(10, -1L);
+                std::cerr << "Warning: CQRRT_expl (dense) call() failed (run=" << run
+                          << ", status=" << status << "); quality/timing fields set to -1.\n";
+            }
         }
         delete[] I_mat;
         delete[] R_dense;
-    } // if (!skip_dense)
+    } else {
+        // skip_dense=true: CQRRT_expl never runs. Every field carries the -1
+        // sentinel (never a value-initialized 0, which would misreport as
+        // "measured, perfectly orthogonal") so a reader can tell "skipped"
+        // apart from "ran and was flawless". qr_status=-1 marks
+        // "not run"; it is deliberately not one of CQRRT's own nonzero
+        // failure codes, which mean the algorithm genuinely tried and failed.
+        for (int64_t r = 0; r < num_runs; ++r) {
+            results[r].dense_cqrrt.breakdown.assign(10, -1L);
+            results[r].dense_cqrrt.qr_status = -1;
+        }
+    }
 
-    // Compute analytical peak working memory for each algorithm (same for all runs)
+    // Compute analytical peak working memory for each algorithm (same for all runs).
+    // dense_cqrrt_akb is gated the same way as the rest of the dense row:
+    // skip_dense=true means CQRRT_expl never ran, so its analytical model is
+    // -1 ("not applicable"), not a number nobody measured against.
     long cqrrt_akb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
     long cholqr_akb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
     long scholqr3_akb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
-    long dense_cqrrt_akb = RandLAPACK::dense_cqrrt_analytical_kb<T>(m, n, d_factor);
+    long dense_cqrrt_akb = skip_dense ? -1L : RandLAPACK::dense_cqrrt_analytical_kb<T>(m, n, d_factor);
     for (int64_t r = 0; r < num_runs; ++r) {
         results[r].cqrrt.analytical_kb      = cqrrt_akb;
         results[r].cholqr.analytical_kb     = cholqr_akb;
@@ -390,7 +459,7 @@ static void write_csv_headers(
     std::ofstream& out, std::ofstream& breakdown,
     const std::string& precision, double d_factor,
     int64_t sketch_nnz, int64_t block_size, int64_t num_runs, int num_threads,
-    const std::string& extra_comment);
+    const std::string& extra_comment, const std::string& argv_line);
 static void prepend_runtime(const std::string& filepath, double seconds);
 
 template <typename T>
@@ -412,7 +481,7 @@ static int run_benchmark(int argc, char *argv[]) {
         std::cerr << "  density          : Target density (e.g., 0.1); bandwidth derived as round(density*n - 1)" << std::endl;
         std::cerr << "  d_factor         : Sketching dimension factor for CQRRT_linop (e.g., 2.0)" << std::endl;
         std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 4)" << std::endl;
-        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
+        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 256 = paper b)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
         std::cerr << "  " << argv[0] << " double ./output 30 3 1000 30000 100 1e9 0.05 2.0 4 100" << std::endl;
         std::cerr << "  (Tests 30 matrices from 1000x10 to 30000x300, aspect ratio 100:1, κ=1e9, density≈0.05, 3 runs each)" << std::endl;
@@ -422,10 +491,10 @@ static int run_benchmark(int argc, char *argv[]) {
     // Parse arguments
     std::string precision = argv[1];
     std::string output_dir = argv[2];
-    int64_t num_sizes = std::stol(argv[3]);
-    int64_t num_runs = std::stol(argv[4]);
-    int64_t m_start = std::stol(argv[5]);
-    int64_t m_end = std::stol(argv[6]);
+    int64_t num_sizes = std::stoll(argv[3]);
+    int64_t num_runs = std::stoll(argv[4]);
+    int64_t m_start = std::stoll(argv[5]);
+    int64_t m_end = std::stoll(argv[6]);
     double aspect_ratio = std::stod(argv[7]);
     double cond_num = std::stod(argv[8]);
     double density = std::stod(argv[9]);
@@ -433,9 +502,24 @@ static int run_benchmark(int argc, char *argv[]) {
     // Default sketch_nnz=4: the Givens-based matrix generator produces
     // high-coherence matrices (non-uniform leverage scores), so nnz >= 4
     // is needed for reliable SASO sketching (nnz=2 causes sporadic spikes).
-    int64_t sketch_nnz = (argc >= 12) ? std::stol(argv[11]) : 4;
-    int64_t block_size = (argc >= 13) ? std::stol(argv[12]) : 0;
+    int64_t sketch_nnz = (argc >= 12) ? std::stoll(argv[11]) : 4;
+    // Default block_size=256 matches the paper's b=256 (blocked Gram, tall
+    // intermediate never fully materialized); pass 0 explicitly for unblocked.
+    int64_t block_size = (argc >= 13) ? std::stoll(argv[12]) : 256;
 
+    // Loud validation: num_sizes=0 leaves `sizes` empty and
+    // sizes.front()/.back() below is UB; num_runs<=0 leaves `results` empty
+    // and every per-run write is UB (num_runs=0 was silently accepted before).
+    if (num_sizes < 1) {
+        std::cerr << "Error: num_sizes must be >= 1 (got " << num_sizes << ")\n";
+        return 1;
+    }
+    if (num_runs < 1) {
+        std::cerr << "Error: num_runs must be >= 1 (got " << num_runs << ")\n";
+        return 1;
+    }
+
+    std::string argv_line = quote_join_argv(argc, argv);
     auto benchmark_start = steady_clock::now();
 
     // Generate date/time prefix
@@ -488,7 +572,7 @@ static int run_benchmark(int argc, char *argv[]) {
           << "# Condition number: " << cond_num << "\n"
           << "# Target density: " << density << "\n";
     write_csv_headers(out, breakdown, precision, d_factor,
-                      sketch_nnz, block_size, num_runs, num_threads, extra.str());
+                      sketch_nnz, block_size, num_runs, num_threads, extra.str(), argv_line);
 
     // Warmup run to trigger library initialization (MKL thread pools, memory allocators, etc.)
     // This ensures first reported iteration has accurate memory measurements.
@@ -545,6 +629,35 @@ static void write_results_to_csv(
 
         const alg_quality<T>* algos[] = {&result.cqrrt, &result.cholqr, &result.scholqr3, &result.dense_cqrrt};
 
+        // Full-width guard: every algorithm's breakdown must be exactly its
+        // fixed slot count (10/5/17/10) on every path (success, driver
+        // failure, or skip_dense), or the breakdown row drifts out of
+        // alignment with the header. run_algorithms guarantees this by
+        // construction; a short vector here is not a corrupted campaign, so
+        // it is padded (with the same -1 sentinel the failure paths use) and
+        // warned about rather than discarding a finished run. A vector LONGER
+        // than the header width cannot be safely truncated without silently
+        // dropping real data, so that case still throws: it means something
+        // upstream is producing more fields than the schema declares.
+        auto fit_breakdown = [](std::vector<long> v, size_t expected, const char* name) {
+            if (v.size() > expected) {
+                randlapack_require(false)
+                    << name << " breakdown width mismatch: expected " << expected
+                    << " fields, got " << v.size() << " (exceeds the header width, "
+                    << "which indicates real corruption, not a short/skipped row)";
+            } else if (v.size() < expected) {
+                std::cerr << "Warning: " << name << " breakdown has " << v.size()
+                          << " fields, expected " << expected
+                          << "; padding with -1 to keep the CSV row full width.\n";
+                v.resize(expected, -1L);
+            }
+            return v;
+        };
+        std::vector<long> cqrrt_bd    = fit_breakdown(result.cqrrt.breakdown, 10, "CQRRT_linop");
+        std::vector<long> cholqr_bd   = fit_breakdown(result.cholqr.breakdown, 5, "CholQR");
+        std::vector<long> scholqr3_bd = fit_breakdown(result.scholqr3.breakdown, 17, "sCholQR3");
+        std::vector<long> dense_bd    = fit_breakdown(result.dense_cqrrt.breakdown, 10, "CQRRT_expl");
+
         out << std::fixed << std::setprecision(1)
             << result.m << "," << result.n << "," << run << "," << result.aspect_ratio << ","
             << std::scientific << std::setprecision(6) << result.cond_num << ","
@@ -553,60 +666,107 @@ static void write_results_to_csv(
         for (const auto* q : algos)
             out << q->orth_error << "," << q->max_orth_cols << "," << (q->is_orthonormal ? 1 : 0) << "," << q->time << ",";
         for (int i = 0; i < 4; ++i)
-            out << algos[i]->peak_rss_kb << "," << algos[i]->analytical_kb << (i < 3 ? "," : "\n");
+            out << algos[i]->peak_rss_kb << "," << algos[i]->analytical_kb << ",";
+        for (int i = 0; i < 4; ++i)
+            out << algos[i]->qr_status << ",";
+        for (int i = 0; i < 4; ++i)
+            out << algos[i]->chol_retries << ","
+                << algos[i]->chol_shift_abs << "," << algos[i]->chol_shift_rel << (i < 3 ? "," : "\n");
 
         breakdown << result.m << "," << result.n << "," << run << ",";
-        for (const auto& t : result.cqrrt.breakdown)       breakdown << t << ",";
+        for (const auto& t : cqrrt_bd)    breakdown << t << ",";
         breakdown << result.cqrrt.time << ",";
-        for (const auto& t : result.cholqr.breakdown)      breakdown << t << ",";
+        for (const auto& t : cholqr_bd)   breakdown << t << ",";
         breakdown << result.cholqr.time << ",";
-        for (const auto& t : result.scholqr3.breakdown)    breakdown << t << ",";
+        for (const auto& t : scholqr3_bd) breakdown << t << ",";
         breakdown << result.scholqr3.time << ",";
-        for (const auto& t : result.dense_cqrrt.breakdown) breakdown << t << ",";
+        for (const auto& t : dense_bd)    breakdown << t << ",";
         breakdown << result.dense_cqrrt.time << ","
                   << result.cqrrt.peak_rss_kb << "," << result.cqrrt.analytical_kb << ","
                   << result.cholqr.peak_rss_kb << "," << result.cholqr.analytical_kb << ","
                   << result.scholqr3.peak_rss_kb << "," << result.scholqr3.analytical_kb << ","
-                  << result.dense_cqrrt.peak_rss_kb << "," << result.dense_cqrrt.analytical_kb << "\n";
+                  << result.dense_cqrrt.peak_rss_kb << "," << result.dense_cqrrt.analytical_kb << ","
+                  << result.cqrrt.qr_status << "," << result.cholqr.qr_status << ","
+                  << result.scholqr3.qr_status << "," << result.dense_cqrrt.qr_status << "\n";
     }
     out.flush();
     breakdown.flush();
 }
 
-// Print console summary for a single size's results
+// Print console summary for a single size's results. Only compares runs
+// with qr_status == 0: a failed run's `.time` carries the -1 sentinel, which
+// must never be picked as "fastest". best_* is -1 when every run
+// for that algorithm failed (or, for CQRRT_expl, when skip_dense=1).
 template <typename T>
 static void print_console_summary(
     const std::vector<scaling_result<T>>& all_runs,
     int64_t num_runs, int64_t n) {
 
-    int64_t best_cqrrt = 0, best_cholqr = 0, best_scholqr3 = 0, best_dense = 0;
-    for (int64_t r = 1; r < num_runs; ++r) {
-        if (all_runs[r].cqrrt.time < all_runs[best_cqrrt].cqrrt.time) best_cqrrt = r;
-        if (all_runs[r].cholqr.time < all_runs[best_cholqr].cholqr.time) best_cholqr = r;
-        if (all_runs[r].scholqr3.time < all_runs[best_scholqr3].scholqr3.time) best_scholqr3 = r;
-        if (all_runs[r].dense_cqrrt.time < all_runs[best_dense].dense_cqrrt.time) best_dense = r;
+    int64_t best_cqrrt = -1, best_cholqr = -1, best_scholqr3 = -1, best_dense = -1;
+    for (int64_t r = 0; r < num_runs; ++r) {
+        if (all_runs[r].cqrrt.qr_status == 0 &&
+            (best_cqrrt < 0 || all_runs[r].cqrrt.time < all_runs[best_cqrrt].cqrrt.time)) best_cqrrt = r;
+        if (all_runs[r].cholqr.qr_status == 0 &&
+            (best_cholqr < 0 || all_runs[r].cholqr.time < all_runs[best_cholqr].cholqr.time)) best_cholqr = r;
+        if (all_runs[r].scholqr3.qr_status == 0 &&
+            (best_scholqr3 < 0 || all_runs[r].scholqr3.time < all_runs[best_scholqr3].scholqr3.time)) best_scholqr3 = r;
+        if (all_runs[r].dense_cqrrt.qr_status == 0 &&
+            (best_dense < 0 || all_runs[r].dense_cqrrt.time < all_runs[best_dense].dense_cqrrt.time)) best_dense = r;
     }
-    const auto& bc = all_runs[best_cqrrt];
-    const auto& bq = all_runs[best_cholqr];
-    const auto& bs = all_runs[best_scholqr3];
-    const auto& bd = all_runs[best_dense];
 
-    std::cout << "  CQRRT_linop: orth_err=" << std::scientific << std::setprecision(2) << bc.cqrrt.orth_error << ", max_orth=" << bc.cqrrt.max_orth_cols << "/" << n << ", time=" << bc.cqrrt.time << " us (run " << best_cqrrt << ")\n";
-    std::cout << "  CholQR:      orth_err=" << std::scientific << std::setprecision(2) << bq.cholqr.orth_error << ", max_orth=" << bq.cholqr.max_orth_cols << "/" << n << ", time=" << bq.cholqr.time << " us (run " << best_cholqr << ")\n";
-    std::cout << "  sCholQR3:    orth_err=" << std::scientific << std::setprecision(2) << bs.scholqr3.orth_error << ", max_orth=" << bs.scholqr3.max_orth_cols << "/" << n << ", time=" << bs.scholqr3.time << " us (run " << best_scholqr3 << ")\n";
-    std::cout << "  CQRRT_expl:  orth_err=" << std::scientific << std::setprecision(2) << bd.dense_cqrrt.orth_error << ", max_orth=" << bd.dense_cqrrt.max_orth_cols << "/" << n << ", time=" << bd.dense_cqrrt.time << " us (run " << best_dense << ")\n";
+    auto print_alg = [&](const char* label, int64_t best, T orth, int64_t max_orth, long time) {
+        if (best < 0) { std::cout << "  " << label << ": FAILED on every run\n"; return; }
+        std::cout << "  " << label << ": orth_err=" << std::scientific << std::setprecision(2) << orth
+                   << ", max_orth=" << max_orth << "/" << n << ", time=" << time << " us (run " << best << ")\n";
+    };
+    if (best_cqrrt < 0) print_alg("CQRRT_linop", -1, T(0), 0, 0L);
+    else print_alg("CQRRT_linop", best_cqrrt, all_runs[best_cqrrt].cqrrt.orth_error, all_runs[best_cqrrt].cqrrt.max_orth_cols, all_runs[best_cqrrt].cqrrt.time);
+    if (best_cholqr < 0) print_alg("CholQR     ", -1, T(0), 0, 0L);
+    else print_alg("CholQR     ", best_cholqr, all_runs[best_cholqr].cholqr.orth_error, all_runs[best_cholqr].cholqr.max_orth_cols, all_runs[best_cholqr].cholqr.time);
+    if (best_scholqr3 < 0) print_alg("sCholQR3   ", -1, T(0), 0, 0L);
+    else print_alg("sCholQR3   ", best_scholqr3, all_runs[best_scholqr3].scholqr3.orth_error, all_runs[best_scholqr3].scholqr3.max_orth_cols, all_runs[best_scholqr3].scholqr3.time);
+    if (best_dense < 0) std::cout << "  CQRRT_expl : FAILED or skipped (skip_dense) on every run\n";
+    else print_alg("CQRRT_expl ", best_dense, all_runs[best_dense].dense_cqrrt.orth_error, all_runs[best_dense].dense_cqrrt.max_orth_cols, all_runs[best_dense].dense_cqrrt.time);
+
+    // mem_str takes `best` only to decide N/A vs formatted; callers pass 0 for
+    // rss/akb on the N/A path since those values are never read there (the
+    // ternary just needs to typecheck without indexing all_runs[-1]).
+    auto mem_str = [](int64_t best, long rss, long akb) {
+        return best < 0 ? std::string("N/A") : (std::to_string(rss) + " / " + std::to_string(akb));
+    };
+    long cqrrt_rss    = best_cqrrt    < 0 ? 0L : all_runs[best_cqrrt].cqrrt.peak_rss_kb;
+    long cqrrt_akb    = best_cqrrt    < 0 ? 0L : all_runs[best_cqrrt].cqrrt.analytical_kb;
+    long cholqr_rss   = best_cholqr   < 0 ? 0L : all_runs[best_cholqr].cholqr.peak_rss_kb;
+    long cholqr_akb   = best_cholqr   < 0 ? 0L : all_runs[best_cholqr].cholqr.analytical_kb;
+    long scholqr3_rss = best_scholqr3 < 0 ? 0L : all_runs[best_scholqr3].scholqr3.peak_rss_kb;
+    long scholqr3_akb = best_scholqr3 < 0 ? 0L : all_runs[best_scholqr3].scholqr3.analytical_kb;
+    long dense_rss    = best_dense    < 0 ? 0L : all_runs[best_dense].dense_cqrrt.peak_rss_kb;
+    long dense_akb    = best_dense    < 0 ? 0L : all_runs[best_dense].dense_cqrrt.analytical_kb;
     std::cout << "  Memory (peak RSS / analytical KB):\n";
-    std::cout << "    CQRRT_linop: " << bc.cqrrt.peak_rss_kb << " / " << bc.cqrrt.analytical_kb << ",  CholQR: " << bq.cholqr.peak_rss_kb << " / " << bq.cholqr.analytical_kb << ",  sCholQR3: " << bs.scholqr3.peak_rss_kb << " / " << bs.scholqr3.analytical_kb << ",  CQRRT_expl: " << bd.dense_cqrrt.peak_rss_kb << " / " << bd.dense_cqrrt.analytical_kb << "\n\n";
+    std::cout << "    CQRRT_linop: " << mem_str(best_cqrrt, cqrrt_rss, cqrrt_akb)
+              << ",  CholQR: " << mem_str(best_cholqr, cholqr_rss, cholqr_akb)
+              << ",  sCholQR3: " << mem_str(best_scholqr3, scholqr3_rss, scholqr3_akb)
+              << ",  CQRRT_expl: " << mem_str(best_dense, dense_rss, dense_akb)
+              << "\n\n";
 }
 
-// Write CSV headers shared by both modes
+// Write CSV headers shared by both modes. Provenance lines: argv,
+// host, timestamp, and the env knobs that change sCholQR3/CQRRT numerics
+// without changing any row label (RANDLAPACK_GRAM_LEFT, RANDLAPACK_SCHOLQR3_
+// SHIFT, RANDLAPACK_GIT_COMMIT among them, via the shared write_env_line).
 static void write_csv_headers(
     std::ofstream& out, std::ofstream& breakdown,
     const std::string& precision, double d_factor,
     int64_t sketch_nnz, int64_t block_size, int64_t num_runs, int num_threads,
-    const std::string& extra_comment) {
+    const std::string& extra_comment, const std::string& argv_line) {
+
+    const std::string run_ts = make_run_timestamp();
+    const std::string host = get_hostname();
 
     out << "# CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Results\n";
+    out << "# Date: " << run_ts << "\n";
+    out << "# host: " << host << "\n";
+    out << "# argv: " << argv_line << "\n";
     out << "# Precision: " << precision << "\n";
     if (!extra_comment.empty()) out << extra_comment;
     out << "# d_factor (CQRRT_linop only): " << d_factor << "\n";
@@ -614,6 +774,16 @@ static void write_csv_headers(
     out << "# block_size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
+    write_env_line(out);
+    out << "# qr_status: 0 = success; nonzero = the driver's own failure code.\n";
+    out << "#   On failure the algorithm's orth/max_orth/time/chol_* fields for that row\n";
+    out << "#   carry the -1 sentinel (never a value-initialized 0, which would misreport\n";
+    out << "#   as a perfect result). dense_cqrrt_qr_status = -1 also means skip_dense=1\n";
+    out << "#   (CQRRT_expl was never run, distinct from a real driver failure code).\n";
+    out << "# chol_retries/chol_shift_abs/chol_shift_rel: every algorithm here (including\n";
+    out << "#   dense CQRRT_expl) has an adaptive Cholesky-shift retry mechanism. -1 = the\n";
+    out << "#   row failed before a shift record existed, or was skipped (dense_cqrrt under\n";
+    out << "#   skip_dense=1); 0 = the mechanism ran and used an unshifted pass.\n";
     out << "# Format: per-run per-algorithm quality metrics (orth_error, max_orth_cols, orth_flag, time), memory (KB)\n";
     out << "m,n,run,aspect_ratio,cond_num,density,"
         << "cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
@@ -623,9 +793,17 @@ static void write_csv_headers(
         << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
         << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
         << "scholqr3_peak_rss_kb,scholqr3_analytical_kb,"
-        << "dense_cqrrt_peak_rss_kb,dense_cqrrt_analytical_kb\n";
+        << "dense_cqrrt_peak_rss_kb,dense_cqrrt_analytical_kb,"
+        << "cqrrt_qr_status,cholqr_qr_status,scholqr3_qr_status,dense_cqrrt_qr_status,"
+        << "cqrrt_chol_retries,cqrrt_chol_shift_abs,cqrrt_chol_shift_rel,"
+        << "cholqr_chol_retries,cholqr_chol_shift_abs,cholqr_chol_shift_rel,"
+        << "scholqr3_chol_retries,scholqr3_chol_shift_abs,scholqr3_chol_shift_rel,"
+        << "dense_cqrrt_chol_retries,dense_cqrrt_chol_shift_abs,dense_cqrrt_chol_shift_rel\n";
 
     breakdown << "# Runtime Breakdown for All Algorithms\n";
+    breakdown << "# Date: " << run_ts << "\n";
+    breakdown << "# host: " << host << "\n";
+    breakdown << "# argv: " << argv_line << "\n";
     breakdown << "# Precision: " << precision << "\n";
     if (!extra_comment.empty()) breakdown << extra_comment;
     breakdown << "# d_factor (CQRRT_linop only): " << d_factor << "\n";
@@ -633,9 +811,21 @@ static void write_csv_headers(
     breakdown << "# block_size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
-    breakdown << "# Times are in microseconds\n";
-    breakdown << "# CQRRT_linop: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
-    breakdown << "# CholQR: alloc, materialize, gram, potrf, rest, total\n";
+    write_env_line(breakdown);
+    breakdown << "# Times are in microseconds. On a failed or skipped row every field in\n";
+    breakdown << "#   that algorithm's slot group is -1 (full width preserved);\n";
+    breakdown << "#   see the per-algorithm *_qr_status column appended at the end.\n";
+    // Slot semantics verified against the driver headers (RandLAPACK/drivers/
+    // rl_cqrrt.hh, rl_cholqr_linops.hh). The column NAMES below are
+    // frozen for CSV-name-based-reader compatibility even where a name now
+    // reads stale: cqrrt_trtri really holds the configured precond_method's
+    // inversion time (this benchmark always runs TRSM_IDENTITY, never TRTRI);
+    // cqrrt_linop_precond/cqrrt_linop_gram really hold the Gram-build's fwd/adj
+    // operator applies; cqrrt_trmm_gram really holds the Gram-forming GEMM
+    // combine (cholqr_primitive's gemm_dur), not a TRMM; cholqr_materialize/
+    // cholqr_gram really hold CholQR's own fwd/adj operator applies.
+    breakdown << "# CQRRT_linop: alloc, saso, qr, precond_inv, fwd(gram), adj(gram), gemm(gram combine), chol(potrf), finalize, rest, total\n";
+    breakdown << "# CholQR: alloc, fwd(gram), adj(gram), chol(potrf), rest, total\n";
     breakdown << "# sCholQR3: alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total\n";
     breakdown << "# CQRRT_expl: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
     breakdown << "m,n,run,"
@@ -646,7 +836,8 @@ static void write_csv_headers(
               << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
               << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
               << "scholqr3_peak_rss_kb,scholqr3_analytical_kb,"
-              << "dense_cqrrt_peak_rss_kb,dense_cqrrt_analytical_kb\n";
+              << "dense_cqrrt_peak_rss_kb,dense_cqrrt_analytical_kb,"
+              << "cqrrt_qr_status,cholqr_qr_status,scholqr3_qr_status,dense_cqrrt_qr_status\n";
 }
 
 // Prepend total runtime to a CSV file
@@ -671,14 +862,23 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     // Args: <precision> <output_dir> <num_runs> <input_file> <d_factor> [sketch_nnz] [block_size] [compute_cond] [skip_dense]
     std::string precision = argv[1];
     std::string output_dir = argv[2];
-    int64_t num_runs = std::stol(argv[3]);
+    int64_t num_runs = std::stoll(argv[3]);
     std::string input_file = argv[4];
     double d_factor = std::stod(argv[5]);
-    int64_t sketch_nnz = (argc >= 7) ? std::stol(argv[6]) : 4;
-    int64_t block_size = (argc >= 8) ? std::stol(argv[7]) : 0;
+    int64_t sketch_nnz = (argc >= 7) ? std::stoll(argv[6]) : 4;
+    int64_t block_size = (argc >= 8) ? std::stoll(argv[7]) : 0;
     bool compute_cond = (argc >= 9) ? (std::stoi(argv[8]) != 0) : false;
     bool skip_dense = (argc >= 10) ? (std::stoi(argv[9]) != 0) : false;
 
+    // Loud validation: num_runs<=0 leaves `results` empty and
+    // every per-run write in run_algorithms/write_results_to_csv is UB
+    // (num_runs=0 was silently accepted before).
+    if (num_runs < 1) {
+        std::cerr << "Error: num_runs must be >= 1 (got " << num_runs << ")\n";
+        return 1;
+    }
+
+    std::string argv_line = quote_join_argv(argc, argv);
     auto benchmark_start = steady_clock::now();
 
     // Generate date/time prefix
@@ -721,7 +921,7 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
 
     std::string extra_comment = "# Input file: " + input_file + "\n";
     write_csv_headers(out, breakdown, precision, d_factor,
-                      sketch_nnz, block_size, num_runs, num_threads, extra_comment);
+                      sketch_nnz, block_size, num_runs, num_threads, extra_comment, argv_line);
 
     // Warmup run with a small synthetic matrix
     {

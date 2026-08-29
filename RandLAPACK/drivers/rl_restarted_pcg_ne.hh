@@ -15,11 +15,10 @@
 //
 //   * Each outer round runs CG on the correction equation H dz = r_ne with a
 //     deliberately LOOSE relative tolerance `restart_drop` (default 1e-4, i.e.
-//     stop after a 1e4x residual drop; Oleg's restart pacing, 2026-08-07 --
-//     was 1e-2 until then) and an inner cap of
-//     min(restart_maxit, max_iters - iters_so_far). Since 2026-08-06 the inner
-//     solver is the shared instrumented kernel (rl_pcg_inner.hh) -- the same CG
-//     that IterRefineLSQ runs, with stagnation window and best-iterate return.
+//     stop after a 1e4x residual drop) and an inner cap of
+//     min(restart_maxit, max_iters - iters_so_far). The inner solver is the
+//     shared instrumented kernel (rl_pcg_inner.hh), the same CG that
+//     IterRefineLSQ runs, with stagnation window and best-iterate return.
 //     That is a deliberate deviation from the reference's plain MATLAB pcg: a
 //     round whose target is unreachable exits at its residual floor with the
 //     best iterate instead of grinding out the full cap, and stagnation is not
@@ -112,9 +111,9 @@ struct PCGRoundHistory {
 ///                      normal-equation right-hand side ||g||. When > 0, a
 ///                      round whose NE residual has already fallen to
 ///                      inner_abs_tol * ||g|| stops immediately instead of
-///                      grinding for a further restart_drop factor -- Oleg's
-///                      "CG still terminates once below the target" guard
-///                      (2026-08-07). 0 disables the guard.
+///                      grinding for a further restart_drop factor (the "CG
+///                      still terminates once below the target" guard). 0
+///                      disables the guard.
 /// @param[out] history  optional per-round records (see PCGRoundHistory).
 /// @param[in]  x0       optional initial guess (length n). nullptr = cold start
 ///                      (x = 0), the historical behaviour and the policy for every
@@ -122,23 +121,23 @@ struct PCGRoundHistory {
 ///                      z is seeded with R x0 so that x = R^{-1} z reproduces it,
 ///                      and the first round's normal-equation residual is taken
 ///                      from the true residual b - A x0 rather than from g.
-///                      Added 2026-08-10 so a solver's own answer (e.g.
-///                      Blendenpik's) can be handed to iterative refinement,
-///                      separating preconditioner quality from solver structure.
+///                      Lets a solver's own answer (e.g. Blendenpik's) be
+///                      handed to iterative refinement, separating
+///                      preconditioner quality from solver structure.
 /// @param[in]  outer_stag_window  consecutive rounds without a stag_rel_improve
 ///                      drop of the TRUE LS residual (measured against the last
 ///                      significant improvement, mirroring the inner kernel) that
 ///                      end the loop as an LS-floor exit. <= 0 disables the outer
-///                      exit. Decoupled from stag_window (2026-08-27); previously
-///                      one knob silently controlled both mechanisms.
+///                      exit. Decoupled from stag_window: the two mechanisms
+///                      are independent.
 /// @returns 0 if the LS tolerance was met;
 ///          1 if the total inner-iteration budget was exhausted;
 ///          2 if the inner CG broke down or made no progress (reference flag 2);
 ///          3 if the outer round budget (max_restarts) was spent;
 ///          4 if the run ended at its LS floor (outer stagnation exit, or an
 ///            exactly-zero NE residual with the LS tolerance still unmet).
-///          Codes 3 and 4 were folded into 1 before 2026-08-27; callers that only
-///          test zero/nonzero are unaffected.
+///          Codes 3 and 4 are distinct from 1; callers that only test
+///          zero/nonzero are unaffected.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 int restarted_pcg_ne(
     GLO& A, int64_t m, int64_t n,
@@ -275,13 +274,13 @@ int restarted_pcg_ne(
     // Cold start: z = 0, so x = 0 and the NE residual is exactly g.
     // Warm start: seed z = R x0 so that x = R^{-1} z recovers x0, then take the
     // NE residual from the TRUE residual b - A x0 in the same stable form the
-    // restart loop uses (g - H z would reintroduce the cancellation that the
-    // 2026-08-06 change removed).
+    // restart loop uses (g - H z would reintroduce the cancellation this
+    // stable form avoids).
     T relres;
     if (x0 == nullptr) {
         // z = 0, so x = 0 exactly and ||b - A x|| / ||b|| = 1 with no arithmetic:
         // the full apply the recovery lambda would burn here (one FFT-class
-        // operator apply plus a trsv on a zero vector) is skipped (2026-08-27).
+        // operator apply plus a trsv on a zero vector) is skipped.
         std::copy(g, g + n, r_ne);
         std::fill(x, x + n, (T)0);
         relres = (bnorm > (T)0) ? (T)1 : (T)0;
@@ -318,16 +317,15 @@ int restarted_pcg_ne(
     int restarts = 0;
     int status = 1;
 
-    // Outer stagnation state (2026-08-07; reference semantics fixed 2026-08-27):
-    // when tol sits below the problem's achievable LS floor (e.g. a data noise
-    // floor above the requested tolerance), every round reaches the floor and
-    // further rounds burn iterations without progress. outer_stag_window
-    // consecutive rounds without a significant CUMULATIVE improvement over the
-    // last significant drop end the loop as an LS-floor exit (status 4). The
-    // reference advances only on a significant improvement, mirroring the inner
-    // kernel: the old per-round reference update killed steady slow descent
-    // (e.g. 0.05% per round) after two rounds. Disabled when
-    // outer_stag_window <= 0.
+    // Outer stagnation state: when tol sits below the problem's achievable LS
+    // floor (e.g. a data noise floor above the requested tolerance), every
+    // round reaches the floor and further rounds burn iterations without
+    // progress. outer_stag_window consecutive rounds without a significant
+    // CUMULATIVE improvement over the last significant drop end the loop as
+    // an LS-floor exit (status 4). The reference advances only on a
+    // significant improvement, mirroring the inner kernel: a per-round
+    // reference update would kill steady slow descent (e.g. 0.05% per round)
+    // after two rounds. Disabled when outer_stag_window <= 0.
     T   ls_stag_ref    = relres;
     int ls_flat_rounds = 0;
 
@@ -337,7 +335,7 @@ int restarted_pcg_ne(
         if (ne_norm == (T)0) {
             // Exactly-zero NE residual: x is the LS minimizer. That meets the
             // caller's tolerance only if the LS residual itself does; otherwise
-            // this is the LS floor, not convergence (fixed 2026-08-27).
+            // this is the LS floor, not convergence.
             status = (relres <= tol) ? 0 : 4;
             break;
         }
@@ -355,7 +353,9 @@ int restarted_pcg_ne(
         // the round's effective target is already met (or nearly so) and grinding
         // out a further restart_drop factor is wasted work at the noise floor. The
         // kernel tolerance is relative to THIS round's RHS, so rescale.
-        if (inner_abs_tol > (T)0 && ne_norm > (T)0) {
+        // ne_norm > 0 is not re-checked here: the loop already broke above on
+        // ne_norm == 0, so every reach of this point has ne_norm > 0.
+        if (inner_abs_tol > (T)0) {
             T floor_rel = inner_abs_tol * g0_norm / ne_norm;
             if (floor_rel > ctl.tol) ctl.tol = floor_rel;
         }
@@ -371,8 +371,6 @@ int restarted_pcg_ne(
         t_kernel += duration_cast<microseconds>(clock::now() - tk0).count();
         in_kernel = false;
         int inner_iters = rep.iters;
-        int inner_flag = (kret != 0) ? 2
-                       : (rep.status == InnerCGStatus::Converged ? 0 : 1);
 
         blas::axpy(n, (T)1.0, dz, 1, z, 1);
         iters_done += inner_iters;
@@ -380,17 +378,10 @@ int restarted_pcg_ne(
         // Recompute BOTH residuals exactly; this is the restart that removes
         // recursive-residual drift (the point of the algorithm).
         relres = recover_x_and_relres();
-        // STABLE residual form (2026-08-06, measured). recover_x_and_relres left
-        // wm = b - A x (the SMALL true LS residual); map it through R^{-T} A^T
-        // (Epperly et al. Alg. 1 line 5) instead of the reference's g - H z, which
-        // subtracts two large kappa-contaminated quantities. On the m=800 prolate
-        // benchmark case (FFT operator, lambda_rel 1e-20) the two forms were A/B'd
-        // with everything else identical: g - H z stalls every method's LS relres
-        // at 1.75e-6 with garbage recovery (1.75e4); this form reaches the 1e-10
-        // noise floor with recovery 1.9e-3, matching warm Blendenpik. Dense
-        // replicas of the same problem do NOT reproduce the stall (both forms
-        // converge to kappa ~ 1e11 and beyond), so the FFT apply's rounding is a
-        // necessary ingredient; the benchmark is the regression harness for this.
+        // STABLE residual form: map wm = b - A x through R^{-T} A^T (Epperly
+        // et al. Alg. 1 line 5) rather than the reference's g - H z, which
+        // subtracts two large kappa-contaminated quantities and floors the
+        // achievable accuracy on hard problems.
         {
             auto ta = clock::now();
             A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
@@ -416,11 +407,15 @@ int restarted_pcg_ne(
         }
 
         if (relres <= tol) { status = 0; break; }
-        if (inner_flag == 2) { status = 2; break; }      // breakdown: R unusable
+        if (kret != 0) { status = 2; break; }             // breakdown: R unusable
         // A zero-iteration round changes nothing, so the loop must end either
-        // way; gate the MEANING on the kernel status, not the count (2026-08-27):
-        // a round whose target was already met at entry is the LS floor (the NE
+        // way; gate the MEANING on the kernel status, not the count: a round
+        // whose target was already met at entry is the LS floor (the NE
         // target cannot improve the true residual further), not a breakdown.
+        // Defensive: unreachable today (warm_start is hard-wired false above and
+        // ne_norm > 0 is guaranteed by the break earlier in this loop, so
+        // pcg_inner cannot return 0 iterations here); guards a future kernel
+        // call that warm-starts dz and could legitimately return 0 iterations.
         if (inner_iters == 0) {
             status = (rep.status == InnerCGStatus::Converged) ? 4 : 2;
             break;

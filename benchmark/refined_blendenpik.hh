@@ -2,18 +2,18 @@
 
 // Shared dispatch for the Blendenpik_refine / Blendenpik_cold_refine benchmark
 // rows, used by BOTH least-squares benchmarks (bench_toeplitz_ls and
-// bench_CQRRT_linops). Extracted 2026-08-27: the three previous per-benchmark
-// implementations of these rows had drifted into three DIFFERENT wrong
-// accountings (audit findings: phase-1 solve time missing from all columns in
-// the Toeplitz benchmark; refinement time missing and the warm row silently
-// cold in the FEM2 benchmark), which is the standing failure mode of duplicated
-// dispatch blocks in this suite.
+// bench_CQRRT_linops). Extracted after the three previous per-benchmark
+// implementations of these rows drifted into three DIFFERENT wrong
+// accountings (phase-1 solve time missing from all columns in the Toeplitz
+// benchmark; refinement time missing and the warm row silently cold in the
+// FEM2 benchmark), which is the standing failure mode of duplicated dispatch
+// blocks in this suite.
 //
-// ROW SEMANTICS (2026-08-27 decision). A refined row is "Blendenpik's
+// ROW SEMANTICS. A refined row is "Blendenpik's
 // preconditioner and its sketch-and-solve initial guess, refined by the shared
 // restarted PCG-NE engine":
 //
-//   phase 1: Blendenpik in init_only mode -- sketch, QR, and the sketch-and-
+//   phase 1: Blendenpik in init_only mode: sketch, QR, and the sketch-and-
 //            solve x0. NO internal LSQR runs, so every iterative step of the
 //            row happens in the SAME engine every Q-less method uses and the
 //            row's iteration count has one unit (engine inner CG iterations).
@@ -62,7 +62,37 @@ struct RefinedBlendenpikResult {
     long t_adj_us  = 0;
     long t_trsm_us = 0;
     PCGRoundHistory<T> history;///< per-round records + inner-kernel time split
-    std::vector<T> R;          ///< the sketch R factor (n x n), for orth_error
+    /// The sketch R factor (n x n, ColMajor), for orth_error. Owned by this
+    /// result (transferred from Blendenpik_linops::R_out, not copied); moved
+    /// out on copy/return like the rest of this struct's implicit members.
+    T* R = nullptr;
+    int64_t R_sz = 0;
+
+    RefinedBlendenpikResult() = default;
+    RefinedBlendenpikResult(const RefinedBlendenpikResult&) = delete;
+    RefinedBlendenpikResult& operator=(const RefinedBlendenpikResult&) = delete;
+    RefinedBlendenpikResult(RefinedBlendenpikResult&& other) noexcept
+        : qr_status(other.qr_status), qr_us(other.qr_us), setup_us(other.setup_us),
+          x0_relres(other.x0_relres), status(other.status), iters(other.iters),
+          rounds(other.rounds), solver_relres(other.solver_relres), solve_us(other.solve_us),
+          t_fwd_us(other.t_fwd_us), t_adj_us(other.t_adj_us), t_trsm_us(other.t_trsm_us),
+          history(std::move(other.history)), R(other.R), R_sz(other.R_sz) {
+        other.R = nullptr; other.R_sz = 0;
+    }
+    RefinedBlendenpikResult& operator=(RefinedBlendenpikResult&& other) noexcept {
+        if (this != &other) {
+            delete[] R;
+            qr_status = other.qr_status; qr_us = other.qr_us; setup_us = other.setup_us;
+            x0_relres = other.x0_relres; status = other.status; iters = other.iters;
+            rounds = other.rounds; solver_relres = other.solver_relres; solve_us = other.solve_us;
+            t_fwd_us = other.t_fwd_us; t_adj_us = other.t_adj_us; t_trsm_us = other.t_trsm_us;
+            history = std::move(other.history);
+            R = other.R; R_sz = other.R_sz;
+            other.R = nullptr; other.R_sz = 0;
+        }
+        return *this;
+    }
+    ~RefinedBlendenpikResult() { delete[] R; }
 };
 
 
@@ -95,11 +125,16 @@ RefinedBlendenpikResult<T> run_refined_blendenpik(
     res.qr_us     = bp.times[0] + bp.times[1];
     res.setup_us  = warm ? bp.times[4] : 0;
     res.x0_relres = warm ? bp.final_relres : (T)-1;
-    res.R         = std::move(bp.R_out);
+    // Transfer ownership of the R buffer from bp (about to go out of scope)
+    // rather than copying it; bp's destructor then sees a null R_out.
+    res.R    = bp.R_out;
+    res.R_sz = bp.R_out_sz;
+    bp.R_out = nullptr;
+    bp.R_out_sz = 0;
 
     // Phase 2: the shared engine does ALL iterative work of the row.
     long lt[4] = {0, 0, 0, 0};
-    res.status = restarted_pcg_ne<T>(A, m, n, res.R.data(), n, b, x,
+    res.status = restarted_pcg_ne<T>(A, m, n, res.R, n, b, x,
         tol, max_iters, res.iters,
         restart_maxit, restart_drop, max_restarts,
         &res.rounds, lt, &res.solver_relres,

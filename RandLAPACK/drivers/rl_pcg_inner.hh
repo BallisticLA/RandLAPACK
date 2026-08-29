@@ -2,15 +2,22 @@
 
 // Internal component: pcg_inner, the instrumented conjugate-gradient kernel shared
 // by IterRefineLSQ (rl_iter_refine_lsq.hh) and restarted_pcg_ne
-// (rl_restarted_pcg_ne.hh). Extracted 2026-08-06 so the two least-squares drivers
-// run the SAME inner solver: stagnation window with best-iterate return (2026-07-29,
-// from ISAAC diagnostic evidence), warm-start entry against the true residual
-// (2026-08-05), and per-solve diagnosis reporting.
+// (rl_restarted_pcg_ne.hh), so the two least-squares drivers run the SAME inner
+// solver: stagnation window with best-iterate return (from ISAAC diagnostic
+// evidence), warm-start entry against the true residual, and per-solve
+// diagnosis reporting.
 //
 // The kernel solves the SPD system M z = c on R^n given only a matvec callable
 // apply_M(v, out). Tolerances are relative to ||c||; the caller decides what M, c,
 // and the tolerance mean (IterRefineLSQ: correction equation at fixed inner_tol;
 // restarted_pcg_ne: correction equation at the loose per-round drop).
+//
+// Relationship to RandLAPACK::pcg (comps/rl_determiter.hh): that solver is a
+// general block/multi-RHS PCG over a caller-supplied preconditioner operator N
+// and seminorm stopping test, with no stagnation window or best-iterate return.
+// This kernel is a deliberately separate, narrower single-RHS CG built for the
+// Q-less least-squares solvers: stagnation-window exit, best-iterate return,
+// and a per-solve PCGInnerReport. Not a duplicate to consolidate.
 
 #include "rl_blaspp.hh"
 
@@ -85,7 +92,7 @@ int pcg_inner(FApplyM&& apply_M, const T* c, int64_t n,
     if (c_norm == (T)0) {
         // M is SPD, so M z = 0 has the unique solution z = 0. On a warm start the
         // incoming z is already the previous attempt's answer to the same c = 0
-        // system, i.e. 0 -- so writing 0 is correct on both paths.
+        // system, i.e. 0, so writing 0 is correct on both paths.
         std::fill(z, z + n, (T)0);
         rep.iters = 0;
         rep.status = InnerCGStatus::Converged;
@@ -133,10 +140,9 @@ int pcg_inner(FApplyM&& apply_M, const T* c, int64_t n,
 
         T pMp = blas::dot(n, cg_p, 1, cg_Mp, 1);
         if (!(pMp > 0)) {
-            // Hand back the BEST iterate here too (2026-08-27): before this fix
-            // the breakdown path alone returned the last iterate, which the
-            // caller then folded into its solution. rep.relres matches the
-            // returned iterate, consistent with the Stagnated/HitCap exits.
+            // Hand back the BEST iterate here too, not the last one, for
+            // consistency with the Stagnated/HitCap exits. rep.relres matches
+            // the returned iterate.
             // Note the M apply of this aborted iteration ran but is not counted
             // in rep.iters (iters = COMPLETED CG iterations, everywhere).
             std::copy(cg_zbest, cg_zbest + n, z);
@@ -199,7 +205,7 @@ int pcg_inner(FApplyM&& apply_M, const T* c, int64_t n,
         rs_old = rs_new;
     }
     // Exhausted the budget without reaching the target. Still returns 0, because a
-    // capped solve is not necessarily an error for the caller -- the status records
+    // capped solve is not necessarily an error for the caller; the status records
     // it. Hand back the best iterate here too.
     std::copy(cg_zbest, cg_zbest + n, z);
     rep.iters  = ctl.max_iters;

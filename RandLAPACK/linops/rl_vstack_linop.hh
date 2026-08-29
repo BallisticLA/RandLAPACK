@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: VStackOp — vertical concatenation [Top; Bot] of two linear operators.
+// Public API: VStackOp: vertical concatenation [Top; Bot] of two linear operators.
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
@@ -38,7 +38,7 @@ namespace RandLAPACK::linops {
 // The dense path (Side::Left, trans_B == NoTrans) covers the Cholesky-QR Gram,
 // IterRefineLSQ, and the orthogonality check. A sketching overload (Side::Right)
 // is also provided so sketch-based drivers (CQRRT) can be handed A_hat directly:
-// it is BLOCKED — for each output column block it forms W = A_hat * I_block (an
+// it is BLOCKED: for each output column block it forms W = A_hat * I_block (an
 // (n_rows x b) slice, via this operator's own NoTrans) and sketches that small
 // block with the full S, so no (n_rows x d) intermediate is ever materialized and
 // S is never partitioned. Works for sparse and dense sketches alike.
@@ -90,16 +90,20 @@ struct VStackOp {
         const int64_t r_top = top.n_rows;
         const int64_t r_bot = bot.n_rows;
 
+        // side is fixed to Left above, so top/bot are dispatched through the
+        // concept-required 12-arg overload (no Side param needed).
         if (trans_self == Op::NoTrans) {
             // C (n_rows x n) := alpha * [Top; Bot] * B + beta * C.
             // Top fills output rows [0, r_top); Bot fills [r_top, r_top + r_bot).
             // The two row-blocks are disjoint, so each applies beta to its own region.
             randlapack_require(m == n_rows) << "VStackOp NoTrans: m=" << m
                 << " must equal n_rows=" << n_rows;
+            randlapack_require(k == n_cols) << "VStackOp NoTrans: k=" << k
+                << " must equal n_cols=" << n_cols;
             const int64_t bot_off = (layout == Layout::ColMajor) ? r_top : r_top * ldc;
-            top(side, layout, Op::NoTrans, Op::NoTrans, r_top, n, k,
+            top(layout, Op::NoTrans, Op::NoTrans, r_top, n, k,
                 alpha, B, ldb, beta, C, ldc);
-            bot(side, layout, Op::NoTrans, Op::NoTrans, r_bot, n, k,
+            bot(layout, Op::NoTrans, Op::NoTrans, r_bot, n, k,
                 alpha, B, ldb, beta, C + bot_off, ldc);
         } else {
             // C (n_cols x n) := alpha * [Top; Bot]^T * B + beta * C
@@ -107,11 +111,13 @@ struct VStackOp {
             // where B (n_rows x n) splits row-wise at r_top.
             randlapack_require(k == n_rows) << "VStackOp Trans: k=" << k
                 << " must equal n_rows=" << n_rows;
+            randlapack_require(m == n_cols) << "VStackOp Trans: m=" << m
+                << " must equal n_cols=" << n_cols;
             const int64_t bot_off = (layout == Layout::ColMajor) ? r_top : r_top * ldb;
             // First block sets C (applies beta); second block accumulates (beta = 1).
-            top(side, layout, Op::Trans, Op::NoTrans, m, n, r_top,
+            top(layout, Op::Trans, Op::NoTrans, m, n, r_top,
                 alpha, B, ldb, beta, C, ldc);
-            bot(side, layout, Op::Trans, Op::NoTrans, m, n, r_bot,
+            bot(layout, Op::Trans, Op::NoTrans, m, n, r_bot,
                 alpha, B + bot_off, ldb, (T)1.0, C, ldc);
         }
     }
@@ -120,7 +126,7 @@ struct VStackOp {
     // d x n_rows sketching operator (Side::Right means S multiplies on the left of
     // this operator). For each output column block we form W = [Top;Bot] * I_block
     // (an n_rows x b slice, via this operator's own NoTrans) and sketch it with the
-    // full S, so the only buffers are O(n_rows x b) -- no n_rows x d intermediate,
+    // full S, so the only buffers are O(n_rows x b), no n_rows x d intermediate,
     // and S is never partitioned. This is how CQRRT can be handed A_hat directly.
     template <RandBLAS::SketchingOperator SkOp>
     void operator()(
@@ -133,6 +139,7 @@ struct VStackOp {
         randlapack_require(trans_self == Op::NoTrans) << "VStackOp sketch overload supports trans_self == NoTrans only";
         randlapack_require(layout == Layout::ColMajor) << "VStackOp sketch overload supports ColMajor only";
         randlapack_require(k == n_rows) << "VStackOp sketch: k=" << k << " must equal n_rows=" << n_rows;
+        randlapack_require(n == n_cols) << "VStackOp sketch: n=" << n << " must equal n_cols=" << n_cols;
 
         const int64_t d     = m;   // sketch output dimension
         const int64_t b_blk = (block_size > 0) ? std::min(block_size, n) : std::min<int64_t>(256, n);

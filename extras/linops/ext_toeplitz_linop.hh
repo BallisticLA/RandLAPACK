@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: ToeplitzLinOp — matrix-free rectangular Toeplitz operator T = toeplitz(c, r)
+// Public API: ToeplitzLinOp: matrix-free rectangular Toeplitz operator T = toeplitz(c, r)
 //             applied via circulant-embedding FFTs (Intel MKL DFTI).
 //
 // This is an "extras" linear operator because it depends on MKL's FFT (mkl_dfti.h);
@@ -19,15 +19,22 @@
 // Only Side::Left, ColMajor, trans_B == NoTrans are used (VStackOp's sketch overload
 // builds W = A_hat * I_block via NoTrans and sketches W itself, so callers only ever
 // ask this operator for T*B (NoTrans) or T'*B (Trans)).
+//
+// THREAD SAFETY. operator() is NOT safe to call concurrently on the same instance:
+// work, work_b, and desc_b are shared, mutable state reused across calls (desc_b is
+// even freed and recommitted in place when the batch width changes), so concurrent
+// calls race on all three.
 
 #include "rl_blaspp.hh"
 #include "rl_exceptions.hh"
 #include "rl_blas2_threads.hh"
 
 #include <mkl_dfti.h>
+#include <algorithm>
 #include <complex>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace RandLAPACK_extras::linops {
@@ -35,6 +42,15 @@ namespace RandLAPACK_extras::linops {
 using blas::Layout;
 using blas::Op;
 using blas::Side;
+
+// Checks a DftiCreateDescriptor/DftiSetValue/DftiCommitDescriptor return status per
+// MKL convention: a nonzero status is only a real failure if it does not belong to
+// the DFTI_NO_ERROR error class (DftiErrorClass distinguishes benign/informational
+// nonzero statuses from actual errors).
+inline void dfti_check(MKL_LONG status, const char* what) {
+    randlapack_require(status == DFTI_NO_ERROR || DftiErrorClass(status, DFTI_NO_ERROR))
+        << "ToeplitzLinOp: " << what << " failed: " << DftiErrorMessage(status);
+}
 
 template <typename T>
 struct ToeplitzLinOp {
@@ -50,7 +66,7 @@ struct ToeplitzLinOp {
     std::complex<T>* work  = nullptr; // scratch (length L), reused per column
     DFTI_DESCRIPTOR_HANDLE desc = nullptr;
 
-    // Batched-apply state (2026-08-27): multi-column applies (the sketch and Gram
+    // Batched-apply state. Multi-column applies (the sketch and Gram
     // build paths hand this operator up to block_size columns per call) go through
     // a DFTI_NUMBER_OF_TRANSFORMS descriptor in batches of kFFTBatch columns,
     // rather than one serial FFT pair per column. Memory: kFFTBatch * L complex
@@ -64,8 +80,8 @@ struct ToeplitzLinOp {
 
     /// @param c  first column of T (length m).
     /// @param r  first row of T (length n).  Requires c[0] == r[0].
-    /// (The former trailing block_size parameter was removed 2026-08-27: it was
-    /// never read; multi-RHS blocking is handled internally via kFFTBatch.)
+    /// (There is no trailing block_size parameter: multi-RHS blocking is
+    /// handled internally via kFFTBatch.)
     ToeplitzLinOp(const T* c, int64_t m, const T* r, int64_t n)
         : n_rows(m), n_cols(n)
     {
@@ -83,10 +99,34 @@ struct ToeplitzLinOp {
 
         // Length-L complex FFT descriptor; DftiComputeBackward is unnormalized, so scale by 1/L.
         constexpr DFTI_CONFIG_VALUE prec = std::is_same_v<T, double> ? DFTI_DOUBLE : DFTI_SINGLE;
-        DftiCreateDescriptor(&desc, prec, DFTI_COMPLEX, 1, (MKL_LONG)L);
-        DftiSetValue(desc, DFTI_PLACEMENT, DFTI_INPLACE);
-        DftiSetValue(desc, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L));
-        DftiCommitDescriptor(desc);
+        dfti_check(DftiCreateDescriptor(&desc, prec, DFTI_COMPLEX, 1, (MKL_LONG)L), "DftiCreateDescriptor(desc)");
+        dfti_check(DftiSetValue(desc, DFTI_PLACEMENT, DFTI_INPLACE), "DftiSetValue(desc, DFTI_PLACEMENT)");
+        dfti_check(DftiSetValue(desc, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L)),
+                   "DftiSetValue(desc, DFTI_BACKWARD_SCALE)");
+        // Cap threading at COMMIT time, not just compute time: MKL decides an FFT
+        // descriptor's threading when it is committed, and commit time is MKL's
+        // documented threading control point, so a compute-time-only cap
+        // (Blas2ThreadGuard around DftiComputeForward/Backward below) is not
+        // guaranteed to bind on every MKL build even though it was measured to
+        // bind FFT width for descriptors committed at ambient width here.
+        // Use the static configured cap here, not the solve-context-narrowed one:
+        // this commit happens once (construction), while the solve context varies
+        // per call, and the compute-time guard still narrows further below this
+        // when a SolveWidthScope is active (measured: a descriptor committed with
+        // a wide DFTI_THREAD_LIMIT still narrows correctly under a tighter
+        // compute-time thread-local cap).
+        // NOTE: pinning DFTI_THREAD_LIMIT at commit time can select a different
+        // internal FFT plan than an uncapped commit, so results may differ from
+        // an uncapped descriptor at the ULP level; this is expected and harmless
+        // for the tolerances this operator is used at.
+        {
+            int commit_cap = RandLAPACK::fft_thread_cap();
+            if (commit_cap > 0) {
+                dfti_check(DftiSetValue(desc, DFTI_THREAD_LIMIT, (MKL_LONG)commit_cap),
+                           "DftiSetValue(desc, DFTI_THREAD_LIMIT)");
+            }
+        }
+        dfti_check(DftiCommitDescriptor(desc), "DftiCommitDescriptor(desc)");
 
         // Forward embedding: [c(0..m-1); zeros; flipud(r(1..n-1))]  -> Femb = fft(emb).
         build_embedding(c, m, r, n, Femb);
@@ -130,7 +170,7 @@ struct ToeplitzLinOp {
         randlapack_require(k == in_rows)  << "ToeplitzLinOp: inner dim mismatch";
 
         // Effective FFT width: the configured cap, further narrowed by an active
-        // solve-width context (SolveWidthScope, 2026-08-27). Inside a solver the
+        // solve-width context (SolveWidthScope). Inside a solver the
         // trsv runs at a narrow ACTUAL width, and alternating team widths cost
         // the wide region ~300 us per re-formation on the benchmark node, so the
         // solve loop runs at ONE width. Build-phase applies see no context.
@@ -156,7 +196,7 @@ struct ToeplitzLinOp {
                 DftiComputeBackward(desc, work);   // scaled by 1/L
             }
             // beta == 0 must NOT read C: BLAS semantics say C is write-only in that
-            // case, and callers rely on it -- CompositeOperator hands this operator a
+            // case, and callers rely on it: CompositeOperator hands this operator a
             // freshly allocated scratch with beta = 0. Reading it would multiply
             // indeterminate memory by zero, which is 0 for normal values but NaN for a
             // trap representation. Branch on beta rather than trusting the buffer.
@@ -169,21 +209,38 @@ struct ToeplitzLinOp {
         }
 
         // Multi-column path (sketch / Gram builds): batched transforms, kFFTBatch
-        // columns per DFTI call (2026-08-27; previously one serial FFT pair per
-        // column, ~66k serial transforms per method at ISAAC-large scale).
+        // columns per DFTI call rather than one serial FFT pair per column
+        // (~66k serial transforms per method at ISAAC-large scale otherwise).
         if (work_b == nullptr) work_b = new std::complex<T>[kFFTBatch * L];
         for (int64_t j0 = 0; j0 < nrhs; j0 += kFFTBatch) {
             const int64_t bs = std::min<int64_t>(kFFTBatch, nrhs - j0);
             if (bs != batch_committed) {
                 if (desc_b) DftiFreeDescriptor(&desc_b);
                 constexpr DFTI_CONFIG_VALUE prec = std::is_same_v<T, double> ? DFTI_DOUBLE : DFTI_SINGLE;
-                DftiCreateDescriptor(&desc_b, prec, DFTI_COMPLEX, 1, (MKL_LONG)L);
-                DftiSetValue(desc_b, DFTI_PLACEMENT, DFTI_INPLACE);
-                DftiSetValue(desc_b, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L));
-                DftiSetValue(desc_b, DFTI_NUMBER_OF_TRANSFORMS, (MKL_LONG)bs);
-                DftiSetValue(desc_b, DFTI_INPUT_DISTANCE,  (MKL_LONG)L);
-                DftiSetValue(desc_b, DFTI_OUTPUT_DISTANCE, (MKL_LONG)L);
-                DftiCommitDescriptor(desc_b);
+                dfti_check(DftiCreateDescriptor(&desc_b, prec, DFTI_COMPLEX, 1, (MKL_LONG)L),
+                           "DftiCreateDescriptor(desc_b)");
+                dfti_check(DftiSetValue(desc_b, DFTI_PLACEMENT, DFTI_INPLACE),
+                           "DftiSetValue(desc_b, DFTI_PLACEMENT)");
+                dfti_check(DftiSetValue(desc_b, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L)),
+                           "DftiSetValue(desc_b, DFTI_BACKWARD_SCALE)");
+                dfti_check(DftiSetValue(desc_b, DFTI_NUMBER_OF_TRANSFORMS, (MKL_LONG)bs),
+                           "DftiSetValue(desc_b, DFTI_NUMBER_OF_TRANSFORMS)");
+                dfti_check(DftiSetValue(desc_b, DFTI_INPUT_DISTANCE,  (MKL_LONG)L),
+                           "DftiSetValue(desc_b, DFTI_INPUT_DISTANCE)");
+                dfti_check(DftiSetValue(desc_b, DFTI_OUTPUT_DISTANCE, (MKL_LONG)L),
+                           "DftiSetValue(desc_b, DFTI_OUTPUT_DISTANCE)");
+                // Same commit-time cap as desc above (static configured width; the
+                // recommit here is triggered only by a batch-width change, not by
+                // solve-context width, so tying this to the dynamic per-call cap
+                // would add a second recommit trigger this class does not have).
+                {
+                    int commit_cap = RandLAPACK::fft_thread_cap();
+                    if (commit_cap > 0) {
+                        dfti_check(DftiSetValue(desc_b, DFTI_THREAD_LIMIT, (MKL_LONG)commit_cap),
+                                   "DftiSetValue(desc_b, DFTI_THREAD_LIMIT)");
+                    }
+                }
+                dfti_check(DftiCommitDescriptor(desc_b), "DftiCommitDescriptor(desc_b)");
                 batch_committed = bs;
             }
             for (int64_t j = 0; j < bs; ++j) {

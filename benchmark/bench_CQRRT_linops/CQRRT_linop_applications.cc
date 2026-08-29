@@ -1,4 +1,4 @@
-// Unified Q-less QR benchmark — IR-LSQ application, plus rspec (Algorithm 4).
+// Unified Q-less QR benchmark: IR-LSQ application, plus rspec (Algorithm 4).
 //
 // Pipeline:
 //   1. Load matrices (FEM mode: K, M, V .mtx files; sparse mode: a single A.mtx).
@@ -8,9 +8,9 @@
 //   4. Run Q-less QR via one of 5 variants (CQRRT_linop, CholQR, sCholQR3,
 //      sCholQR3_basic, CholQR2), selected by method_mask.
 //   5. Post-processing dictated by <mode>:
-//        irlsq — IterRefineLSQ from x_0 = 0 (no sketch-and-solve initial guess;
+//        irlsq: IterRefineLSQ from x_0 = 0 (no sketch-and-solve initial guess;
 //                the only sketch is S_1 inside Q-less QR, which produces R)
-//        rspec — reduced spectral approximation (Algorithm 4): Rayleigh–Ritz on
+//        rspec: reduced spectral approximation (Algorithm 4): Rayleigh-Ritz on
 //                range(C^j V_FEM), C = L^T (K - ω M)^{-1} L. FEM-only.
 //
 // Usage:
@@ -20,8 +20,8 @@
 //          <K.mtx> <M.mtx> <V.mtx> <d_factor> [nnz] [b] [compute_cond] [method_mask] [noise_level] [omega] [power_j]
 //
 // mode        = "irlsq" | "irlsq_reg" | "rspec"
-//   (main() hard-errors on an unrecognized mode since the 2026-07-29 fix; the old
-//   behavior -- match nothing, write no CSV, exit 0 -- burned six SLURM scripts.)
+//   (main() hard-errors on an unrecognized mode; matching nothing, writing no
+//   CSV, and exiting 0 is a silent failure mode that has burned SLURM scripts.)
 // method_mask = bitmask of methods (default 0b11111 = 31)
 //                 bit 0 (  1): CQRRT_linop (TRSM_IDENTITY)
 //                 bit 1 (  2): CholQR
@@ -32,27 +32,27 @@
 //                              default mask)
 //                 bit 6 ( 64): Blendenpik refined by the shared engine (warm + cold
 //                              rows; see benchmark/refined_blendenpik.hh). NOTE this
-//                              bit was CQRRT_linop_bqrrp until the 2026-06-05 rework
-//                              and was REUSED on 2026-08-10 -- a pre-2026-06 script
-//                              passing 64 gets refine rows, not the BQRRP variant.
+//                              bit was previously CQRRT_linop_bqrrp and was reused
+//                              for refine rows, so a script written against the old
+//                              assignment gets refine rows, not the BQRRP variant.
 //               rspec mode accepts bits 0-4 only and warns on 32/64.
 //   The campaign mask 127 = bits 0-6 (all five Q-less methods + both Blendenpik
 //   families).
 //
-// Trailing optional args after precond_prec (irlsq / irlsq_reg), added 2026-07-27:
+// Trailing optional args after precond_prec (irlsq / irlsq_reg):
 //   [ir_max_inner] inner-CG iteration cap per outer refinement step (default 200).
 //                  With 2 outer steps this is what produced the fixed 400-iteration
 //                  ceiling in earlier CSVs. Pass <= 0 to keep the default.
 //   [ir_inner_tol] inner-CG relative-residual tolerance (default: eps^0.85 in the
 //                  working precision, ~4.9e-14 in double). Pass < 0 to keep it.
-//   [ir_round_drop] per-round inner-CG residual drop (default 1e-4; Oleg's restart
-//                  pacing, 2026-08-07, replacing [ir_inner_restarts] in this slot).
+//   [ir_round_drop] per-round inner-CG residual drop (default 1e-4; restart
+//                  pacing, replacing [ir_inner_restarts] in this slot).
 //                  Each round's CG stops after this relative drop and the outer
 //                  loop restarts against the TRUE residual; ir_inner_tol survives
 //                  as the absolute floor at which rounds stop immediately. Pass 0
 //                  for legacy fixed-tolerance rounds. Values >= 1 are rejected so
 //                  stale scripts passing the old restart count fail loudly.
-//   [ir_n_steps]   outer-round cap (default 20 since 2026-08-07; was 4). Under the
+//   [ir_n_steps]   outer-round cap (default 20; previously 4). Under the
 //                  paced scheme rounds are shallow and ir_outer_tol exits early,
 //                  so strong preconditioners use a few rounds and weak ones get
 //                  room to descend instead of being budget-truncated.
@@ -65,13 +65,12 @@
 // The per-run answer is written to the CSV as ir_inner_capped / ir_inner_relres /
 // ir_inner_best_relres / ir_inner_best_iter.
 //
-// Warm-start policy (2026-08-05, Max; supersedes the 07-30 2x2 ablation knobs):
-// the sketch-and-solve x0 warm start is Blendenpik-only. Method mask bit 32 runs
-// TWO variants -- "Blendenpik" (its own warm start, the published configuration)
-// and "Blendenpik_cold" (x0 = 0) -- and IterRefineLSQ always starts from x0 = 0
-// (per collaborator request 2026-06-09). The former [ir_warm_start] and
-// [bp_warm_start] CLI knobs are removed; the 07-30 2x2 that motivated them is
-// answered (warm x0 = Blendenpik's forward-error edge, see the 07-30 session log).
+// Warm-start policy: the sketch-and-solve x0 warm start is Blendenpik-only.
+// Method mask bit 32 runs TWO variants, "Blendenpik" (its own warm start, the
+// published configuration) and "Blendenpik_cold" (x0 = 0), and IterRefineLSQ
+// always starts from x0 = 0 (per collaborator request). The former
+// [ir_warm_start] and [bp_warm_start] CLI knobs are removed: warm x0 is
+// Blendenpik's forward-error edge, not IterRefineLSQ's.
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -89,6 +88,7 @@
 #include <omp.h>
 #endif
 #include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <numeric>
 #include <random>
@@ -110,6 +110,21 @@
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
 using std::chrono::microseconds;
+
+// Helper families shared with bench_toeplitz_ls (cqrrt_bench_common.hh):
+// stop-reason maps, env provenance, the rounds-CSV schema/row writer, the
+// chol-shift fold, and the power-2-norm and blocked-orth-error estimators.
+using RandLAPACK::bench::pcg_stop_reason;
+using RandLAPACK::bench::lsqr_stop_reason;
+using RandLAPACK::bench::write_env_line;
+using RandLAPACK::bench::kRoundsCsvHeader;
+using RandLAPACK::bench::write_round_row;
+using RandLAPACK::bench::fold_chol_shift;
+using RandLAPACK::bench::estimate_op_2norm;
+using RandLAPACK::bench::compute_orth_error_explicit;
+using RandLAPACK::bench::quote_join_argv;
+using RandLAPACK::bench::get_hostname;
+using RandLAPACK::bench::write_host_line;
 
 // ============================================================================
 // Condition-number injection + precision-casting helpers (irlsq_reg mode)
@@ -155,7 +170,7 @@ template <typename P>
 static P unit_roundoff() { return std::numeric_limits<P>::epsilon() / (P)2; }
 
 // ============================================================================
-// Result struct (unified — sentinel values for fields irrelevant to the mode)
+// Result struct (unified: sentinel values for fields irrelevant to the mode)
 // ============================================================================
 
 template <typename T>
@@ -168,7 +183,20 @@ struct bench_result {
     long chol_time_us;     // FEM: shared, measured once. Sparse: 0.
     int qr_status;         // 0 on success
     long qr_time_us;       // -1 if QR failed
-    int  chol_retries = 0; // CholeskyQR adaptive-shift retries (0 = clean; N/A for Blendenpik)
+    // -1 = no Cholesky ran in this row (Blendenpik family, unpreconditioned,
+    // never overwrites this field) or QR failed before a retry count existed.
+    // 0 = Cholesky ran unshifted. The five Q-less branches always overwrite
+    // this on both success and failure, so real Cholesky rows are unaffected.
+    int  chol_retries = -1;
+    // The shift the retries actually applied. -1 = no Cholesky in this row
+    // (Blendenpik family) or QR failed before a shift record existed; 0 =
+    // every pass unshifted. abs = pass-1 absolute shift, i.e. the
+    // Tikhonov-equivalent regularization baked into the returned R; rel = max
+    // over passes of shift/trace(G), the scale-free severity. A bare retry
+    // count cannot separate a rounding-level rescue from a spectrum-truncating
+    // one; these can.
+    T chol_shift_abs = -1;
+    T chol_shift_rel = -1;
 
     // Q-factor orthogonality: ||Q^T Q - I||_F / sqrt(n), computed for all methods.
     T orth_error;
@@ -176,23 +204,22 @@ struct bench_result {
     // IR-LSQ-mode fields
     long ir_total_us;
     long ir_setup_us = 0;  // warm-start x0 build time, its OWN slot (NOT inside
-                           // ir_total_us; 0 = cold start). Assigned since 2026-08-27
-                           // for the Blendenpik rows; it was documented-but-dead
-                           // (never written, always 0) before.
+                           // ir_total_us; 0 = cold start). Assigned for the
+                           // Blendenpik rows.
     int  ir_outer_iters;
     int  ir_inner_iters_total;
     int  lsqr_iters = 0;   // LSQR iterations, where an LSQR phase ran (published
-                           // Blendenpik rows only since the 2026-08-27 refine redesign)
+                           // Blendenpik rows only)
     int  engine_status = -1;          // restarted_pcg_ne exit status (-1 = engine not used)
     std::string stop_reason = "n/a";  // named exit condition (see the reason helpers)
     T    x0_relres = (T)-1;           // true relres of the handed-off warm x0 (refine warm rows)
     T    ls_residual_norm;
     T    ls_solution_error;   // -1 sentinel when undefined (FEM irlsq)
 
-    // Inner-CG diagnosis (2026-07-27). ir_inner_iters_total alone cannot say whether a
-    // solve converged or merely exhausted its budget -- both used to report success.
+    // Inner-CG diagnosis. ir_inner_iters_total alone cannot say whether a
+    // solve converged or merely exhausted its budget: both used to report success.
     //   ir_inner_capped   : 1 if ANY outer step hit max_inner (0 = all converged,
-    //                       2 = a CG breakdown occurred). Since 2026-08-27: published
+    //                       2 = a CG breakdown occurred). Published
     //                       Blendenpik rows carry 0/1 from LSQR's own convergence,
     //                       refine rows carry real kernel diagnoses; -1 only on
     //                       failed builds.
@@ -210,7 +237,9 @@ struct bench_result {
     int  ir_inner_best_iter   = -1;
 
     // cond(J R^-1): the number that actually says whether the preconditioner works.
-    // -1 when not computed (too large, or not requested).
+    // -1 sentinel when not computed: the compute_cond CLI flag now gates this
+    // computation directly (both irlsq and irlsq_reg), so -1 means
+    // either compute_cond was off or n exceeded the internal eig cap (16384).
     T    cond_precond = (T)-1;
 
     // irlsq_reg only: kappa(A) estimate from the regularized R diagonal
@@ -222,46 +251,60 @@ struct bench_result {
     std::vector<long> qr_breakdown;
     std::vector<long> ir_breakdown;
 
-    // Per-round engine records (2026-08-27, capture-all-data decision): filled for
+    // Per-round engine records: filled for
     // every row that ran the shared engine (IR methods and refine rows); empty for
     // published Blendenpik rows and failed builds. Written to the *_rounds.csv sidecar.
     std::vector<int> round_iters, round_status, round_best_iter;
     std::vector<T>   round_relres, round_best_relres, round_ls_relres;
 
-    // WINDOW ASYMMETRY (documented 2026-08-27, predates the audit rewrite): for
-    // Q-less rows the tracker stops right after the QR build (build-only peak,
-    // matching the build-phase analytical models); for the four Blendenpik-family
-    // rows it stops after run_blendenpik_family returns, so their window also
-    // spans the LSQR/engine solve. Their analytical_kb is the -1 sentinel, so the
-    // peak-vs-model comparison never mixes the two window kinds.
+    // RSS WINDOW SEMANTICS, per path:
+    //   irlsq / rspec: Q-less rows stop the tracker right after the QR build
+    //     (build-only peak, matching the build-phase analytical models);
+    //     Blendenpik-family rows stop after run_blendenpik_family returns, so
+    //     their window also spans the LSQR/engine solve. analytical_kb models
+    //     each window kind correspondingly (build-only vs. build-plus-LSQR).
+    //   irlsq_reg: windows are UNIFIED across every algorithm, build + solve,
+    //     diagnostics excluded (the orth-loss materialization is moved outside
+    //     the window for exactly this reason; see the ordering note in
+    //     run_irlsq_reg). NOTE: analytical_kb for the Q-less rows there is still
+    //     assigned from the build-only QR model at dispatch time, before the
+    //     solve runs, so peak_rss_kb (build+solve) and analytical_kb (build-only)
+    //     are no longer measuring the same window for those rows (a known
+    //     mismatch this comment records but does not correct).
     long peak_rss_kb;
     long analytical_kb;
 };
+
+// Fold a driver's per-pass shift record into the result row (shared fold in
+// cqrrt_bench_common.hh; see record note there).
+template <typename T, typename TR, size_t N>
+static void record_chol_shift(bench_result<TR>& res, const T (&shifts)[N], const T (&traces)[N]) {
+    fold_chol_shift(res.chol_shift_abs, res.chol_shift_rel, shifts, traces);
+}
 
 // ---- CLI-configurable inner-CG controls -------------------------------------
 // File-scope rather than threaded through the runners, whose signatures already take
 // 14 parameters. Both are set once in main() from argv before any runner is called and
 // are read-only thereafter.
 //
-// Why they are configurable at all (2026-07-27): the inner-CG budget was hard-coded at
+// Why they are configurable at all: the inner-CG budget was hard-coded at
 // 200 per outer step, which with g_ir_n_steps outer steps produced a fixed iteration
-// ceiling in the CSVs, and the tolerance was fixed at eps^0.85 (~4.9e-14 in double) -- a
+// ceiling in the CSVs, and the tolerance was fixed at eps^0.85 (~4.9e-14 in double), a
 // relative-residual target close enough to the floating-point stagnation floor that CG
 // can be unable to reach it regardless of preconditioner quality. Exposing both lets a
 // diagnostic sweep separate those two effects without a rebuild.
 static int    g_ir_max_inner = 200;    // <= 0 => keep the IterRefineLSQ default
 static double g_ir_inner_tol = -1.0;   // <  0 => eps^0.85 in the working precision
-static double g_ir_round_drop = 1e-4;  // per-round CG drop (Oleg 2026-08-07); 0 = legacy fixed-tol rounds
-static int    g_ir_n_steps = 50;       // outer-round cap (campaign-canonical 50 since 0812_d2;
-                                       // was 20 through the 0810 era, 4 before 2026-08-07.
-                                       // The cap must not bind before tol + maxit do:
+static double g_ir_round_drop = 1e-4;  // per-round CG drop; 0 = legacy fixed-tol rounds
+static int    g_ir_n_steps = 50;       // outer-round cap (campaign-canonical 50; the
+                                       // cap must not bind before tol + maxit do:
                                        // native_ill CholQR2 genuinely uses 50 rounds.)
 static double g_ir_outer_tol = -1.0;   // <0 => 10*eps(solve precision); 0 disables early exit
-// (g_ir_warm_start / g_bp_warm_start removed 2026-08-05: IR methods are always
+// (g_ir_warm_start / g_bp_warm_start are gone: IR methods are always
 //  cold; Blendenpik runs as two mask-32 variants, warm and cold.)
 
-// Outer-stagnation window override (2026-08-27): RANDLAPACK_IR_OUTER_STAG, read
-// once. Default 2 (the engine default); 0 disables the LS-floor exit -- the
+// Outer-stagnation window override: RANDLAPACK_IR_OUTER_STAG, read
+// once. Default 2 (the engine default); 0 disables the LS-floor exit. The
 // knob exists for the CholQR full-precision diagnostic cell, which must show
 // the flat trajectory rather than exit at it. Env rather than CLI so the
 // campaign arg layout stays frozen.
@@ -269,39 +312,33 @@ static int ir_outer_stag_window() {
     static const int w = []() {
         const char* s = std::getenv("RANDLAPACK_IR_OUTER_STAG");
         if (s == nullptr || *s == '\0') return 2;
-        return std::atoi(s);
+        char* end = nullptr;
+        long v = std::strtol(s, &end, 10);
+        // atoi silently returned 0 on garbage, which silently DISABLES the
+        // LS-floor exit rather than erroring (0 is also a legal value chosen
+        // for that purpose, so a typo cannot be told apart from intent).
+        if (end == s || *end != '\0') {
+            std::cerr << "FATAL: RANDLAPACK_IR_OUTER_STAG='" << s
+                      << "' is not a valid integer; refusing to silently run "
+                         "with a possibly-disabled LS-floor exit. Fix or unset it.\n";
+            std::exit(1);
+        }
+        return (int)v;
     }();
     return w;
 }
 
-// Named exit conditions for the CSV (2026-08-27): distinguishes "hit the LS floor
-// honestly" from "ran out of budget", which shared a flag value before.
-static const char* pcg_stop_reason(int st) {
-    switch (st) {
-        case 0: return "tol";       case 1: return "budget";
-        case 2: return "breakdown"; case 3: return "rounds";
-        case 4: return "floor";     default: return "unknown";
-    }
-}
-static const char* lsqr_stop_reason(bool converged, int stop_test) {
-    if (!converged) return "budget";
-    return (stop_test == 2) ? "ne_floor" : "tol";
-}
+// Full argv, space-joined and double-quoted, set once in run_benchmark() from
+// argc/argv; echoed in every results CSV header so a CSV can be
+// traced back to the exact invocation that produced it without a side log.
+// quote_join_argv itself is shared (cqrrt_bench_common.hh).
+static std::string g_argv_line;
 
-// Environment provenance for every results CSV (2026-08-27, audit M1): these env
-// knobs change the algorithms without changing the row labels, so a CSV that does
-// not echo them cannot identify its own campaign arm.
+// Environment provenance for every results CSV: the shared env line
+// (cqrrt_bench_common.hh) plus this file's own IR-knob echo.
 static void write_env_provenance(std::ofstream& out) {
-    auto env_or = [](const char* key) -> std::string {
-        const char* s = std::getenv(key);
-        return (s != nullptr && *s != '\0') ? std::string(s) : std::string("(unset)");
-    };
-    out << "# env RANDLAPACK_GRAM_LEFT=" << env_or("RANDLAPACK_GRAM_LEFT")
-        << " RANDLAPACK_SCHOLQR3_SHIFT=" << env_or("RANDLAPACK_SCHOLQR3_SHIFT")
-        << " RANDLAPACK_BLAS2_THREADS=" << env_or("RANDLAPACK_BLAS2_THREADS")
-        << " RANDLAPACK_FFT_THREADS=" << env_or("RANDLAPACK_FFT_THREADS")
-        << " RANDLAPACK_SOLVE_FFT_MATCH=" << env_or("RANDLAPACK_SOLVE_FFT_MATCH")
-        << " RANDLAPACK_GIT_COMMIT=" << env_or("RANDLAPACK_GIT_COMMIT") << "\n";
+    write_host_line(out);
+    write_env_line(out);
     out << "# ir knobs: max_inner=" << g_ir_max_inner << " inner_tol=" << g_ir_inner_tol
         << " round_drop=" << g_ir_round_drop << " n_steps=" << g_ir_n_steps
         << " outer_tol=" << g_ir_outer_tol
@@ -321,10 +358,10 @@ static void record_inner_cg_diagnosis(const RandLAPACK::IterRefineLSQ<T>& ir,
     // severity: Stagnated = 3 was added after Breakdown = 2, so a plain `>` comparison would
     // let a clean stagnation (which exits early WITH the best iterate) mask a genuine CG
     // breakdown in another step. Severity order, worst first:
-    //   Breakdown (2) -- solver failed outright
-    //   HitCap    (1) -- ran out of budget while still descending
-    //   Stagnated (3) -- reached its floor and stopped; benign, best iterate returned
-    //   Converged (0) -- met the tolerance
+    //   Breakdown (2): solver failed outright
+    //   HitCap    (1): ran out of budget while still descending
+    //   Stagnated (3): reached its floor and stopped; benign, best iterate returned
+    //   Converged (0): met the tolerance
     auto severity = [](int status) -> int {
         switch (status) {
             case 2:  return 3;   // Breakdown
@@ -355,8 +392,8 @@ static void record_inner_cg_diagnosis(const RandLAPACK::IterRefineLSQ<T>& ir,
         res.ir_inner_best_iter = ir.inner_best_iter_per_step[worst_idx];
 }
 
-// Same diagnosis, from a raw engine history (the refine rows bypass IterRefineLSQ
-// since 2026-08-27). Identical severity ranking.
+// Same diagnosis, from a raw engine history (the refine rows bypass IterRefineLSQ).
+// Identical severity ranking.
 template <typename T>
 static void record_inner_cg_diagnosis(const RandLAPACK::PCGRoundHistory<T>& h,
                                       bench_result<T>& res) {
@@ -382,7 +419,7 @@ static void record_inner_cg_diagnosis(const RandLAPACK::PCGRoundHistory<T>& h,
     res.ir_inner_best_iter   = h.best_iter[worst_idx];
 }
 
-// Round-record copiers for the *_rounds.csv sidecar (2026-08-27).
+// Round-record copiers for the *_rounds.csv sidecar.
 template <typename T>
 static void copy_round_records(const RandLAPACK::PCGRoundHistory<T>& h, bench_result<T>& res) {
     res.round_iters       = h.iters;
@@ -404,9 +441,9 @@ static void record_ir_outputs(const RandLAPACK::IterRefineLSQ<T>& ir, bench_resu
     res.round_ls_relres   = ir.ls_relres_per_step;
 }
 
-// Shared method-mask decode (2026-08-27): the three per-path copies had already
-// diverged (the rspec copy silently ignored bits 32/64; the console echo showed
-// bits 0-4 only). with_blendenpik = false (rspec) warns on 32/64 instead.
+// Shared method-mask decode, to avoid per-path copies diverging (the rspec
+// copy once silently ignored bits 32/64; the console echo once showed bits
+// 0-4 only). with_blendenpik = false (rspec) warns on 32/64 instead.
 static std::vector<std::string> decode_method_mask(int64_t method_mask, bool with_blendenpik) {
     std::vector<std::string> algs;
     if (method_mask & 1)   algs.push_back("CQRRT_linop");
@@ -432,11 +469,11 @@ static std::vector<std::string> decode_method_mask(int64_t method_mask, bool wit
 
 // ============================================================================
 // Shared Blendenpik-family dispatch (published + refined rows), used by BOTH the
-// irlsq path (run_benchmark_inner) and the irlsq_reg path. Extracted 2026-08-27:
-// the two per-path copies had drifted into different wrong accountings (audit:
-// the warm refine row silently ran cold in both paths -- the exact-string
-// warm_start test was false for "Blendenpik_refine" -- and the refinement phase
-// was missing from the time columns in both, from the iteration count in one).
+// irlsq path (run_benchmark_inner) and the irlsq_reg path. Extracted after the
+// two per-path copies drifted into different wrong accountings: the warm refine
+// row silently ran cold in both paths (the exact-string warm_start test was
+// false for "Blendenpik_refine"), and the refinement phase was missing from the
+// time columns in both, from the iteration count in one.
 // ============================================================================
 template <typename T, typename RNG, typename GLO>
 static void run_blendenpik_family(
@@ -471,9 +508,21 @@ static void run_blendenpik_family(
         res.qr_time_us  = rr.qr_us;
         res.ir_setup_us = rr.setup_us;                 // x0 build (0 for the cold row)
         res.x0_relres   = rr.x0_relres;                // warm-start quality (-1 cold)
-        std::copy(rr.R.begin(), rr.R.end(), R_T);
-        res.qr_breakdown.assign(11, 0);
-        res.analytical_kb = -1;                        // no analytical model for Blendenpik rows
+        std::copy(rr.R, rr.R + rr.R_sz, R_T);
+        // QR-breakdown slots for Blendenpik-family rows (see the breakdown
+        // writer header for the full per-algorithm table): t1=qr, t4=x0 setup,
+        // everything else 0. Refine rows only expose the COMBINED sketch+QR
+        // time (rr.qr_us is not split further), so it lands whole in t1 and t0
+        // (sketch) stays 0, unlike the published branch below, which does
+        // have the split.
+        res.qr_breakdown.assign(5, 0L);
+        res.qr_breakdown[1] = rr.qr_us;
+        res.qr_breakdown[4] = rr.setup_us;
+        // Refined rows use init_only, so LSQR never runs; the engine workspace
+        // that follows (9n + m) is smaller than the sketch term, so the
+        // Blendenpik moment is still the peak.
+        res.analytical_kb = RandLAPACK::blendenpik_linops_analytical_kb<T>(
+            m, n, (double)d_factor, /*warm_start=*/warm, /*with_lsqr=*/false);
         res.ir_total_us          = rr.solve_us;        // the WHOLE refinement solve (was missing)
         res.ir_outer_iters       = rr.rounds;          // real round count (was clobbered to 1)
         res.ir_inner_iters_total = rr.iters;           // engine inner CG only: single unit
@@ -503,10 +552,18 @@ static void run_blendenpik_family(
     res.peak_rss_kb = mem.stop();
     if (res.qr_status != 0) return;
     res.qr_time_us  = bp.times[0] + bp.times[1];       // sketch + QR
-    res.ir_setup_us = warm ? bp.times[4] : 0;          // warm x0 build (in NO column before 2026-08-27)
-    std::copy(bp.R_out.begin(), bp.R_out.end(), R_T);
-    res.qr_breakdown.assign(11, 0);
-    res.analytical_kb = -1;
+    res.ir_setup_us = warm ? bp.times[4] : 0;          // warm x0 build, its own column
+    std::copy(bp.R_out, bp.R_out + bp.R_out_sz, R_T);
+    // QR-breakdown slots for Blendenpik-family rows (see the breakdown writer
+    // header): t0=sketch, t1=qr, t4=x0 setup (0 for the cold row, since x0/Sb/r0
+    // are only allocated when warm_start||init_only); everything else 0.
+    res.qr_breakdown.assign(5, 0L);
+    res.qr_breakdown[0] = bp.times[0];
+    res.qr_breakdown[1] = bp.times[1];
+    res.qr_breakdown[4] = bp.times[4];
+    // Published rows run LSQR, so the LSQR workspace is live at the peak.
+    res.analytical_kb = RandLAPACK::blendenpik_linops_analytical_kb<T>(
+        m, n, (double)d_factor, /*warm_start=*/warm, /*with_lsqr=*/true);
     // No IR loop: reuse the diagnosis columns from LSQR's own convergence signals.
     res.ir_inner_capped = bp.converged ? 0 : 1;
     res.ir_inner_relres = bp.final_relres;
@@ -516,7 +573,7 @@ static void run_blendenpik_family(
     res.lsqr_iters           = bp.lsqr_iters;
     res.engine_status = -1;                     // the pcg engine did not run
     res.stop_reason   = lsqr_stop_reason(bp.converged, bp.lsqr_stop_test);
-    // ir_breakdown from LSQR's op split (exposed 2026-08-27; all-zero rows before).
+    // ir_breakdown from LSQR's op split.
     if (bp.lsqr_op_times.size() >= 3) {
         long fwd = bp.lsqr_op_times[0], adj = bp.lsqr_op_times[1], trsm = bp.lsqr_op_times[2];
         long other = bp.times[2] - (fwd + adj + trsm);
@@ -525,118 +582,29 @@ static void run_blendenpik_family(
     }
 }
 
-// Per-round sidecar writer (2026-08-27): one row per (algorithm, run, round) for
+// Per-round sidecar writer: one row per (algorithm, run, round) for
 // every row that ran the shared engine.
 template <typename T>
 static void write_rounds_csv(const std::string& filename,
                              const std::vector<bench_result<T>>& results) {
     std::ofstream out(filename);
-    out << "# Per-round engine records (restarted_pcg_ne / IterRefineLSQ), 2026-08-27.\n"
+    out << "# Per-round engine records (restarted_pcg_ne / IterRefineLSQ).\n"
         << "# inner_status: 0 Converged, 1 HitCap, 2 Breakdown, 3 Stagnated.\n"
-        << "algorithm,run,round,inner_iters,inner_status,inner_relres,best_relres,best_iter,ls_relres\n";
+        << kRoundsCsvHeader;
     for (const auto& r : results) {
         for (size_t k = 0; k < r.round_iters.size(); ++k) {
-            out << r.alg_name << "," << r.run_idx << "," << (k + 1) << ","
-                << r.round_iters[k] << "," << r.round_status[k] << ","
-                << std::scientific << std::setprecision(6) << r.round_relres[k] << ","
-                << r.round_best_relres[k] << "," << r.round_best_iter[k] << ","
-                << r.round_ls_relres[k] << "\n";
+            write_round_row(out, r.alg_name, r.run_idx, k + 1,
+                r.round_iters[k], r.round_status[k], r.round_relres[k],
+                r.round_best_relres[k], r.round_best_iter[k], r.round_ls_relres[k]);
         }
     }
 }
 
-// Estimate ||A||_2 via power iteration on A^T A. O(iters * (m+n) memory) — no materialization.
-template <typename T, typename GLO>
-static T estimate_op_2norm(GLO& A_op, int64_t m, int64_t n, int iters = 10) {
-    T* v  = new T[n];
-    T* Av = new T[m];
-    {
-        std::mt19937 rng(7);
-        std::normal_distribution<T> N01(0, 1);
-        for (int64_t i = 0; i < n; ++i) v[i] = N01(rng);
-    }
-    T sigma = (T)0;
-    for (int it = 0; it < iters; ++it) {
-        T nv = blas::nrm2(n, v, 1);
-        if (nv == 0) { delete[] v; delete[] Av; return (T)0; }
-        blas::scal(n, (T)1.0 / nv, v, 1);
-        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, 1, n, (T)1.0, v, n, (T)0.0, Av, m);
-        sigma = blas::nrm2(m, Av, 1);
-        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-             n, 1, m, (T)1.0, Av, m, (T)0.0, v, n);
-    }
-    delete[] v;
-    delete[] Av;
-    return sigma;
-}
-
-// orth_err: ||Q^T Q - I||_F / sqrt(n), with Q = A * R^{-1} materialized explicitly.
-// O(m*n + n^2) memory. Direct path: materialize Q a column block at a time via the
-// linop (so the *peak* extra memory beyond Q itself stays at O(n^2 + m*b)), then
-// hand Q off to testing::orthogonality_error. This matches the OLD applications
-// benchmark (pre-2026-06-01-b) and the April FEM2 plots' numbers.
-//
-// The earlier compute_orth_error_memlite path (X = A^T A; X ← R^{-T} X R^{-1})
-// was mathematically equivalent but amplified forward error by kappa(R)^2 from
-// the two TRSMs against an ill-conditioned R, producing meaningless ~1e8 values
-// on FEM2 where kappa(A) ~ 1e7. The direct path here amplifies only by kappa(R).
-// cond_out (optional): when non-null and n <= cond_cap, also returns
-// cond(A R^{-1}) = sqrt(lambda_max/lambda_min) of Q^T Q. This is the number that says
-// whether the preconditioner actually works, and it costs only one extra n x n syevd on
-// top of the Gram this routine already forms -- the expensive part (materializing Q) is
-// shared. Added 2026-07-27: App-1 previously logged only max|R_ii|/min|R_ii|, which says
-// nothing about cond(A R^{-1}), so a "too many CG iterations" report could not be
-// attributed to a weak preconditioner versus an unreachable tolerance.
-template <typename T, typename GLO>
-static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n, int64_t block_size,
-                                     T* cond_out = nullptr, int64_t cond_cap = 16384) {
-    int64_t b = (block_size > 0 && block_size < n) ? block_size : n;
-    T* Q       = new T[m * n]();
-    T* E_block = new T[n * b]();   // identity column-block scratch
-
-    // Materialize Q = A * R^{-1} one column block at a time:
-    //   E_block = I[:, j:j+b];  Q[:, j:j+b] = A_op * E_block.
-    // After all blocks, Q = A. Then a single TRSM(Side::Right) gives Q = A * R^{-1}.
-    for (int64_t j0 = 0; j0 < n; j0 += b) {
-        int64_t bk = std::min(b, n - j0);
-        std::fill(E_block, E_block + n * b, (T)0.0);
-        for (int64_t j = 0; j < bk; ++j)
-            E_block[(j0 + j) + j * n] = (T)1.0;
-        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, bk, n, (T)1.0, E_block, n, (T)0.0, Q + j0 * m, m);
-    }
-    delete[] E_block;
-
-    // Q := A * R^{-1}  (TRSM amplifies error by kappa(R) only.)
-    blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper,
-               blas::Op::NoTrans, blas::Diag::NonUnit, m, n, (T)1.0, R, n, Q, m);
-
-    T orth = RandLAPACK::testing::orthogonality_error<T>(Q, m, n);
-
-    // cond(A R^{-1}) from the eigenvalues of the Gram, reusing the Q we already built.
-    // Skipped above cond_cap because syevd is O(n^3) and n reaches 33024 on FEM2-large.
-    if (cond_out) {
-        *cond_out = (T)-1;
-        if (cond_cap <= 0 || n <= cond_cap) {
-            T* G = new T[n * n]();
-            blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
-                       n, m, (T)1.0, Q, m, (T)0.0, G, n);
-            T* evals = new T[n];
-            int info = lapack::syevd(lapack::Job::NoVec, blas::Uplo::Upper, n, G, n, evals);
-            if (info == 0 && evals[0] > 0)
-                *cond_out = std::sqrt(evals[n - 1] / evals[0]);   // syevd returns ascending
-            delete[] G;
-            delete[] evals;
-        }
-    }
-
-    delete[] Q;
-    return orth;
-}
+// estimate_op_2norm and compute_orth_error_explicit are shared with
+// bench_toeplitz_ls; see cqrrt_bench_common.hh (using-declared above).
 
 // ============================================================================
-// CSV writers — IR-LSQ (preserves the column order plot_irlsq_results.m expects)
+// CSV writers: IR-LSQ (preserves the column order plot_irlsq_results.m expects)
 // ============================================================================
 
 template <typename T>
@@ -645,18 +613,22 @@ static void write_irlsq_results(
     const std::vector<bench_result<T>>& results,
     int64_t m, int64_t n, int64_t nnz_or_zero, const std::string& input_label,
     T noise_level, T d_factor, int64_t sketch_nnz, int64_t block_size,
-    int64_t method_mask)
+    int64_t method_mask, int64_t num_runs, long chol_time_us,
+    const std::string& precision_str)
 {
     std::ofstream out(filename);
-    time_t now = time(nullptr);
-    out << "# Sparse IR-LSQ Benchmark results\n"
-        << "# Date: " << ctime(&now)
+    out << "# IR-LSQ Benchmark results\n"
+        << "# Date: " << make_run_timestamp() << "\n"
+        << "# argv=" << g_argv_line << "\n"
         << "# input=" << input_label << "\n"
+        << "# precision=" << precision_str << "\n"
         << "# M=" << m << " N=" << n << " nnz=" << nnz_or_zero << "\n"
         << "# noise_level=" << noise_level << "\n"
+        << "# chol_time_us=" << chol_time_us << "\n"
         << "# d_factor=" << d_factor << " sketch_nnz=" << sketch_nnz
         << " block_size=" << block_size << "\n"
         << "# method_mask=" << method_mask << "\n"
+        << "# num_runs=" << num_runs << "\n"
 #ifdef _OPENMP
         << "# OpenMP threads: " << omp_get_max_threads() << "\n"
 #else
@@ -669,7 +641,10 @@ static void write_irlsq_results(
            "ir_total_us,ir_outer_iters,ir_inner_iters_total,"
            "ls_residual_norm,ls_solution_error,"
            "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond,"
-           "ir_setup_us,lsqr_iters,engine_status,stop_reason,x0_relres\n";
+           "ir_setup_us,lsqr_iters,engine_status,stop_reason,x0_relres,chol_shift_abs,chol_shift_rel\n";
+    // Sentinel note: chol_shift_abs/chol_shift_rel use -1 for "no Cholesky in
+    // this row" (Blendenpik family, unpreconditioned) or "QR failed before a
+    // shift record existed"; 0 still means "Cholesky ran unshifted".
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
             << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
@@ -684,38 +659,63 @@ static void write_irlsq_results(
             << std::scientific << std::setprecision(6) << r.cond_precond << ","
             << r.ir_setup_us << "," << r.lsqr_iters << "," << r.engine_status << ","
             << r.stop_reason << ","
-            << std::scientific << std::setprecision(6) << r.x0_relres
+            << std::scientific << std::setprecision(6) << r.x0_relres << ","
+            << std::scientific << std::setprecision(6) << r.chol_shift_abs << ","
+            << std::scientific << std::setprecision(6) << r.chol_shift_rel
             << "\n";
     }
+}
+
+// Write one breakdown row: pads/truncates the phase vector to exactly 18
+// columns (t0..t17: sCholQR3's 18 slots and sCholQR3_basic's 15 are not cut to
+// 11) and appends `total_val` as a dedicated final
+// t_total column so phase bars can be validated against the row's own
+// authoritative total (qr_time_us / ir_total_us) without inferring it from
+// vector position, which used to differ silently per algorithm.
+static void write_breakdown_row(std::ofstream& out, const std::string& alg,
+                                int64_t run_idx, const char* phase,
+                                const std::vector<long>& v, long total_val) {
+    out << alg << "," << run_idx << "," << phase;
+    for (int i = 0; i < 18; ++i)
+        out << "," << (i < (int)v.size() ? v[i] : 0L);
+    out << "," << total_val << "\n";
 }
 
 template <typename T>
 static void write_irlsq_breakdown(
     const std::string& filename,
-    const std::vector<bench_result<T>>& results)
+    const std::vector<bench_result<T>>& results,
+    const std::string& mode_label)
 {
     std::ofstream out(filename);
-    out << "# Sparse IR-LSQ Benchmark runtime breakdown (microseconds)\n"
-        << "# QR breakdown layout depends on algorithm (see CQRRT_linop_applications.cc).\n"
-        << "# IR-LSQ breakdown (6): outer_total, inner_cg_total, trsm_total, fwd_total, adj_total, other\n"
-        << "#   (ir_total_us in the results CSV equals outer_total here for every row family;\n"
-        << "#    since 2026-08-27 Blendenpik rows carry real IR entries too: refine rows the\n"
-        << "#    engine split, published rows the LSQR op split with a 0 inner_cg slot)\n"
-        << "algorithm,run,phase,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10\n";
+    out << "# " << mode_label << " Benchmark runtime breakdown (microseconds)\n"
+        << "# QR breakdown layout depends on algorithm:\n"
+        << "#   CQRRT_linop   (t0-t10):  alloc,saso,qr,precond_inv,fwd,adj,gemm,chol,finalize,rest,total\n"
+        << "#   CholQR        (t0-t5):   alloc,fwd,adj,chol,rest,total                      (t6-t17 = 0)\n"
+        << "#   CholQR2       (t0-t10):  alloc,fwd1,adj1,chol1,upd1,fwd2,adj2,gemm2,chol2,upd2,total (t11-t17 = 0)\n"
+        << "#   sCholQR3_basic(t0-t14):  alloc,fwd1,adj1,chol1,trsm1=0,fwd_q=0,syrk2,chol2,upd2,\n"
+        << "#                            syrk3,chol3,upd3,q_mat,rest,total                  (t15-t17 = 0)\n"
+        << "#   sCholQR3      (t0-t17):  alloc,fwd1,adj1,chol1,upd1,fwd2,adj2,gemm2,chol2,upd2,\n"
+        << "#                            fwd3,adj3,gemm3,chol3,upd3,q_mat,rest,total\n"
+        << "#   Blendenpik-family (t0-t4 only, t5-t17 = 0): t0=sketch, t1=qr, t4=x0 setup (0 for\n"
+        << "#     cold rows). Refine rows only expose the combined sketch+QR time, so it lands\n"
+        << "#     whole in t1 with t0 left 0.\n"
+        << "# t_total is the row's own authoritative total (qr_time_us for the QR phase row,\n"
+        << "#   ir_total_us for the IR phase row), independent of how far t0..t17 are populated.\n"
+        << "# IR-LSQ breakdown (6, in t0-t5; t6-t17 = 0): outer_total, inner_cg_total, trsm_total,\n"
+        << "#   fwd_total, adj_total, other\n"
+        << "#   (t_total on the IR row equals ir_total_us; Blendenpik rows carry\n"
+        << "#    real IR entries too: refine rows the engine split, published rows the LSQR op\n"
+        << "#    split with a 0 inner_cg slot)\n"
+        << "algorithm,run,phase,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t_total\n";
     for (const auto& r : results) {
-        out << r.alg_name << "," << r.run_idx << ",QR";
-        for (size_t i = 0; i < r.qr_breakdown.size(); ++i) out << "," << r.qr_breakdown[i];
-        for (size_t i = r.qr_breakdown.size(); i < 11; ++i) out << ",0";
-        out << "\n";
-        out << r.alg_name << "," << r.run_idx << ",IR";
-        for (size_t i = 0; i < r.ir_breakdown.size(); ++i) out << "," << r.ir_breakdown[i];
-        for (size_t i = r.ir_breakdown.size(); i < 11; ++i) out << ",0";
-        out << "\n";
+        write_breakdown_row(out, r.alg_name, r.run_idx, "QR", r.qr_breakdown, r.qr_time_us);
+        write_breakdown_row(out, r.alg_name, r.run_idx, "IR", r.ir_breakdown, r.ir_total_us);
     }
 }
 
 // ============================================================================
-// CSV writer — RSPEC (reduced spectral approximation)
+// CSV writer: RSPEC (reduced spectral approximation)
 // ============================================================================
 
 template <typename T>
@@ -744,18 +744,24 @@ static void write_rspec_breakdown(
 {
     std::ofstream out(filename);
     out << "# RSPEC runtime breakdown (microseconds)\n"
-        << "# QR breakdown layout depends on algorithm (see CQRRT_linop_applications.cc).\n"
-        << "# RR breakdown (4): orth_error, rayleigh_ritz_build, syevd, ritz_residuals\n"
-        << "algorithm,run,phase,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10\n";
+        << "# QR breakdown layout depends on algorithm; see write_irlsq_breakdown's header\n"
+        << "#   in CQRRT_linop_applications.cc for the full per-algorithm slot table.\n"
+        << "# RR breakdown (4, in t0-t3; t4-t17 = 0): orth_error, rayleigh_ritz_build, syevd, ritz_residuals\n"
+        << "# t_total on the QR row is qr_time_us; on the RR row it is the sum of t0..t3 (rspec has\n"
+        << "#   no separately tracked RR total field; rspec_total_us excludes the orth diagnostic,\n"
+        << "#   see the file header comment on why).\n"
+        << "algorithm,run,phase,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11,t12,t13,t14,t15,t16,t17,t_total\n";
     for (const auto& r : results) {
-        out << r.alg_name << "," << r.run_idx << ",QR";
-        for (size_t i = 0; i < r.qr_breakdown.size(); ++i) out << "," << r.qr_breakdown[i];
-        for (size_t i = r.qr_breakdown.size(); i < 11; ++i) out << ",0";
-        out << "\n";
-        out << r.alg_name << "," << r.run_idx << ",RR";
-        for (size_t i = 0; i < r.rr_breakdown.size(); ++i) out << "," << r.rr_breakdown[i];
-        for (size_t i = r.rr_breakdown.size(); i < 11; ++i) out << ",0";
-        out << "\n";
+        write_breakdown_row(out, r.alg_name, r.run_idx, "QR", r.qr_breakdown, r.qr_time_us);
+        // -1 sentinel on a failed QR row (rr_breakdown is cleared, and a sum
+        // over an empty vector is 0, which would misreport as "measured, zero
+        // cost" rather than "not run").
+        long rr_total = -1;
+        if (r.qr_status == 0) {
+            rr_total = 0;
+            for (long v : r.rr_breakdown) rr_total += v;
+        }
+        write_breakdown_row(out, r.alg_name, r.run_idx, "RR", r.rr_breakdown, rr_total);
     }
 }
 
@@ -770,9 +776,10 @@ static void write_rspec_csv(
     int64_t method_mask, int top_k)
 {
     std::ofstream out(filename);
-    time_t now = time(nullptr);
     out << "# RSPEC (reduced spectral approximation) results\n"
-        << "# Date: " << ctime(&now)
+        << "# Date: " << make_run_timestamp() << "\n";
+    write_host_line(out);
+    out << "# argv=" << g_argv_line << "\n"
         << "# Matrix dimensions: m=" << m << " n=" << n << "\n"
         << "# Runs per algorithm: " << num_runs << "\n"
 #ifdef _OPENMP
@@ -823,17 +830,17 @@ static void write_rspec_csv(
 
 template <typename T>
 static void print_irlsq_summary(const bench_result<T>& r) {
-    std::printf("\n  [%s] Run %ld (noise=%.3f):\n",
-                r.alg_name.c_str(), (long)r.run_idx, (double)r.noise_level);
+    std::printf("\n  [%s] Run %lld (noise=%.3f):\n",
+                r.alg_name.c_str(), (long long)r.run_idx, (double)r.noise_level);
     if (r.qr_status != 0) {
-        std::printf("    QR returned status %d — IR-LSQ skipped.\n", r.qr_status);
+        std::printf("    QR returned status %d, IR-LSQ skipped.\n", r.qr_status);
         return;
     }
-    std::printf("    QR: %ld us, peak_RSS=%ld KB, predicted=%ld KB\n",
-                r.qr_time_us, r.peak_rss_kb, r.analytical_kb);
+    std::printf("    QR: %lld us, peak_RSS=%lld KB, predicted=%lld KB\n",
+                (long long)r.qr_time_us, (long long)r.peak_rss_kb, (long long)r.analytical_kb);
     if (r.orth_error >= 0) std::printf("    orth_err = %.3e\n", (double)r.orth_error);
-    std::printf("    IR-LSQ (x_0=0): total=%ld us, outer=%d, inner_total=%d\n",
-                r.ir_total_us, r.ir_outer_iters, r.ir_inner_iters_total);
+    std::printf("    IR-LSQ (x_0=0): total=%lld us, outer=%d, inner_total=%d\n",
+                (long long)r.ir_total_us, r.ir_outer_iters, r.ir_inner_iters_total);
     std::printf("    ||Ax-b||/(||A||*||x||+||b||) = %.3e\n", (double)r.ls_residual_norm);
     if (r.ls_solution_error >= 0)
         std::printf("    ||x-x_true||/||x_true|| = %.3e\n", (double)r.ls_solution_error);
@@ -859,6 +866,13 @@ static int run_benchmark_inner(
     const std::vector<T>* b_ptr,        // M-vector RHS
     const std::vector<T>* x_true_ptr)   // N-vector ground truth (sparse only); nullptr otherwise
 {
+    // b_ptr used to be treated as optional (see the now-removed `if (b_ptr)`
+    // guards below), but every call site always passes a real RHS and the
+    // post-processing block dereferences it unconditionally regardless; make
+    // that assumption explicit instead of leaving a misleading nullable API.
+    randlapack_require(b_ptr != nullptr)
+        << "run_benchmark_inner: b_ptr (the RHS vector) must be non-null.";
+
     // Ordered list of selected algorithm names from the bitmask (shared decode;
     // see decode_method_mask and the mask documentation in the file header).
     std::vector<std::string> selected_algs = decode_method_mask(method_mask, /*with_blendenpik=*/true);
@@ -886,7 +900,7 @@ static int run_benchmark_inner(
     // applies A_op repeatedly, but the timed IterRefineLSQ also exercises the
     // TRSM preconditioner path and LSQR's vector work, whose one-time costs
     // (thread pools, first-touch pages) otherwise land inside the FIRST
-    // method's timed solve (2026-08-05 yellow-bar finding). CPU warmup only,
+    // method's timed solve. CPU warmup only,
     // distinct from the x0 warm-start ablation.
     std::cout << "Running warmup... " << std::flush;
     {
@@ -896,28 +910,23 @@ static int run_benchmark_inner(
         warm_algo.nnz = sketch_nnz;
         warm_algo.block_size = block_size;
         int warm_status = warm_algo.call(A_op, R_warm, n, d_factor, warm_state);
-        if (b_ptr) {
-            T* x_wu = new T[n]();
-            int it_wu = 0; long lt_wu[4] = {0};
-            RandLAPACK::lsqr<T>(A_op, m, n,
-                (warm_status == 0) ? R_warm : nullptr,
-                (warm_status == 0) ? n : (int64_t)0,
-                b_ptr->data(), x_wu, tol, tol, 5, it_wu, lt_wu);
-            delete[] x_wu;
-        }
+        T* x_wu = new T[n]();
+        int it_wu = 0; long lt_wu[4] = {0};
+        RandLAPACK::lsqr<T>(A_op, m, n,
+            (warm_status == 0) ? R_warm : nullptr,
+            (warm_status == 0) ? n : (int64_t)0,
+            b_ptr->data(), x_wu, tol, tol, 5, it_wu, lt_wu);
+        delete[] x_wu;
         delete[] R_warm;
     }
     std::cout << "done\n\n";
 
     // Precompute ||A||_2 and ||b|| for the Higham backward-error metric:
     //   ls_residual_norm = ||A x - b|| / (||A||_2 * ||x|| + ||b||)
-    T A_2norm = (T)0, b_norm = (T)0;
-    if (b_ptr) {
-        std::cout << "Estimating ||A||_2 via power iteration (10 iters)... " << std::flush;
-        A_2norm = estimate_op_2norm<T>(A_op, m, n, 10);
-        b_norm  = blas::nrm2(m, b_ptr->data(), 1);
-        std::cout << "||A||_2 ~ " << A_2norm << ", ||b|| = " << b_norm << "\n\n";
-    }
+    std::cout << "Estimating ||A||_2 via power iteration (10 iters)... " << std::flush;
+    T A_2norm = estimate_op_2norm<T>(A_op, m, n, 10);
+    T b_norm  = blas::nrm2(m, b_ptr->data(), 1);
+    std::cout << "||A||_2 ~ " << A_2norm << ", ||b|| = " << b_norm << "\n\n";
 
     T x_true_norm = (T)0;
     if (x_true_ptr) x_true_norm = blas::nrm2(n, x_true_ptr->data(), 1);
@@ -934,7 +943,6 @@ static int run_benchmark_inner(
     // ================================================================
     for (const auto& alg_name : selected_algs) {
         std::cout << "\n=== Algorithm: " << alg_name << " ===\n";
-        std::vector<bench_result<T>> alg_results;
 
         for (int64_t run_idx = 0; run_idx < num_runs; ++run_idx) {
             bench_result<T> res{};
@@ -952,7 +960,7 @@ static int run_benchmark_inner(
             res.ls_residual_norm = (T)-1.0;
             res.ls_solution_error = (T)-1.0;
             res.peak_rss_kb = 0;
-            res.analytical_kb = 0;
+            res.analytical_kb = -1;   // -1 = no value; 0 would read as a real 0 MB bar
 
             std::fill(R, R + n * n, (T)0);
             auto state = run_states[run_idx];
@@ -962,8 +970,7 @@ static int run_benchmark_inner(
             RandLAPACK::PeakRSSTracker mem; mem.start();
             if (alg_name.rfind("Blendenpik", 0) == 0) {
                 // Shared Blendenpik-family dispatch (published + refined rows); fills
-                // every accounting field itself -- see run_blendenpik_family. The
-                // per-path copies this replaces are the 2026-08-27 audit's C1/C2/M1.
+                // every accounting field itself, see run_blendenpik_family.
                 T outer_tol_eff = (g_ir_outer_tol >= 0) ? (T)g_ir_outer_tol
                                 : (T)10 * std::numeric_limits<T>::epsilon();
                 run_blendenpik_family<T, RNG>(A_op, b_ptr->data(), m, x_ls, n, R,
@@ -972,54 +979,58 @@ static int run_benchmark_inner(
                 RandLAPACK::sCholQR3_linops<T> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(A_op, R, n);
+                record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.qr_breakdown = qr_algo.times;   // whole vector, not truncated to a fixed slot count
                     res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<T> qr_algo(/*time_subroutines=*/true, tol);
                 res.qr_status = qr_algo.call(A_op, R, n);
+                record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.qr_breakdown = qr_algo.times;   // whole vector, not truncated to a fixed slot count
                     res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
                 }
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<T> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(A_op, R, n);
+                record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 6);
-                    res.qr_breakdown.resize(11, 0);
+                    res.qr_breakdown = qr_algo.times;   // whole vector (6 entries; writer pads)
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else if (alg_name == "CholQR2") {
                 RandLAPACK::CholQR2_linops<T> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(A_op, R, n);
+                record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.qr_breakdown = qr_algo.times;   // whole vector, not truncated to a fixed slot count
                     res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else {
-                // CQRRT_linop (TRSM_IDENTITY precond). CQRRT_linop_bqrrp was
-                // removed from the benchmark dispatch in the 2026-06-05 rework.
+                // CQRRT_linop (TRSM_IDENTITY precond). CQRRT_linop_bqrrp is not
+                // part of the benchmark dispatch.
                 RandLAPACK::CQRRT_linops<T, RNG> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.nnz = sketch_nnz;
                 qr_algo.block_size = block_size;
                 qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
                 res.qr_status = qr_algo.call(A_op, R, n, d_factor, state);
+                record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.qr_breakdown = qr_algo.times;   // whole vector, not truncated to a fixed slot count
                     res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
                 }
             }
@@ -1029,9 +1040,9 @@ static int run_benchmark_inner(
                           << ": QR returned status " << res.qr_status
                           << " (likely Cholesky breakdown). Skipping post-processing.\n";
                 res.qr_time_us = -1;
-                res.qr_breakdown.assign(11, 0);
-                res.analytical_kb = 0;
-                alg_results.push_back(res);
+                res.ir_total_us = -1;   // -1 sentinel: breakdown's t_total must not read as 0 (real cost)
+                res.qr_breakdown.clear();   // writer pads to 18 zero columns regardless of size
+                res.analytical_kb = -1;   // -1 = no value; 0 would read as a real 0 MB bar
                 all_results.push_back(res);
                 print_irlsq_summary(res);
                 continue;
@@ -1039,16 +1050,20 @@ static int run_benchmark_inner(
             std::cout << "done (" << res.qr_time_us << " us)";
 
             // ---- Orth_error: ||Q^T Q - I||_F / sqrt(n), blocked compute. Runs for every method. ----
-            res.orth_error = compute_orth_error_explicit(A_op, R, m, n, block_size, &res.cond_precond);
+            // compute_cond means exactly one thing everywhere: whether cond_precond
+            // gets computed at all (subject to the n<=16384 eig cap inside
+            // compute_orth_error_explicit).
+            res.orth_error = compute_orth_error_explicit(A_op, R, m, n, block_size,
+                compute_cond ? &res.cond_precond : nullptr);
 
             // ---- IR-LSQ post-processing ----
             {
                 const std::vector<T>& b = *b_ptr;
                 if (alg_name.rfind("Blendenpik", 0) == 0) {
                     // x_ls and every solve-accounting field were already produced by
-                    // run_blendenpik_family; nothing to overwrite here. (The old post
-                    // block clobbered ir_total_us / ir_outer_iters / ir_inner_iters_total
-                    // with LSQR-only values, erasing the refinement -- audit M1/M2.)
+                    // run_blendenpik_family; nothing to overwrite here (overwriting
+                    // ir_total_us / ir_outer_iters / ir_inner_iters_total with
+                    // LSQR-only values here would erase the refinement).
                     std::cout << ". solve recorded ... " << std::flush;
                 } else {
                     std::cout << ". IR-LSQ ... " << std::flush;
@@ -1112,7 +1127,6 @@ static int run_benchmark_inner(
             }
 
             print_irlsq_summary(res);
-            alg_results.push_back(res);
             all_results.push_back(res);
         }
     }
@@ -1125,10 +1139,17 @@ static int run_benchmark_inner(
     std::string results_file   = output_dir + "/" + time_buf + "_irlsq_results.csv";
     std::string breakdown_file = output_dir + "/" + time_buf + "_irlsq_breakdown.csv";
     std::string rounds_file    = output_dir + "/" + time_buf + "_irlsq_rounds.csv";
+    // x_true_ptr is passed only in sparse mode (see the parameter comment above);
+    // FEM irlsq has no ground truth. Used here purely to label the CSVs: the
+    // "Sparse IR-LSQ" title used to be hard-coded for the FEM rows too.
+    const bool is_sparse_input = (x_true_ptr != nullptr);
+    const std::string mode_label = is_sparse_input ? "Sparse IR-LSQ" : "FEM IR-LSQ";
+    const std::string precision_str = (sizeof(T) == 8) ? "double" : "single";
     write_irlsq_results<T>(results_file, all_results, m, n, input_nnz, input_label,
-                           noise_level, d_factor, sketch_nnz, block_size, method_mask);
+                           noise_level, d_factor, sketch_nnz, block_size, method_mask,
+                           num_runs, chol_time_us, precision_str);
     std::cout << "\nIR-LSQ results written to " << results_file << "\n";
-    write_irlsq_breakdown<T>(breakdown_file, all_results);
+    write_irlsq_breakdown<T>(breakdown_file, all_results, mode_label);
     std::cout << "IR-LSQ breakdown written to " << breakdown_file << "\n";
     write_rounds_csv<T>(rounds_file, all_results);
     std::cout << "IR-LSQ per-round records written to " << rounds_file << "\n";
@@ -1206,7 +1227,7 @@ static int run_rspec_benchmark(
             res.qr_status = 0;
             res.qr_time_us = 0;
             res.peak_rss_kb = 0;
-            res.analytical_kb = 0;
+            res.analytical_kb = -1;   // -1 = no value; 0 would read as a real 0 MB bar
             res.factor_time_us = factor_time_us;
             res.rspec_total_us = 0;
             res.orth_error = (T)-1.0;
@@ -1225,7 +1246,7 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.qr_breakdown = qr_algo.times;   // whole vector, not truncated to a fixed slot count
                     res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else if (alg_name == "sCholQR3_basic") {
@@ -1234,7 +1255,7 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.qr_breakdown = qr_algo.times;   // whole vector, not truncated to a fixed slot count
                     res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
                 }
             } else if (alg_name == "CholQR") {
@@ -1244,8 +1265,7 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 6);
-                    res.qr_breakdown.resize(11, 0);
+                    res.qr_breakdown = qr_algo.times;   // whole vector (6 entries; writer pads)
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else if (alg_name == "CholQR2") {
@@ -1255,11 +1275,11 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.qr_breakdown = qr_algo.times;   // whole vector, not truncated to a fixed slot count
                     res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else {
-                // CQRRT_linop. CQRRT_linop_bqrrp was removed in 2026-06-05.
+                // CQRRT_linop. CQRRT_linop_bqrrp is not part of the dispatch.
                 RandLAPACK::CQRRT_linops<T, RNG> qr_algo(true, tol);
                 qr_algo.nnz = sketch_nnz;
                 qr_algo.block_size = block_size;
@@ -1268,7 +1288,7 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.total_us();
-                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.qr_breakdown = qr_algo.times;   // whole vector, not truncated to a fixed slot count
                     res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
                 }
             }
@@ -1278,8 +1298,8 @@ static int run_rspec_benchmark(
                           << ": QR returned status " << res.qr_status
                           << ". Skipping eigen post-processing.\n";
                 res.qr_time_us = -1;
-                res.qr_breakdown.assign(11, 0);
-                res.rr_breakdown.assign(4, 0);
+                res.qr_breakdown.clear();   // writer pads to 18 zero columns regardless of size
+                res.rr_breakdown.clear();
                 res.orth_error = std::numeric_limits<T>::quiet_NaN();
                 res.top_eigvals.assign(top_k, std::numeric_limits<T>::quiet_NaN());
                 res.top_residuals.assign(top_k, std::numeric_limits<T>::quiet_NaN());
@@ -1293,7 +1313,7 @@ static int run_rspec_benchmark(
             // ---- Orthogonality loss of the Q-factor: ||Q^T Q - I||_F / sqrt(n),
             //      Q = V_app * R^{-1}, materialized explicitly (same path as irlsq).
             //      NOTE: this re-applies V_app to n columns (one extra full pass of the
-            //      C^j chain); at FEM2 scale that is a meaningful cost — see dev log.
+            //      C^j chain); at FEM2 scale that is a meaningful cost.
             steady_clock::time_point rr_t0, rr_t1;
             long orth_us = 0, rr_build_us = 0, syevd_us = 0, resid_us = 0;
 
@@ -1397,7 +1417,7 @@ static int run_rspec_benchmark(
             // residual of the symmetric operator C, which is exactly what Rayleigh-
             // Ritz on range(V_app) approximates. |lambda_max| is the dominant Ritz
             // value (largest |lambda|), used as the relative scale. K and M are no
-            // longer needed here — only C and the Ritz vectors.
+            // longer needed here, only C and the Ritz vectors.
             // ----------------------------------------------------------------
             std::cout << "    Ritz residuals ... " << std::flush;
             rr_t0 = steady_clock::now();
@@ -1451,10 +1471,10 @@ static int run_rspec_benchmark(
             std::cout << "done\n";
 
             auto rspec_t1 = steady_clock::now();
-            // Exclude the orth-loss diagnostic from the headline total (2026-08-27,
-            // audit m5): it is a pure verification quantity costing a full extra
-            // n-column pass of the C^j chain and was contaminating rspec_total_us.
-            // It stays visible as rr_breakdown[0].
+            // Exclude the orth-loss diagnostic from the headline total: it is a
+            // pure verification quantity costing a full extra n-column pass of
+            // the C^j chain and would otherwise contaminate rspec_total_us. It
+            // stays visible as rr_breakdown[0].
             res.rspec_total_us = duration_cast<microseconds>(rspec_t1 - rspec_t0).count() - orth_us;
             res.rr_breakdown = {orth_us, rr_build_us, syevd_us, resid_us};
 
@@ -1488,7 +1508,7 @@ static int run_rspec_benchmark(
 }
 
 // ============================================================================
-// CSV writer — IR-LSQ regularized (irlsq_reg): base columns + regularization /
+// CSV writer: IR-LSQ regularized (irlsq_reg): base columns + regularization /
 // mixed-precision metadata (kappa_target, kappa_measured, mu, precond/solve prec)
 // ============================================================================
 
@@ -1499,21 +1519,27 @@ static void write_irlsq_reg_results(
     int64_t m, int64_t n, int64_t nnz_or_zero, const std::string& input_label,
     double d_factor, int64_t sketch_nnz, int64_t block_size, int64_t method_mask,
     double kappa_target, double mu,
-    const std::string& precond_prec, const std::string& solve_prec)
+    const std::string& precond_prec, const std::string& solve_prec,
+    int64_t num_runs, long chol_time_us, double noise_level)
 {
     std::ofstream out(filename);
-    time_t now = time(nullptr);
-    out << "# Sparse IR-LSQ (regularized augmented operator) Benchmark results\n"
-        << "# Date: " << ctime(&now)
+    // irlsq_reg is FEM-only (main() rejects sparse input for this mode), unlike
+    // the plain irlsq writer above, which serves both; the title says so.
+    out << "# FEM IR-LSQ (regularized augmented operator) Benchmark results\n"
+        << "# Date: " << make_run_timestamp() << "\n"
+        << "# argv=" << g_argv_line << "\n"
         << "# input=" << input_label << "\n"
         << "# M=" << m << " N=" << n << " nnz=" << nnz_or_zero << "\n"
+        << "# noise_level=" << noise_level << "\n"
+        << "# chol_time_us=" << chol_time_us << "\n"
         << "# d_factor=" << d_factor << " sketch_nnz=" << sketch_nnz
         << " block_size=" << block_size << "\n"
         << "# method_mask=" << method_mask << "\n"
+        << "# num_runs=" << num_runs << "\n"
         << "# kappa_target=" << kappa_target << " mu=" << mu << "\n"
         << "# precond_prec=" << precond_prec << " solve_prec=" << solve_prec << "\n"
-        << "# blendenpik=warm+cold (IR methods always cold x0; 2026-08-05 policy);"
-        << " refine rows = init_only x0 + shared engine (2026-08-27)\n"
+        << "# blendenpik=warm+cold (IR methods always cold x0);"
+        << " refine rows = init_only x0 + shared engine\n"
         << "# A_hat = [A; mu*I];  R = chol(A^T A + mu^2 I) built in precond_prec,\n"
         << "#   used as right preconditioner for IterRefineLSQ run in solve_prec.\n"
 #ifdef _OPENMP
@@ -1527,7 +1553,11 @@ static void write_irlsq_reg_results(
            "orth_error,ir_total_us,ir_outer_iters,ir_inner_iters_total,"
            "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec,chol_retries,"
            "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond,ir_setup_us,"
-           "lsqr_iters,engine_status,stop_reason,x0_relres\n";
+           "lsqr_iters,engine_status,stop_reason,x0_relres,chol_shift_abs,chol_shift_rel\n";
+    // Sentinel note: chol_retries and chol_shift_abs/chol_shift_rel use -1 for
+    // "no Cholesky in this row" (Blendenpik family, unpreconditioned) or "QR
+    // failed before a retry/shift record existed"; 0 still means "Cholesky
+    // ran unshifted" (chol_retries) or "ran, no shift applied" (the shifts).
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
             << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
@@ -1546,7 +1576,9 @@ static void write_irlsq_reg_results(
             << std::scientific << std::setprecision(6) << r.cond_precond << ","
             << r.ir_setup_us << ","
             << r.lsqr_iters << "," << r.engine_status << "," << r.stop_reason << ","
-            << std::scientific << std::setprecision(6) << r.x0_relres
+            << std::scientific << std::setprecision(6) << r.x0_relres << ","
+            << std::scientific << std::setprecision(6) << r.chol_shift_abs << ","
+            << std::scientific << std::setprecision(6) << r.chol_shift_rel
             << "\n";
     }
 }
@@ -1564,7 +1596,7 @@ static double kappa_from_R_diag(const P* R, int64_t n) {
 }
 
 // ============================================================================
-// irlsq_reg runner — regularized augmented-operator preconditioner with
+// irlsq_reg runner: regularized augmented-operator preconditioner with
 // independent preconditioner (P_precond) and solve (T_solve) precisions.
 //
 // Builds two FEM operator chains J = L^{-1} K (V D) from the same kappa-scaled
@@ -1580,6 +1612,7 @@ static int run_irlsq_reg(
     const std::string& K_file, const std::string& M_file, const std::string& V_file,
     const std::string& output_dir, int64_t num_runs,
     double d_factor, int64_t sketch_nnz, int64_t block_size,
+    bool compute_cond,
     int64_t method_mask, double kappa_target, double mu_factor, double noise_level,
     const std::string& precond_prec_str, const std::string& solve_prec_str)
 {
@@ -1617,7 +1650,9 @@ static int run_irlsq_reg(
     rl::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T_solve>> V_op_Ts(m_V, n_V, V_Ts);
     std::cout << "Factorizing M = L L^T (solve precision)... " << std::flush;
     RandLAPACK_extras::linops::CholSolverLinOp<T_solve> L_inv_Ts(M_Ts, /*half_solve=*/true);
+    auto chol_ts_t0 = steady_clock::now();
     L_inv_Ts.factorize();
+    auto chol_ts_t1 = steady_clock::now();
     std::cout << "done\n";
     rl::CompositeOperator KV_Ts(m, n, K_op_Ts, V_op_Ts); KV_Ts.block_size = block_size;
     rl::CompositeOperator J_Ts(m, n, L_inv_Ts, KV_Ts);   J_Ts.block_size = block_size;
@@ -1656,10 +1691,17 @@ static int run_irlsq_reg(
     rl::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<P_precond>> V_op_Pp(m_V, n_V, V_Pp);
     std::cout << "Factorizing M = L L^T (precond precision)... " << std::flush;
     RandLAPACK_extras::linops::CholSolverLinOp<P_precond> L_inv_Pp(M_Pp, /*half_solve=*/true);
+    auto chol_pp_t0 = steady_clock::now();
     L_inv_Pp.factorize();
+    auto chol_pp_t1 = steady_clock::now();
     std::cout << "done\n";
     rl::CompositeOperator KV_Pp(m, n, K_op_Pp, V_op_Pp); KV_Pp.block_size = block_size;
     rl::CompositeOperator J_Pp(m, n, L_inv_Pp, KV_Pp);   J_Pp.block_size = block_size;
+
+    // Shared per-cell cost: both M-factorizations (solve + precond
+    // precision), measured once, identical for every row in this run.
+    const long chol_time_us = duration_cast<microseconds>(chol_ts_t1 - chol_ts_t0).count()
+                             + duration_cast<microseconds>(chol_pp_t1 - chol_pp_t0).count();
 
     // ||A||_2 and ||b|| for the Higham backward-error metric.
     T_solve A_2norm = estimate_op_2norm<T_solve>(J_Ts, m, n, 10);
@@ -1668,7 +1710,7 @@ static int run_irlsq_reg(
 
     // Regularization per the collaborator's spec: mu = mu_factor * u(precond),
     // with mu_factor = 10 giving mu = 10u (u = unit roundoff of the precond
-    // precision). NO ||A|| or size scaling -- the augmented operator is exactly
+    // precision). NO ||A|| or size scaling: the augmented operator is exactly
     // A_hat = [A; mu*I], Q-less CholeskyQR of which gives R = chol(A^T A + mu^2 I),
     // used as a right preconditioner for the LS problem in A.
     const P_precond mu_P = (P_precond)(mu_factor * (double)unit_roundoff<P_precond>());
@@ -1688,10 +1730,10 @@ static int run_irlsq_reg(
 
     // Warmup the precond-chain CQRRT on A_hat (warms the L^{-1} K V chain, the
     // augmented Gram, and the blocked sketch overload), then the SOLVE chain:
-    // the timed IR-LSQ runs LSQR on J_Ts with a TRSM preconditioner, and before
-    // 2026-08-05 its thread pools / first-touch pages were paid inside the FIRST
+    // the timed IR-LSQ runs LSQR on J_Ts with a TRSM preconditioner, and its
+    // thread pools / first-touch pages otherwise land inside the FIRST
     // method's timed solve, which at 4-7 inner iterations is the same magnitude
-    // as the whole solve (the yellow-bar finding). A few untimed LSQR iterations
+    // as the whole solve. A few untimed LSQR iterations
     // on J_Ts (with the warmup R when usable) close that gap. This is a CPU
     // warmup, distinct from Blendenpik's x0 warm start.
     std::cout << "Running warmup... " << std::flush;
@@ -1712,8 +1754,14 @@ static int run_irlsq_reg(
 
     std::vector<bench_result<T_solve>> all_results;
 
+    // Both n^2 buffers must be pre-touched before the measured loop starts.
+    // Value-init ("()") already zero-fills R_P, which pages it in
+    // here; R_T gets an explicit std::fill for the same effect (kept separate
+    // from allocation so the pre-touch is self-documenting rather than relying
+    // on new[]() semantics matching by accident on the next edit).
     P_precond* R_P = new P_precond[n * n]();
-    T_solve*   R_T = new T_solve[n * n]();
+    T_solve*   R_T = new T_solve[n * n];
+    std::fill(R_T, R_T + n * n, (T_solve)0);
     T_solve*   x_ls = new T_solve[n];
 
     for (const auto& alg_name : selected_algs) {
@@ -1724,6 +1772,7 @@ static int run_irlsq_reg(
             res.qr_status = 0; res.qr_time_us = 0; res.orth_error = (T_solve)-1;
             res.ls_residual_norm = (T_solve)-1; res.ls_solution_error = (T_solve)-1;
             res.kappa_measured = (T_solve)-1;
+            res.chol_time_us = chol_time_us;   // shared per-cell cost
 
             std::fill(R_P, R_P + n * n, (P_precond)0);
             auto state = run_states[run_idx];
@@ -1743,45 +1792,50 @@ static int run_irlsq_reg(
                     mem, res);
             } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.chol_retries = qr.n_chol_retries;
+                record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
-                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
-                    res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<P_precond>(m, n, block_size); }
+                    res.qr_breakdown = qr.times;   // whole vector, not truncated to a fixed slot count
+                    res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<P_precond> qr(true, tol_P);
-                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.chol_retries = qr.n_chol_retries;
+                record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
-                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
-                    res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<P_precond>(m, n); }
+                    res.qr_breakdown = qr.times;   // whole vector, not truncated to a fixed slot count
+                    res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<P_precond>(A_hat_Pp.n_rows, n); }
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.chol_retries = qr.n_chol_retries;
+                record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
-                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 6);
-                    res.qr_breakdown.resize(11, 0);
-                    res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<P_precond>(m, n, block_size); }
+                    res.qr_breakdown = qr.times;   // whole vector (6 entries; writer pads)
+                    res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }
             } else if (alg_name == "CholQR2") {
                 RandLAPACK::CholQR2_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.chol_retries = qr.n_chol_retries;
+                record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
-                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
-                    res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<P_precond>(m, n, block_size); }
+                    res.qr_breakdown = qr.times;   // whole vector, not truncated to a fixed slot count
+                    res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }
             } else {
                 // CQRRT: sketch + Gram the augmented A_hat (via VStack's blocked sketch
                 // overload), uniformly with the other 4 methods. R = chol(A^T A + mu^2 I).
                 RandLAPACK::CQRRT_linops<P_precond, RNG> qr(true, tol_P);
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
                 qr.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.chol_retries = qr.n_chol_retries;
+                record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
-                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
-                    res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<P_precond>(m, n, (P_precond)d_factor, block_size); }
+                    res.qr_breakdown = qr.times;   // whole vector, not truncated to a fixed slot count
+                    res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, (P_precond)d_factor, block_size); }
             }
 
             if (res.qr_status != 0) {
                 std::cerr << "\n  [" << alg_name << "] Run " << run_idx
                           << ": QR returned status " << res.qr_status << ". Skipping solve.\n";
-                res.qr_time_us = -1; res.qr_breakdown.assign(11, 0); res.analytical_kb = 0;
+                res.qr_time_us = -1; res.ir_total_us = -1; res.qr_breakdown.clear(); res.analytical_kb = -1;   // -1 = no value; 0 would read as a real 0 MB bar
+                if (!is_bp) res.peak_rss_kb = mem.stop();   // bp rows already stopped inside the helper
                 all_results.push_back(res);
                 continue;
             }
@@ -1793,22 +1847,25 @@ static int run_irlsq_reg(
             // Cast R to solve precision (Blendenpik already produced R_T directly).
             if (!is_bp) for (int64_t i = 0; i < n * n; ++i) R_T[i] = (T_solve)R_P[i];
 
-            // Orthogonality loss of Q = A R^{-1} (base A in solve precision).
-            res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size, &res.cond_precond);
+            // NOTE ordering: the orthogonality diagnostic is computed
+            // AFTER the solve, not here. It materializes Q = A R^{-1} (m x n, about
+            // 88 GB on the large cell), so leaving it inside the peak-RSS window
+            // would swamp the measurement. Moving it below lets every row family
+            // use the SAME window, build + solve with diagnostics excluded, which
+            // is what the Toeplitz benchmark already did and what makes the
+            // peak-vs-predicted panel comparable across the two figures.
 
             // Solve in solve precision. Blendenpik-family rows already solved and
-            // recorded everything inside run_blendenpik_family (the old post block
-            // here clobbered their time/round/iteration fields -- audit C2/M2);
-            // everyone else runs IR-LSQ with R as the right preconditioner.
+            // recorded everything inside run_blendenpik_family; everyone else runs
+            // IR-LSQ with R as the right preconditioner.
             if (is_bp) {
                 std::cout << ". solve(" << solve_prec_str << ") recorded ... " << std::flush;
             } else {
                 std::cout << ". IR-LSQ(" << solve_prec_str << ") ... " << std::flush;
                 auto ls_t0 = steady_clock::now();
-                // Always cold (2026-08-05 policy): the sketch-and-solve x0 warm-start
-                // ablation that lived here is removed -- warm x0 is Blendenpik-only
-                // now (see the CLI comment block). ir_setup_us stays in the CSV
-                // schema and is always 0 for IR methods.
+                // Always cold: warm x0 is Blendenpik-only (see the CLI comment
+                // block). ir_setup_us stays in the CSV schema and is always 0
+                // for IR methods.
                 std::fill(x_ls, x_ls + n, (T_solve)0.0);
                 RandLAPACK::IterRefineLSQ<T_solve> ir(
                     (g_ir_inner_tol > 0) ? (T_solve)g_ir_inner_tol : tol_T,
@@ -1828,7 +1885,15 @@ static int run_irlsq_reg(
                 record_inner_cg_diagnosis(ir, res);
                 record_ir_outputs(ir, res);
                 if (!ir.times.empty()) res.ir_breakdown = ir.times;
+                res.peak_rss_kb = mem.stop();   // build + solve, diagnostics excluded
             }
+
+            // Orthogonality loss of Q = A R^{-1} (base A in solve precision).
+            // Outside the RSS window on purpose; see the ordering note above.
+            // compute_cond gates cond_precond identically in both irlsq and
+            // irlsq_reg.
+            res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size,
+                compute_cond ? &res.cond_precond : nullptr);
 
             // Higham normwise backward error ||Ax-b|| / (||A||_2 ||x|| + ||b||).
             std::vector<T_solve> Ax(m, (T_solve)0);
@@ -1860,9 +1925,11 @@ static int run_irlsq_reg(
     std::string rounds_file    = output_dir + "/" + time_buf + "_irlsq_reg_rounds.csv";
     write_irlsq_reg_results<T_solve>(results_file, all_results, m, n, nnz_K,
         "L^{-1} K (V D) (M=" + M_file + ")", d_factor, sketch_nnz, block_size, method_mask,
-        kappa_target, (double)mu_P, precond_prec_str, solve_prec_str);
+        kappa_target, (double)mu_P, precond_prec_str, solve_prec_str,
+        num_runs, chol_time_us, noise_level);
     std::cout << "\nIR-LSQ-reg results written to " << results_file << "\n";
-    write_irlsq_breakdown<T_solve>(breakdown_file, all_results);
+    write_irlsq_breakdown<T_solve>(breakdown_file, all_results,
+        "IR-LSQ (regularized augmented operator)");
     std::cout << "IR-LSQ-reg breakdown written to " << breakdown_file << "\n";
     write_rounds_csv<T_solve>(rounds_file, all_results);
     std::cout << "IR-LSQ-reg per-round records written to " << rounds_file << "\n";
@@ -1876,17 +1943,18 @@ static int dispatch_irlsq_reg(
     const std::string& K_file, const std::string& M_file, const std::string& V_file,
     const std::string& output_dir, int64_t num_runs,
     double d_factor, int64_t sketch_nnz, int64_t block_size,
+    bool compute_cond,
     int64_t method_mask, double kappa_target, double mu_factor, double noise_level,
     const std::string& solve_prec_str)
 {
     if (precond_prec == "double") {
         return run_irlsq_reg<T_solve, double, RNG>(
             K_file, M_file, V_file, output_dir, num_runs, d_factor, sketch_nnz, block_size,
-            method_mask, kappa_target, mu_factor, noise_level, "double", solve_prec_str);
+            compute_cond, method_mask, kappa_target, mu_factor, noise_level, "double", solve_prec_str);
     } else if (precond_prec == "single" || precond_prec == "float") {
         return run_irlsq_reg<T_solve, float, RNG>(
             K_file, M_file, V_file, output_dir, num_runs, d_factor, sketch_nnz, block_size,
-            method_mask, kappa_target, mu_factor, noise_level, "single", solve_prec_str);
+            compute_cond, method_mask, kappa_target, mu_factor, noise_level, "single", solve_prec_str);
     }
     std::cerr << "Error: precond_prec must be 'single' or 'double'; got '" << precond_prec << "'\n";
     return 1;
@@ -1898,6 +1966,7 @@ static int dispatch_irlsq_reg(
 
 template <typename T, typename RNG = r123::Philox4x32>
 int run_benchmark(int argc, char* argv[]) {
+    g_argv_line = quote_join_argv(argc, argv);
     // <prec> <out> <runs> <mode> ...  → argc >= 5 to reach <mode>
     if (argc < 8) {
         std::cerr << "Usage: " << argv[0]
@@ -1912,7 +1981,7 @@ int run_benchmark(int argc, char* argv[]) {
     }
 
     std::string output_dir = argv[2];
-    int64_t num_runs       = std::stol(argv[3]);
+    int64_t num_runs       = std::stoll(argv[3]);
     std::string mode       = argv[4];
     if (mode != "irlsq" && mode != "rspec" && mode != "irlsq_reg") {
         std::cerr << "Error: <mode> must be one of {irlsq, rspec, irlsq_reg}; got '" << mode << "'\n";
@@ -1948,17 +2017,20 @@ int run_benchmark(int argc, char* argv[]) {
 
     auto opt_long = [&](int rel, int64_t def) {
         int idx = dfactor_idx + rel;
-        return (argc > idx) ? std::stol(argv[idx]) : def;
+        return (argc > idx) ? std::stoll(argv[idx]) : def;
     };
     auto opt_double = [&](int rel, double def) {
         int idx = dfactor_idx + rel;
         return (argc > idx) ? std::stod(argv[idx]) : def;
     };
     int64_t sketch_nnz  = opt_long(1, 4);
-    int64_t block_size  = opt_long(2, 0);
+    // Default block_size=256 matches the paper's b=256 (blocked Gram); pass 0
+    // explicitly for unblocked.
+    int64_t block_size  = opt_long(2, 256);
     bool compute_cond   = (opt_long(3, 0) != 0);
     int64_t method_mask = opt_long(4, 31);   // see the file-header mask docs (bit 32
                                              // published Blendenpik, bit 64 refined; campaign mask 127)
+    const bool noise_level_explicit = (argc > dfactor_idx + 5);
     T noise_level       = (T)opt_double(5, 0.05);
     double omega        = opt_double(6, 0.0);
     int64_t power_j     = opt_long(7, 1);
@@ -1966,24 +2038,24 @@ int run_benchmark(int argc, char* argv[]) {
     double kappa_target = opt_double(8, 1.0);    // V column-scaling spread (1 = native)
     double mu_factor    = opt_double(9, 10.0);   // mu = mu_factor * u(precond_prec)
     std::string precond_prec = (argc > dfactor_idx + 10) ? std::string(argv[dfactor_idx + 10]) : "single";
-    // Inner-CG controls (appended 2026-07-27; both optional and backward compatible).
+    // Inner-CG controls (both optional and backward compatible).
     // ir_max_inner <= 0 keeps the 200 default; ir_inner_tol < 0 keeps eps^0.85.
     g_ir_max_inner = (int)opt_long(11, 200);
     g_ir_inner_tol = opt_double(12, -1.0);
-    // Per-round CG residual drop (Oleg's restart pacing, 2026-08-07). Slot 13
+    // Per-round CG residual drop (restart pacing). Slot 13
     // previously carried ir_inner_restarts, which the paced scheme obsoletes
     // (every round IS a true-residual restart). Reject values >= 1 so a stale
     // script passing the old integer restart count fails loudly rather than
     // silently running near-empty rounds. 0 restores legacy fixed-tol rounds.
     g_ir_round_drop = opt_double(13, 1e-4);
     if (g_ir_round_drop < 0.0 || g_ir_round_drop >= 1.0) {
-        std::cerr << "Error: slot 13 is [ir_round_drop] since 2026-08-07 (was "
+        std::cerr << "Error: slot 13 is [ir_round_drop] (was "
                      "[ir_inner_restarts]); it must lie in [0, 1). Regenerate "
                      "the job scripts.\n";
         return 1;
     }
-    // Outer-round cap. Campaign-canonical 50 since 0812_d2 (was 20 through the
-    // 0810 era, 4 before 2026-08-07): under the paced scheme rounds are shallow
+    // Outer-round cap. Campaign-canonical 50 (previously 20, then 4): under
+    // the paced scheme rounds are shallow
     // and outer_tol exits early, so well-preconditioned methods use a handful of
     // rounds while weakly-preconditioned ones get room to keep descending
     // (native_ill CholQR2 genuinely uses 50) instead of being budget-truncated.
@@ -1992,8 +2064,8 @@ int run_benchmark(int argc, char* argv[]) {
         std::cerr << "Error: ir_n_steps must be >= 1.\n";
         return 1;
     }
-    // Outer early exit (2026-08-06, structure unification with the Toeplitz
-    // pcg_ne): refinement stops once ||b - Jx||/||b|| meets this, capped at
+    // Outer early exit (structure unification with the Toeplitz pcg_ne):
+    // refinement stops once ||b - Jx||/||b|| meets this, capped at
     // ir_n_steps. < 0 keeps the default 10*eps of the solve precision (the
     // "refine until done" reading); 0 disables the check (always run all steps).
     g_ir_outer_tol = opt_double(15, -1.0);
@@ -2001,7 +2073,7 @@ int run_benchmark(int argc, char* argv[]) {
     // loudly instead of silently running a different experiment than it encodes.
     if (argc > dfactor_idx + 16) {
         std::cerr << "Error: [ir_warm_start]/[bp_warm_start] CLI knobs were removed "
-                     "2026-08-05 (Blendenpik-only warm start, both variants always run). "
+                     "(Blendenpik-only warm start, both variants always run). "
                      "Regenerate the job scripts.\n";
         return 1;
     }
@@ -2038,10 +2110,14 @@ int run_benchmark(int argc, char* argv[]) {
               << "  block_size: " << block_size << "\n"
               << "  compute_cond: " << (compute_cond ? "yes" : "no") << "\n"
               << "  method_mask: " << method_mask << " (";
-    // Full decoded roster (2026-08-27; the old echo showed bits 0-4 only, so a
-    // mask-127 job log never revealed that Blendenpik/refine rows were selected).
+    // Full decoded roster: an echo limited to bits 0-4 would leave a mask-127
+    // job log unable to show that Blendenpik/refine rows were selected.
+    // rspec has no Blendenpik dispatch (see run_rspec_benchmark's own decode
+    // call); echoing with_blendenpik=true there would print a roster the run
+    // then silently skips.
     {
-        auto echo_algs = decode_method_mask(method_mask, /*with_blendenpik=*/true);
+        const bool echo_with_bp = (mode != "rspec");
+        auto echo_algs = decode_method_mask(method_mask, echo_with_bp);
         for (size_t i = 0; i < echo_algs.size(); ++i)
             std::cout << (i ? " " : "") << echo_algs[i];
     }
@@ -2107,6 +2183,17 @@ int run_benchmark(int argc, char* argv[]) {
     // <precision> (argv[1]) is the SOLVE precision; precond precision is a CLI knob.
     // ================================================================
     if (mode == "irlsq_reg") {
+        // The noise_level CLI slot silently defaults to 0.05. irlsq_reg's
+        // consistent-RHS backward-error reading is cleanest at noise_level=0,
+        // so a nonzero DEFAULTED value
+        // (as opposed to one the caller explicitly asked for) is worth flagging loudly
+        // rather than baking a silent, easy-to-miss assumption into the CSV.
+        if (!noise_level_explicit && noise_level != (T)0) {
+            std::cerr << "WARNING: irlsq_reg noise_level defaulted to " << (double)noise_level
+                      << " (not explicitly set on the CLI). Pass noise_level=0 explicitly for "
+                         "the pure consistent-RHS backward-error reading, or pass the intended "
+                         "nonzero value explicitly to silence this warning.\n";
+        }
         std::string solve_prec_str = (sizeof(T) == 8) ? "double" : "single";
         std::cout << "\n=== IR-LSQ-reg mode (regularized augmented operator) ===\n"
                   << "  kappa_target: " << kappa_target << "\n"
@@ -2116,7 +2203,7 @@ int run_benchmark(int argc, char* argv[]) {
                   << "  solve_prec: "   << solve_prec_str << "\n\n";
         return dispatch_irlsq_reg<T, RNG>(precond_prec, K_file, M_file, V_file,
             output_dir, num_runs, (double)d_factor, sketch_nnz, block_size,
-            method_mask, kappa_target, mu_factor, (double)noise_level, solve_prec_str);
+            compute_cond, method_mask, kappa_target, mu_factor, (double)noise_level, solve_prec_str);
     }
 
     // ================================================================
@@ -2165,10 +2252,8 @@ int run_benchmark(int argc, char* argv[]) {
                   << "  power_j: " << power_j << "\n";
 
         // Load M as a CSR so we can form X = K - omega*M via shared-pattern axpby.
-        std::cout << "Loading M (mass) from " << M_file << " for X assembly... " << std::flush;
         int64_t m_M, n_M, nnz_M;
-        auto M_csr = load_csr<T>(M_file, m_M, n_M, nnz_M);
-        std::cout << "done (" << m_M << " x " << n_M << ", nnz=" << nnz_M << ")\n";
+        auto M_csr = load_csr_verbose<T>("M (mass, for X assembly)", M_file, m_M, n_M, nnz_M);
         if (m_M != m_K || n_M != m_K) {
             std::cerr << "Error: M size (" << m_M << " x " << n_M
                       << ") must match K size " << m_K << "\n";
@@ -2198,7 +2283,7 @@ int run_benchmark(int argc, char* argv[]) {
         } catch (RandBLAS::Error const& e) {
             auto x_fact_stop = steady_clock::now();
             long x_fact_us = duration_cast<microseconds>(x_fact_stop - x_fact_start).count();
-            std::cerr << "\nCholesky factorization of X failed (X not SPD -- omega at/above "
+            std::cerr << "\nCholesky factorization of X failed (X not SPD, omega at/above "
                          "lambda_min, or near an eigenvalue): " << e.what() << "\n";
 
             // Write a single sentinel row to the CSV and return cleanly.
@@ -2211,6 +2296,8 @@ int run_benchmark(int argc, char* argv[]) {
             r.alg_name = "factorize_failed";
             r.qr_status = -99;
             r.qr_time_us = -1;
+            r.peak_rss_kb = -1;      // -1 sentinel: never measured, not 0
+            r.analytical_kb = -1;
             r.factor_time_us = x_fact_us;
             r.rspec_total_us = x_fact_us;
             r.orth_error = std::numeric_limits<T>::quiet_NaN();

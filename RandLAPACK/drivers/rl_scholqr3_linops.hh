@@ -15,17 +15,8 @@
 #include <cstdlib>
 #include <string>
 
-namespace RandLAPACK {
-// Env-gated (read once): RANDLAPACK_SCHOLQR3_SHIFT=theory selects the paper's
-// first-pass shift s = 11*eps*n*trace(G) in the sCholQR3 drivers below.
-inline bool scholqr3_theory_shift() {
-    static const bool v = []() {
-        const char* s = std::getenv("RANDLAPACK_SCHOLQR3_SHIFT");
-        return s != nullptr && std::string(s) == "theory";
-    }();
-    return v;
-}
-} // namespace RandLAPACK
+// scholqr3_eps_shift() (the RANDLAPACK_SCHOLQR3_SHIFT env knob) now lives
+// in comps/rl_cholqr.hh, shared with the dense sCholQR3 driver.
 
 using namespace std::chrono;
 
@@ -38,7 +29,7 @@ namespace RandLAPACK {
 ///   iter i = 2, 3: cholqr_primitive(A, R_{i-1}, TRSM_IDENTITY)  -> R_i
 ///   return R_3
 ///
-/// Peak memory O(n^2 + (m+n)*b_eff) — never materializes the m × n operator product
+/// Peak memory O(n^2 + (m+n)*b_eff): never materializes the m × n operator product
 /// during the QR iterations. If test_mode is enabled, Q = A * R^{-1} is materialized
 /// at the end (m × n, outside the timing region).
 ///
@@ -75,12 +66,17 @@ class sCholQR3_linops {
 
         // Adaptive-shift policy (see cholqr_primitive). Shift s = factor * trace(G).
         //
-        // iter 1: shifted (shift_factor_iter1 = eps). Lowered from the original
-        //   `11 * eps * n` to plain `eps` per Oleg: the smaller initial shift avoids
-        //   the iter-2 collapse where shift ≫ σ_min²(A) makes G_2 rank-deficient.
+        // iter 1: shifted. shift_factor_iter1 < 0 (the default) resolves at call
+        //   time to the paper's prescription 11 * n * eps (FukayaEtAl2020, c = 11),
+        //   or to plain eps when RANDLAPACK_SCHOLQR3_SHIFT=eps is set. The eps
+        //   variant is a smaller shift kept for A/B campaigns: a shift far above
+        //   σ_min²(A) makes the iter-2 Gram rank-deficient in principle, though
+        //   with unshifted refinement passes plus the adaptive retry the paper
+        //   shift has measured clean on the FEM2 campaigns. A caller-set value
+        //   >= 0 is used verbatim.
         //
         // iters 2-3: UNSHIFTED (shift_factor_iter23 = 0). This is the defining
-        //   feature of Fukaya shifted-CholeskyQR3 — the refinement passes are plain
+        //   feature of Fukaya shifted-CholeskyQR3: the refinement passes are plain
         //   CholeskyQR2, which is what drives orthogonality down to machine level.
         //   A persistent eps shift on these passes (the old setting) never gets
         //   removed: it floors orth at ~2n*eps (≈1.8e-12 in double) and, in single,
@@ -95,6 +91,10 @@ class sCholQR3_linops {
         int max_retries;
         T   shift_growth;
         int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
+        /// Per-pass shift record from the last call (passes 1-3): absolute shift the
+        /// successful potrf carried (0 = unshifted) and that pass's Gram trace.
+        T chol_applied_shifts[3] = {T(0), T(0), T(0)};
+        T chol_gram_traces[3]    = {T(0), T(0), T(0)};
 
         sCholQR3_linops(
             bool time_subroutines,
@@ -102,13 +102,13 @@ class sCholQR3_linops {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            (void)ep;   // stored `eps` member removed 2026-08-27: it was never read
-            block_size = 0;
+            (void)ep;   // kept in the signature for call-site compatibility; unused
+            block_size = kDefaultGramBlockSize;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
-            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*trace(G) shift on iter 1
+            shift_factor_iter1  = T(-1);  // < 0: resolve default (11*n*eps, or eps via env) at call time
             shift_factor_iter23 = T(0);   // iters 2-3 unshifted (Fukaya); retry covers genuine non-PD
             max_retries         = -1;     // unbounded retries (no ceiling), consistent with CholQR/CholQR2
             shift_growth        = T(10);
@@ -136,31 +136,35 @@ class sCholQR3_linops {
             int64_t b_eff = (this->block_size > 0 && this->block_size < n)
                           ? this->block_size : n;
 
-            // sCholQR3 = three cholqr_iterate passes; iter 1 carries the eps shift
-            // right away (shift_factor_iter1), iters 2-3 use shift_factor_iter23.
+            // sCholQR3 = three cholqr_iterate passes; iter 1 carries the shift,
+            // iters 2-3 use shift_factor_iter23.
             //
-            // RANDLAPACK_SCHOLQR3_SHIFT=theory switches the first pass to the paper's
-            // prescription s = 11*eps*n*trace(G) (FukayaEtAl2020, c = 11). History:
-            // 11*eps*n WAS the original setting, lowered to eps per Oleg after an
-            // iter-2 collapse (shift >> sigma_min^2 leaves G_2 rank-deficient); this
-            // knob exists so campaigns can re-measure that trade on real operators.
+            // The first-pass shift defaults to the paper's prescription
+            // s = 11*eps*n*trace(G) (FukayaEtAl2020, c = 11), resolved here because
+            // it needs n. RANDLAPACK_SCHOLQR3_SHIFT=eps selects the legacy smaller
+            // s = eps*trace(G) instead; a caller-set shift_factor_iter1 >= 0 wins
+            // over both.
             long it[15] = {0};
-            const T sf1 = scholqr3_theory_shift()
-                        ? T(11) * T(n) * std::numeric_limits<T>::epsilon()
-                        : this->shift_factor_iter1;
+            const T eps_T = std::numeric_limits<T>::epsilon();
+            const T sf1 = (this->shift_factor_iter1 >= T(0))
+                        ? this->shift_factor_iter1
+                        : (scholqr3_eps_shift() ? eps_T : T(11) * T(n) * eps_T);
             int info = cholqr_iterate<T, GLO>(
                 A, R, ldr, this->block_size, /*num_iters=*/3,
                 sf1, this->shift_factor_iter23,
                 this->max_retries, this->shift_growth, this->timing,
-                this->timing ? it : nullptr, &this->n_chol_retries);
-            if (info != 0) return info;   // 1/2/3 = the pass that failed
+                this->timing ? it : nullptr, &this->n_chol_retries,
+                this->chol_applied_shifts, this->chol_gram_traces);
+            // 1/2/3 = the 1-based pass that failed (retry exhaustion, singular
+            // preconditioner, non-finite shift, or invalid input; see stderr).
+            if (info != 0) return info;
 
             // Test mode: materialize Q = A * R^{-1} (outside timing region).
             if (this->test_mode) {
                 if (this->timing) t0 = steady_clock::now();
 
                 T* Q_buf = new T[m * n];
-                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf, m);
                 this->Q_rows = m;
                 this->Q_cols = n;
                 // The class owns Q (the destructor frees it), so release any buffer from a
@@ -192,7 +196,7 @@ class sCholQR3_linops {
         }
 };
 
-/// Non-blocked (basic) sCholQR3 — algorithmically identical to sCholQR3_linops with
+/// Non-blocked (basic) sCholQR3: algorithmically identical to sCholQR3_linops with
 /// block_size = 0: all three iterations route through cholqr_primitive on the linop
 /// (no materialized-Q / dense-syrk shortcut). It exists only as a separate analytic-
 /// memory accounting case; the heavy work is the same per-iteration linop Gram.
@@ -225,12 +229,16 @@ class sCholQR3_linops_basic {
         /// error. Read the total through here instead.
         long total_us() const { return times.empty() ? -1L : times.back(); }
 
-        // Adaptive shift policy — shared with sCholQR3_linops (Oleg's prescription).
+        // Adaptive shift policy, shared with sCholQR3_linops.
         T   shift_factor_iter1;
         T   shift_factor_iter23;
         int max_retries;
         T   shift_growth;
         int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
+        /// Per-pass shift record from the last call (passes 1-3): absolute shift the
+        /// successful potrf carried (0 = unshifted) and that pass's Gram trace.
+        T chol_applied_shifts[3] = {T(0), T(0), T(0)};
+        T chol_gram_traces[3]    = {T(0), T(0), T(0)};
 
         sCholQR3_linops_basic(
             bool time_subroutines,
@@ -238,12 +246,12 @@ class sCholQR3_linops_basic {
             bool enable_test_mode = false
         ) {
             timing = time_subroutines;
-            (void)ep;   // stored `eps` member removed 2026-08-27: it was never read
+            (void)ep;   // kept in the signature for call-site compatibility; unused
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
-            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*trace(G) shift on iter 1
+            shift_factor_iter1  = T(-1);  // < 0: resolve default (11*n*eps, or eps via env) at call time
             shift_factor_iter23 = T(0);   // iters 2-3 unshifted (Fukaya); retry covers genuine non-PD
             max_retries         = -1;     // unbounded retries (no ceiling), consistent with CholQR/CholQR2
             shift_growth        = T(10);
@@ -278,22 +286,26 @@ class sCholQR3_linops_basic {
 
             // Non-blocked sCholQR3 = three cholqr_iterate passes with block_size = 0.
             long it[15] = {0};
-            // Same RANDLAPACK_SCHOLQR3_SHIFT=theory knob as the blocked variant above.
-            const T sf1 = scholqr3_theory_shift()
-                        ? T(11) * T(n) * std::numeric_limits<T>::epsilon()
-                        : this->shift_factor_iter1;
+            // Same shift-default resolution as the blocked variant above.
+            const T eps_T = std::numeric_limits<T>::epsilon();
+            const T sf1 = (this->shift_factor_iter1 >= T(0))
+                        ? this->shift_factor_iter1
+                        : (scholqr3_eps_shift() ? eps_T : T(11) * T(n) * eps_T);
             int info = cholqr_iterate<T, GLO>(
                 A, R, ldr, /*block_size=*/0, /*num_iters=*/3,
                 sf1, this->shift_factor_iter23,
                 this->max_retries, this->shift_growth, this->timing,
-                this->timing ? it : nullptr, &this->n_chol_retries);
+                this->timing ? it : nullptr, &this->n_chol_retries,
+                this->chol_applied_shifts, this->chol_gram_traces);
+            // 1/2/3 = the 1-based pass that failed (retry exhaustion, singular
+            // preconditioner, non-finite shift, or invalid input; see stderr).
             if (info != 0) return info;
 
             // ---- Test mode: materialize Q = A * R^{-1} via blocked linop call ----
             if (this->test_mode) {
                 if (this->timing) t0 = steady_clock::now();
                 T* Q_buf = new T[m * n];
-                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf, m);
                 this->Q_rows = m;
                 this->Q_cols = n;
                 // The class owns Q (the destructor frees it), so release any buffer from a

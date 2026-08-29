@@ -5,6 +5,7 @@
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
 #include "rl_bqrrp.hh"
+#include "rl_exceptions.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -36,6 +37,31 @@ enum class PCholQRPrecondMethod {
     GEQP3,
     BQRRP
 };
+
+
+// Default column-block width for the blocked Gram computation. The Q-less QR
+// paper states b = 256 for all experiments and its peak-memory claims
+// (O(mb + n^2)) assume the tall intermediate is processed in blocks; drivers
+// therefore default to this value rather than 0 (unblocked). Callers can still
+// set block_size = 0 explicitly to materialize the full m x n intermediate.
+inline constexpr int64_t kDefaultGramBlockSize = 256;
+
+// Env-gated (read once): the sCholQR3 first-pass shift defaults to the paper's
+// prescription s = 11*eps*n*trace(G) (FukayaEtAl2020, c = 11).
+// RANDLAPACK_SCHOLQR3_SHIFT=eps selects the smaller legacy shift s = eps*trace(G)
+// instead (an empirical variant kept for A/B campaigns); the historical value
+// "theory" is accepted and means the default. Shared here so the linop and dense
+// families read the same knob the same way.
+// The static cache means the value is fixed for the process's whole lifetime
+// after the first read, so an in-process gtest that flips the env var mid-run
+// cannot observe the change; validate this knob via benchmarks, not gtests.
+inline bool scholqr3_eps_shift() {
+    static const bool v = []() {
+        const char* s = std::getenv("RANDLAPACK_SCHOLQR3_SHIFT");
+        return s != nullptr && std::string(s) == "eps";
+    }();
+    return v;
+}
 
 
 // ============================================================================
@@ -139,24 +165,25 @@ void blocked_preconditioned_gram(
 
 // Materialize Q = A * R^{-1} (m x n) block-by-block via the linop, for the
 // test/verify paths of the CholQR-family drivers. R is n x n upper-triangular
-// (ld = ldr); Q_out (m x n) is caller-allocated. Forms R^{-1} once (n x n trsm),
-// then applies A to its column blocks. Not on any timed/algorithmic path.
+// (ld = ldr); Q_out (m x n, leading dimension ldq) is caller-allocated. Forms
+// R^{-1} once (n x n trsm), then applies A to its column blocks. Not on any
+// timed/algorithmic path.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 void materialize_Q_from_R(GLO& A, const T* R, int64_t ldr,
-                          int64_t m, int64_t n, int64_t b_eff, T* Q_out) {
+                          int64_t m, int64_t n, int64_t b_eff, T* Q_out, int64_t ldq) {
     T* R_inv = new T[n * n];
     RandLAPACK::util::eye(n, n, R_inv);
     blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, T(1), R, ldr, R_inv, n);
     for (int64_t j = 0; j < n; j += b_eff) {
         int64_t b_j = std::min(b_eff, n - j);
-        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_j, n, T(1), R_inv + j * n, n, T(0), Q_out + j * m, m);
+        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_j, n, T(1), R_inv + j * n, n, T(0), Q_out + j * ldq, ldq);
     }
     delete[] R_inv;
 }
 
 
 // ============================================================================
-// cholqr_primitive — Q-less (preconditioned) Cholesky QR
+// cholqr_primitive: Q-less (preconditioned) Cholesky QR
 // ============================================================================
 //
 // Computes upper-triangular R such that A * R^{-1} has orthonormal columns. A
@@ -175,16 +202,30 @@ void materialize_Q_from_R(GLO& A, const T* R, int64_t ldr,
 // Adaptive shift: before Cholesky a diagonal shift s = shift_factor * trace(G) is
 // added (s = 0 when shift_factor = 0). On a non-PD pivot the shift is grown by
 // shift_growth and potrf retried, up to max_retries times; max_retries < 0 means
-// unbounded (retry until PD — geometric growth guarantees termination once the
+// unbounded (retry until PD; geometric growth guarantees termination once the
 // shift reaches trace(G), where the Gram is diagonally dominant). The Gram is
-// computed once and snapshotted, so retries are O(n^2), not O(m n^2).
+// computed once; a failed attempt is undone in O(n^2) from the Gram's own strict
+// lower triangle plus an O(n) diagonal snapshot, so retries never cost another
+// O(m n^2) Gram build and need no n x n backup.
+//
+// CONTRACT CAVEAT: when a nonzero shift ends up applied (shift_factor > 0, or the
+// retry fired), the returned R is the Cholesky factor of G + s I, NOT of G, so
+// A R^{-1} is only near-orthonormal: directions of A with singular value below
+// sqrt(s) are damped rather than normalized, and R acts as a shifted-CholeskyQR
+// preconditioner (Fukaya et al.) rather than a QR factor. Callers that need a true
+// factor must run a corrective unshifted pass (CholQR2 / sCholQR3 do). n_retries,
+// applied_shift, and gram_trace exist so the caller can detect and report this.
 //
 // Caller-owned scratch: R_pre (n x n, preconditioned only), G (n x n), A_temp
 // (m x b_eff), Z_buf (n x b_eff, preconditioned non-skip only). state is the RNG
 // state for the BQRRP method (nullptr otherwise). Timing args are outputs.
 //
-// Returns 0 on success; nonzero on a diag-zero preconditioner or a Cholesky
-// breakdown that survived all retries.
+// Returns 0 on success; 1 on a diag-zero/singular preconditioner; potrf's info on
+// a Cholesky breakdown that survived all retries; -1 when a shift or trace is
+// non-finite; -2 on invalid shift input (negative shift_factor or shift_growth
+// <= 1). m >= n, ldr >= n, and R != nullptr are enforced by randlapack_require
+// (throw) rather than a sentinel return, since these are caller bugs, not
+// runtime conditions.
 template <typename T, RandLAPACK::linops::LinearOperator GLO,
           typename RNG = RandBLAS::DefaultRNG>
 int cholqr_primitive(
@@ -205,7 +246,9 @@ int cholqr_primitive(
     T shift_factor = T(0),
     int max_retries = 0,
     T shift_growth = T(10),
-    int* n_retries = nullptr)   // out: number of shift retries used (0 = clean first attempt)
+    int* n_retries = nullptr,      // out: number of shift retries used (0 = clean first attempt)
+    T* applied_shift = nullptr,    // out: absolute diagonal shift s in the last attempt (0 = unshifted)
+    T* gram_trace = nullptr)       // out: trace(G), the scale the shift multiplies
 {
     using std::chrono::steady_clock;
     using std::chrono::duration_cast;
@@ -214,6 +257,34 @@ int cholqr_primitive(
     int64_t n = A.n_cols;
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
     const bool preconditioned = (P != nullptr);
+
+    // Basic input validation, shared by every driver that reaches this
+    // primitive: cholqr_iterate (CholQR/CholQR2/sCholQR3, via either overload
+    // below) and CQRRT_linops (which calls this overload directly, bypassing
+    // cholqr_iterate). Caller bugs, so throw rather than return a sentinel.
+    randlapack_require(m >= n) << "cholqr_primitive: operator must be tall (m=" << m << " < n=" << n << ")";
+    randlapack_require(ldr >= n) << "cholqr_primitive: ldr=" << ldr << " < n=" << n;
+    randlapack_require(R != nullptr) << "cholqr_primitive: R buffer is null";
+
+    // Reset every out-param up front: the early-return failure paths below must
+    // not leave a previous call's values behind (a stale n_retries was being
+    // re-summed by cholqr_iterate's per-pass accumulation).
+    if (n_retries)     *n_retries     = 0;
+    if (applied_shift) *applied_shift = T(0);
+    if (gram_trace)    *gram_trace    = T(0);
+    if (shift_factor < T(0)) {
+        std::fprintf(stderr,
+            "[cholqr_primitive] FAIL: negative shift_factor (%g) is invalid\n",
+            (double)shift_factor);
+        return -2;
+    }
+    if (shift_growth <= T(1)) {
+        std::fprintf(stderr,
+            "[cholqr_primitive] FAIL: shift_growth (%g) must be > 1 (<= 1 defeats "
+            "the geometric-growth retry termination argument)\n",
+            (double)shift_growth);
+        return -2;
+    }
 
     steady_clock::time_point t0, t1;
     if (timing) t0 = steady_clock::now();
@@ -330,10 +401,12 @@ int cholqr_primitive(
     // unpreconditioned path forms plain A^T A.
     //
     // RANDLAPACK_GRAM_LEFT=gemm forces the per-block GEMM with R_pre^T even for
-    // TRSM_IDENTITY/TRTRI (2026-08-12 experiment: the paper's stability analysis
-    // models the explicit-multiply path, the default runs the TRSM path; this knob
-    // lets a campaign measure both). Only the gemm direction can be forced: making
+    // TRSM_IDENTITY/TRTRI: the paper's stability analysis models the
+    // explicit-multiply path, the default runs the TRSM path; this knob
+    // lets a campaign measure both. Only the gemm direction can be forced: making
     // GEQP3/BQRRP use the TRSM would reintroduce the error their construction avoids.
+    // Static-cached: read once per process, so an in-process gtest toggling the
+    // env var mid-run cannot observe the change; validate via benchmarks, not gtests.
     static const bool force_gemm_left = []() {
         const char* s = std::getenv("RANDLAPACK_GRAM_LEFT");
         return s != nullptr && std::string(s) == "gemm";
@@ -352,28 +425,55 @@ int cholqr_primitive(
         if (timing) { t1 = steady_clock::now(); gemm_us += duration_cast<microseconds>(t1 - t0).count(); }
     }
 
+    // Symmetrize G <- (G + G^T)/2 before factorizing, as the paper's
+    // implementation section states and its roundoff assumption presumes. The
+    // two triangles come from independent floating-point summations, so they
+    // agree only up to formation rounding; the average is written into BOTH
+    // triangles so the retry-restore below reproduces the symmetrized matrix
+    // exactly. O(n^2), negligible next to potrf's n^3/3.
+    if (timing) t0 = steady_clock::now();
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < j; ++i) {
+            T avg = (G[i + j * n] + G[j + i * n]) / T(2);
+            G[i + j * n] = avg;
+            G[j + i * n] = avg;
+        }
+    }
+    if (timing) { t1 = steady_clock::now(); gemm_us += duration_cast<microseconds>(t1 - t0).count(); }
+
     // ---- Step 3: Cholesky G = (R^chol)^T R^chol, with adaptive-shift retry ----
     //
     // The retry block exists because the (preconditioned) Gram can pick up a
-    // non-PD pivot from rounding -- amplified by kappa(R_pre)^2 in the iter-2/3
-    // Gram of CholQR2/sCholQR3. We snapshot G and trace(G) once, then on each
-    // potrf failure restore G, grow the diagonal shift, and retry. trace(G) is
-    // the natural scale for the shift; G_backup lets retries stay O(n^2). Seeding
+    // non-PD pivot from rounding, amplified by kappa(R_pre)^2 in the iter-2/3
+    // Gram of CholQR2/sCholQR3. On each potrf failure the Gram is restored, the
+    // diagonal shift grown, and potrf retried, so retries stay O(n^2). Seeding
     // from eps on the first bump lets an unshifted (shift_factor==0) caller keep a
     // clean first attempt while still being rescued if the Gram is non-PD.
-    T* G_backup = (max_retries != 0) ? new T[n * n] : nullptr;
+    //
+    // Restore mechanics: potrf(Upper) reads and overwrites only the upper triangle
+    // plus diagonal, and after the symmetrization above the strict lower triangle
+    // holds exactly the symmetrized values, survives a failed attempt untouched,
+    // and serves as the restore source for the upper. Only the diagonal
+    // needs an O(n) snapshot. Nothing downstream reads G's strict lower (potrf,
+    // the output lacpy, and the trmm are all Upper), so it stays unzeroed.
+    T* diag_backup = (max_retries != 0) ? new T[n] : nullptr;
     T trace_G = 0;
-    for (int64_t i = 0; i < n; ++i) trace_G += G[i * (n + 1)];
-    if (G_backup) std::copy(G, G + n * n, G_backup);
+    for (int64_t i = 0; i < n; ++i) {
+        T d = G[i * (n + 1)];
+        trace_G += d;
+        if (diag_backup) diag_backup[i] = d;
+    }
+    if (gram_trace) *gram_trace = trace_G;
 
     if (timing) t0 = steady_clock::now();
 
     int info = 0;
     int attempt = 0;
     T current_shift_factor = shift_factor;
+    T last_shift = T(0);   // absolute shift present in G on the most recent attempt
     // max_retries < 0 means "unbounded", which with a geometrically growing shift is
     // *usually* fine: the shift eventually makes G diagonally dominant and potrf
-    // succeeds. But the argument fails on non-finite data -- an inf/NaN in G, or a shift
+    // succeeds. But the argument fails on non-finite data (an inf/NaN in G, or a shift
     // that overflows to inf, gives a Gram potrf can never factor, and the loop then never
     // terminates. kUnboundedRetryCeiling is a backstop for exactly that case: it is far
     // above any legitimate retry count (each attempt multiplies the shift by
@@ -382,8 +482,12 @@ int cholqr_primitive(
     constexpr int kUnboundedRetryCeiling = 128;
     for (; (max_retries < 0) ? (attempt < kUnboundedRetryCeiling) : (attempt <= max_retries); ++attempt) {
         if (attempt > 0) {
-            // Restore the Gram and grow the shift (seed at eps if we started at 0).
-            std::copy(G_backup, G_backup + n * n, G);
+            // Restore the upper triangle from the untouched strict lower plus the
+            // saved diagonal, and grow the shift (seed at eps if we started at 0).
+            for (int64_t j = 0; j < n; ++j) {
+                for (int64_t i = 0; i < j; ++i) G[i + j * n] = G[j + i * n];
+                G[j * (n + 1)] = diag_backup[j];
+            }
             current_shift_factor = (current_shift_factor > T(0))
                                  ? current_shift_factor * shift_growth
                                  : std::numeric_limits<T>::epsilon();
@@ -396,26 +500,59 @@ int cholqr_primitive(
         }
         if (current_shift_factor > T(0)) {
             T shift = current_shift_factor * trace_G;
+            // The factor and the trace can both be finite while their product
+            // overflows; an infinite shift can never rescue potrf, so bail.
+            if (!std::isfinite(shift)) {
+                info = -1;
+                break;
+            }
             for (int64_t i = 0; i < n; ++i) G[i * (n + 1)] += shift;
+            last_shift = shift;
         }
-        if (n > 1)
-            lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
         info = lapack::potrf(Uplo::Upper, n, G, n);
         if (info == 0) break;
     }
-    if (n_retries) *n_retries = attempt;   // 0 = succeeded on the unshifted first attempt
+    // Retries actually performed: `attempt` on success (attempt 0 = clean first
+    // try). When the loop ends without success (exhaustion or a non-finite-shift
+    // bail), the attempt indexed by `attempt` never ran, so the count is one less.
+    if (n_retries)     *n_retries     = (info == 0) ? attempt : (attempt > 0 ? attempt - 1 : 0);
+    if (applied_shift) *applied_shift = last_shift;
+
+    // A nominally unshifted call (shift_factor == 0) that only succeeded via the
+    // adaptive retry is no longer the fixed unshifted algorithm the caller named:
+    // R factors G + sI, which acts as an extra regularizing preconditioner. Say
+    // so loudly, since result rows keep the plain algorithm name and only the
+    // chol_retries / chol_shift columns reveal the rescue.
+    if (info == 0 && attempt > 0 && shift_factor == T(0)) {
+        std::fprintf(stderr,
+            "[cholqr_primitive] NOTE: nominally unshifted Cholesky rescued by the "
+            "adaptive shift after %d retry(ies) (shift=%.3e, shift/trace(G)=%.3e); "
+            "this run measures the adaptive-shift variant of the calling algorithm\n",
+            attempt, (double)last_shift,
+            (double)(trace_G > T(0) ? last_shift / trace_G : T(0)));
+    }
 
     if (info) {
-        // Report the retries actually made (`attempt`), not the configured limit --
+        // Report the retries actually made, not the configured limit:
         // with max_retries = -1 the old message printed "-1 retries".
-        std::fprintf(stderr,
-            "[cholqr_primitive] FAIL: lapack::potrf returned info=%d after %d "
-            "attempt(s) (final shift_factor=%g)\n",
-            info, attempt, (double)current_shift_factor);
-        delete[] G_backup;
+        // info == -1 is our own non-finite-shift/trace bail (Step 3 above);
+        // potrf was never called on that attempt, so it did not return -1.
+        // Any other nonzero info is potrf's own Cholesky-breakdown code.
+        if (info == -1) {
+            std::fprintf(stderr,
+                "[cholqr_primitive] FAIL: non-finite shift or Gram trace after %d "
+                "attempt(s) (final shift_factor=%g); potrf was not called\n",
+                attempt, (double)current_shift_factor);
+        } else {
+            std::fprintf(stderr,
+                "[cholqr_primitive] FAIL: lapack::potrf returned info=%d after %d "
+                "attempt(s) (final shift_factor=%g)\n",
+                info, attempt, (double)current_shift_factor);
+        }
+        delete[] diag_backup;
         return info;
     }
-    delete[] G_backup;
+    delete[] diag_backup;
 
     if (timing) { t1 = steady_clock::now(); chol_us = duration_cast<microseconds>(t1 - t0).count(); }
 
@@ -452,11 +589,20 @@ int cholqr_primitive(
     bool timing,
     int max_retries = 0,
     T shift_growth = T(10),
-    int* n_retries = nullptr)
+    int* n_retries = nullptr,
+    T* applied_shift = nullptr,
+    T* gram_trace = nullptr)
 {
     int64_t m = A.n_rows;
     int64_t n = A.n_cols;
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+
+    // Validated again here (duplicating the checks in the general overload
+    // below) so a bad m/ldr/R throws before G/A_temp are allocated, rather
+    // than leaking them when the general overload's own check throws.
+    randlapack_require(m >= n) << "cholqr_primitive: operator must be tall (m=" << m << " < n=" << n << ")";
+    randlapack_require(ldr >= n) << "cholqr_primitive: ldr=" << ldr << " < n=" << n;
+    randlapack_require(R != nullptr) << "cholqr_primitive: R buffer is null";
 
     T* G      = new T[n * n]();
     T* A_temp = new T[m * b_eff];
@@ -469,7 +615,8 @@ int cholqr_primitive(
         G, A_temp, /*Z_buf=*/(T*)nullptr,
         /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
         precond_inv_us, fwd_us, adj_us, gemm_us, chol_us, update_us,
-        timing, shift_factor, max_retries, shift_growth, n_retries);
+        timing, shift_factor, max_retries, shift_growth, n_retries,
+        applied_shift, gram_trace);
 
     delete[] G;
     delete[] A_temp;
@@ -478,7 +625,7 @@ int cholqr_primitive(
 
 
 // ============================================================================
-// cholqr_iterate — the shared CholQR-family engine
+// cholqr_iterate: the shared CholQR-family engine
 // ============================================================================
 //
 // Runs `num_iters` CholQR passes and returns the accumulated R (= R_k ... R_1):
@@ -498,19 +645,33 @@ int cholqr_primitive(
 // iter_times (optional, length 5*num_iters): per pass [fwd, adj, gemm, chol, upd];
 // gemm and upd are 0 for the unpreconditioned first pass.
 //
-// Returns 0 on success, or the 1-based index of the pass whose Cholesky failed.
+// applied_shifts / gram_traces (optional, length num_iters): per pass, the absolute
+// diagonal shift the successful potrf attempt carried (0 = unshifted) and the trace
+// of that pass's Gram. A nonzero pass-1 shift means the accumulated R factors
+// G + s I rather than G (see the contract caveat on cholqr_primitive); entries for
+// passes not reached stay 0.
+//
+// Returns 0 on success, or the 1-based index of the pass whose factorization
+// failed. That failure can have any of cholqr_primitive's causes: retry
+// exhaustion, a singular preconditioner, a non-finite shift, or invalid input;
+// the specific cause is printed to stderr by cholqr_primitive, not encoded in
+// this return value.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 int cholqr_iterate(
     GLO& A, T* R, int64_t ldr, int64_t block_size,
     int num_iters, T shift_iter1, T shift_iter_rest,
     int max_retries, T shift_growth, bool timing,
     long* iter_times = nullptr,
-    int* n_retries_total = nullptr)   // out: total shift retries summed across all passes
+    int* n_retries_total = nullptr,   // out: total shift retries summed across all passes
+    T* applied_shifts = nullptr,      // out, length num_iters: absolute shift per pass
+    T* gram_traces = nullptr)         // out, length num_iters: trace of each pass's Gram
 {
     int64_t m = A.n_rows;
     int64_t n = A.n_cols;
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
     int total_retries = 0, pass_retries = 0;
+    if (applied_shifts) std::fill(applied_shifts, applied_shifts + num_iters, T(0));
+    if (gram_traces)    std::fill(gram_traces,    gram_traces + num_iters,    T(0));
     auto rec = [&](int it, long fwd, long adj, long gemm, long chol, long upd) {
         if (iter_times) {
             long* t = iter_times + 5 * (it - 1);
@@ -520,7 +681,9 @@ int cholqr_iterate(
 
     // ---- Iter 1: unpreconditioned CholQR ----
     long fwd1 = 0, adj1 = 0, chol1 = 0;
-    int info = cholqr_primitive<T, GLO>(A, R, ldr, shift_iter1, block_size, fwd1, adj1, chol1, timing, max_retries, shift_growth, &pass_retries);
+    int info = cholqr_primitive<T, GLO>(A, R, ldr, shift_iter1, block_size, fwd1, adj1, chol1, timing, max_retries, shift_growth, &pass_retries,
+        applied_shifts ? &applied_shifts[0] : nullptr,
+        gram_traces    ? &gram_traces[0]    : nullptr);
     total_retries += pass_retries;
     if (info != 0) { if (n_retries_total) *n_retries_total = total_retries; return 1; }
     rec(1, fwd1, adj1, 0, chol1, 0);
@@ -541,7 +704,9 @@ int cholqr_iterate(
             block_size, /*bqrrp_block_ratio=*/T(1), R_pre, G, A_temp, Z_buf,
             /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
             precond_inv, fwd, adj, gemm, chol, upd, timing,
-            shift_iter_rest, max_retries, shift_growth, &pass_retries);
+            shift_iter_rest, max_retries, shift_growth, &pass_retries,
+            applied_shifts ? &applied_shifts[it - 1] : nullptr,
+            gram_traces    ? &gram_traces[it - 1]    : nullptr);
         total_retries += pass_retries;
         if (info != 0) {
             delete[] G; delete[] R_pre; delete[] P_prev; delete[] A_temp; delete[] Z_buf;

@@ -1,4 +1,4 @@
-// Unit tests for RandLAPACK::IterRefineLSQ — iterative-refinement LSQ
+// Unit tests for RandLAPACK::IterRefineLSQ: iterative-refinement LSQ
 // using R as a right preconditioner.
 //
 // Strategy: wrap a small dense tall A as a DenseLinOp, build R from
@@ -65,7 +65,7 @@ TEST_F(TestIterRefineLSQ, dense_well_conditioned) {
     lapack::gels(blas::Op::NoTrans, m, n, 1, A_ref.data(), m, b_ref.data(), m);
     std::vector<T> x_ref(b_ref.begin(), b_ref.begin() + n);
 
-    // Build R from QR(A) — perfect preconditioner.
+    // Build R from QR(A): perfect preconditioner.
     std::vector<T> R(n * n, 0);
     build_R_from_A(A.data(), m, n, R.data(), n);
 
@@ -156,7 +156,7 @@ TEST_F(TestIterRefineLSQ, imperfect_preconditioner) {
     build_R_from_A(A_pert.data(), m, n, R.data(), n);
 
     DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
-    // Under the paced-restart scheme (round_drop = 1e-4, 2026-08-07) an
+    // Under the paced-restart scheme (round_drop = 1e-4) an
     // imperfect preconditioner needs more than two shallow rounds to reach
     // gels-level accuracy: give the loop room and let outer_tol stop it.
     IterRefineLSQ<T> ir(1e-12, 100, /*n_steps=*/20);
@@ -182,10 +182,9 @@ TEST_F(TestIterRefineLSQ, imperfect_preconditioner) {
 
 // A capped, non-converged inner solve must be DISTINGUISHABLE from a converged one.
 //
-// Before the 2026-07-27 instrumentation both looked identical to the caller: inner_cg
+// Without this instrumentation both looked identical to the caller: inner_cg
 // returned 0 whether it converged or exhausted its budget, so a benchmark CSV could not
-// tell "converged in 6 iterations" from "gave up at the cap". That ambiguity is exactly
-// what made the App-1 iteration-count complaint hard to diagnose.
+// tell "converged in 6 iterations" from "gave up at the cap".
 //
 // Here the cap is set absurdly low (2) against a tolerance that cannot be met that fast,
 // forcing the HitCap path, and then the same problem is solved with a generous budget to
@@ -246,14 +245,14 @@ TEST_F(TestIterRefineLSQ, capped_solve_is_reported) {
     }
 }
 
-// Stagnation exit (added 2026-07-29). The ISAAC diagnostic showed an inner CG reaching its
+// Stagnation exit. The ISAAC diagnostic showed an inner CG reaching its
 // residual floor at iteration 17 of a 200-iteration step and then grinding out the
 // remaining ~183 with a BIT-IDENTICAL best residual, while the outer solution got 11x worse
 // when the budget was raised 10x. The driver now detects the flatline, stops, and returns
 // the best iterate rather than the last.
 //
-// HOW THIS IS PROVOKED, and one thing that does NOT work. The obvious trick -- ask for an
-// unreachable tolerance via inner_tol = 0 -- fails: on a small well-conditioned system CG
+// HOW THIS IS PROVOKED, and one thing that does NOT work. The obvious trick, asking for an
+// unreachable tolerance via inner_tol = 0, fails: on a small well-conditioned system CG
 // drives the recursive residual to EXACTLY 0.0 (here by iteration 11), and `r_norm <= 0` is
 // then true, so the solve reports Converged. inner_tol = 0 is reachable, not unreachable.
 //
@@ -272,7 +271,7 @@ TEST_F(TestIterRefineLSQ, stagnating_solve_exits_early_with_best_iterate) {
                m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
 
     // IMPERFECT preconditioner on purpose. build_R_from_A on the unperturbed A gives the
-    // exact Cholesky factor, so M = R^-T A^T A R^-1 = I and CG converges in ONE iteration --
+    // exact Cholesky factor, so M = R^-T A^T A R^-1 = I and CG converges in ONE iteration,
     // which leaves nothing for the contrast case below to measure.
     std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
     fill_random(pert, 31337, (T)0.30);
@@ -323,8 +322,7 @@ TEST_F(TestIterRefineLSQ, stagnating_solve_exits_early_with_best_iterate) {
     }
 }
 
-// Paced restarts (Oleg's proposition, 2026-08-07, replacing the 2026-08-05 single
-// verification restart). Each round's inner CG stops after a round_drop (1e-4)
+// Paced restarts. Each round's inner CG stops after a round_drop (1e-4)
 // residual drop and the outer loop restarts against the TRUE residual; outer_tol
 // terminates the loop. Pinned here:
 //   1. A weak preconditioner needs several rounds but converges to the target well
@@ -362,9 +360,9 @@ TEST_F(TestIterRefineLSQ, paced_rounds_converge_with_early_exit) {
     for (int64_t i = 0; i < n; ++i) EXPECT_NEAR(x[i], x_true[i], 1e-8);
 }
 
-// Unification (2026-08-07): IterRefineLSQ is an adapter over restarted_pcg_ne, so
-// the same problem with equivalently-mapped parameters must produce the IDENTICAL
-// iterate sequence -- not merely a close one. This is the contract that the FEM2
+// IterRefineLSQ is an adapter over restarted_pcg_ne, so the same problem with
+// equivalently-mapped parameters must produce the IDENTICAL iterate sequence,
+// not merely a close one. This is the contract that the FEM2
 // and Toeplitz benchmarks now run one solver, not two implementations of it.
 TEST_F(TestIterRefineLSQ, delegation_matches_restarted_pcg_ne_exactly) {
     using T = double;
@@ -436,7 +434,7 @@ TEST_F(TestIterRefineLSQ, stagnation_exit_does_not_disturb_a_converging_solve) {
 }
 
 
-// Outer early exit (2026-08-06, structure unification with restarted_pcg_ne): when
+// Outer early exit (structure unification with restarted_pcg_ne): when
 // outer_tol > 0, the refinement loop must stop as soon as the TRUE residual
 // ||b - Jx||/||b|| meets it, instead of always running all n_refine_steps. With a
 // perfect preconditioner one step reaches far below 1e-8, so a generous 8-step

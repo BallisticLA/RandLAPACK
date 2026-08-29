@@ -1,8 +1,8 @@
 // Unit tests for RandLAPACK::lsqr and RandLAPACK::Blendenpik_linops.
 //
-// Both shipped untested (added in commit 578c18d); this file is their first coverage.
-// It was written alongside the 2026-07-27 investigation into Blendenpik "stopping too
-// early", so the cases deliberately pin the behaviours that investigation depends on:
+// Both shipped untested; this file is their first coverage, written alongside
+// an investigation into Blendenpik "stopping too early", so the cases
+// deliberately pin the behaviours that investigation depends on:
 //   * LSQR agrees with the LAPACK least-squares reference, preconditioned or not.
 //   * LSQR reports 1 (not 0) when it exhausts its iteration cap.
 //   * Blendenpik solves the LS problem and reports a real residual, not a sentinel.
@@ -137,6 +137,7 @@ TEST_F(TestLSQRBlendenpik, blendenpik_solves_and_reports_residual) {
     DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
     RandBLAS::RNGState<RNG> state(5);
     RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, (T)1e-13);
+    bp.max_iters = 2000;   // mandatory: bp.max_iters has no default
     std::vector<T> x(n, 0);
     int status = bp.call(Aop, b.data(), m, x.data(), n, /*d_factor=*/4.0, state);
 
@@ -144,8 +145,144 @@ TEST_F(TestLSQRBlendenpik, blendenpik_solves_and_reports_residual) {
     EXPECT_LT(rel_err(x, x_ref), 1e-7);
     EXPECT_TRUE(bp.converged);
     EXPECT_GE(bp.final_relres, (T)0);            // populated, not the -1 sentinel
-    EXPECT_EQ(bp.R_out.size(), (size_t)(n * n));
-    ASSERT_EQ(bp.times.size(), (size_t)4);
+    ASSERT_NE(bp.R_out, nullptr);
+    EXPECT_EQ(bp.R_out_sz, n * n);
+    // 5 slots: {t_sketch, t_qr, t_lsqr, total, t_x0}.
+    ASSERT_EQ(bp.times.size(), (size_t)5);
+}
+
+
+// A rank-deficient sketch (Ask = S A has a zero column, so unpivoted geqrf leaves a
+// zero diagonal in R) must be reported as a hard failure (1), with every output member
+// left in the just-reset state call() establishes at its top, not the values of some
+// earlier call on a reused object.
+TEST_F(TestLSQRBlendenpik, blendenpik_rank_deficient_sketch_returns_1) {
+    using T = double;
+    int64_t m = 200, n = 20;
+    std::vector<T> A, b, x_true;
+    make_problem(m, n, 101, A, b, x_true);
+    // Zero out the first column of A: S * 0 = 0 regardless of the sketch S, so Ask
+    // inherits an exact zero column and geqrf's first pivot is exactly zero,
+    // so rank deficiency is guaranteed independent of the RNG state.
+    for (int64_t i = 0; i < m; ++i) A[i] = (T)0;
+
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    RandBLAS::RNGState<RNG> state(103);
+    RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, (T)1e-10);
+    bp.max_iters = 500;
+    std::vector<T> x(n, (T)0);
+    int status = bp.call(Aop, b.data(), m, x.data(), n, /*d_factor=*/4.0, state);
+
+    EXPECT_EQ(status, 1);
+    EXPECT_EQ(bp.R_out, nullptr);
+    EXPECT_EQ(bp.R_out_sz, 0);
+    EXPECT_FALSE(bp.converged);
+    EXPECT_EQ(bp.final_relres, (T)-1);
+    EXPECT_EQ(bp.lsqr_iters, 0);
+    EXPECT_EQ(bp.lsqr_stop_test, 0);
+    EXPECT_TRUE(bp.times.empty());
+    EXPECT_TRUE(bp.lsqr_op_times.empty());
+}
+
+
+// init_only stops after the sketch-and-solve x0 and skips LSQR entirely: times[2]
+// (the LSQR slot) must read 0, lsqr_iters must be 0, and final_relres must be x0's
+// own true residual, not a placeholder.
+TEST_F(TestLSQRBlendenpik, blendenpik_init_only_reports_x0_and_skips_lsqr) {
+    using T = double;
+    int64_t m = 300, n = 20;
+    std::vector<T> A, b, x_true;
+    make_problem(m, n, 107, A, b, x_true);
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    RandBLAS::RNGState<RNG> state(109);
+    RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, (T)1e-10);
+    bp.max_iters = 500;   // unused in init_only, set for safety per the class's own note
+    bp.init_only = true;
+    std::vector<T> x(n, (T)0);
+    int status = bp.call(Aop, b.data(), m, x.data(), n, /*d_factor=*/4.0, state);
+
+    ASSERT_EQ(status, 0);
+    EXPECT_EQ(bp.lsqr_iters, 0);
+    EXPECT_FALSE(bp.converged);          // no tolerance was pursued
+    ASSERT_NE(bp.R_out, nullptr);
+    EXPECT_EQ(bp.R_out_sz, n * n);
+    ASSERT_EQ(bp.times.size(), (size_t)5);
+    EXPECT_EQ(bp.times[2], 0L);          // no LSQR slot in init_only mode
+
+    // final_relres must be x's (== x0's) own true relative residual
+    // ||b - A x||/||b||, independently recomputed here.
+    std::vector<T> Ax(m, 0);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x.data(), n, (T)0.0, Ax.data(), m);
+    T num = 0;
+    for (int64_t i = 0; i < m; ++i) { T d = b[i] - Ax[i]; num += d * d; }
+    T recomputed_relres = std::sqrt(num) / blas::nrm2(m, b.data(), 1);
+    EXPECT_NEAR(bp.final_relres, recomputed_relres, 1e-10 * recomputed_relres + 1e-14);
+}
+
+
+// Warm-path skip: when the sketch-and-solve x0 already meets the caller's tol
+// on the TRUE residual, LSQR must not run at all. A consistent, well-conditioned
+// system makes this the common case, not a corner case: Sb = Ask x_true exactly,
+// so the sketched problem's unique least-squares solution IS x_true (up to
+// rounding) whenever Ask has full column rank, regardless of sketch quality:
+// ||b - A x0|| sits at the rounding floor, far below any ordinary tol.
+TEST_F(TestLSQRBlendenpik, blendenpik_warm_start_skips_lsqr_when_x0_meets_tol) {
+    using T = double;
+    int64_t m = 400, n = 20;
+    std::vector<T> A, b, x_true;
+    make_problem(m, n, 113, A, b, x_true);
+    auto x_ref = gels_reference(A, b, m, n);
+
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    RandBLAS::RNGState<RNG> state(127);
+    RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, (T)1e-6);
+    bp.max_iters = 2000;
+    std::vector<T> x(n, (T)0);
+    int status = bp.call(Aop, b.data(), m, x.data(), n, /*d_factor=*/4.0, state);
+
+    ASSERT_EQ(status, 0);
+    EXPECT_EQ(bp.lsqr_iters, 0);
+    EXPECT_TRUE(bp.converged);
+    EXPECT_EQ(bp.lsqr_stop_test, 1);     // S1 (residual) already satisfied by x0
+    EXPECT_GE(bp.final_relres, (T)0);
+    EXPECT_LT(bp.final_relres, (T)1e-6);
+    EXPECT_LT(rel_err(x, x_ref), 1e-7);
+    ASSERT_EQ(bp.lsqr_op_times.size(), (size_t)4);
+    for (long t : bp.lsqr_op_times) EXPECT_EQ(t, 0L);
+}
+
+
+// Repeated call() on ONE Blendenpik object across different problems: every call
+// must succeed on its own terms (pins the top-of-call() output reset alongside
+// R_out's own delete[]/reassign, the no-leak contract for R_out that mirrors
+// repeated_call_does_not_leak_Q for CholQR_linops's Q).
+TEST_F(TestLSQRBlendenpik, blendenpik_repeated_call_is_self_consistent) {
+    using T = double;
+    int64_t m = 300, n = 16;
+    RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, (T)1e-12);
+    bp.max_iters = 2000;
+
+    const T* R_out_call0 = nullptr;
+    for (int rep = 0; rep < 3; ++rep) {
+        std::vector<T> A, b, x_true;
+        make_problem(m, n, 131 + rep, A, b, x_true);
+        auto x_ref = gels_reference(A, b, m, n);
+        DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+        RandBLAS::RNGState<RNG> state(137 + rep);
+        std::vector<T> x(n, (T)0);
+
+        ASSERT_EQ(bp.call(Aop, b.data(), m, x.data(), n, 4.0, state), 0) << "rep " << rep;
+        EXPECT_TRUE(bp.converged) << "rep " << rep;
+        ASSERT_NE(bp.R_out, nullptr) << "rep " << rep;
+        EXPECT_EQ(bp.R_out_sz, n * n) << "rep " << rep;
+        EXPECT_LT(rel_err(x, x_ref), 1e-7) << "rep " << rep;
+        if (rep == 0) R_out_call0 = bp.R_out;
+    }
+    // Not a strong free-proof (the allocator may legitimately reuse the same
+    // address), but call()'s `delete[] R_out;` at the top of every call is the
+    // actual no-double-free/no-leak contract this loop exercises under repeated use.
+    (void)R_out_call0;
 }
 
 
@@ -167,6 +304,7 @@ TEST_F(TestLSQRBlendenpik, blendenpik_warm_start_matches_cold_start) {
     {
         RandBLAS::RNGState<RNG> state(31);
         RandLAPACK::Blendenpik_linops<T, RNG> bp(true, (T)1e-13);
+        bp.max_iters = 2000;
         bp.warm_start = false;
         ASSERT_EQ(bp.call(Aop, b.data(), m, x_cold.data(), n, 4.0, state), 0);
         iters_cold = bp.lsqr_iters;
@@ -174,6 +312,7 @@ TEST_F(TestLSQRBlendenpik, blendenpik_warm_start_matches_cold_start) {
     {
         RandBLAS::RNGState<RNG> state(31);   // same seed => same sketch => same R
         RandLAPACK::Blendenpik_linops<T, RNG> bp(true, (T)1e-13);
+        bp.max_iters = 2000;
         bp.warm_start = true;
         ASSERT_EQ(bp.call(Aop, b.data(), m, x_warm.data(), n, 4.0, state), 0);
         iters_warm = bp.lsqr_iters;
@@ -191,10 +330,10 @@ TEST_F(TestLSQRBlendenpik, blendenpik_warm_start_matches_cold_start) {
 
 
 // Calling a Q-less QR driver twice on the same object must not leak its test-mode Q
-// buffer. Before 2026-07-27 `this->Q = new T[m*n]` overwrote the previous pointer with
-// no delete, so every extra call() leaked an m x n block. Under ASan/valgrind this test
-// fails outright on the old code; without a sanitizer it still pins the contract that Q
-// is re-materialized and remains correct across repeated calls.
+// buffer: `this->Q = new T[m*n]` must delete the previous pointer first, or every
+// extra call() leaks an m x n block. Under ASan/valgrind this test would fail
+// outright on code missing that delete; without a sanitizer it still pins the
+// contract that Q is re-materialized and remains correct across repeated calls.
 TEST_F(TestLSQRBlendenpik, repeated_call_does_not_leak_Q) {
     using T = double;
     int64_t m = 300, n = 16;
@@ -224,9 +363,8 @@ TEST_F(TestLSQRBlendenpik, repeated_call_does_not_leak_Q) {
 
 // ---------------------------------------------------------------------------
 // restarted_pcg_ne: restarted PCG on the right-preconditioned normal equations,
-// the second solver of Oleg's reference benchmark (solve_with_lsqr's sibling in
-// ar_sysid_toeplitz_qless_qr_benchmark.m). Ported 2026-08-06; the 07-14 Toeplitz
-// port shipped LSQR only.
+// the second solver of the reference benchmark (solve_with_lsqr's sibling in
+// ar_sysid_toeplitz_qless_qr_benchmark.m).
 // ---------------------------------------------------------------------------
 
 
@@ -360,14 +498,14 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_honors_max_restarts) {
                                                  /*restart_maxit=*/200, /*restart_drop=*/1e-1,
                                                  /*max_restarts=*/0,
                                                  &restarts_one, nullptr, &relres_one);
-    EXPECT_EQ(st_one, 1);             // budget (rounds) exhausted, not converged
+    EXPECT_EQ(st_one, 3);             // rounds budget exhausted (status 3), not converged
     EXPECT_EQ(restarts_one, 1);       // exactly one round ran
     EXPECT_LT(iters_one, iters_free); // strictly less work than the free run
     EXPECT_GT(relres_one, 1e-12);     // and the tolerance was honestly not met
 }
 
 
-// Structure unification (2026-08-06, Max): restarted_pcg_ne's inner CG must carry the
+// Structure unification: restarted_pcg_ne's inner CG must carry the
 // same stagnation-exit + best-iterate machinery as IterRefineLSQ's. On a problem whose
 // NE floor sits far above tol, the OLD plain inner CG ground out every round's full
 // cap (4 rounds x 200 = exactly 800 iterations); with the stagnation window each round
@@ -380,7 +518,7 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_stagnation_exits_early) {
     // with geometric column scaling down to 1e-8, so kappa(H) ~ 1e16 on the normal
     // equations. Unlike a diagonal matrix (where CG terminates EXACTLY by Krylov
     // exhaustion), a dense spectrum makes the recursive residual flatline at its
-    // finite-precision floor -- the stagnation regime this test pins.
+    // finite-precision floor, the stagnation regime this test pins.
     std::vector<T> A, b, x_true;
     make_problem(m, n, 61, A, b, x_true);
     for (int64_t j = 0; j < n; ++j) {
@@ -401,10 +539,10 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_stagnation_exits_early) {
                                              /*restart_maxit=*/200, /*restart_drop=*/1e-30,
                                              /*max_restarts=*/3,
                                              &restarts, nullptr, &relres);
-    EXPECT_EQ(st, 1);                 // tolerance genuinely unreachable
-    // Outer stagnation exit (2026-08-07): two consecutive rounds without
-    // meaningful true-residual improvement end the loop BEFORE the round
-    // budget -- the LS floor is O(1) here, so rounds 2+ cannot help.
+    EXPECT_EQ(st, 4);                 // tolerance genuinely unreachable: LS-floor exit
+    // Outer stagnation exit: two consecutive rounds without meaningful
+    // true-residual improvement end the loop BEFORE the round budget; the
+    // LS floor is O(1) here, so rounds 2+ cannot help.
     EXPECT_LT(restarts, 4);
     EXPECT_GT(restarts, 1);           // but the flatline needed two rounds to detect
     EXPECT_LT(iters, 800);            // stagnation exits: strictly under the full budget
@@ -413,7 +551,7 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_stagnation_exits_early) {
 }
 
 
-// Warm start (2026-08-10). restarted_pcg_ne can refine an EXISTING iterate rather
+// Warm start. restarted_pcg_ne can refine an EXISTING iterate rather
 // than starting from x = 0, so a solver's own answer (Blendenpik's, say) can be fed
 // to iterative refinement. Three properties pinned:
 //   1. An already-converged x0 is recognized immediately: no work, and it is not
@@ -465,7 +603,7 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_warm_start_refines_an_existing_itera
 }
 
 
-// Round-residual stability (2026-08-06): the reference MATLAB recomputes the
+// Round-residual stability: the reference MATLAB recomputes the
 // normal-equation residual as g - H z, a difference of two large kappa-contaminated
 // quantities whose cancellation error floors the achievable accuracy. Epperly et al.
 // Alg. 1 line 5 computes the same quantity stably from the SMALL true LS residual,
@@ -506,10 +644,10 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_reaches_tight_tol_on_ill_conditioned
 }
 
 
-// Round-residual regression floor, the PROLATE regime (2026-08-06). NOTE on what
-// this test can and cannot see: the g - H z vs R^{-T}(A^T(b - A x)) residual-form
-// difference that floors the FFT-operator benchmark at 1.75e-6 (A/B'd there; see
-// rl_restarted_pcg_ne.hh) is NOT reproduced by this dense replica -- both forms
+// Round-residual regression floor, the PROLATE regime. NOTE on what this test
+// can and cannot see: the g - H z vs R^{-T}(A^T(b - A x)) residual-form
+// difference that floors the FFT-operator benchmark at 1.75e-6 (see
+// rl_restarted_pcg_ne.hh) is NOT reproduced by this dense replica: both forms
 // pass it, so the FFT apply's rounding is a necessary ingredient and the m=800
 // benchmark case is the discriminating harness. This test still pins a floor no
 // implementation may regress: augmented prolate (numerically rank-deficient, tiny
@@ -575,4 +713,145 @@ TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_stable_residual_converges_on_prolate
                                              &restarts, nullptr, &relres);
     EXPECT_EQ(st, 0);                 // reaches tol instead of stalling near 1e-6
     EXPECT_LE(relres, 1e-9);
+}
+
+
+// status 2 (breakdown): "R unusable". H = R^{-T} A^T A R^{-1} = (A R^{-1})^T (A R^{-1})
+// is a Gram matrix for ANY invertible R, so it is mathematically PSD regardless of
+// R's diagonal signs: a sign-flipped diagonal entry on an otherwise-valid Cholesky
+// factor cannot make it indefinite. What genuinely breaks the COMPUTED apply is an
+// astronomically ill-conditioned (but still nonzero) R: the two trsv calls straddling
+// A/A^T amplify by ~1/R[k,k] on the way in AND ~1/R[k,k] on the way out, so a single
+// tiny diagonal entry overflows the round trip to inf/NaN.
+TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_reports_breakdown_on_unusable_R) {
+    using T = double;
+    int64_t m = 200, n = 20;
+    std::vector<T> A, b, x_true;
+    make_problem(m, n, 151, A, b, x_true);
+
+    std::vector<T> Ac(A), tau(n), R(n * n, 0);
+    lapack::geqrf(m, n, Ac.data(), m, tau.data());
+    lapack::lacpy(lapack::MatrixType::Upper, n, n, Ac.data(), m, R.data(), n);
+    if (n > 1)
+        lapack::laset(lapack::MatrixType::Lower, n - 1, n - 1, (T)0, (T)0, R.data() + 1, n);
+    // Corrupt only the LAST diagonal entry: tiny but nonzero. trsv on z = 0 (the
+    // cold-start recovery of round 1) stays an exact 0/anything = 0, so x recovery
+    // is unaffected; trsv on the genuinely nonzero CG direction p overflows.
+    R[(n - 1) + (n - 1) * n] = (T)1e-300;
+
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    std::vector<T> x(n, (T)999);   // sentinel; must come back finite
+    int iters = 0;
+    T relres = -1;
+    int st = RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, R.data(), n, b.data(), x.data(),
+                                             /*tol=*/1e-10, /*max_iters=*/2000, iters,
+                                             /*restart_maxit=*/200, /*restart_drop=*/1e-4,
+                                             /*max_restarts=*/-1,
+                                             /*restarts_done=*/nullptr, /*times=*/nullptr,
+                                             &relres);
+
+    EXPECT_EQ(st, 2);   // breakdown: R unusable, not a hard crash
+    for (int64_t i = 0; i < n; ++i)
+        EXPECT_TRUE(std::isfinite((double)x[i])) << "component " << i;
+    // Breakdown fires on round 1's very first CG direction, before any progress:
+    // the returned iterate is still the initial cold-start x = 0 exactly, and the
+    // reported relres matches an independent recomputation of ||b - A x||/||b||.
+    for (int64_t i = 0; i < n; ++i) EXPECT_EQ(x[i], (T)0);
+    T bnorm = blas::nrm2(m, b.data(), 1);
+    EXPECT_NEAR(relres, (T)1, 1e-12);
+    (void)bnorm;
+}
+
+
+// inner_abs_tol guard: once a round's NE residual has already fallen to
+// inner_abs_tol * ||g||, that round's effective target loosens to the absolute
+// floor instead of grinding out the full restart_drop factor. Round 1's NE
+// residual starts at EXACTLY ||g|| (cold start), so floor_rel == inner_abs_tol
+// there: with inner_abs_tol < restart_drop, round 1 is provably unaffected.
+// Round 2 starts from round 1's SHRUNKEN residual, so the same inner_abs_tol
+// maps to a proportionally looser floor_rel there, large enough, with this
+// problem's conditioning, to bind. Both runs are capped at max_restarts=1 (two
+// rounds) so the comparison isolates the guard's per-round mechanism instead of
+// depending on how many rounds a full solve to tight tol would need.
+TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_inner_abs_tol_guard_shortens_later_rounds) {
+    using T = double;
+    int64_t m = 200, n = 20;
+    std::vector<T> A, b, x_true;
+    make_problem(m, n, 163, A, b, x_true);
+    // Mild ill-conditioning so round 1 alone cannot reach a tight restart_drop
+    // target in a handful of iterations (more than one round is genuinely
+    // needed), without pushing into the stagnation/LS-floor regime.
+    for (int64_t j = 0; j < n; ++j) {
+        T s = std::pow((T)10.0, (T)(-4.0 * (double)j / (n - 1)));
+        blas::scal(m, s, A.data() + j * m, 1);
+    }
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+
+    T tol = (T)1e-9, restart_drop = (T)1e-2;
+    RandLAPACK::PCGRoundHistory<T> hist_base, hist_guard;
+
+    std::vector<T> x_base(n, 0);
+    int iters_base = 0;
+    RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, nullptr, 0, b.data(), x_base.data(),
+                                    tol, 5000, iters_base,
+                                    /*restart_maxit=*/500, restart_drop,
+                                    /*max_restarts=*/1,
+                                    nullptr, nullptr, nullptr,
+                                    /*stag_window=*/20, /*stag_rel_improve=*/(T)1e-3,
+                                    /*inner_abs_tol=*/(T)0, &hist_base);
+    ASSERT_EQ(hist_base.iters.size(), (size_t)2);   // both budgeted rounds ran
+
+    std::vector<T> x_guard(n, 0);
+    int iters_guard = 0;
+    RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, nullptr, 0, b.data(), x_guard.data(),
+                                    tol, 5000, iters_guard,
+                                    /*restart_maxit=*/500, restart_drop,
+                                    /*max_restarts=*/1,
+                                    nullptr, nullptr, nullptr,
+                                    /*stag_window=*/20, /*stag_rel_improve=*/(T)1e-3,
+                                    /*inner_abs_tol=*/(T)1e-4, &hist_guard);
+    ASSERT_EQ(hist_guard.iters.size(), (size_t)2);
+
+    // Round 1 (index 0): unaffected, same inner iteration count either way.
+    EXPECT_EQ(hist_guard.iters[0], hist_base.iters[0]);
+    // Round 2 (index 1): the guard's inner CG hits ITS OWN loosened absolute
+    // floor and reports Converged there, using strictly fewer iterations than
+    // the unguarded round needed to reach the tighter restart_drop target.
+    EXPECT_EQ(hist_guard.status[1], static_cast<int>(RandLAPACK::InnerCGStatus::Converged));
+    EXPECT_LT(hist_guard.iters[1], hist_base.iters[1]);
+}
+
+
+// outer_stag_window <= 0 disables the outer LS-floor exit: on the SAME problem
+// that restarted_pcg_ne_stagnation_exits_early shows exiting early (status 4,
+// restarts < 4), disabling the guard must instead run every round up to
+// max_restarts and report the round-budget-exhausted status.
+TEST_F(TestLSQRBlendenpik, restarted_pcg_ne_outer_stag_window_disabled_runs_to_round_cap) {
+    using T = double;
+    int64_t m = 200, n = 20;
+    std::vector<T> A, b, x_true;
+    make_problem(m, n, 61, A, b, x_true);
+    for (int64_t j = 0; j < n; ++j) {
+        T s = std::pow((T)10.0, (T)(-8.0 * (double)j / (n - 1)));
+        blas::scal(m, s, A.data() + j * m, 1);
+    }
+    for (int64_t i = 0; i < m; ++i) b[i] += (T)0.1 / (T)(1 + i);
+    std::vector<T> x(n, 0.0);
+
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    int iters = 0, restarts = 0;
+    T relres = -1;
+    int st = RandLAPACK::restarted_pcg_ne<T>(Aop, m, n, nullptr, 0, b.data(), x.data(),
+                                             /*tol=*/1e-15, /*max_iters=*/2000, iters,
+                                             /*restart_maxit=*/200, /*restart_drop=*/1e-30,
+                                             /*max_restarts=*/3,
+                                             &restarts, nullptr, &relres,
+                                             /*stag_window=*/20, /*stag_rel_improve=*/(T)1e-3,
+                                             /*inner_abs_tol=*/(T)0, /*history=*/nullptr,
+                                             /*x0=*/nullptr, /*outer_stag_window=*/0);
+    EXPECT_EQ(st, 3);             // round budget exhausted, not the LS-floor exit
+    EXPECT_EQ(restarts, 4);       // all max_restarts+1 rounds ran
+    EXPECT_TRUE(std::isfinite((double)relres));
 }

@@ -65,14 +65,29 @@ TEST_F(TestVStackOp, scaled_identity_applies_mu) {
     ASSERT_LE(rel_err(Y2.data(), ref2.data(), n * k), 1e-14);
 }
 
+// ScaledIdentityOp rejects a call whose output-row dim m does not match n_rows,
+// even when the contracted dim k == m (so the earlier k == m check passes and
+// this specific require is what fires).
+TEST_F(TestVStackOp, scaled_identity_wrong_m_throws) {
+    int64_t n_rows = 5, m = 4;   // m != n_rows, k == m below
+    double mu = 1.1;
+    rl::ScaledIdentityOp<double> I_op(n_rows, mu);
+
+    vector<double> B(m * m, 0.0), C(m * m, 0.0);
+    ASSERT_THROW(
+        I_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+             m, m, /*k=*/m, 1.0, B.data(), m, 0.0, C.data(), m),
+        RandLAPACK::Error);
+}
+
 // [Top; Bot] * X = [Top*X; Bot*X], stacked row-wise.
 TEST_F(TestVStackOp, notrans_matches_stack) {
     int64_t mt = 17, mb = 9, n = 8, k = 6;   // Top: mt x n, Bot: mb x n
     vector<double> Tm(mt * n), Bm(mb * n), X(n * k);
     RNGState<> state(7);
-    RandBLAS::fill_dense(RandBLAS::DenseDist(mt, n), Tm.data(), state);
-    RandBLAS::fill_dense(RandBLAS::DenseDist(mb, n), Bm.data(), state);
-    RandBLAS::fill_dense(RandBLAS::DenseDist(n, k), X.data(), state);
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(mt, n), Tm.data(), state);
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(mb, n), Bm.data(), state);
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(n, k), X.data(), state);
 
     rl::DenseLinOp<double> Top(mt, n, Tm.data(), mt, Layout::ColMajor);
     rl::DenseLinOp<double> Bot(mb, n, Bm.data(), mb, Layout::ColMajor);
@@ -171,7 +186,7 @@ TEST_F(TestVStackOp, augmented_gram_is_regularized) {
 
 // CQRRT handed the augmented operator A_hat = [A; mu*I] directly: it sketches
 // A_hat via VStack's blocked-sketch overload and Grams A_hat, so R^T R = A^T A +
-// mu^2 I -- with no CQRRT source changes. (block_size < n exercises the blocking.)
+// mu^2 I, with no CQRRT source changes. (block_size < n exercises the blocking.)
 TEST_F(TestVStackOp, cqrrt_augmented_gram) {
     int64_t m = 90, n = 20;
     double mu = 1e-2;

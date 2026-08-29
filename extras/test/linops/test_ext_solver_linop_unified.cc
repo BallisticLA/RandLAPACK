@@ -24,6 +24,7 @@
 #include <RandBLAS/testing/comparison.hh>
 #include "rl_gen.hh"
 #include <cmath>
+#include <unistd.h>
 
 using std::vector;
 using blas::Layout;
@@ -225,6 +226,7 @@ protected:
 
         std::string filename = "/tmp/test_solver_unified_" +
                                std::to_string(dim) + "_" +
+                               std::to_string(getpid()) + "_" +
                                std::to_string(rand()) + ".mtx";
 
         T cond_num = 10.0;
@@ -307,6 +309,7 @@ protected:
 
         std::string filename = "/tmp/test_chol_halfsv_" +
                                std::to_string(dim) + "_" +
+                               std::to_string(getpid()) + "_" +
                                std::to_string(rand()) + ".mtx";
 
         T cond_num = 10.0;
@@ -368,6 +371,7 @@ protected:
 
         std::string filename = "/tmp/test_lu_halfsv_" +
                                std::to_string(dim) + "_" +
+                               std::to_string(getpid()) + "_" +
                                std::to_string(rand()) + ".mtx";
 
         T cond_num = 10.0;
@@ -702,7 +706,7 @@ TEST_F(TestExtSolverLinOpUnified, lu_halfsv_right_rowmajor_t) {
 
 
 // ============================================================================
-// CholSolverLinOp — in-memory (RandBLAS CSR) constructor
+// CholSolverLinOp: in-memory (RandBLAS CSR) constructor
 // ----------------------------------------------------------------------------
 // The cases above build CholSolverLinOp from a Matrix Market file. These cover
 // the in-memory CSR constructor (X = K - omega*M is built at runtime in the

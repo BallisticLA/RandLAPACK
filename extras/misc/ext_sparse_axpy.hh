@@ -16,7 +16,6 @@
 #include <RandBLAS.hh>
 #include <cstdint>
 #include <cstring>
-#include <stdexcept>
 
 namespace RandLAPACK_extras {
 

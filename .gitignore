@@ -66,3 +66,6 @@ benchmark/build/**
 test/test_runner
 
 z_ignore_riley/**
+benchmark-build-audit/
+build-audit/
+install-audit/

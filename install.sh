@@ -202,10 +202,10 @@ fi
 # If <DEP>_INSTALL_DIR is set and points at a valid install, skip clone+build
 # and reuse it. Otherwise fall back to the fresh clone+build path below.
 # Supported env vars:
-#   BLASPP_INSTALL_DIR    -- root of blaspp install (containing lib/cmake/blaspp/ or lib64/...)
-#   LAPACKPP_INSTALL_DIR  -- root of lapackpp install
-#   RANDOM123_INSTALL_DIR -- root containing include/Random123/
-# RandBLAS is intentionally not covered here -- it stays a submodule.
+#   BLASPP_INSTALL_DIR    : root of blaspp install (containing lib/cmake/blaspp/ or lib64/...)
+#   LAPACKPP_INSTALL_DIR  : root of lapackpp install
+#   RANDOM123_INSTALL_DIR : root containing include/Random123/
+# RandBLAS is intentionally not covered here: it stays a submodule.
 #==============================================================================
 
 # find_cmake_config <install_root> <pkg_name>
@@ -278,7 +278,7 @@ else
 fi
 echo ""
 
-# Initialize and update RandLAPACK submodule -- RandBLAS
+# Initialize and update RandLAPACK submodule: RandBLAS
 git -C $SCRIPT_DIR submodule init; git -C $SCRIPT_DIR submodule update
 
 if [[ ! -d "$RANDNLA_PROJECT_DIR/lib/RandLAPACK" ]]; then
@@ -302,7 +302,7 @@ echo "All libraries placed in: $RANDNLA_PROJECT_DIR/lib"
 # Configure, build, and install BLAS++
 # Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
 # On macOS, Homebrew OpenBLAS is LP64 (int32); Linux typically has ILP64 (int64) BLAS available.
-# The macOS CLT does not expose C++ stdlib headers in its default search path — export CXXFLAGS
+# The macOS CLT does not expose C++ stdlib headers in its default search path: export CXXFLAGS
 # so cmake picks them up via CMAKE_CXX_FLAGS_INIT for all subsequent cmake invocations.
 BLAS_INT="int64"
 MACOS_BLAS_FLAGS=""

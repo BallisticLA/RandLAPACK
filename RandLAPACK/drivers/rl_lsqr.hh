@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: lsqr — matrix-free LSQR (Paige & Saunders) least-squares solver,
+// Public API: lsqr: matrix-free LSQR (Paige & Saunders) least-squares solver,
 //                    with an optional upper-triangular RIGHT preconditioner R.
 //
 // Solves  min_x ||b - A x||_2  for a tall LinearOperator A (m x n, m >= n) using
@@ -52,7 +52,11 @@ namespace RandLAPACK {
 ///                      LS floor even when the residual is far above btol), 0 = the
 ///                      iteration cap. Callers comparing convergence flags against
 ///                      restarted_pcg_ne (whose only success test is the true LS
-///                      residual) need this to tell S2 successes apart (2026-08-27).
+///                      residual) need this to tell S2 successes apart.
+///                      Polarity note: here 0 means the cap was hit (no stopping
+///                      test fired); in the engine's status codes (restarted_pcg_ne,
+///                      IterRefineLSQ::engine_status) 0 means success. Do not
+///                      compare the two as if they shared a convention.
 /// @returns 0 if a stopping test was met; 1 if the iteration cap was hit.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 int lsqr(
@@ -130,7 +134,18 @@ int lsqr(
 
     apply_AtildeT(u, v);
     T alpha = blas::nrm2(n, v, 1);
-    if (alpha > (T)0) blas::scal(n, (T)1.0 / alpha, v, 1);
+    if (alpha == (T)0) {
+        // b (mod preconditioning) is orthogonal to range(A): x = 0 is already
+        // the LS minimizer. Without this the next step divides by alpha,
+        // filling x with NaN that defeats both stop tests until the cap.
+        iters_done = 0;
+        cleanup();
+        if (times) { times[0]=t_fwd; times[1]=t_adj; times[2]=t_trsm; times[3]=duration_cast<microseconds>(clock::now()-total_start).count(); }
+        if (final_relres) *final_relres = (T)1;
+        if (stop_test) *stop_test = 2;
+        return 0;
+    }
+    blas::scal(n, (T)1.0 / alpha, v, 1);
     std::copy(v, v + n, w);
 
     T phibar = beta, rhobar = alpha;

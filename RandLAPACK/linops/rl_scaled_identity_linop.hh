@@ -1,9 +1,8 @@
 #pragma once
 
-// Public API: ScaledIdentityOp — matrix-free scaled identity mu*I_n.
+// Public API: ScaledIdentityOp: matrix-free scaled identity mu*I_n.
 
 #include "rl_exceptions.hh"
-#include "rl_concepts.hh"
 #include "rl_blaspp.hh"
 
 #include <cstdint>
@@ -25,7 +24,7 @@ namespace RandLAPACK::linops {
 // extremely ill-conditioned (see rl_iter_refine_lsq.hh).
 //
 // mu*I is symmetric, so Op::NoTrans and Op::Trans behave identically. Only
-// Side::Left and trans_B == Op::NoTrans are supported — that is all the
+// Side::Left and trans_B == Op::NoTrans are supported: that is all the
 // Cholesky-QR Gram path, IterRefineLSQ, and the orthogonality check ever use.
 template <typename T>
 struct ScaledIdentityOp {
@@ -63,6 +62,8 @@ struct ScaledIdentityOp {
         randlapack_require(trans_B == Op::NoTrans) << "ScaledIdentityOp supports trans_B == NoTrans only";
         randlapack_require(k == m) << "ScaledIdentityOp: contracted dim k=" << k
                                    << " must equal output rows m=" << m << " (square identity)";
+        randlapack_require(m == n_rows) << "ScaledIdentityOp: m=" << m
+                                        << " must equal n_rows=" << n_rows;
 
         const T am = alpha * mu;
         if (layout == Layout::ColMajor) {

@@ -1,32 +1,25 @@
 #pragma once
 
-// Public API: IterRefineLSQ — Q-less, sketch-and-precondition iterative-refinement
+// Public API: IterRefineLSQ: Q-less, sketch-and-precondition iterative-refinement
 //                             least-squares solver.
 //
 // Solves min_x ||b - J x||_2 for a tall LinearOperator J using a precomputed
 // triangular preconditioner R (e.g., the R-factor from CQRRT_linops on J or on
 // a sketch SJ). R is treated as a right preconditioner on the normal equations.
 //
-// SINCE 2026-08-07 THIS CLASS IS A THIN ADAPTER over the shared restarted
-// engine restarted_pcg_ne (rl_restarted_pcg_ne.hh): the FEM2 and Toeplitz
-// benchmarks previously ran two separately-implemented copies of the same
-// algorithm (rounds of CG on the right-preconditioned normal equations,
-// separated by exact recomputations of the true residual). The 2026-08-06
-// stable-residual change made even the round right-hand sides identical, so
-// the outer loops were unified here. What this class adds over the raw engine
-// call is the historical field names, the per-step diagnostic vectors, and the
-// cold-start policy.
+// This class is a thin adapter over the shared restarted engine
+// restarted_pcg_ne (rl_restarted_pcg_ne.hh); it adds the historical field
+// names, the per-step diagnostic vectors, and the cold-start policy.
 //
-// RESTART PACING (Oleg's proposition, 2026-08-07). Each round's inner CG stops
-// after its residual has dropped by the factor `round_drop` (default 1e-4)
-// relative to the round's own right-hand side, rather than grinding to a fixed
-// tiny tolerance: only the between-round recomputation of the true residual
-// injects new information, so deep inner solves polish a stale right-hand side
-// (measured 2026-08-06: inner tolerance is not the accuracy lever, outer
-// rounds are). `inner_tol` survives as the ABSOLUTE inner target: a round
-// whose normal-equation residual has already fallen to inner_tol * ||g_0||
-// terminates immediately (the "CG still stops once below the target" guard).
-// Set round_drop <= 0 to restore the legacy fixed-tolerance rounds.
+// RESTART PACING. Each round's inner CG stops after its residual has dropped
+// by the factor `round_drop` (default 1e-4) relative to the round's own
+// right-hand side, rather than grinding to a fixed tiny tolerance: only the
+// between-round recomputation of the true residual injects new information,
+// so deep inner solves polish a stale right-hand side. `inner_tol` survives
+// as the ABSOLUTE inner target: a round whose normal-equation residual has
+// already fallen to inner_tol * ||g_0|| terminates immediately (the "CG
+// still stops once below the target" guard). Set round_drop <= 0 to restore
+// the legacy fixed-tolerance rounds.
 //
 // Reference: E. N. Epperly, M. Meier, and Y. Nakatsukasa,
 //   "Fast randomized least-squares solvers can be just as accurate and stable
@@ -69,8 +62,8 @@ namespace RandLAPACK {
 ///
 /// exiting early once ||b - J x|| / ||b|| <= outer_tol. Executed by the shared
 /// engine restarted_pcg_ne; see the file header for the pacing rationale.
-// InnerCGStatus lives in rl_pcg_inner.hh since the 2026-08-06 kernel extraction
-// (same name, same namespace, same values -- callers are unaffected).
+// InnerCGStatus lives in rl_pcg_inner.hh (same name, same namespace, same
+// values; callers are unaffected).
 
 template <typename T>
 struct IterRefineLSQ {
@@ -79,55 +72,33 @@ struct IterRefineLSQ {
     /// right-hand side ||R^{-T} J^T b||: a round whose NE residual is already
     /// below inner_tol * ||g_0|| stops immediately. In legacy mode
     /// (round_drop <= 0) this is instead the per-round relative tolerance,
-    /// the pre-2026-08-07 contract.
+    /// the legacy contract.
     T inner_tol;
     /// Hard cap on inner CG iterations per round. The TOTAL budget across all
     /// rounds is max_inner_iters * n_refine_steps.
     int max_inner_iters;
-    /// STAGNATION EXIT (added 2026-07-29 from ISAAC diagnostic evidence).
-    ///
-    /// Stop the inner CG when its residual has not improved significantly for
-    /// `inner_stag_window` consecutive iterations, and return the BEST iterate seen
-    /// rather than the last one. Set `inner_stag_window <= 0` to disable.
-    ///
-    /// WHY, and why this rather than a bigger cap. On the FEM2 operator at
-    /// kappa^colnorm = 1e10 the CholQR preconditioner is unusable (measured
-    /// cond(J R^-1) = 7.8e4 against ~1.000 for the other methods, orthogonality error
-    /// 0.56 against 1e-6). Its inner CG reached its floor at iteration 17 of each
-    /// 200-iteration step and then ground out the remaining ~183 with no progress. A
-    /// paired diagnostic run with a 10x larger cap settled the mechanism:
-    ///
-    ///     cap 200/step (400 total):  best_relres 3.483414e-09 @ iter 17, solution error 48.7
-    ///     cap 2000/step (4000 total): best_relres 3.483414e-09 @ iter 17, solution error 547.0
-    ///
-    /// Ten times the budget left the best residual BIT-IDENTICAL and made the outer
-    /// solution 11x WORSE, while spending 166 s instead of 13 s. So the cap was never the
-    /// binding constraint, raising it is actively harmful, and the last iterate is worse
-    /// than the best one -- hence both halves of this fix.
-    ///
-    /// A converging solve is unaffected: it returns Converged before the window elapses.
-    /// The window is deliberately generous (and the improvement threshold small) so that
-    /// slow-but-real descent is not mistaken for stagnation.
+    /// STAGNATION EXIT. Stop the inner CG when its residual has not improved
+    /// significantly for `inner_stag_window` consecutive iterations, and
+    /// return the BEST iterate seen rather than the last one (on an
+    /// ill-conditioned preconditioner, raising the iteration cap does not
+    /// improve the best residual but does let the last iterate drift worse).
+    /// Set `inner_stag_window <= 0` to disable. A converging solve is
+    /// unaffected: it returns Converged before the window elapses.
     int inner_stag_window;
     /// Relative residual drop that counts as progress for the stagnation test
     /// (default 1e-3, i.e. the residual must fall by at least 0.1%).
     T inner_stag_rel_improve;
-    /// RESTART PACING (Oleg's proposition, 2026-08-07): per-round relative
-    /// residual drop at which the inner CG stops and control returns to the
-    /// outer loop for a true-residual restart. Default 1e-4. <= 0 restores the
-    /// legacy contract (each round runs to the fixed inner_tol).
-    ///
-    /// This replaces the 2026-08-05 `inner_restarts` verification pass: under
-    /// the restarted scheme every round IS a restart against the true
-    /// residual, so a separate drift check inside the round is redundant.
+    /// RESTART PACING: per-round relative residual drop at which the inner CG
+    /// stops and control returns to the outer loop for a true-residual
+    /// restart. Default 1e-4. <= 0 restores the legacy contract (each round
+    /// runs to the fixed inner_tol).
     T round_drop;
     /// Maximum outer rounds (default benchmark setting: 20). With outer_tol
     /// enabled the loop reads "refine until done, capped at n_refine_steps";
     /// well-preconditioned methods exit after a few rounds, and the cap gives
     /// weakly-preconditioned configurations room to keep descending.
     int n_refine_steps;
-    /// OUTER EARLY EXIT (added 2026-08-06, structure unification with
-    /// restarted_pcg_ne): stop refining once the TRUE residual ||b - Jx|| / ||b||
+    /// OUTER EARLY EXIT: stop refining once the TRUE residual ||b - Jx|| / ||b||
     /// is at or below this value, checked between rounds where the residual is
     /// recomputed anyway. 0 (the default) disables THIS check only; the run can
     /// still end before n_refine_steps rounds via the engine's LS-floor
@@ -136,13 +107,12 @@ struct IterRefineLSQ {
     /// Consecutive rounds without significant true-residual improvement that end
     /// the run as an LS-floor exit (forwarded to restarted_pcg_ne; see its
     /// documentation). <= 0 disables the floor exit. Decoupled from
-    /// inner_stag_window on 2026-08-27; before that the inner knob silently
-    /// controlled both mechanisms with a hardwired 2-round window.
+    /// inner_stag_window: the two mechanisms are independent.
     int outer_stag_window = 2;
     /// Optional initial iterate to refine (length n), or nullptr for the cold
-    /// start that every Q-less method uses. Added 2026-08-10 so another solver's
-    /// answer (Blendenpik's) can be handed to refinement, which separates
-    /// preconditioner quality from solver structure in the benchmark suite.
+    /// start that every Q-less method uses. Lets another solver's answer
+    /// (Blendenpik's) be handed to refinement, separating preconditioner
+    /// quality from solver structure in the benchmark suite.
     const T* warm_x0 = nullptr;
     /// Enable per-step / per-substep timing breakdown.
     bool timing;
@@ -167,8 +137,8 @@ struct IterRefineLSQ {
     ///       preconditioner is weak; more iterations would help)
     std::vector<T>   inner_best_relres_per_step;
     std::vector<int> inner_best_iter_per_step;
-    /// True LS relative residual after each round (engine ls_relres, added
-    /// 2026-08-27 for the per-round campaign sidecar records).
+    /// True LS relative residual after each round (engine ls_relres, kept for
+    /// the per-round campaign sidecar records).
     std::vector<T> ls_relres_per_step;
     /// Final relative residual ||b - J x|| / ||b|| (or ||b - J x|| if ||b|| == 0).
     T final_residual_norm;
@@ -184,6 +154,10 @@ struct IterRefineLSQ {
     /// Per-substep wall-clock breakdown (microseconds), populated when timing == true.
     /// Entries: [0]=outer_total, [1]=inner_cg_total, [2]=trsm_total,
     ///          [3]=fwd_total, [4]=adj_total, [5]=other.
+    /// Slot order (total first, trsm before fwd/adj) intentionally differs from
+    /// the engine's times[] (rl_restarted_pcg_ne.hh: [fwd, adj, trsm, total]);
+    /// this struct predates the engine unification. Benchmarks read both by
+    /// name, not by matching index, so the divergence is safe to keep.
     std::vector<long> times;
 
     IterRefineLSQ(T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85),
@@ -214,9 +188,9 @@ struct IterRefineLSQ {
     /// @param b     Right-hand side, length m.
     /// @param m     Number of rows of J / length of b.
     /// @param x     Solution buffer, length n. Incoming content is ignored: the
-    ///              start is cold (the 2026-08-05 policy for Q-less methods)
-    ///              unless warm_x0 is set, in which case THAT iterate is refined
-    ///              (2026-08-10, Blendenpik handoff).
+    ///              start is cold (the policy for Q-less methods) unless
+    ///              warm_x0 is set, in which case THAT iterate is refined
+    ///              (the Blendenpik handoff).
     /// @param n     Number of columns of J / length of x.
     ///
     /// @returns 0 on success; nonzero on inner-CG breakdown.
@@ -232,8 +206,9 @@ struct IterRefineLSQ {
         using clock = std::chrono::steady_clock;
         auto t_start = clock::now();
 
-        // Cold start (2026-08-05 policy) unless the caller supplied warm_x0.
-        std::fill(x, x + n, (T)0);
+        // Cold start unless the caller supplied warm_x0: no
+        // zero-fill needed here, restarted_pcg_ne unconditionally overwrites x
+        // (cold start or warm_x0 refinement, both handled inside the engine).
 
         // Legacy mode (round_drop <= 0): rounds run to the fixed inner_tol
         // relative to their own right-hand side, no absolute guard.
