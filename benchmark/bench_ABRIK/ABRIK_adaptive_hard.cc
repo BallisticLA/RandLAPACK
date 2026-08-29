@@ -102,6 +102,7 @@ static void run_instance(
     int iters_start,
     int iters_step,
     int iters_max,
+    double adaptive_growth,
     int run,
     RandBLAS::RNGState<RNG> state_run,
     std::ofstream& outfile
@@ -154,10 +155,15 @@ static void run_instance(
         RandLAPACK::ABRIK<T, RNG> abrik(false, false, tol);
         abrik.max_krylov_iters     = iters_start;
         abrik.adaptive             = true;
-        // The driver doubles its own budget; cap the retries so it cannot run past
-        // iters_max. Doubling from iters_start reaches iters_max in log2 steps.
+        abrik.adaptive_growth      = adaptive_growth;
+        // Cap the retries so the driver cannot run past iters_max. The bound is
+        // log_growth(iters_max / iters_start), NOT log2: the old expression hardcoded the
+        // doubling assumption, and at growth 1.25 it would have cut the run off after ~4
+        // retries instead of the ~15 the same span needs, which would have looked like the
+        // finer factor failing to converge rather than being throttled.
         abrik.adaptive_max_retries = (iters_max > iters_start)
-            ? (int)std::ceil(std::log2((double)iters_max / (double)iters_start)) : 0;
+            ? (int)std::ceil(std::log((double)iters_max / (double)iters_start)
+                             / std::log(adaptive_growth)) : 0;
 
         T *U = nullptr, *V = nullptr, *Sigma = nullptr;
         auto state_alg = state_run;
@@ -204,7 +210,8 @@ static void run_benchmark(int argc, char* argv[]) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <input_file> <target_rank>"
                   << " <tol_exponent> <iters_start> <iters_step> <iters_max>"
-                  << " <num_runs> <num_block_sizes> <block_sizes...> [sub_ratio]\n";
+                  << " <num_runs> <num_block_sizes> <block_sizes...> [sub_ratio]"
+                  << " [adaptive_growth]\n";
         return;
     }
 
@@ -238,6 +245,13 @@ static void run_benchmark(int argc, char* argv[]) {
 
     int args_consumed = 11 + num_b_sz;
     double sub_ratio  = (argc > args_consumed) ? std::stod(argv[args_consumed]) : 1.0;
+    // Optional, after sub_ratio. Defaults to 2.0, the driver's own default, so every
+    // existing cell is bit-for-bit unaffected. Exposed because the adaptive-termination
+    // figure overshoots its tolerance via doubling, and showing that the overshoot is an
+    // artifact of the growth factor needs a finer factor to be requestable at all: the
+    // driver has always had adaptive_growth, and this benchmark never set it.
+    double adaptive_growth = (argc > args_consumed + 1)
+                             ? std::stod(argv[args_consumed + 1]) : 2.0;
 
     // tol_exponent > 0: tolerance = eps^tol_exponent (historical form).
     // tol_exponent < 0: tolerance = 10^tol_exponent, an ABSOLUTE tolerance
@@ -277,7 +291,9 @@ static void run_benchmark(int argc, char* argv[]) {
             << "# num_runs: " << num_runs << "\n"
             << "# sub_ratio: " << sub_ratio << "\n"
             << "# sweep    = independent non-adaptive calls at increasing budgets\n"
-            << "# adaptive = one call with adaptive = true; the driver doubles its own budget\n"
+            << "# adaptive = one call with adaptive = true; the driver grows its own budget by "
+            << "adaptive_growth\n"
+            << "# adaptive_growth: " << adaptive_growth << "\n"
             << "# status max_retries = the driver declined to certify tol, which is a valid outcome\n"
             << "# elapsed_us excludes the residual evaluation\n"
             << "run, mode, b_sz, krylov_iters, matvecs, triplets, residual, elapsed_us, status\n";
@@ -297,13 +313,13 @@ static void run_benchmark(int argc, char* argv[]) {
                     A_op(m, n, *mat.csc);
                 run_instance<T, r123::Philox4x32>(
                     A_op, target_rank, tol, b_sz,
-                    iters_start, iters_step, iters_max, run, state_run, outfile);
+                    iters_start, iters_step, iters_max, adaptive_growth, run, state_run, outfile);
             } else {
                 T* A_dense = mat.data();
                 RandLAPACK::linops::DenseLinOp<T> A_op(m, n, A_dense, m, Layout::ColMajor);
                 run_instance<T, r123::Philox4x32>(
                     A_op, target_rank, tol, b_sz,
-                    iters_start, iters_step, iters_max, run, state_run, outfile);
+                    iters_start, iters_step, iters_max, adaptive_growth, run, state_run, outfile);
             }
         }
     }
