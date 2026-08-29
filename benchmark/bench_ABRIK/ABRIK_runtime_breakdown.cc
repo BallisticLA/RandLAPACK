@@ -24,6 +24,7 @@ Usage:
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
 #include "ext_matrix_io.hh"
+#include "abrik_bench_provenance.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -128,6 +129,7 @@ static void run_benchmark(int argc, char *argv[]) {
     for (auto v : matmul_counts) oss_m << v << ", ";
 
     outfile << "# ABRIK Runtime Breakdown Benchmark (unified dense/sparse)\n"
+            << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
             << "# Precision: " << argv[1] << "\n"
             << "# Input matrix: " << input_path << "\n"
             << "# Input size: " << m << " x " << n << "\n"

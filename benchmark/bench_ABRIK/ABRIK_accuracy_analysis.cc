@@ -100,6 +100,7 @@ Four metrics are computed for each singular triplet i = 1, ..., k:
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 #include "ext_matrix_io.hh"
+#include "abrik_bench_provenance.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -257,6 +258,7 @@ static void run_analysis(int argc, char *argv[]) {
     std::ofstream file(path);
 
     file << "# ABRIK Per-Triplet Accuracy Analysis\n"
+         << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
          << "# Precision: " << argv[1] << "\n"
          << "# Input matrix: " << argv[3] << "\n"
          << "# Input size: " << m << " x " << n << "\n"

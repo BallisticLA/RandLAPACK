@@ -56,6 +56,7 @@ Usage:
 #include <Eigen/SparseCore>
 #include <Spectra/contrib/PartialSVDSolver.h>
 #include "ext_budgeted_svd_solver.hh"
+#include "abrik_bench_provenance.hh"
 
 // Eigen type traits
 template <typename T> struct EigenTypes;
@@ -319,6 +320,7 @@ static void run_benchmark(int argc, char *argv[]) {
     for (auto v : block_sizes) oss_b << v << ", ";
 
     outfile << "# ABRIK Speed Comparison Benchmark (budgeted checkpointing)\n"
+            << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
             << "# Precision: " << argv[1] << "\n"
             << "# Input matrix: " << input_path << "\n"
             << "# Input size: " << m << " x " << n << "\n"

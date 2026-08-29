@@ -71,6 +71,7 @@ Usage:
 #include "rl_linops.hh"
 #include "rl_svd_residual.hh"
 #include "ext_matrix_io.hh"
+#include "abrik_bench_provenance.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -280,6 +281,7 @@ static void run_benchmark(int argc, char* argv[]) {
 
     outfile << std::scientific << std::setprecision(8);
     outfile << "# ABRIK adaptive-termination benchmark\n"
+            << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
             << "# input: " << input_path << "\n"
             << "# m: " << m << "  n: " << n << "\n"
             << "# target_rank: " << target_rank << "\n"
