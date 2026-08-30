@@ -20,12 +20,13 @@ namespace RandLAPACK::gen {
 /// Each matrix type can be generated bt mat_gen() utility function.
 /// This list is expected to grow.
 enum mat_type {
-    polynomial, 
-    exponential, 
-    gaussian, 
-    step, 
-    spiked, 
-    adverserial, 
+    polynomial,
+    exponential,
+    geometric,
+    gaussian,
+    step,
+    spiked,
+    adverserial,
     bad_cholqr,
     kahan,
     custom_input};
@@ -192,6 +193,51 @@ void gen_exp_mat(
     RandBLAS::RNGState<RNG> &state
 ) {
     auto s = gen_exp_singvals(k, cond);
+
+    T* S = new T[k * k]();
+    RandLAPACK::util::diag(k, k, s.data(), k, S);
+
+    if (diagon) {
+        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
+    } else {
+        RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
+    }
+
+    delete[] S;
+}
+
+/// Generate k geometrically-spaced singular values (Raphael's spectrum):
+///   s_i = cond * cond^(-i/k) = cond^(1 - i/k),  i = 0..k-1.
+/// s_0 = cond, s_{k-1} = cond^(1/k); every s_i >= 1, so the PSD matrix A >= I.
+/// No plateau. The effective condition number is cond^((k-1)/k), i.e. ~= cond
+/// (exactly cond as k -> infinity); this matches Raphael's literal i/n form.
+///
+/// @param[in] k     Number of singular values
+/// @param[in] cond  Condition number parameter (= the largest singular value)
+///
+/// @return Vector of k singular values (descending)
+template <typename T>
+std::vector<T> gen_geometric_singvals(int64_t k, T cond) {
+    std::vector<T> s(k);
+    for (int64_t i = 0; i < k; ++i)
+        s[i] = std::pow(cond, (T)1 - (T)i / (T)k);
+    return s;
+}
+
+/// Generates a matrix with a geometrically-spaced spectrum spanning [~1, cond].
+/// User can optionally choose for the matrix to be diagonal.
+/// The output matrix has k singular values.
+template <typename T, typename RNG>
+void gen_geometric_mat(
+    int64_t &m,
+    int64_t &n,
+    T* A,
+    int64_t k,
+    T cond,
+    bool diagon,
+    RandBLAS::RNGState<RNG> &state
+) {
+    auto s = gen_geometric_singvals(k, cond);
 
     T* S = new T[k * k]();
     RandLAPACK::util::diag(k, k, s.data(), k, S);
@@ -725,7 +771,10 @@ void mat_gen(
                 // Generating matrix with exponentially decaying singular values
                 RandLAPACK::gen::gen_exp_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
                 break;
-            break;
+        case geometric:
+                // Geometrically-spaced spectrum s_i = cond^(1 - i/k) (Raphael's spectrum, A >= I)
+                RandLAPACK::gen::gen_geometric_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
+                break;
         case gaussian: {
                 // Gaussian random matrix
                 RandBLAS::DenseDist D(info.rows, info.cols);

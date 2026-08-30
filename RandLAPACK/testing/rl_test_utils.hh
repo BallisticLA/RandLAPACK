@@ -22,6 +22,8 @@
 #include <iomanip>
 #include <stdexcept>
 #include <cmath>
+#include <cstddef>
+#include <functional>
 
 namespace RandLAPACK {
 namespace testing {
@@ -475,6 +477,110 @@ template <typename T, typename RNG>
     ::lapack::ormqr(::blas::Side::Left, ::blas::Op::NoTrans, m, n, m,
                     U.data(), m, tau.data(), A.data(), m);
     return out_state;
+}
+
+// ============================================================================
+// Dense binary matrix I/O (cross-validation / benchmark fixtures)
+// ============================================================================
+
+/// Minimal binary I/O for dense column-major matrices. Used by the
+/// funNyström++ cross-validation harness and benchmark to share A / Omega
+/// fixtures between MATLAB and C++. This is fixture tooling, not a public
+/// library primitive, which is why it lives here in testing/ rather than in
+/// the shipped misc/rl_util.hh. Format:
+///   bytes  0..7   : int64_t n_rows
+///   bytes  8..15  : int64_t n_cols
+///   bytes 16..    : n_rows * n_cols T values, column-major
+/// MATLAB side: `bench_matlab/save_dense_bin.m`, `load_dense_bin.m`.
+/// NOTE: the header is written in native byte order, so files are not
+/// portable across architectures of differing endianness. This is adequate
+/// for the single-host MATLAB<->C++ harness; do not treat it as a general
+/// interchange format.
+template <typename T>
+void save_dense_bin(const ::std::string &path, int64_t n_rows, int64_t n_cols, const T *A) {
+    ::std::ofstream f(path, ::std::ios::binary);
+    if (!f) throw ::std::runtime_error("save_dense_bin: cannot open " + path);
+    f.write(reinterpret_cast<const char*>(&n_rows), sizeof(int64_t));
+    f.write(reinterpret_cast<const char*>(&n_cols), sizeof(int64_t));
+    f.write(reinterpret_cast<const char*>(A), n_rows * n_cols * sizeof(T));
+    if (!f) throw ::std::runtime_error("save_dense_bin: write failed on " + path);
+}
+
+/// Loads a column-major dense matrix written by save_dense_bin (or its
+/// MATLAB twin). On entry n_rows/n_cols are set from the file header; the
+/// caller passes a buffer pre-allocated to at least n_rows*n_cols Ts.
+/// Throws if the file is missing, malformed, or the buffer is too small.
+template <typename T>
+void load_dense_bin(const ::std::string &path, int64_t &n_rows, int64_t &n_cols, T *A, int64_t A_capacity) {
+    ::std::ifstream f(path, ::std::ios::binary);
+    if (!f) throw ::std::runtime_error("load_dense_bin: cannot open " + path);
+    f.read(reinterpret_cast<char*>(&n_rows), sizeof(int64_t));
+    f.read(reinterpret_cast<char*>(&n_cols), sizeof(int64_t));
+    if (!f) throw ::std::runtime_error("load_dense_bin: header read failed on " + path);
+    int64_t need = n_rows * n_cols;
+    if (need > A_capacity) {
+        throw ::std::runtime_error("load_dense_bin: buffer too small for " + path);
+    }
+    f.read(reinterpret_cast<char*>(A), need * sizeof(T));
+    if (!f) throw ::std::runtime_error("load_dense_bin: data read failed on " + path);
+}
+
+/// Read just the (n_rows, n_cols) header of a dense-bin file, without loading
+/// the data. Lets callers allocate buffers to the exact size before loading.
+inline void peek_dense_bin_dims(const ::std::string &path, int64_t &n_rows, int64_t &n_cols) {
+    ::std::ifstream f(path, ::std::ios::binary);
+    if (!f) throw ::std::runtime_error("peek_dense_bin_dims: cannot open " + path);
+    f.read(reinterpret_cast<char*>(&n_rows), sizeof(int64_t));
+    f.read(reinterpret_cast<char*>(&n_cols), sizeof(int64_t));
+    if (!f) throw ::std::runtime_error("peek_dense_bin_dims: header read failed on " + path);
+}
+
+// ============================================================================
+// Exact dense matrix-function oracle:  f(A)*B = V * diag(f(lambda)) * V^T * B
+// ============================================================================
+
+/// Build an exact f(A)*B oracle from a precomputed symmetric eigendecomposition.
+/// `V` holds the eigenvectors as columns (n x n, column-major); `f_lambda`
+/// holds f evaluated at the corresponding eigenvalues. Returns a callable
+/// (m, s, B, Y) that computes Y = V * diag(f_lambda) * V^T * B (column-major,
+/// ldY = m). The closure owns V and f_lambda by value (they are moved in).
+///
+/// This is the reference ("exact") Phase-2 oracle for funNystromPP tests,
+/// benchmarks, and the MATLAB/Python bindings: the dense counterpart to the
+/// Krylov LanczosFA / BlockLanczosFA oracles. Single point of truth so the
+/// three call sites do not re-implement the GEMM-diag-GEMM apply.
+template <typename T>
+::std::function<void(int64_t, int64_t, const T *, T *)>
+make_exact_fa_oracle_from_eig(int64_t n, ::std::vector<T> V, ::std::vector<T> f_lambda) {
+    return [n, V = ::std::move(V), f_lambda = ::std::move(f_lambda)]
+           (int64_t m, int64_t s, const T *B, T *Y) {
+        ::std::vector<T> tmp(static_cast<::std::size_t>(n) * s);
+        // tmp = V^T * B   (n x s)
+        ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::Trans, ::blas::Op::NoTrans,
+                     n, s, m, (T)1, V.data(), n, B, m, (T)0, tmp.data(), n);
+        // scale rows by f(lambda)
+        for (int64_t j = 0; j < s; ++j)
+            for (int64_t i = 0; i < n; ++i)
+                tmp[i + j * n] *= f_lambda[i];
+        // Y = V * tmp     (m x s)
+        ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans,
+                     m, s, n, (T)1, V.data(), m, tmp.data(), n, (T)0, Y, m);
+    };
+}
+
+/// Convenience: eigendecompose a symmetric A (n x n, column-major, upper
+/// triangle read) once via syevd, then return the exact f(A)*B oracle. Prefer
+/// make_exact_fa_oracle_from_eig when you already have the eigendecomposition
+/// (e.g. a benchmark that also reports the exact trace tr(f(A)) = sum f(lambda)).
+template <typename T, typename F>
+::std::function<void(int64_t, int64_t, const T *, T *)>
+make_exact_fa_oracle(int64_t n, const T *A, F &&fscalar) {
+    ::std::vector<T> V(A, A + n * n);          // copy; syevd is destructive
+    ::std::vector<T> ev(n);
+    ::lapack::syevd(::lapack::Job::Vec, ::lapack::Uplo::Upper, n, V.data(), n, ev.data());
+    ::std::vector<T> f_lambda(n);
+    for (int64_t i = 0; i < n; ++i) f_lambda[i] = fscalar(ev[i]);
+    return make_exact_fa_oracle_from_eig<T>(n, ::std::move(V), ::std::move(f_lambda));
 }
 
 }  // namespace testing

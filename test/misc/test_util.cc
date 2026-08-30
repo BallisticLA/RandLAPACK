@@ -27,6 +27,24 @@ class TestUtil : public ::testing::Test
 
     virtual void TearDown() {};
 
+    // Shuffle a pivot vector deterministically THROUGH RandBLAS (house rule:
+    // all test randomness goes through RandBLAS, no std::mt19937): draw one
+    // uniform key per entry and argsort.
+    static void shuffle_via_randblas(std::vector<int64_t> &J, uint32_t seed) {
+        const int64_t k = (int64_t)J.size();
+        std::vector<double> keys(k);
+        auto state = RandBLAS::RNGState(seed);
+        RandBLAS::DenseDist D(k, 1, RandBLAS::ScalarDist::Uniform);
+        RandBLAS::fill_dense(D, keys.data(), state);
+        std::vector<int64_t> idx(k);
+        std::iota(idx.begin(), idx.end(), 0);
+        std::sort(idx.begin(), idx.end(),
+                  [&](int64_t a, int64_t b) { return keys[a] < keys[b]; });
+        std::vector<int64_t> out(k);
+        for (int64_t i = 0; i < k; ++i) out[i] = J[idx[i]];
+        J = std::move(out);
+    }
+
     template <typename T>
     struct SpectralTestData {
         int64_t row;
@@ -273,8 +291,7 @@ class TestUtil : public ::testing::Test
         std::vector<int64_t> orig(A);
         std::vector<int64_t> J(k);
         std::iota(J.begin(), J.end(), 1);
-        std::mt19937_64 gen(seed);
-        std::shuffle(J.begin(), J.end(), gen);
+        shuffle_via_randblas(J, seed);
         std::vector<int64_t> J_copy(J);
 
         RandLAPACK::util::col_swap(n, k, A.data(), J.data());
@@ -518,8 +535,7 @@ TEST_F(TestUtil, test_col_swp_gather_full_and_truncated) {
         RandBLAS::fill_dense(D, all_data.A.data(), state);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
         std::iota(all_data.J.begin(), all_data.J.end(), 1);
-        std::mt19937_64 gen(seed);
-        std::shuffle(all_data.J.begin(), all_data.J.end(), gen);
+        shuffle_via_randblas(all_data.J, seed);
 
         test_col_swp_gather<double>(all_data, k);
     }

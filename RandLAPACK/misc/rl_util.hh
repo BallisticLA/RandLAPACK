@@ -5,6 +5,9 @@
 
 #include <RandBLAS.hh>
 #include <iostream>
+#include <fstream>
+#include <stdexcept>
+#include <string>
 #include <cmath>
 #include <algorithm>
 #include <vector>
@@ -199,6 +202,21 @@ inline void col_swap(
 
 /// Checks if the given size is larger than available. 
 /// If so, resizes the vector.
+/// Raw-pointer overload of upsize: grow a heap buffer to at least
+/// `needed` elements, reallocating via new/delete[]. Existing contents
+/// are not preserved (this is for working buffers that the caller
+/// re-fills on every call). Pulled from the funnystrompp branch where
+/// it was named util::resize; renamed here to match the std::vector
+/// overload above.
+template <typename T>
+void upsize(T*& buf, int64_t& buf_sz, int64_t needed) {
+    if (needed > buf_sz) {
+        delete[] buf;
+        buf = new T[needed];
+        buf_sz = needed;
+    }
+}
+
 template <typename T>
 T* upsize(
     int64_t target_sz,
@@ -587,6 +605,50 @@ void sparse_to_dense_summing_duplicates(
     T *dense_mat
 ) {
     sparse_to_dense(sp_mat, layout, dense_mat);
+}
+
+/// Symmetrize A in place by AVERAGING with its transpose:
+///   A := (A + A^T) / 2,    n x n column-major, leading dim lda.
+///
+/// This is deliberately NOT the same operation as `RandBLAS::symmetrize`,
+/// which REFLECTS one triangle onto the other (copy upper->lower or vice
+/// versa per a Uplo argument). Use this averaging variant when BOTH
+/// triangles carry independent, meaningful floating-point error and you want
+/// the symmetric part rather than to trust a single triangle. Two such cases
+/// here: the Nystrom Gram G = Omega^T Y (theoretically symmetric, but the two
+/// triangles differ at the ~eps level after the GEMM) and the block
+/// Lanczos-FA block A_step = Q_step^T A Q_step before syevd. When you instead
+/// just need to populate a missing triangle, prefer RandBLAS::symmetrize.
+template <typename T>
+void symmetrize(int64_t n, T* A, int64_t lda) {
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = j + 1; i < n; ++i) {
+            T avg = (T)0.5 * (A[i + j * lda] + A[j + i * lda]);
+            A[i + j * lda] = avg;
+            A[j + i * lda] = avg;
+        }
+    }
+}
+
+/// Shared certificate-check cadence for the adaptive Lanczos-QFA oracles
+/// (scalar LanczosQFA and BlockLanczosQFA — single-sourced so the two cannot
+/// drift). Each check at depth t costs eigensolves of size O(t) (scalar) or
+/// O(t*s) (block) and zero matvecs, so checking every step is O(d^4)-class
+/// work over a run and dominates at large depth.
+///
+///   check_every == 1 (default): geometric ladder — every depth through 8,
+///     then approximately every 1.5x (checks at 9, 12, 18, 27, 42, 63, 93,
+///     141, ...). The bracket closes monotonically, so the ladder overshoots
+///     the true stopping depth by at most ~1.5x while keeping certificate
+///     cost O(d^3)-class.
+///   check_every > 1: plain fixed stride (check when t % check_every == 0).
+///   check_every <= 0: invalid; callers validate and reject.
+inline bool qfa_check_due(int64_t t, int64_t check_every) {
+    if (check_every > 1) return (t % check_every) == 0;
+    if (t <= 8) return true;
+    int64_t step = 2;
+    while (step * 3 / 2 < t) step = step * 3 / 2;
+    return (t % std::max<int64_t>(1, step / 2)) == 0;
 }
 
 } // end namespace util
