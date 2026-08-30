@@ -105,8 +105,14 @@ public:
     // Number of block steps actually completed by the last run_lanczos call.
     // Equals the requested d unless an early-stop callback fired sooner (used by
     // BlockLanczosQFA's adaptive depth). The leading steps_run*s block of T_blk
-    // is the valid block-tridiagonal after the call.
+    // is the valid block-tridiagonal after the call; anything beyond it may hold
+    // a dangling off-diagonal block from the step the stop interrupted, which is
+    // why apply_f works on the leading steps_run*s block only.
     int64_t steps_run = 0;
+    // The d of the last run_lanczos call (T_blk's leading dimension is run_d*s).
+    // apply_f validates against it so a caller cannot evaluate at a depth the
+    // recurrence did not run.
+    int64_t run_d = 0;
 
     BlockLanczosFA()                                 = default;
     BlockLanczosFA(const BlockLanczosFA&)            = delete;
@@ -147,8 +153,23 @@ public:
             throw std::invalid_argument(
                 "BlockLanczosFA::run_lanczos: block size s = " + std::to_string(s) +
                 " exceeds the operator dimension n = " + std::to_string(n));
+        if (d < 1 || s < 1)
+            throw std::invalid_argument(
+                "BlockLanczosFA::run_lanczos: d and s must be >= 1 (got d = " +
+                std::to_string(d) + ", s = " + std::to_string(s) + ")");
+        // d*s > n means the block Krylov space fills before d steps; without
+        // deflation the basis goes rank-deficient and accuracy degrades (the
+        // documented v1 limitation). Warn loudly rather than fail: callers in
+        // that regime should shrink d or use the scalar oracle.
+        if (d * s > n)
+            std::fprintf(stderr,
+                "NOTE BlockLanczosFA: d*s = %lld exceeds n = %lld; the block Krylov "
+                "space fills before d steps and, without deflation, accuracy degrades.\n",
+                (long long)(d * s), (long long)n);
         _t_matvec_us = 0;
+        _t_reorth_us = 0;
         steps_run = 0;
+        run_d = d;
         const int64_t m = d * s;   // T_k dimension / its leading dimension
 
         util::upsize(K_big,   K_big_sz,   (d + 1) * n * s);
@@ -202,29 +223,34 @@ public:
                        s, s, n, (T)1.0, Q_step, n, Y, n, (T)0.0, A_step, m);
             util::symmetrize(s, A_step, m);
 
-            // [line 6] Z ← Z − Q_i·A_i  (in-place in Y)
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                       n, s, s, (T)-1.0, Q_step, n, A_step, m, (T)1.0, Y, n);
+            // [lines 6-7] only feed line 8's QR, which the last step skips —
+            // so both are skipped there too (the discarded-Y update and a full
+            // reorth pass against the whole basis are real work at large d).
+            if (step < d - 1) {
+                // [line 6] Z ← Z − Q_i·A_i  (in-place in Y)
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                           n, s, s, (T)-1.0, Q_step, n, A_step, m, (T)1.0, Y, n);
 
-            // [line 7] if reorth: for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)
-            // (full block modified Gram-Schmidt against every previous block).
-            // NB a batched block-CLASSICAL-GS variant (one GEMM pair against the
-            // whole Q_basis[0..i] at once) was attempted for BLAS-3 locality but
-            // regressed orthogonality (left ‖QᵀQ−I‖ ~ 1); reverted pending a
-            // correct CGS. Toggle reorthogonalization with `reorth`.
-            std::chrono::steady_clock::time_point _r0;
-            if (timing) _r0 = std::chrono::steady_clock::now();
-            if (reorth) {
-                for (int64_t prev = 0; prev <= step; ++prev) {
-                    T* Q_p = K_big + prev * n * s;
-                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                               s, s, n, (T)1.0, Q_p, n, Y, n, (T)0.0, proj_buf, s);
-                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                               n, s, s, (T)-1.0, Q_p, n, proj_buf, s, (T)1.0, Y, n);
+                // [line 7] if reorth: for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)
+                // (full block modified Gram-Schmidt against every previous block).
+                // NB a batched block-CLASSICAL-GS variant (one GEMM pair against the
+                // whole Q_basis[0..i] at once) was attempted for BLAS-3 locality but
+                // regressed orthogonality (left ‖QᵀQ−I‖ ~ 1); reverted pending a
+                // correct CGS. Toggle reorthogonalization with `reorth`.
+                std::chrono::steady_clock::time_point _r0;
+                if (timing) _r0 = std::chrono::steady_clock::now();
+                if (reorth) {
+                    for (int64_t prev = 0; prev <= step; ++prev) {
+                        T* Q_p = K_big + prev * n * s;
+                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+                                   s, s, n, (T)1.0, Q_p, n, Y, n, (T)0.0, proj_buf, s);
+                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                   n, s, s, (T)-1.0, Q_p, n, proj_buf, s, (T)1.0, Y, n);
+                    }
                 }
+                if (timing) _t_reorth_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - _r0).count();
             }
-            if (timing) _t_reorth_us += std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now() - _r0).count();
 
             // [line 8] if i < d−1:  Q_{i+1}, B_i ← qr(Z)
             // (Q_{step+1} overwrites Y. B_step = upper R factor, copied once
@@ -261,16 +287,30 @@ public:
     ///  [line 11d] out (n × s) = Q_basis * C1  (GEMM).
     template <std::invocable<T> F>
     void apply_f(F f, int64_t n, int64_t s, int64_t d, T* out) {
-        int64_t m = d * s;
-        util::upsize(workspace, workspace_sz, m + 2 * m * s);
+        // Guard the early-stop seam: if the recurrence was terminated by a
+        // stop_after callback, T_blk's valid block tridiagonal is only the
+        // leading steps_run*s block — the interrupted step may have already
+        // written its off-diagonal B block with a still-zero diagonal
+        // neighbor, so evaluating f(T) at the full d would silently use a
+        // corrupted trailing tail. Evaluate at the depth actually run.
+        if (steps_run < 1)
+            throw std::invalid_argument("BlockLanczosFA::apply_f: run_lanczos has not been called");
+        if (d != run_d)
+            throw std::invalid_argument(
+                "BlockLanczosFA::apply_f: d = " + std::to_string(d) +
+                " does not match the last run_lanczos d = " + std::to_string(run_d));
+        const int64_t m_full = run_d * s;      // T_blk's leading dimension
+        const int64_t m      = steps_run * s;  // valid tridiagonal dimension
+        util::upsize(workspace, workspace_sz, m_full + 2 * m_full * s);
 
         T* eig_vals = workspace;
-        T* G        = eig_vals + m;
-        T* C1       = G + m * s;
+        T* G        = eig_vals + m_full;
+        T* C1       = G + m_full * s;
         T* T_dense  = T_blk;   // eigenvectors V overwrite the block tridiagonal
 
-        // [line 10] (V, λ) ← syevd(T_k): eigenvectors V overwrite T_blk, eig_vals → λ.
-        lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, m, T_dense, m, eig_vals);
+        // [line 10] (V, λ) ← syevd(T_k): eigenvectors V overwrite the leading
+        // m×m block of T_blk (lda = m_full), eig_vals → λ.
+        lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, m, T_dense, m_full, eig_vals);
 
         // [line 11a] W (s×m col-major, ld=s; stored in the G buffer): W[i,j] = f(λⱼ)*V[i,j]
         //    for i=0..s-1, j=0..m-1.  Each column j of W is the first s elements of
@@ -281,18 +321,23 @@ public:
         //    diag(f(λ))*(V^T*E₁): scale row j → f(λⱼ)*(row j of V^T*E₁) = f(λⱼ)*V[:,j][0:s].
         //    That intermediate is W^T (m×s), so f(T_k)*E₁ = V * W^T.
         T* W = G;   // reuse G buffer; W is s×m col-major (ld=s)
+        // Ritz values clamped to >= 0 before f, matching the QFA oracles: this
+        // class targets A ⪰ 0, where a negative Ritz value is orthogonality
+        // loss at roundoff, and an unclamped f = sqrt would poison the whole
+        // column with NaN. f must be finite at 0 (shifted log(x+1), never a
+        // raw log).
         for (int64_t j = 0; j < m; ++j) {
             T fev = f(std::max(eig_vals[j], (T)0));
-            const T* V_col = T_dense + j * m;   // col j of V (contiguous, length m)
-            T*       W_col = W       + j * s;   // col j of W (contiguous, length s)
+            const T* V_col = T_dense + j * m_full;  // col j of V (lda = m_full)
+            T*       W_col = W       + j * s;       // col j of W (contiguous, length s)
             for (int64_t i = 0; i < s; ++i)
                 W_col[i] = fev * V_col[i];      // first s rows of V[:,j], scaled
         }
 
         // [line 11b] C1 (m × s) = V * W^T  — equals f(T_k) * E₁.
-        //    GEMM(NoTrans, Trans, m, s, m): C = V(m×m) * W^T  where W is s×m (ld=s).
+        //    GEMM(NoTrans, Trans, m, s, m): C = V(m×m, lda = m_full) * W^T where W is s×m (ld=s).
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
-                   m, s, m, (T)1.0, T_dense, m, W, s, (T)0.0, C1, m);
+                   m, s, m, (T)1.0, T_dense, m_full, W, s, (T)0.0, C1, m);
 
         // [line 11c] C1 *= R₀  (TRMM: C1 = C1 * R₀, right upper triangular).
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
