@@ -10,6 +10,10 @@
 #include <cstdint>
 #include <concepts>
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #ifdef _OPENMP
@@ -57,6 +61,12 @@ void lanczos_fa_timed_call(LFA& self, SLO& A, const T* B,
 /// joint block Krylov subspace (see rl_lanczos_fa_block.hh) and is BLAS-3
 /// throughout; the two are numerically distinct algorithms.
 /// See: T. Chen, "A Lanczos-FA algorithm for matrix function approximation" (2022).
+///
+/// Targets A ⪰ 0: Ritz values are clamped to ≥ 0 before f is applied, since a
+/// Ritz value of −O(ε‖A‖) is routine for PSD A with a near-null space
+/// (especially at reorth = 0) and would NaN e.g. sqrt. f must be finite at 0
+/// (use log(x+1), never raw log): a breakdown or a zero input column produces
+/// f(0)·0 products, which are NaN for f(0) = ±inf.
 ///
 /// Pseudocode (batched scalar Lanczos-FA; Chen's single-vector algorithm run
 /// on all s columns at once, matvecs batched into one GEMM per step). Code
@@ -110,7 +120,7 @@ public:
 
     bool timing = false;
     std::vector<long> times;   // populated after call() when timing==true
-    // Slots: matvec, run_lanczos, apply_f, rest, total
+    // Slots: matvec, run_lanczos, apply_f, rest, total, reorth
     long _t_matvec_us = 0;     // accumulated in run_lanczos() when timing==true
     // FULL reorthogonalization is O(d^2 n s) against the recurrence's O(d n s),
     // and is the entire difference between this oracle and the basis-free
@@ -141,6 +151,9 @@ public:
         steady_clock::time_point _mv_t0, _mv_t1;
         _t_matvec_us = 0;
         _t_reorth_us = 0;
+
+        if (d < 1) throw std::invalid_argument("LanczosFA: depth d must be >= 1.");
+        if (s < 1) throw std::invalid_argument("LanczosFA: column count s must be >= 1.");
 
         // [setup] Grow buffers if needed (not a pseudocode line).
         util::upsize(K,     K_sz,     (d + 1) * n * s);
@@ -212,14 +225,18 @@ public:
                     std::chrono::steady_clock::now() - _r0).count();
 
             // [line 7] for j: β_{i+1,j} ← ‖r_j‖;  q_{i+1,j} ← r_j / β_{i+1,j}
-            // Zero norm means the Krylov basis has collapsed for that column.
-            // Store β=0 (the tridiagonal subdiagonal entry) and skip normalization;
-            // stevd handles a zero subdiagonal correctly (independent 1×1 blocks).
+            // A norm at or below eps·|α| means the Krylov basis has collapsed
+            // for that column: a tiny-but-nonzero β is the normal floating-
+            // point signature of an invariant subspace, and dividing through
+            // would continue the recurrence on amplified roundoff. Store β
+            // (the tridiagonal subdiagonal entry) and skip normalization;
+            // stevd handles a (near-)zero subdiagonal correctly (the blocks
+            // decouple into independent sub-problems).
 #pragma omp parallel for schedule(static)
             for (int64_t j = 0; j < s; ++j) {
                 T nrm = blas::nrm2(n, K_curr + j * n, 1);
                 beta[j * (d - 1) + i] = nrm;
-                if (nrm > (T)0)
+                if (nrm > std::numeric_limits<T>::epsilon() * std::abs(alpha[j * d + i]))
                     blas::scal(n, (T)1.0 / nrm, K_curr + j * n, 1);
             }
 
@@ -234,6 +251,9 @@ public:
                 blas::axpy(n, -beta[j * (d - 1) + i], K_prev + j * n, 1, K_new + j * n, 1);
 
             // [line 9] for j: α_{i+1,j} ← q_{i+1,j}·W[:,j]
+            // This dots against K_new, which already had β·q_i subtracted;
+            // LanczosQFA dots against a clean A·q. Both are legitimate, so the
+            // two oracles differ at roundoff even at identical depth.
 #pragma omp parallel for schedule(static)
             for (int64_t j = 0; j < s; ++j)
                 alpha[j * d + (i + 1)] = blas::dot(n, K_new + j * n, 1, K_curr + j * n, 1);
@@ -276,6 +296,8 @@ public:
             T* base    = workspace + tid * workspace_per_thread;
             T* alpha_j = base;
             T* beta_j  = alpha_j + d;
+            // At d == 1 this makes Z_j alias beta_j; that is safe only because
+            // stevd never references its E array when N == 1.
             T* Z_j     = beta_j  + std::max(d - 1, (int64_t)0);
             T* c_j     = Z_j     + d * d;
             T* v_j     = c_j     + d;
@@ -295,14 +317,22 @@ public:
             // [line 11] (S_j, Θ_j) ← eig( tridiag(α_{·,j}, β_{·,j}) ):
             // d×d tridiagonal eigendecomposition T_j = Z_j * diag(θ) * Z_j^T.
             // alpha_j → eigenvalues θ (ascending); Z_j → eigenvectors (column-major)
-            lapack::stevd(lapack::Job::Vec, d, alpha_j, beta_j, Z_j, d);
+            // Nonzero info means stevd did not converge and alpha_j/Z_j hold
+            // garbage; fail loudly rather than reconstruct from it.
+            const int64_t info = lapack::stevd(lapack::Job::Vec, d, alpha_j, beta_j, Z_j, d);
+            if (info != 0)
+                throw std::runtime_error("LanczosFA: stevd failed at depth "
+                    + std::to_string(d) + " (info = " + std::to_string(info) + ").");
 
             // [line 12, in three kernels] F[:,j] ← normb[j] · Q_j · S_j · diag(f(Θ_j)) · S_j[0,:]ᵀ
             //
             // (12a) c_j[i] = f(θ_i) * S_j[0, i]
             // In column-major Z_j (d×d): entry (row=0, col=i) = Z_j[i*d + 0]
+            // θ clamped to ≥ 0 before f (A ⪰ 0 by assumption; a Ritz value of
+            // −O(ε‖A‖) would NaN e.g. sqrt), matching LanczosQFA::quad_e1 and
+            // BlockLanczosFA.
             for (int64_t i = 0; i < d; ++i)
-                c_j[i] = f(alpha_j[i]) * Z_j[i * d + 0];
+                c_j[i] = f(std::max(alpha_j[i], (T)0)) * Z_j[i * d + 0];
 
             // (12b) v_j = Z_j * c_j  (d×d matrix times d-vector)
             blas::gemv(Layout::ColMajor, Op::NoTrans, d, d,

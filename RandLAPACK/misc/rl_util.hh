@@ -630,4 +630,25 @@ void symmetrize(int64_t n, T* A, int64_t lda) {
     }
 }
 
+/// Shared certificate-check cadence for the adaptive Lanczos-QFA oracles
+/// (scalar LanczosQFA and BlockLanczosQFA — single-sourced so the two cannot
+/// drift). Each check at depth t costs eigensolves of size O(t) (scalar) or
+/// O(t*s) (block) and zero matvecs, so checking every step is O(d^4)-class
+/// work over a run and dominates at large depth.
+///
+///   check_every == 1 (default): geometric ladder — every depth through 8,
+///     then approximately every 1.5x (checks at 9, 12, 18, 27, 42, 63, 93,
+///     141, ...). The bracket closes monotonically, so the ladder overshoots
+///     the true stopping depth by at most ~1.5x while keeping certificate
+///     cost O(d^3)-class.
+///   check_every > 1: plain fixed stride (check when t % check_every == 0).
+///   check_every <= 0: invalid; callers validate and reject.
+inline bool qfa_check_due(int64_t t, int64_t check_every) {
+    if (check_every > 1) return (t % check_every) == 0;
+    if (t <= 8) return true;
+    int64_t step = 2;
+    while (step * 3 / 2 < t) step = step * 3 / 2;
+    return (t % std::max<int64_t>(1, step / 2)) == 0;
+}
+
 } // end namespace util

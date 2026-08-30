@@ -8,11 +8,13 @@
 #include <RandBLAS.hh>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <concepts>
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #ifdef _OPENMP
@@ -52,9 +54,13 @@ namespace RandLAPACK {
 /// the value that pins one quadrature node at 0 (det(T̂_t) = 0). For the
 /// operator-monotone f this method targets, Gauss and Radau err on opposite
 /// sides (Golub-Meurant), so |U_t − L_t| is a certified error bound with no
-/// delay window, no depth floor, and no plateau risk: the column stops at the
-/// first depth t with |U_t − L_t| ≤ adaptive_rtol·|U_t|, and adaptive_rtol is
-/// a CERTIFIED relative error, not a target scale. The corner entry needs no
+/// delay window and no plateau risk: the column stops at the first CHECKED
+/// depth t ≥ 2 with |U_t − L_t| ≤ adaptive_rtol·scale, where
+/// scale = max(|U_t|, |L_t|, tiny) guards the convergence floor, and
+/// adaptive_rtol is a CERTIFIED relative error, not a target scale. Checks
+/// follow a geometric cadence (see due_for_check), so the stop lands at the
+/// first checked depth past certifiability, at most ~1.5x beyond it, and
+/// never before t = 2. The corner entry needs no
 /// tridiagonal solve: e_{t−1}ᵀ(T_{t−1})⁻¹e_{t−1} = 1/d_{t−1} with the LDLᵀ
 /// pivot recurrence d_1 = α_1, d_i = α_i − β_{i−1}²/d_{i−1}, maintained in
 /// O(1) per step per column; a non-positive pivot means T is not positive
@@ -79,7 +85,7 @@ public:
     // ---- certified adaptive stopping controls ------------------------------
     bool    adaptive      = false;   ///< per-column Gauss-Radau certified stop
     T       adaptive_rtol = (T)1e-2; ///< certified relative-error tolerance
-    int64_t check_every   = 1;       ///< certificate stride (checks at t ≥ 2)
+    int64_t check_every   = 1;       ///< 1 = geometric check ladder; >1 = fixed stride (checks at t ≥ 2 either way)
 
     // ---- outputs of the last call ------------------------------------------
     int64_t d_used        = 0;       ///< max over columns of the depth used
@@ -96,15 +102,19 @@ public:
     // alpha/beta: per-column tridiagonal histories, alpha[col*d + i] = α_{i+1},
     //   beta[col*d + i] = β_{i+1} (β stride d for simplicity; entry d−1 unused).
     // ldl_piv: per-column running LDLᵀ pivot d_t of T_t (through current depth).
+    // radau_corner: per-column exact Radau corner α̂_t = β_{t−1}²/d_{t−1}, saved
+    //   at the pivot update so evaluate_pair never reconstructs it by subtraction.
     // col_of_slot: original column held by each active slot (compaction map).
     T*       qbuf        = nullptr; int64_t qbuf_sz        = 0;
     T*       alpha       = nullptr; int64_t alpha_sz       = 0;
     T*       beta        = nullptr; int64_t beta_sz        = 0;
     T*       normb       = nullptr; int64_t normb_sz       = 0;
     T*       ldl_piv     = nullptr; int64_t ldl_piv_sz     = 0;
+    T*       radau_corner= nullptr; int64_t radau_corner_sz= 0;
     uint8_t* cert_ok     = nullptr; int64_t cert_ok_sz     = 0; ///< pivot chain still PD
     int64_t* col_of_slot = nullptr; int64_t col_of_slot_sz = 0;
-    T*       workspace   = nullptr; int64_t workspace_sz   = 0; ///< per-thread stevd scratch
+    T*       workspace   = nullptr; int64_t workspace_sz   = 0; ///< per-slot stevd scratch
+    int64_t  ws_depth    = 0;       ///< current slot stride basis: each slot holds ws_depth² + 2·ws_depth
     // Scratch for the fused panel kernels (see the [panel kernels] note below):
     // per-thread partial column sums, and slot-indexed coefficient vectors.
     T*       panel_par   = nullptr; int64_t panel_par_sz   = 0; ///< nthreads * s partials
@@ -130,7 +140,7 @@ public:
 
     ~LanczosQFA() {
         delete[] qbuf; delete[] alpha; delete[] beta; delete[] normb;
-        delete[] ldl_piv; delete[] cert_ok; delete[] col_of_slot;
+        delete[] ldl_piv; delete[] radau_corner; delete[] cert_ok; delete[] col_of_slot;
         delete[] t_used; delete[] gauss_val; delete[] radau_val;
         delete[] certified; delete[] workspace;
         delete[] panel_par; delete[] slot_a; delete[] slot_b; delete[] slot_v;
@@ -154,6 +164,7 @@ public:
         if (timing) t_start = steady_clock::now();
 
         if (d < 1) throw std::invalid_argument("LanczosQFA: depth d must be >= 1.");
+        if (check_every < 1) throw std::invalid_argument("LanczosQFA: check_every must be >= 1.");
 
         // [setup] buffers + per-column output state.
         util::upsize(qbuf,        qbuf_sz,        3 * n * s);
@@ -161,30 +172,45 @@ public:
         util::upsize(beta,        beta_sz,        d * s);
         util::upsize(normb,       normb_sz,       s);
         util::upsize(ldl_piv,     ldl_piv_sz,     s);
+        util::upsize(radau_corner, radau_corner_sz, s);
         util::upsize(cert_ok,     cert_ok_sz,     s);
         util::upsize(col_of_slot, col_of_slot_sz, s);
         util::upsize(t_used,      t_used_sz,      s);
         util::upsize(gauss_val,   gauss_val_sz,   s);
         util::upsize(radau_val,   radau_val_sz,   s);
         util::upsize(certified,   certified_sz,   s);
-        // Per-thread scratch for the tridiagonal eigensolves: alpha copy (d) +
-        // beta copy (d) + eigenvector matrix Z (d*d).
-        // Eigensolve scratch is indexed by the loop variable j < act <= s, NOT by
-        // thread id, so it needs s slots -- not nthreads. Sizing it by nthreads
+        // Eigensolve scratch: per slot, an alpha copy + beta copy + eigenvector
+        // matrix Z. Indexed by the loop variable j < act <= s, NOT by thread
+        // id, so it needs s slots -- not nthreads. Sizing it by nthreads
         // cost 112 * d^2 = 4.34 GB at d = 2226 on a 112-core node while at most
         // s of those slots could ever be live (28x over-allocation at the auto
-        // tier's s = 4), re-mapped on every call by util::upsize.
-        const int64_t ws_per_slot = d * d + 2 * d;
+        // tier's probe BLOCK b = 4), re-mapped on every call by util::upsize.
+        // Adaptive runs additionally size each slot by the depth actually
+        // EVALUATED, not the cap: columns typically certify at depths far below
+        // d, and an upfront s * (d^2 + 2d) allocation is 1.6 GB at d = 2226,
+        // s = 40. The slot stride basis ws_depth grows lazily (ensure_eval_ws)
+        // just before each evaluation depth. A fixed-depth run makes its single
+        // evaluation at t = d, so it keeps the upfront allocation.
         int nthreads = 1;
 #ifdef _OPENMP
         nthreads = omp_get_max_threads();
 #endif
-        util::upsize(workspace, workspace_sz, s * ws_per_slot);
+        if (adaptive) {
+            ws_depth = 0;
+        } else {
+            ws_depth = d;
+            util::upsize(workspace, workspace_sz, s * (d * d + 2 * d));
+        }
         // Partials are cache-line padded per thread (see partial_stride).
         util::upsize(panel_par, panel_par_sz, (int64_t)nthreads * partial_stride(s));
         util::upsize(slot_a,    slot_a_sz,    s);
         util::upsize(slot_b,    slot_b_sz,    s);
         util::upsize(slot_v,    slot_v_sz,    s);
+        // The rolling slices are always overwritten before numerical use; this
+        // memset only keeps retire_slot's slice copies (which can precede the
+        // first write of w, and of q_prev at t = 1) off indeterminate heap so
+        // memory sanitizers stay clean.
+        std::memset(qbuf, 0, sizeof(T) * 3 * n * s);
 
         for (int64_t j = 0; j < s; ++j) {
             t_used[j] = 0; gauss_val[j] = (T)0; radau_val[j] = (T)0;
@@ -250,20 +276,24 @@ public:
                     } else if (cert_ok[col]) {
                         const T b_ = beta[col * d + (t - 2)];
                         const T corner = b_ * b_ / ldl_piv[col];
+                        radau_corner[col] = corner;   // exact α̂_t, read back by evaluate_pair
                         const T piv = a - corner;
-                        ldl_piv[col] = piv;   // pivot THROUGH depth t; corner used at depth t reads the pre-update value below
+                        ldl_piv[col] = piv;   // pivot THROUGH depth t
                         if (piv <= (T)0) cert_ok[col] = 0;
                     }
                 }
             }
 
-            // [certificate] at depth t ≥ 2 (stride check_every): per active
+            // [certificate] at depth t ≥ 2 (cadence: due_for_check): per active
             // column, Gauss U_t vs Gauss-Radau L_t; certify when the bracket
             // closes. The Radau corner α̂_t = β_{t−1}²/d_{t−1} needs the pivot
-            // BEFORE this step's update, but no history is stored: the pivot
-            // recurrence d_t = α_t − α̂_t gives α̂_t = α_t − d_t exactly, which
-            // is how evaluate_pair() reconstructs it from the updated pivot.
+            // BEFORE this step's update; it was saved exactly at the update
+            // above (radau_corner), which evaluate_pair() reads directly.
             if (adaptive && t >= 2 && due_for_check(t)) {
+                // Every evaluation in this sweep is at the same depth t, so the
+                // scratch resize happens once here, OUTSIDE the parallel region
+                // (it can re-map workspace and change the uniform slot stride).
+                ensure_eval_ws(t, s);
                 if (timing) c0 = steady_clock::now();
 // dynamic: per-iteration cost is bimodal (a skipped column costs nothing, a
 // checked one costs O(t^3)), so a static split leaves threads idle behind a
@@ -320,11 +350,16 @@ public:
                 // is a breakdown, which is exactly how it is then handled.
                 const T nrm = std::sqrt(slot_v[j]);
                 beta[col * d + (t - 1)] = nrm;
-                if (nrm > (T)0) {
+                // Breakdown threshold: relative to the local scale |α_t|, not
+                // exact zero. A tiny-but-nonzero β is the normal floating-point
+                // signature of an invariant subspace; dividing through would
+                // continue the recurrence on amplified roundoff.
+                if (nrm > std::numeric_limits<T>::epsilon() * std::abs(slot_a[j])) {
                     slot_v[j] = (T)1.0 / nrm;      // scale factor for the pass below
                 } else {
                     slot_v[j] = (T)0;              // leave the column untouched
                     // Breakdown: certify with the exact depth-t value.
+                    ensure_eval_ws(t, s);          // serial loop: safe to resize here
                     T U;
                     evaluate_gauss(f, col, t, d, U);
                     certified[col] = 1; t_used[col] = t;
@@ -347,11 +382,17 @@ public:
         }
 
         // [final evaluation] columns still active ran to the cap (or the whole
-        // fixed-depth run when !adaptive): evaluate the depth-t Gauss value,
-        // uncertified in adaptive mode. In adaptive mode the Radau companion
-        // is also evaluated when the pivot chain allows, so radau_val reports
-        // the (unclosed) bracket at the cap for diagnostics.
+        // fixed-depth run when !adaptive): evaluate the depth-t Gauss value.
+        // In adaptive mode the Radau companion is also evaluated when the
+        // pivot chain allows, and the bracket test is applied one last time:
+        // the check ladder rarely lands exactly on the cap, so a bracket that
+        // closed between the last checked depth and the cap must be reported
+        // certified. Columns whose bracket is still open keep certified = 0,
+        // with radau_val reporting the unclosed bracket for diagnostics.
         if (act > 0) {
+            // One resize for the whole sweep, outside the parallel region
+            // (every evaluation below is at the same depth t).
+            ensure_eval_ws(t, s);
             if (timing) c0 = steady_clock::now();
 #pragma omp parallel for schedule(static)
             for (int64_t j = 0; j < act; ++j) {
@@ -360,6 +401,10 @@ public:
                 if (adaptive && t >= 2 && cert_ok[col]) {
                     evaluate_pair(f, col, t, d, U, L);
                     radau_val[col] = L;
+                    // Same criterion as the in-run certificate check.
+                    const T hi = std::max(U, L), lo = std::min(U, L);
+                    const T scale = std::max(std::abs(hi), std::numeric_limits<T>::min());
+                    if (hi - lo <= adaptive_rtol * scale) certified[col] = 1;
                 } else {
                     evaluate_gauss(f, col, t, d, U);
                 }
@@ -381,6 +426,9 @@ public:
             long total_us   = duration_cast<microseconds>(t_end - t_start).count();
             long apply_us   = cert_us;
             long lanczos_us = total_us - apply_us;   // recurrence net of certificate
+            // rest_us is identically 0 here by construction: lanczos_us is
+            // DEFINED as total minus certificate time, so there is no residual
+            // bucket. The slot is kept so the layout matches LanczosFA's times.
             long rest_us    = total_us - lanczos_us - apply_us;
             // 6th slot = reorthogonalization, always 0 here: this oracle has none by
             // design. Kept so the slot layout matches LanczosFA and "reorth cost" is
@@ -517,6 +565,10 @@ private:
         const ChunkPlan cp = chunk_plan(n, ncols, nthreads);
         const int64_t stride = partial_stride(ncols);
         const int64_t total  = n * ncols;
+        // Zero ALL cp.n_threads partial slots BEFORE forking: num_threads() is
+        // a request, not a guarantee, and the reduction below sums every slot,
+        // so a slot no granted thread visits must contribute an exact zero.
+        std::memset(partials, 0, sizeof(T) * (int64_t)cp.n_threads * stride);
 #pragma omp parallel num_threads(cp.n_threads)
         {
             int tid = 0;
@@ -524,7 +576,6 @@ private:
             tid = omp_get_thread_num();
 #endif
             T* loc = partials + (int64_t)tid * stride;
-            for (int64_t j = 0; j < ncols; ++j) loc[j] = (T)0;   // own slice: parallel
 #pragma omp for schedule(static)
             for (int64_t c = 0; c < cp.n_chunks; ++c) {
                 int64_t lo, hi; chunk_range(total, cp.n_chunks, c, lo, hi);
@@ -552,6 +603,9 @@ private:
         const ChunkPlan cp = chunk_plan(n, ncols, nthreads);
         const int64_t stride = partial_stride(ncols);
         const int64_t total  = n * ncols;
+        // Pre-zero every partial slot: num_threads() is a request, not a
+        // guarantee, and unvisited slots must reduce as exact zeros.
+        std::memset(partials, 0, sizeof(T) * (int64_t)cp.n_threads * stride);
 #pragma omp parallel num_threads(cp.n_threads)
         {
             int tid = 0;
@@ -559,7 +613,6 @@ private:
             tid = omp_get_thread_num();
 #endif
             T* loc = partials + (int64_t)tid * stride;
-            for (int64_t j = 0; j < ncols; ++j) loc[j] = (T)0;
 #pragma omp for schedule(static)
             for (int64_t c = 0; c < cp.n_chunks; ++c) {
                 int64_t lo, hi; chunk_range(total, cp.n_chunks, c, lo, hi);
@@ -598,10 +651,10 @@ private:
     /// from the stored alpha/beta history (copies; stevd destroys its input).
     template <std::invocable<T> F>
     void evaluate_gauss(F f, int64_t col, int64_t t, int64_t d, T& U) {
-        T* base = slot_ws(col, d);
+        T* base = slot_ws(col);
         T* a_c  = base;
-        T* b_c  = a_c + d;
-        T* Z    = b_c + d;
+        T* b_c  = a_c + ws_depth;
+        T* Z    = b_c + ws_depth;
         blas::copy(t, alpha + col * d, 1, a_c, 1);
         if (t > 1) blas::copy(t - 1, beta + col * d, 1, b_c, 1);
         U = quad_e1(f, t, a_c, b_c, Z) * normb[col] * normb[col];
@@ -609,24 +662,25 @@ private:
 
     /// Gauss U_t and Gauss-Radau L_t for column `col` at depth t ≥ 2. The
     /// Radau tridiagonal T̂_t differs from T_t only in its corner entry
-    /// α̂_t = β_{t−1}²/d_{t−1} = α_t − d_t (from the pivot recurrence
-    /// d_t = α_t − β_{t−1}²/d_{t−1}), so it is recovered O(1) from the
-    /// maintained pivot without storing the pivot history.
+    /// α̂_t = β_{t−1}²/d_{t−1}, saved exactly at this depth's pivot update
+    /// (radau_corner). Algebraically α̂_t == α_t − d_t by the pivot recurrence
+    /// d_t = α_t − β_{t−1}²/d_{t−1}, but that subtraction cancels (relative
+    /// error ~ eps·α_t/α̂_t), so the saved value is used instead.
     template <std::invocable<T> F>
     void evaluate_pair(F f, int64_t col, int64_t t, int64_t d, T& U, T& L) {
-        T* base = slot_ws(col, d);
+        T* base = slot_ws(col);
         T* a_c  = base;
-        T* b_c  = a_c + d;
-        T* Z    = b_c + d;
+        T* b_c  = a_c + ws_depth;
+        T* Z    = b_c + ws_depth;
         const T nb2 = normb[col] * normb[col];
         // Gauss.
         blas::copy(t, alpha + col * d, 1, a_c, 1);
         blas::copy(t - 1, beta + col * d, 1, b_c, 1);
         U = quad_e1(f, t, a_c, b_c, Z) * nb2;
-        // Radau: same T_t but corner α̂_t = α_t − d_t (pins a node at 0).
+        // Radau: same T_t but corner α̂_t (pins a node at 0).
         blas::copy(t, alpha + col * d, 1, a_c, 1);
         blas::copy(t - 1, beta + col * d, 1, b_c, 1);
-        a_c[t - 1] = alpha[col * d + (t - 1)] - ldl_piv[col];
+        a_c[t - 1] = radau_corner[col];
         L = quad_e1(f, t, a_c, b_c, Z) * nb2;
     }
 
@@ -635,7 +689,12 @@ private:
     /// assumption; the Radau node sits at 0 ± roundoff).
     template <std::invocable<T> F>
     T quad_e1(F f, int64_t t, T* a, T* b, T* Z) {
-        lapack::stevd(lapack::Job::Vec, t, a, b, Z, t);
+        // Nonzero info means stevd did not converge and a/Z hold garbage;
+        // fail loudly rather than certify against it.
+        const int64_t info = lapack::stevd(lapack::Job::Vec, t, a, b, Z, t);
+        if (info != 0)
+            throw std::runtime_error("LanczosQFA: stevd failed at depth "
+                + std::to_string(t) + " (info = " + std::to_string(info) + ").");
         T acc = (T)0;
         for (int64_t i = 0; i < t; ++i) {
             const T z0 = Z[i * t + 0];
@@ -644,26 +703,43 @@ private:
         return acc;
     }
 
+    /// Certificate cadence. Checking EVERY step costs two O(t^3) eigensolves per
+    /// active column per step, i.e. O(s*d^4) over a run -- ~1e15 flops at the
+    /// d ~ 2200 the hard cells reach, which dominates everything else. The
+    /// default check_every == 1 uses a geometric ladder instead: every depth
+    /// through t = 9, then 12, 18, 27, 42, 63, 93, 141, ... (~1.5x steps),
+    /// which is O(s*d^3) while overshooting the true stopping depth by at most
+    /// ~1.5x, since the bracket closes monotonically. check_every > 1 forces a
+    /// plain fixed stride -- note the semantics inversion around the default:
+    /// a fixed stride (even check_every = 2) checks MORE often than the ladder
+    /// once t > 9, not less. Single-sourced in util::qfa_check_due, which is
+    /// the authoritative implementation.
+    bool due_for_check(int64_t t) const {
+        return util::qfa_check_due(t, check_every);
+    }
+
+    /// Grow the eigensolve scratch so every slot holds a depth-t evaluation.
+    /// Must be called OUTSIDE any parallel region: it can re-map `workspace`,
+    /// and slot_ws() uses ws_depth as a uniform stride, so all evaluations in
+    /// one parallel sweep must share one ws_depth (they do: each sweep
+    /// evaluates at a single depth t, and ws_depth only grows). Contents need
+    /// no preservation across the re-map -- every evaluation copies fresh
+    /// alpha/beta histories in.
+    void ensure_eval_ws(int64_t t, int64_t s) {
+        if (t > ws_depth) {
+            ws_depth = t;
+            util::upsize(workspace, workspace_sz, s * (ws_depth * ws_depth + 2 * ws_depth));
+        }
+    }
+
     /// Eigensolve scratch for the column `col`. Indexed by COLUMN, not thread
     /// id: every caller sits in a `for (j < act)` loop where col = col_of_slot[j]
     /// is distinct per iteration and col < s, so slots never collide, and the
-    /// buffer is s*(d^2+2d) rather than nthreads*(d^2+2d).
-    /// Certificate stride. Checking EVERY step costs two O(t^3) eigensolves per
-    /// active column per step, i.e. O(s*d^4) over a run -- ~1e15 flops at the
-    /// d ~ 2200 the hard cells reach, which dominates everything else. Checking
-    /// on a geometric ladder (2,3,4,6,8,12,16,24,...) makes it O(s*d^3) while
-    /// overshooting the true stopping depth by at most ~1.5x, since the bracket
-    /// closes monotonically. check_every > 1 still forces a plain fixed stride.
-    bool due_for_check(int64_t t) const {
-        if (check_every > 1) return (t % check_every) == 0;
-        if (t <= 8) return true;                 // cheap depths: check every step
-        int64_t step = 2;
-        while (step * 3 / 2 < t) step = step * 3 / 2;   // ~1.5x ladder
-        return (t % std::max<int64_t>(1, step / 2)) == 0;
-    }
-
-    T* slot_ws(int64_t col, int64_t d) {
-        return workspace + col * (d * d + 2 * d);
+    /// buffer needs s slots rather than nthreads. The slot stride derives from
+    /// ws_depth (the largest depth evaluated so far this call, or the cap d on
+    /// a fixed-depth run), never from the cap alone; see ensure_eval_ws.
+    T* slot_ws(int64_t col) {
+        return workspace + col * (ws_depth * ws_depth + 2 * ws_depth);
     }
 };
 
