@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -73,10 +74,15 @@ long measure_us(Fn&& fn) {
 /// Numbered to match Algorithm 2 of the funNyström++ writeup. Every code
 /// block below is tagged [Alg. 2, line N] with the step it implements:
 ///   (1)  draw sparse Ω ∈ R^{m×k}   SparseStack/SASO with `vec_nnz` nonzeros
-///                                  per column, generated internally from
-///                                  `state` (CQRRPT-style; `state` is advanced).
-///                                  Matches Alg. 1 line 1 of the writeup, which
-///                                  specifies a SparseStack sketch.
+///                                  per ROW (Axis::Short with k < m: the short
+///                                  axis is the k columns, so each of the m
+///                                  rows scatters vec_nnz ±1 entries across
+///                                  them; nnz(Ω) = vec_nnz·m), generated
+///                                  internally from `state` (CQRRPT-style;
+///                                  `state` is advanced). Matches Alg. 1
+///                                  line 1 of the writeup, which specifies a
+///                                  SparseStack sketch. vec_nnz = 0 means
+///                                  "auto" (resolved below to ~log(k)).
 ///        (+ q−1 subspace-iteration passes Ω ← orthonormalize(A·Ω); a
 ///         generalization of Algorithm 2, which is single-pass)
 ///   (2)  Y   ← A·Ω                 in sparse arithmetic when the operator
@@ -84,21 +90,27 @@ long measure_us(Fn&& fn) {
 ///                                  right_spmm, needs BOTH triangles populated)
 ///   (3)  ν   ← sqrt(m)·eps·‖Y‖_F   shift (pseudocode convention)
 ///   (4)  Y_ν ← Y + ν·Ω             = (A+νI)·Ω
-///   (5)  C   ← chol(Ωᵀ·Y_ν)        Ωᵀ(A+νI)Ω is SPD, so Cholesky never fails
+///   (5)  C   ← chol(Ωᵀ·Y_ν)        Ωᵀ(A+νI)Ω is SPD iff rank(Ω) = k
 ///   (6)  B   ← Y_ν·C⁻¹             triangular solve
 ///   (7)  [U, Σ, ~] ← svd_econ(B)
 ///   (8)  λ̂   ← max{0, Σ² − ν}      remove the shift
 ///        ((9)-(10) truncate to rank k: a no-op here, since Ω is drawn at rank k)
 ///
-/// The shift makes Ωᵀ(A+νI)Ω strictly positive definite, so the Cholesky cannot
-/// fail on a (near) rank-deficient spectrum and no fall-back path is needed (the
-/// earlier dual-path recovery has been removed).
+/// The shift makes Ωᵀ(A+νI)Ω positive definite whenever Ω has full column
+/// rank k: the shift adds ν·Ω (not ν·I) to Y, so it regularizes a (near)
+/// rank-deficient SPECTRUM of A but cannot repair a rank-deficient SKETCH.
+/// With the Axis::Short SASO a column of Ω is empty with probability
+/// (1 − vec_nnz/k)^m, so a fixed small vec_nnz makes an exactly-zero column
+/// (hence an exactly singular Gram, hence a genuine potrf failure)
+/// increasingly likely as k grows toward m; ~log(k) nonzeros per row keeps
+/// that probability negligible, which is what vec_nnz = 0 ("auto") resolves
+/// to at sketch time.
 ///
 /// Ω stays in sparse form wherever it appears — it is never densified. At
 /// q = 1: line 2 applies it through the operator's SkOp matvec, line 4's ν·Ω
-/// update is a scatter-add over the k·vec_nnz stored nonzeros, and line 5's
+/// update is a scatter-add over the m·vec_nnz stored nonzeros, and line 5's
 /// Gram applies Ωᵀ as a sketching operator via RandBLAS::sketch_general
-/// (O(k²·vec_nnz), vs O(m·k²) for a dense GEMM). At q > 1 the recovery
+/// (O(m·vec_nnz·k), vs O(m·k²) for a dense GEMM). At q > 1 the recovery
 /// consumes the dense orthonormalized iterate Q instead — which is where the
 /// sketch naturally *becomes* dense, through Q ← orthonormalize(A·…); the
 /// subspace-iteration passes ping-pong between ws.Q and ws.Y via pointer
@@ -126,10 +138,37 @@ void NystromEVD(
     using namespace blas;
     int64_t m = A_op.dim;
 
-    if (vec_nnz < 1 || vec_nnz > m)
+    if (k < 1 || k > m)
         throw std::invalid_argument(
-            "NystromEVD: vec_nnz must be in [1, m]; got vec_nnz = " +
-            std::to_string(vec_nnz) + " with m = " + std::to_string(m) + ".");
+            "NystromEVD: sketch rank k must be in [1, n]; got k = " +
+            std::to_string(k) + " with n = " + std::to_string(m) +
+            ". gesdd fills only min(n, k) singular values, so k > n would "
+            "leave the recovery reading uninitialized data.");
+    if (q < 1)
+        throw std::invalid_argument(
+            "NystromEVD: q must be >= 1 (total A-applications in Phase 1); got q = " +
+            std::to_string(q) + ".");
+    // The SASO is SparseDist(m, k, vec_nnz) with Axis::Short, so RandBLAS
+    // requires vec_nnz <= min(m, k) = k (each row scatters vec_nnz entries
+    // across the k columns). 0 opts in to the auto policy resolved below.
+    if (vec_nnz < 0 || vec_nnz > std::min(m, k))
+        throw std::invalid_argument(
+            "NystromEVD: vec_nnz must be 0 (auto) or in [1, min(n, k)] = [1, " +
+            std::to_string(std::min(m, k)) + "]; got vec_nnz = " +
+            std::to_string(vec_nnz) + " with n = " + std::to_string(m) +
+            ", k = " + std::to_string(k) + ".");
+
+    // Resolve vec_nnz = 0 ("auto") at sketch time. A column of the Axis::Short
+    // SASO is empty with probability (1 − vec_nnz/k)^m; an empty column makes
+    // the shifted Gram Ωᵀ(A+νI)Ω exactly singular (the shift adds ν·Ω, not
+    // ν·I, so it cannot help) and potrf genuinely fails. A fixed small
+    // vec_nnz therefore fails increasingly often as k grows toward m;
+    // ~log(k) nonzeros per row keeps the empty-column probability negligible.
+    // Explicit caller values pass through unchanged (the guard above already
+    // enforces vec_nnz <= k).
+    const int64_t vnz = (vec_nnz == 0)
+        ? std::min(std::max((int64_t)4, (int64_t)std::ceil(std::log((double)k))), k)
+        : vec_nnz;
 
     using clk = std::chrono::steady_clock;
     auto t_total_start = clk::now();
@@ -138,7 +177,7 @@ void NystromEVD(
     // [Alg. 2, line 1] Draw the SparseStack/SASO sketch Ω internally
     //   (CQRRPT-style; `state` is advanced past the draw). NOT orthonormalized,
     //   per Algorithm 2 and the basis-invariance of the shifted recovery.
-    RandBLAS::SparseDist DS(m, k, vec_nnz);
+    RandBLAS::SparseDist DS(m, k, vnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
 
     // The operator must support the RandBLAS SketchingOperator matvec overload
@@ -204,11 +243,29 @@ void NystromEVD(
     // [Alg. 2, line 3] ν ← sqrt(m)·eps·‖Y‖_F  (pseudocode convention; NB
     //   nystrom_epperly.m uses eps·‖Y‖_F / sqrt(m), a factor-of-m difference,
     //   pinned to the pseudocode per project decision 2026-07-08).
+    //   Magnitude note: the SASO carries ±1 entries (isometry_scale is never
+    //   applied), so ‖Ω‖_F = sqrt(vec_nnz·m) and ν ~ m·eps·sqrt(vec_nnz)·‖A‖₂.
+    //   In double that is harmless (~1e-12·‖A‖₂ at n = 3000), but in single
+    //   precision it reaches ~1e-3·‖A‖₂ at n = 3000 and the λ̂ = max{0, Σ²−ν}
+    //   recovery then clamps a large part of the spectrum. Not blocked, but
+    //   flagged once per instantiation below.
+    if constexpr (sizeof(T) < 8) {
+        static bool nu_note_emitted = false;
+        if (!nu_note_emitted) {
+            nu_note_emitted = true;
+            std::fprintf(stderr,
+                "NOTE NystromEVD: single-precision shift nu ~ n*eps*sqrt(vec_nnz)*||A||_2 "
+                "can reach ~1e-3*||A||_2 at n ~ 3000 and clamps the recovered "
+                "eigenvalue tail; prefer double precision for spectra spanning "
+                "more than a few decades.\n");
+        }
+    }
     const T nu = std::sqrt((T)m) * eps_mach * blas::nrm2(m * k, ws.Y, 1);
 
     // [Alg. 2, line 4] Y_ν ← Y + ν·Ω = (A+νI)·Ω  (overwrites ws.Y).
-    //   Sparse path: ν·Ω has only k·vec_nnz stored entries, so the update is a
-    //   scatter-add over the SASO's COO triplets — no dense image of Ω needed.
+    //   Sparse path: ν·Ω has only m·vec_nnz stored entries (vec_nnz per row),
+    //   so the update is a scatter-add over the SASO's COO triplets — no dense
+    //   image of Ω needed.
     if (q == 1) {
         auto S_coo = RandBLAS::coo_view_of_skop(S);
         for (int64_t t = 0; t < S_coo.nnz; ++t)
@@ -219,7 +276,7 @@ void NystromEVD(
 
     // [Alg. 2, line 5a] H ← Ωᵀ·Y_ν  (k×k = Ωᵀ(A+νI)Ω, SPD since A+νI is).
     //   Sparse path: apply Ωᵀ as a sketching operator (RandBLAS::sketch_general,
-    //   the same primitive CQRRPT uses to apply its SASO) — O(k²·vec_nnz) vs
+    //   the same primitive CQRRPT uses to apply its SASO) — O(m·vec_nnz·k) vs
     //   O(mk²) for the dense GEMM.
     //   H is symmetric in exact arithmetic, but either product forms its two
     //   triangles from independent accumulations, so they disagree at roundoff
@@ -247,10 +304,13 @@ void NystromEVD(
         throw std::runtime_error(
             "NystromEVD: shifted Cholesky failed (potrf status " +
             std::to_string(chol_status) + " at rank k=" + std::to_string(k) +
-            ", n=" + std::to_string(m) + "). The shifted Gram Omega^T(A+nu I)Omega "
-            "goes numerically singular as k approaches n with a sparse SASO sketch "
-            "and the tiny shift nu; keep the sketch rank k <~ n/2 (the knob-free "
-            "auto tier caps it there for this reason).");
+            ", n=" + std::to_string(m) + ", vec_nnz=" + std::to_string(vnz) +
+            "). At large k the likely cause is an exactly-zero column of the "
+            "sparse SASO sketch (probability (1 - vec_nnz/k)^n per column): a "
+            "rank-deficient Omega makes the Gram Omega^T(A+nu I)Omega exactly "
+            "singular, and the shift adds nu*Omega, not nu*I, so it cannot "
+            "help. Raise vec_nnz (or pass vec_nnz = 0 for the ~log(k) auto "
+            "policy) and keep the sketch rank k <= n/2.");
 
     // [Alg. 2, line 6] B ← Y_ν·C⁻¹  (triangular solve; B overwrites ws.Y).
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,

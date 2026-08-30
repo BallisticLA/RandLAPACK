@@ -8,7 +8,7 @@
 // driver end-to-end with the requested Phase-2 oracle.
 //
 // Usage:
-//   FunNystromPP_benchmark A.bin Omega1.bin Omega2.bin func q [poly_lambda] [lfa_type] [d] [sketch_type] [vec_nnz] [seed] [timing] [force_fallback]
+//   FunNystromPP_benchmark A.bin Omega1.bin Omega2.bin func q [poly_lambda] [lfa_type] [d] [sketch_type] [vec_nnz] [seed] [timing]
 //
 //   func           sqrt | log | poly | effdim | square | identity   (scalar f)
 //   q              subspace-iteration count (e.g. 2)
@@ -23,20 +23,23 @@
 //                    NystromEVD; Omega1.bin is read only for its (n, k) header
 //                    (its data is never loaded). Ω₂ is unaffected (always
 //                    loaded from disk). CSV reports sketch_type=saso.
-//   vec_nnz        non-zeros per column for the SASO (default 8)
+//   vec_nnz        non-zeros per ROW of the n×k SASO (default 8; 0 = auto,
+//                    resolved to ~log(k) inside NystromEVD)
 //   seed           RNG seed for the Phase-1 sketch (default 42)
 //   timing         0 | 1   (default 0). When 1, suppress the syevd true-trace
 //                    oracle (which would dominate wall-clock at n=2000) and report
-//                    Phase 1 + Phase 2 driver wall-clock in ms.
-//   force_fallback 0 | 1   (default 0). When 1, sets driver.force_fallback so
-//                    NystromEVD skips Cholesky-fast and takes the SVD-pinv path.
-//                    A/B benchmarks of Phase 7a's HMT §5.1 trick.
+//                    Phase 1 + Phase 2 driver wall-clock in ms; true_tr and err
+//                    are then NaN — EXCEPT with lfa_type=exact, whose oracle
+//                    needs the eigendecomposition anyway, so true_tr and err
+//                    are computed and reported even in timing mode.
 //
 // Stdout: one CSV row:
-//   t1,t2,est,true_tr,err,lfa_type,d,sketch_type,vec_nnz,n,k,t_driver_ms,t_phase1_ms,t_phase2_ms,t_specrec_ms,force_fallback
-// where true_tr is the dense-syevd oracle (suppressed in timing mode; reported as NaN).
-// t_specrec_ms is the wall-clock of just the dual-path spectral-recovery
-// block inside NystromEVD — the tight A/B measurement for Phase 7a.
+//   t1,t2,est,true_tr,err,lfa_type,d,sketch_type,vec_nnz,n,k,t_driver_ms,t_phase1_ms,t_phase2_ms,t_specrec_ms
+// where true_tr is the dense-syevd oracle (NaN in timing mode unless
+// lfa_type=exact; see `timing` above).
+// t_specrec_ms is the wall-clock of just the shifted spectral-recovery block
+// inside NystromEVD (Alg. 2 lines 3-8); the sketch, subspace-iteration, and
+// matvec costs that precede it contribute to t_phase1_ms instead.
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -57,7 +60,7 @@ namespace linops = RandLAPACK::linops;
 static void print_usage(const char *prog) {
     std::fprintf(stderr,
         "Usage: %s A.bin Omega1.bin Omega2.bin func q "
-        "[poly_lambda] [lfa_type] [d] [sketch_type] [vec_nnz] [seed] [timing] [force_fallback]\n"
+        "[poly_lambda] [lfa_type] [d] [sketch_type] [vec_nnz] [seed] [timing]\n"
         "  func           sqrt | log | poly | effdim | square | identity\n"
         "  q              subspace-iter count (e.g. 2)\n"
         "  poly_lambda    λ in x(x+λ) when func=poly (default 10)\n"
@@ -65,15 +68,15 @@ static void print_usage(const char *prog) {
         "  d              Lanczos depth (default 200 scalar, 20 block)\n"
         "  sketch_type    IGNORED (Phase-1 sketch is always a kernel-internal SASO;\n"
         "                 Omega1.bin supplies only the (n, k) header)\n"
-        "  vec_nnz        non-zeros per column for the SASO (default 8)\n"
+        "  vec_nnz        non-zeros per row of the SASO (default 8; 0 = auto ~log(k))\n"
         "  seed           RNG seed for the Phase-1 sketch (default 42)\n"
         "  timing         0 | 1 (default 0). 1 = skip syevd oracle, report driver ms\n"
-        "  force_fallback 0 | 1 (default 0). 1 = skip Cholesky-fast in NystromEVD\n"
-        "Output (stdout): t1,t2,est,true_tr,err,lfa_type,d,sketch_type,vec_nnz,n,k,t_driver_ms,t_phase1_ms,t_phase2_ms,t_specrec_ms,force_fallback\n", prog);
+        "                 (true_tr/err NaN, except lfa_type=exact which reports them)\n"
+        "Output (stdout): t1,t2,est,true_tr,err,lfa_type,d,sketch_type,vec_nnz,n,k,t_driver_ms,t_phase1_ms,t_phase2_ms,t_specrec_ms\n", prog);
 }
 
 int main(int argc, char **argv) {
-    if (argc < 6 || argc > 14) { print_usage(argv[0]); return 1; }
+    if (argc < 6 || argc > 13) { print_usage(argv[0]); return 1; }
     using T = double;
 
     const std::string A_path     = argv[1];
@@ -89,7 +92,6 @@ int main(int argc, char **argv) {
     const int64_t vec_nnz        = (argc >= 11) ? std::strtoll(argv[10], nullptr, 10) : 8;
     const uint64_t saso_seed     = (argc >= 12) ? std::strtoull(argv[11], nullptr, 10) : 42;
     const bool     timing_mode   = (argc >= 13) ? (std::strtoll(argv[12], nullptr, 10) != 0) : false;
-    const bool     force_fallback= (argc >= 14) ? (std::strtoll(argv[13], nullptr, 10) != 0) : false;
 
     int64_t n_A = 0, n2_A = 0, n_O1 = 0, k = 0, n_O2 = 0, s = 0;
 
@@ -200,7 +202,6 @@ int main(int argc, char **argv) {
     }
 
     RandLAPACK::FunNystromPP<T> driver;
-    driver.force_fallback = force_fallback;
     driver.vec_nnz = vec_nnz;
     T t1 = 0, t2 = 0;
     auto t_start = std::chrono::steady_clock::now();
@@ -212,12 +213,11 @@ int main(int argc, char **argv) {
     double t_driver_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
     T err = std::isnan(true_tr) ? std::nan("0") : std::abs(est - true_tr) / std::abs(true_tr);
 
-    std::printf("%.17e,%.17e,%.17e,%.17e,%.6e,%s,%ld,%s,%ld,%ld,%ld,%.3f,%.3f,%.3f,%.3f,%d\n",
+    std::printf("%.17e,%.17e,%.17e,%.17e,%.6e,%s,%ld,%s,%ld,%ld,%ld,%.3f,%.3f,%.3f,%.3f\n",
                 t1, t2, est, true_tr, err, lfa_str.c_str(), (long)d,
                 "saso", (long)vec_nnz,
                 (long)n, (long)k, t_driver_ms,
-                driver.t_phase1_ms, driver.t_phase2_ms, driver.t_specrec_ms,
-                force_fallback ? 1 : 0);
+                driver.t_phase1_ms, driver.t_phase2_ms, driver.t_specrec_ms);
 
     delete[] A_buf;
     delete[] O2_buf;
