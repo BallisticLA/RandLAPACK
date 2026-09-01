@@ -61,6 +61,21 @@ inline std::string make_run_timestamp() {
 namespace RandLAPACK {
 namespace bench {
 
+// Campaign knob: retry cap applied to every MEASURED Q-less driver row.
+// RANDLAPACK_CHOL_MAX_RETRIES=0 makes a Cholesky breakdown report as a failed
+// row (qr_status != 0) instead of silently switching the row to the
+// shift-rescued variant of its method; unset keeps the library default (-1,
+// unbounded rescue). Warm-up constructions are exempt. Static cache: fixed for
+// the process lifetime after the first read, so validate via benchmarks, not
+// gtests.
+inline int bench_chol_max_retries() {
+    static const int v = []() {
+        const char* s = std::getenv("RANDLAPACK_CHOL_MAX_RETRIES");
+        return (s != nullptr && *s != '\0') ? std::atoi(s) : -1;
+    }();
+    return v;
+}
+
 // Named exit conditions for the CSV: distinguishes "hit the LS floor honestly"
 // from "ran out of budget", which shared a flag value before.
 inline const char* pcg_stop_reason(int status) {
@@ -84,6 +99,7 @@ inline std::string env_or(const char* key) {
 }
 inline void write_env_line(std::ostream& out) {
     out << "# env RANDLAPACK_GRAM_LEFT=" << env_or("RANDLAPACK_GRAM_LEFT")
+        << " RANDLAPACK_CHOL_MAX_RETRIES=" << env_or("RANDLAPACK_CHOL_MAX_RETRIES")
         << " RANDLAPACK_SCHOLQR3_SHIFT=" << env_or("RANDLAPACK_SCHOLQR3_SHIFT")
         << " RANDLAPACK_BLAS2_THREADS=" << env_or("RANDLAPACK_BLAS2_THREADS")
         << " RANDLAPACK_FFT_THREADS=" << env_or("RANDLAPACK_FFT_THREADS")

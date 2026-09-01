@@ -534,26 +534,31 @@ int main(int argc, char** argv) {
             // Build R via the selected Q-less QR method, then shared LSQR with right precond R.
             if (alg == "CholQR") {
                 rl::CholQR_linops<double> qr(true, tol); qr.block_size = block_size;
+                qr.max_retries = rl::bench::bench_chol_max_retries();
                 qr_status = qr.call(A_hat, R.data(), n);
                 if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 1);
                     analytical_kb = rl::cholqr_linops_analytical_kb<double>(mtot, n, block_size); }
             } else if (alg == "CholQR2") {
                 rl::CholQR2_linops<double> qr(true, tol); qr.block_size = block_size;
+                qr.max_retries = rl::bench::bench_chol_max_retries();
                 qr_status = qr.call(A_hat, R.data(), n);
                 if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 2);
                     analytical_kb = rl::cholqr2_linops_analytical_kb<double>(mtot, n, block_size); }
             } else if (alg == "sCholQR3") {
                 rl::sCholQR3_linops<double> qr(true, tol); qr.block_size = block_size;
+                qr.max_retries = rl::bench::bench_chol_max_retries();
                 qr_status = qr.call(A_hat, R.data(), n);
                 if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 3);
                     analytical_kb = rl::scholqr3_linops_analytical_kb<double>(mtot, n, block_size); }
             } else if (alg == "sCholQR3_basic") {
                 rl::sCholQR3_linops_basic<double> qr(true, tol);
+                qr.max_retries = rl::bench::bench_chol_max_retries();
                 qr_status = qr.call(A_hat, R.data(), n);
                 if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 3);
                     analytical_kb = rl::scholqr3_linops_basic_analytical_kb<double>(mtot, n); }
             } else { // CQRRT_linop
                 rl::CQRRT_linops<double, RNG> qr(true, tol);
+                qr.max_retries = rl::bench::bench_chol_max_retries();
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
                 qr.precond_method = rl::CQRRTLinopPrecond::TRSM_IDENTITY;
                 qr_status = qr.call(A_hat, R.data(), n, d_factor, state);

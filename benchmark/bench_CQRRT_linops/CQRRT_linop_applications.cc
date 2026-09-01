@@ -120,6 +120,7 @@ using RandLAPACK::bench::write_env_line;
 using RandLAPACK::bench::kRoundsCsvHeader;
 using RandLAPACK::bench::write_round_row;
 using RandLAPACK::bench::fold_chol_shift;
+using RandLAPACK::bench::bench_chol_max_retries;
 using RandLAPACK::bench::estimate_op_2norm;
 using RandLAPACK::bench::compute_orth_error_explicit;
 using RandLAPACK::bench::quote_join_argv;
@@ -977,6 +978,7 @@ static int run_benchmark_inner(
                     d_factor, sketch_nnz, state, alg_name, tol, outer_tol_eff, mem, res);
             } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<T> qr_algo(/*time_subroutines=*/true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(A_op, R, n);
                 record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
@@ -988,6 +990,7 @@ static int run_benchmark_inner(
                 }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<T> qr_algo(/*time_subroutines=*/true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 res.qr_status = qr_algo.call(A_op, R, n);
                 record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
                 res.peak_rss_kb = mem.stop();
@@ -998,6 +1001,7 @@ static int run_benchmark_inner(
                 }
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<T> qr_algo(/*time_subroutines=*/true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(A_op, R, n);
                 record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
@@ -1009,6 +1013,7 @@ static int run_benchmark_inner(
                 }
             } else if (alg_name == "CholQR2") {
                 RandLAPACK::CholQR2_linops<T> qr_algo(/*time_subroutines=*/true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(A_op, R, n);
                 record_chol_shift(res, qr_algo.chol_applied_shifts, qr_algo.chol_gram_traces);
@@ -1022,6 +1027,7 @@ static int run_benchmark_inner(
                 // CQRRT_linop (TRSM_IDENTITY precond). CQRRT_linop_bqrrp is not
                 // part of the benchmark dispatch.
                 RandLAPACK::CQRRT_linops<T, RNG> qr_algo(/*time_subroutines=*/true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 qr_algo.nnz = sketch_nnz;
                 qr_algo.block_size = block_size;
                 qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
@@ -1241,6 +1247,7 @@ static int run_rspec_benchmark(
             RandLAPACK::PeakRSSTracker mem; mem.start();
             if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<T> qr_algo(true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
@@ -1251,6 +1258,7 @@ static int run_rspec_benchmark(
                 }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<T> qr_algo(true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
@@ -1260,6 +1268,7 @@ static int run_rspec_benchmark(
                 }
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<T> qr_algo(true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
@@ -1270,6 +1279,7 @@ static int run_rspec_benchmark(
                 }
             } else if (alg_name == "CholQR2") {
                 RandLAPACK::CholQR2_linops<T> qr_algo(true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
@@ -1281,6 +1291,7 @@ static int run_rspec_benchmark(
             } else {
                 // CQRRT_linop. CQRRT_linop_bqrrp is not part of the dispatch.
                 RandLAPACK::CQRRT_linops<T, RNG> qr_algo(true, tol);
+                qr_algo.max_retries = bench_chol_max_retries();
                 qr_algo.nnz = sketch_nnz;
                 qr_algo.block_size = block_size;
                 qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
@@ -1792,6 +1803,7 @@ static int run_irlsq_reg(
                     mem, res);
             } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
+                qr.max_retries = bench_chol_max_retries();
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.chol_retries = qr.n_chol_retries;
                 record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
@@ -1799,6 +1811,7 @@ static int run_irlsq_reg(
                     res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<P_precond> qr(true, tol_P);
+                qr.max_retries = bench_chol_max_retries();
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.chol_retries = qr.n_chol_retries;
                 record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
@@ -1806,6 +1819,7 @@ static int run_irlsq_reg(
                     res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<P_precond>(A_hat_Pp.n_rows, n); }
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
+                qr.max_retries = bench_chol_max_retries();
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.chol_retries = qr.n_chol_retries;
                 record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
@@ -1813,6 +1827,7 @@ static int run_irlsq_reg(
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }
             } else if (alg_name == "CholQR2") {
                 RandLAPACK::CholQR2_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
+                qr.max_retries = bench_chol_max_retries();
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.chol_retries = qr.n_chol_retries;
                 record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
@@ -1822,6 +1837,7 @@ static int run_irlsq_reg(
                 // CQRRT: sketch + Gram the augmented A_hat (via VStack's blocked sketch
                 // overload), uniformly with the other 4 methods. R = chol(A^T A + mu^2 I).
                 RandLAPACK::CQRRT_linops<P_precond, RNG> qr(true, tol_P);
+                qr.max_retries = bench_chol_max_retries();
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
                 qr.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
                 res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.chol_retries = qr.n_chol_retries;
