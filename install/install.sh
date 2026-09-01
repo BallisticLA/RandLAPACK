@@ -257,7 +257,7 @@ fi
 # GCC 13.3.0 is the reference version. Warn rather than block: newer usually
 # works, and the C++20 concepts RandBLAS uses need at least 13.
 PREFERRED_GCC_VERSION="13.3.0"
-CURRENT_GCC_VERSION=$(gcc --version 2>/dev/null | head -n 1 | awk '{print $NF}')
+CURRENT_GCC_VERSION=$(gcc --version 2>/dev/null | head -n 1 | awk '{print $NF}' || true)
 if [[ -n "$CURRENT_GCC_VERSION" && "$CURRENT_GCC_VERSION" != "$PREFERRED_GCC_VERSION" ]]; then
     GCC_MAJOR="${CURRENT_GCC_VERSION%%.*}"
     if [[ "$GCC_MAJOR" =~ ^[0-9]+$ ]] && (( GCC_MAJOR < 13 )); then
@@ -297,9 +297,19 @@ esac
 
 if [[ "$RANDNLA_PROJECT_GPU_AVAIL" == "auto" ]]; then
     PREFERRED_NVCC_VERSION="12.9"
-    CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | grep "release" | awk '{print $5}' | cut -d',' -f1)
-    if [[ "$CURRENT_NVCC_VERSION" != "$PREFERRED_NVCC_VERSION" ]]; then
-        note "Note: NVCC $PREFERRED_NVCC_VERSION is the reference version; found ${CURRENT_NVCC_VERSION:-none}."
+    # "|| true": under set -euo pipefail a failing pipeline in a bare assignment
+    # exits the script with no message at all -- the case on any machine with an
+    # NVIDIA driver (nvidia-smi) but no CUDA toolkit (nvcc) on PATH.
+    CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | grep "release" | awk '{print $5}' | cut -d',' -f1 || true)
+    if [[ -z "$CURRENT_NVCC_VERSION" ]]; then
+        if [[ "$GPU_CHOICE" == "on" ]]; then
+            die "A CUDA build was requested but nvcc is not on PATH. Install the CUDA toolkit, or re-run with --no-gpu."
+        fi
+        record_warning "NVIDIA GPU detected but nvcc is not on PATH; building without GPU support. Install the CUDA toolkit and re-run with --gpu to enable it."
+        RANDLAPACK_CUDA="OFF"
+        RANDNLA_PROJECT_GPU_AVAIL="none"
+    elif [[ "$CURRENT_NVCC_VERSION" != "$PREFERRED_NVCC_VERSION" ]]; then
+        note "Note: NVCC $PREFERRED_NVCC_VERSION is the reference version; found $CURRENT_NVCC_VERSION."
         if ! ask "Continue with the current NVCC?" y; then
             die "Stopping at your request. Install NVCC $PREFERRED_NVCC_VERSION and re-run."
         fi
