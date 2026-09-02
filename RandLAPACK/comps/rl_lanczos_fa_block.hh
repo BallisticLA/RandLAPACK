@@ -7,6 +7,7 @@
 #include "rl_lanczos_fa.hh"
 
 #include <RandBLAS.hh>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <concepts>
@@ -62,21 +63,21 @@ template <typename T>
 class BlockLanczosFA {
 public:
     /// Reorthogonalization control.
-    ///  1 = full (project each new block Z out of all previous Krylov blocks).
-    ///  0 = none.
-    int64_t reorth = 1;
+    ///  true  = full (project each new block Z out of all previous Krylov blocks).
+    ///  false = none.
+    bool reorth = true;
 
-    // Internal buffers — grown with new/delete[], never shrunk between calls.
+    // Internal buffers - grown with new/delete[], never shrunk between calls.
     // Dimension key: n = operator dimension, s = block size, d = Lanczos steps.
     //
-    // K_big:     (d+1)*n*s  — block Krylov basis + matvec scratch.
+    // K_big:     (d+1)*n*s  - block Krylov basis + matvec scratch.
     //   Layout: K_big[step*n*s .. (step+1)*n*s-1] = Q_step (n×s col-major, ld=n).
     //   First d blocks form Q_basis (n×d*s col-major, ld=n) used by apply_f.
     //   Block d is scratch for the current-step matvec output.
-    // R0_buf:    s*s         — upper triangular factor from initial QR of B.
-    // tau_buf:   s           — Householder scalars (geqrf/orgqr on n×s panels
+    // R0_buf:    s*s         - upper triangular factor from initial QR of B.
+    // tau_buf:   s           - Householder scalars (geqrf/orgqr on n×s panels
     //   need min(n, s) = s of them); reused at each geqrf/orgqr call.
-    // T_blk:     (d*s)^2     — the block tridiagonal T_k, assembled IN PLACE by
+    // T_blk:     (d*s)^2     - the block tridiagonal T_k, assembled IN PLACE by
     //   the recurrence (no separate A_blk/B_blk copies): block alpha A_step is
     //   GEMM'd directly into the diagonal-block position (b0, b0), block beta
     //   B_step (upper triangular) is copied once from the QR'd Z into the lower
@@ -85,8 +86,8 @@ public:
     //   overwrites T_blk with the eigenvectors, so one run_lanczos supports
     //   exactly one apply_f (the call() pairing; re-applying a different f
     //   requires re-running the recurrence).
-    // workspace: apply_f scratch — eig_vals (d*s) + G (d*s×s) + C1 (d*s×s).
-    // proj_buf:  s*s — reorthogonalization scratch (Q_p^T * Y projection); reused across steps.
+    // workspace: apply_f scratch - eig_vals (d*s) + G (d*s×s) + C1 (d*s×s).
+    // proj_buf:  s*s - reorthogonalization scratch (Q_p^T * Y projection); reused across steps.
     T* K_big     = nullptr; int64_t K_big_sz     = 0;
     T* R0_buf    = nullptr; int64_t R0_sz        = 0;
     T* tau_buf   = nullptr; int64_t tau_buf_sz   = 0;
@@ -126,7 +127,7 @@ public:
     // ------------------------------------------------------------------
     /// Run the d-step block Lanczos recurrence on B (n×s col-major).
     /// Fills K_big, R0_buf, and T_blk (the block tridiagonal, assembled in
-    /// place at its final positions — see the member comment).
+    /// place at its final positions - see the member comment).
     /// Calls A exactly d times, each applied to an n×s block.
     ///
     /// T_k layout built here (lower triangle only; syevd reads Uplo::Lower):
@@ -160,12 +161,23 @@ public:
         // d*s > n means the block Krylov space fills before d steps; without
         // deflation the basis goes rank-deficient and accuracy degrades (the
         // documented v1 limitation). Warn loudly rather than fail: callers in
-        // that regime should shrink d or use the scalar oracle.
-        if (d * s > n)
-            std::fprintf(stderr,
-                "NOTE BlockLanczosFA: d*s = %lld exceeds n = %lld; the block Krylov "
-                "space fills before d steps and, without deflation, accuracy degrades.\n",
-                (long long)(d * s), (long long)n);
+        // that regime should shrink d or use the scalar oracle. `static`
+        // inside this method template means the guard is per (T, SLO)
+        // instantiation, not once per process - a caller that exercises more
+        // than one SLO type in the degenerate regime gets one note per type
+        // (same guard shape as NystromEVD's nu_note_emitted). Atomic since
+        // run_lanczos can be called concurrently from multiple threads, so a
+        // caller running many iterations in a degenerate d*s > n regime does
+        // not spam stderr unboundedly.
+        if (d * s > n) {
+            static std::atomic<bool> ds_note_emitted{false};
+            if (!ds_note_emitted.exchange(true, std::memory_order_relaxed)) {
+                std::fprintf(stderr,
+                    "NOTE BlockLanczosFA: d*s = %lld exceeds n = %lld; the block Krylov "
+                    "space fills before d steps and, without deflation, accuracy degrades.\n",
+                    (long long)(d * s), (long long)n);
+            }
+        }
         _t_matvec_us = 0;
         _t_reorth_us = 0;
         steps_run = 0;
@@ -198,7 +210,7 @@ public:
             T* Y      = K_big + (step + 1) * n * s;   // matvec output, then Z in-place
             const int64_t b0 = step * s;
             // Block positions inside T_blk (ld = m): A_step at (b0, b0),
-            // B_{step-1} at (b0, b0 - s) — written directly, no staging copies.
+            // B_{step-1} at (b0, b0 - s) - written directly, no staging copies.
             T* A_step = T_blk + b0 * m + b0;
             T* B_prev = (step > 0) ? T_blk + (b0 - s) * m + b0 : nullptr;
 
@@ -223,7 +235,7 @@ public:
                        s, s, n, (T)1.0, Q_step, n, Y, n, (T)0.0, A_step, m);
             util::symmetrize(s, A_step, m);
 
-            // [lines 6-7] only feed line 8's QR, which the last step skips —
+            // [lines 6-7] only feed line 8's QR, which the last step skips -
             // so both are skipped there too (the discarded-Y update and a full
             // reorth pass against the whole basis are real work at large d).
             if (step < d - 1) {
@@ -255,7 +267,7 @@ public:
             // [line 8] if i < d−1:  Q_{i+1}, B_i ← qr(Z)
             // (Q_{step+1} overwrites Y. B_step = upper R factor, copied once
             //  from the QR'd Z into its lower off-diagonal slot (b0+s, b0) of
-            //  T_blk — the tile's strict lower stays zero from the memset.
+            //  T_blk - the tile's strict lower stays zero from the memset.
             //  Skipped at the last step: Q_d is never needed by apply_f.)
             if (step < d - 1) {
                 T* B_step = T_blk + b0 * m + (b0 + s);
@@ -273,7 +285,7 @@ public:
 
     // ------------------------------------------------------------------
     /// Evaluate f(A)B from precomputed Krylov data (K_big, R0_buf, T_blk)
-    /// — lines 9-11 of the class-doc pseudocode. Line 9 (assembling T_k) has
+    /// - lines 9-11 of the class-doc pseudocode. Line 9 (assembling T_k) has
     /// already happened: the recurrence wrote the blocks into T_blk in place.
     ///
     /// CONSUMES T_blk: the syevd overwrites it with the eigenvectors, so one
@@ -282,14 +294,14 @@ public:
     /// Computation:
     ///  [line 10]  syevd: T_blk → eigenvectors V (in-place), eigenvalues λ.
     ///  [line 11a] W (s×m): W[i,j] = f(λⱼ)*V[i,j] for i=0..s-1 (first s rows of V, col-scaled).
-    ///  [line 11b] C1 (d*s × s) = V * W^T  — this equals f(T_k) * E₁.
+    ///  [line 11b] C1 (d*s × s) = V * W^T  - this equals f(T_k) * E₁.
     ///  [line 11c] C1 *= R₀  (TRMM: right-multiply by upper-triangular R₀).
     ///  [line 11d] out (n × s) = Q_basis * C1  (GEMM).
     template <std::invocable<T> F>
     void apply_f(F f, int64_t n, int64_t s, int64_t d, T* out) {
         // Guard the early-stop seam: if the recurrence was terminated by a
         // stop_after callback, T_blk's valid block tridiagonal is only the
-        // leading steps_run*s block — the interrupted step may have already
+        // leading steps_run*s block - the interrupted step may have already
         // written its off-diagonal B block with a still-zero diagonal
         // neighbor, so evaluating f(T) at the full d would silently use a
         // corrupted trailing tail. Evaluate at the depth actually run.
@@ -334,7 +346,7 @@ public:
                 W_col[i] = fev * V_col[i];      // first s rows of V[:,j], scaled
         }
 
-        // [line 11b] C1 (m × s) = V * W^T  — equals f(T_k) * E₁.
+        // [line 11b] C1 (m × s) = V * W^T  - equals f(T_k) * E₁.
         //    GEMM(NoTrans, Trans, m, s, m): C = V(m×m, lda = m_full) * W^T where W is s×m (ld=s).
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
                    m, s, m, (T)1.0, T_dense, m_full, W, s, (T)0.0, C1, m);
@@ -352,7 +364,7 @@ public:
     // ------------------------------------------------------------------
     /// Combined run + apply.
     ///
-    /// Drop-in replacement for LanczosFA::call — same signature, slots into
+    /// Drop-in replacement for LanczosFA::call - same signature, slots into
     /// FunNystromPP and ResidualOp as the LanczosFA_t template parameter.
     template <linops::SymmetricLinearOperator SLO, std::invocable<T> F>
     void call(SLO& A, const T* B, int64_t n, int64_t s, F f, int64_t d, T* out) {

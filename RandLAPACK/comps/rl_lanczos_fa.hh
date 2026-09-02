@@ -92,26 +92,26 @@ template <typename T>
 class LanczosFA {
 public:
     /// Reorthogonalization control.
-    ///  1 = full (project out all previous Krylov vectors after each step).
-    ///  0 = none (vanilla Lanczos, per Persson's reference implementation).
+    ///  true  = full (project out all previous Krylov vectors after each step).
+    ///  false = none (vanilla Lanczos, per Persson's reference implementation).
     /// Lanczos-FA tolerates loss of orthogonality better than eigenvalue
     /// Lanczos (Paige-Greenbaum theory), so vanilla often works in practice.
     /// Full reorthogonalization is the safe default for a numerical library.
-    int64_t reorth = 1;
+    bool reorth = true;
 
-    // Internal buffers — grown with new/delete[], never shrunk between calls.
+    // Internal buffers - grown with new/delete[], never shrunk between calls.
     // Dimension key: n = operator dimension, s = number of RHS vectors (columns of B),
     //                d = number of Lanczos steps.
     //
-    // K:     (d+1) × n × s — Krylov basis blocks.
+    // K:     (d+1) × n × s - Krylov basis blocks.
     //   Layout: K[step * n*s + col * n + row] = row-th entry of step-th basis vector for column col.
     //   Storing steps as contiguous n×s slices keeps each batch matvec contiguous,
     //   while the per-column stride (n*s) lets apply() use strided gemv for reconstruction.
-    // alpha: s × d         — tridiagonal diagonals, alpha[j*d + i] = α_{i,j}.
-    // beta:  s × (d-1)     — tridiagonal subdiagonals, beta[j*(d-1) + i] = β_{i+1,j}.
+    // alpha: s × d         - tridiagonal diagonals, alpha[j*d + i] = α_{i,j}.
+    // beta:  s × (d-1)     - tridiagonal subdiagonals, beta[j*(d-1) + i] = β_{i+1,j}.
     //   lapack::stevd expects the diagonal and subdiagonal as separate arrays,
     //   so alpha and beta are stored separately rather than interleaved.
-    // normb: s             — column norms of B before normalization.
+    // normb: s             - column norms of B before normalization.
     T*      K         = nullptr; int64_t K_sz         = 0;
     T*      alpha     = nullptr; int64_t alpha_sz     = 0;
     T*      beta      = nullptr; int64_t beta_sz      = 0;
@@ -140,7 +140,7 @@ public:
     /// Fills K, alpha, beta, normb from B (n×s column-major).
     /// Calls A exactly d times, each application to an n×s matrix.
     ///
-    /// @param[in]  A    SymmetricLinearOperator — matvec oracle.
+    /// @param[in]  A    SymmetricLinearOperator - matvec oracle.
     /// @param[in]  B    n×s input matrix (column-major); not modified.
     /// @param[in]  n    Dimension of A.
     /// @param[in]  s    Number of right-hand sides (Hutchinson samples).
@@ -180,13 +180,13 @@ public:
         A(Layout::ColMajor, s, (T)1.0, K0, n, (T)0.0, K1, n);
         if (this->timing) { _mv_t1 = steady_clock::now(); _t_matvec_us += duration_cast<microseconds>(_mv_t1 - _mv_t0).count(); }
 
-        // [line 3] for j: α_{1,j} ← q_{1,j}·W[:,j] — s independent inner
+        // [line 3] for j: α_{1,j} ← q_{1,j}·W[:,j] - s independent inner
         //   products, one tridiagonal diagonal entry per column.
 #pragma omp parallel for schedule(static)
         for (int64_t j = 0; j < s; ++j)
             alpha[j * d + 0] = blas::dot(n, K1 + j * n, 1, K0 + j * n, 1);
 
-        // [line 4] for i = 1..d−1 — main Lanczos loop (three-term recurrence).
+        // [line 4] for i = 1..d−1 - main Lanczos loop (three-term recurrence).
         // At the start of iteration i:
         //   K[:,:,i]   = A*q_i - β_i*q_{i-1}  (partial three-term: line 5's β
         //                part was fused into line 8 of the previous iteration)
@@ -242,7 +242,7 @@ public:
 
             // [line 8] W ← A·Q_{i+1} (1 batch matvec), fused with the β part of
             // the next iteration's line 5: K_new = A*q_{i+1} - β_{i+1}*q_i.
-            // Different β per column — same reasoning as line 5, axpy is optimal.
+            // Different β per column - same reasoning as line 5, axpy is optimal.
             if (this->timing) _mv_t0 = steady_clock::now();
             A(Layout::ColMajor, s, (T)1.0, K_curr, n, (T)0.0, K_new, n);
             if (this->timing) { _mv_t1 = steady_clock::now(); _t_matvec_us += duration_cast<microseconds>(_mv_t1 - _mv_t0).count(); }
@@ -261,15 +261,15 @@ public:
     }
 
     // ------------------------------------------------------------------
-    /// Evaluate f(A)B from precomputed Krylov data (K, alpha, beta, normb) —
+    /// Evaluate f(A)B from precomputed Krylov data (K, alpha, beta, normb) -
     /// lines 10-12 of the class-doc pseudocode.
     /// Per column j: eigendecompose T_j = S_j diag(θ_j) S_j^T via lapack::stev, then:
     ///   out[:,j] = normb[j] * Q_j * S_j * diag(f(θ_j)) * S_j[0,:]^T
     /// where Q_j is the n×d Lanczos basis stored in K and S_j[0,:] is the first row
     /// of the eigenvector matrix (Chen 2022, eq. 2.3).
-    /// Per-column stev calls are independent — parallelized with OpenMP.
+    /// Per-column stev calls are independent - parallelized with OpenMP.
     ///
-    /// @tparam F    Callable as T(T) — lambda, function pointer, or functor.
+    /// @tparam F    Callable as T(T) - lambda, function pointer, or functor.
     ///              std::invocable<T> (C++20) enforces this at the call site.
     /// @param[in]  f    Instance of F applied elementwise to tridiagonal eigenvalues θ.
     /// @param[in]  n    Dimension of A.
@@ -286,7 +286,7 @@ public:
 #endif
         util::upsize(workspace, workspace_sz, (int64_t)nthreads * workspace_per_thread);
 
-        // [line 10] for j = 1..s — s independent d×d eigenproblems, parallel.
+        // [line 10] for j = 1..s - s independent d×d eigenproblems, parallel.
 #pragma omp parallel for schedule(static)
         for (int64_t j = 0; j < s; ++j) {
             int tid = 0;
@@ -304,11 +304,11 @@ public:
 
             // Copy per-column tridiagonal entries into per-thread workspace.
             // stevd overwrites its alpha/beta arrays in-place (they become eigenvalues
-            // and workspace), so we must work on copies — otherwise the member alpha/beta
+            // and workspace), so we must work on copies - otherwise the member alpha/beta
             // would be destroyed and a second apply_f call (with a different f) would
             // produce garbage without re-running run_lanczos.
             // alpha[j*d .. j*d+d-1] and beta[j*(d-1) .. j*(d-1)+(d-2)] are flat 1D
-            // vectors of length d and d-1, not 2D matrices — blas::copy is correct here;
+            // vectors of length d and d-1, not 2D matrices - blas::copy is correct here;
             // lacpy is for 2D matrices with distinct leading dimensions.
             blas::copy(d, alpha + j * d, 1, alpha_j, 1);
             if (d > 1)

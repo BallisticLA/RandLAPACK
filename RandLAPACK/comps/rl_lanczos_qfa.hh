@@ -27,7 +27,7 @@ namespace RandLAPACK {
 /// Scalar (per-column) Lanczos-QFA: the quadratic forms out[j] = bⱼᵀ f(A) bⱼ
 /// = ‖bⱼ‖²·e₁ᵀ f(T_{t,j}) e₁, one independent Krylov subspace per column of B,
 /// returned as a length-s vector (NOT the n×s block f(A)B and NOT the s×s
-/// block quadratic form — the off-diagonal entries of Bᵀf(A)B are not
+/// block quadratic form - the off-diagonal entries of Bᵀf(A)B are not
 /// computable from per-column tridiagonals). By the Gauss-quadrature identity
 /// bᵀ·LanczosFA(A, f, b) = Lanczos-QFA(A, f, b), so the funNyström++ Phase-2
 /// term tr(Ω₂ᵀ f(A) Ω₂) = Σⱼ out[j] is formed without materializing f(A)·Ω₂.
@@ -35,13 +35,13 @@ namespace RandLAPACK {
 /// Basis-free by construction: the reconstruction reads only each column's
 /// tridiagonal (α, β) and norm, never the Krylov basis, so the recurrence
 /// keeps a rolling window of three n-vectors per column (q_{t−1}, q_t, and the
-/// matvec target) — O(n·s) working memory instead of LanczosFA's O(n·d·s)
+/// matvec target) - O(n·s) working memory instead of LanczosFA's O(n·d·s)
 /// stored basis. Consequently there is NO reorthogonalization option: this
 /// class runs vanilla Lanczos (Gauss-quadrature values tolerate orthogonality
 /// loss far better than eigenvalue Lanczos, Paige-Greenbaum; the certificate
 /// below independently monitors positive-definiteness via its LDLᵀ pivots).
 /// Requires A ⪰ 0 and f finite at 0 (Ritz values are clamped to ≥ 0 before f;
-/// a raw log(x) would produce -inf at the Radau node pinned at 0 — use the
+/// a raw log(x) would produce -inf at the Radau node pinned at 0 - use the
 /// shifted log(x+1)).
 ///
 /// Certified adaptive stopping (optional, `adaptive = true`): per column,
@@ -75,7 +75,7 @@ namespace RandLAPACK {
 /// already done. `matvecs` reports the actual total Σⱼ t_j.
 ///
 /// Cost of a certificate check at depth t: two t×t symmetric-tridiagonal
-/// eigensolves (stevd) per active column — zero matvecs, and negligible next
+/// eigensolves (stevd) per active column - zero matvecs, and negligible next
 /// to an n-length matvec for the depths this method runs at (tens).
 ///
 /// @tparam T  Floating-point scalar type.
@@ -181,7 +181,7 @@ public:
         util::upsize(certified,   certified_sz,   s);
         // Eigensolve scratch: per slot, an alpha copy + beta copy + eigenvector
         // matrix Z. Indexed by the loop variable j < act <= s, NOT by thread
-        // id, so it needs s slots -- not nthreads. Sizing it by nthreads
+        // id, so it needs s slots - not nthreads. Sizing it by nthreads
         // cost 112 * d^2 = 4.34 GB at d = 2226 on a 112-core node while at most
         // s of those slots could ever be live (28x over-allocation at the auto
         // tier's probe BLOCK b = 4), re-mapped on every call by util::upsize.
@@ -463,7 +463,7 @@ private:
      *
      *   1. Parallelism was capped by the number of ACTIVE columns, and that
      *      number shrinks as columns certify and retire. Late in a run only a
-     *      handful of columns remain, so most cores sat idle -- the retirement
+     *      handful of columns remain, so most cores sat idle - the retirement
      *      optimization was starving the machine.
      *   2. The three-term step made four separate streaming passes over each
      *      column (two axpy, a norm, a scal) where one suffices.
@@ -478,8 +478,8 @@ private:
      * (which is derived for the single-vector case) is untouched. Only the
      * summation order changes, so results differ from the BLAS-1 version at
      * roundoff level (measured: QFA-vs-FA dots 8.4e-16 -> 1.2e-15; every
-     * behavioural anchor — certified rel-err, adaptive depths, matvec counts,
-     * auto-tier spend — is bit-identical).
+     * behavioural anchor - certified rel-err, adaptive depths, matvec counts,
+     * auto-tier spend - is bit-identical).
      *
      * PERFORMANCE STATUS: UNVALIDATED, deliberately. Local A/B runs (16-core
      * box, load average ~6 while measuring, diagonal operator) landed between
@@ -499,13 +499,13 @@ private:
      * active-column count, which SHRINKS as columns retire; an intermediate
      * version of this code parallelized over row blocks alone with a fixed 4096
      * block, which at n = 3000 yielded ONE block and ran on ONE thread (2x
-     * slower, and every unit test still passed — a pure parallelization defect
+     * slower, and every unit test still passed - a pure parallelization defect
      * is invisible to correctness testing). collapse(2) removes both by
      * construction rather than by tuning a threshold.
      *
      * The row block must give every thread several chunks: a FIXED block (4096)
      * meant n = 3000 produced a single chunk, so the `omp for` had one iteration
-     * and exactly one thread worked — measured 2x SLOWER than the per-column
+     * and exactly one thread worked - measured 2x SLOWER than the per-column
      * version it replaced. Size it from n and the thread count instead, clamped
      * to keep strips vectorizable at the bottom and cache-resident at the top.
      */
@@ -515,16 +515,16 @@ public:
     /// invariants they must satisfy (every requested thread gets a chunk; never
     /// fork for trivial work; chunks tile the panel exactly) are the ONLY way to
     /// unit-test for the parallelization defects that correctness tests cannot
-    /// see. See TestFunNystromPPv2.PanelChunkPlanInvariants.
+    /// see. See TestFunNystromPP.PanelChunkPlanInvariants.
     /// PURE ARITHMETIC and deliberately free of any block-SIZE constant: we fix
     /// the chunk COUNT and let the size fall out, because choosing a size can
     /// never guarantee a count (that is precisely how both previous versions of
-    /// these kernels starved -- see the note above).
+    /// these kernels starved - see the note above).
     ///   n_threads: threads to actually request. Scales DOWN with the work, so a
     ///              trivial panel runs serially instead of paying a 112-thread
     ///              fork/join to touch 24 KB.
     ///   n_chunks : always n_threads * OVERSUB, so every requested thread gets
-    ///              OVERSUB chunks BY CONSTRUCTION -- no parameter combination
+    ///              OVERSUB chunks BY CONSTRUCTION - no parameter combination
     ///              (small n, narrow window, any thread count) can starve them.
     struct ChunkPlan { int n_threads; int64_t n_chunks; };
 
@@ -704,13 +704,13 @@ private:
     }
 
     /// Certificate cadence. Checking EVERY step costs two O(t^3) eigensolves per
-    /// active column per step, i.e. O(s*d^4) over a run -- ~1e15 flops at the
+    /// active column per step, i.e. O(s*d^4) over a run - ~1e15 flops at the
     /// d ~ 2200 the hard cells reach, which dominates everything else. The
     /// default check_every == 1 uses a geometric ladder instead: every depth
     /// through t = 9, then 12, 18, 27, 42, 63, 93, 141, ... (~1.5x steps),
     /// which is O(s*d^3) while overshooting the true stopping depth by at most
     /// ~1.5x, since the bracket closes monotonically. check_every > 1 forces a
-    /// plain fixed stride -- note the semantics inversion around the default:
+    /// plain fixed stride - note the semantics inversion around the default:
     /// a fixed stride (even check_every = 2) checks MORE often than the ladder
     /// once t > 9, not less. Single-sourced in util::qfa_check_due, which is
     /// the authoritative implementation.
@@ -723,7 +723,7 @@ private:
     /// and slot_ws() uses ws_depth as a uniform stride, so all evaluations in
     /// one parallel sweep must share one ws_depth (they do: each sweep
     /// evaluates at a single depth t, and ws_depth only grows). Contents need
-    /// no preservation across the re-map -- every evaluation copies fresh
+    /// no preservation across the re-map - every evaluation copies fresh
     /// alpha/beta histories in.
     void ensure_eval_ws(int64_t t, int64_t s) {
         if (t > ws_depth) {

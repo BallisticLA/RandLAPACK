@@ -6,12 +6,13 @@
 #include "rl_linops.hh"
 #include "rl_nystrom_evd.hh"
 #include "rl_lanczos_qfa.hh"       // scalar LanczosQFA: the driver's actual QFA oracle (auto_sqfa)
+#include "rl_lanczos_qfa_block.hh" // BlockLanczosQFA: the adaptive tier's oracle (adaptive_bqfa)
 
 #include <RandBLAS.hh>
 #include <algorithm>
-#include <cassert>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -19,13 +20,58 @@
 
 namespace RandLAPACK {
 
-/// FunNyström++ v2 — reference-aligned trace estimator.
+/// Distribution for the Phase-2 Hutchinson probe columns (FunNystromPP::probe_dist).
+enum class ProbeDist : int {
+    SphereGaussian = 0,  ///< iid N(0,1) columns rescaled to ‖·‖₂ = √n (uniformly-random
+                         ///< direction, fixed norm - NOT plain Gaussian); default, matches
+                         ///< every pre-existing call site bit-for-bit.
+    Rademacher     = 1   ///< sign of a RandBLAS Uniform fill: ±1 entries, column norm
+                         ///< √n exactly by construction, so no rescale pass is needed.
+};
+
+namespace detail {
+
+/// Output of `compute_adaptive_split`: the Phase-1 rank and Phase-2 probe
+/// count the eps-targeted adaptive tier derives from a discovered Krylov
+/// depth `t`.
+struct AdaptiveSplit { int64_t k, s; };
+
+/// Pure arithmetic; NEVER throws. Derives (k, s) from a certified probe
+/// depth `t` and a target accuracy `eps`:
+///   k = clamp(ceil(k_const*sqrt(t)/eps), 1, n/2)
+///   s = max(s_min, ceil(s_const/(sqrt(t)*eps)))
+///   s = min(s, n - k)          [k + s <= n convention]
+///   s = min(s, n / t)          [block-Krylov guard: the block oracle needs
+///                                s*t <= n columns of Krylov space to stay
+///                                non-degenerate]
+/// s can come out below s_min after the last two clamps (a tight eps + large
+/// t against a small n exhausts the budget for probes); the caller decides
+/// whether that is fatal, not this function.
+template <typename T>
+AdaptiveSplit compute_adaptive_split(int64_t t, T eps, int64_t n, T k_const, T s_const, int64_t s_min) {
+    const int64_t k_cap = std::max((int64_t)1, n / 2);
+    int64_t k = (int64_t)std::ceil((double)k_const * std::sqrt((double)t) / (double)eps);
+    k = std::max((int64_t)1, std::min(k, k_cap));
+
+    int64_t s = (int64_t)std::ceil((double)s_const / (std::sqrt((double)t) * (double)eps));
+    s = std::max(s_min, s);
+    s = std::min(s, n - k);
+    const int64_t t_safe = std::max((int64_t)1, t);   // t is always >= 1 in practice; guarded for safety
+    s = std::min(s, n / t_safe);
+
+    return AdaptiveSplit{k, s};
+}
+
+} // namespace detail
+
+
+/// FunNyström++ v2 - reference-aligned trace estimator.
 ///
 /// From-scratch C++ port of the Persson-Kressner MATLAB reference
 /// (`davpersson/funNystrom/Other/{nystrom,funnystrompp}.m`), intended as
 /// a bit-exact baseline against MATLAB at fixed RNG. Deliberately does
-/// not share infrastructure with the production funnystrompp PR — no
-/// SYPS, no SYRF, no internal_stab plumbing — so that each algorithmic
+/// not share infrastructure with the production funnystrompp PR - no
+/// SYPS, no SYRF, no internal_stab plumbing - so that each algorithmic
 /// knob can be added back one at a time with verification.
 ///
 /// Phase 1 (`NystromEVD` in `rl_nystrom_evd.hh`): SparseStack/SASO
@@ -40,7 +86,7 @@ namespace RandLAPACK {
 /// f(A) − f(Â) using a caller-supplied fAfun oracle. Mirrors
 /// `funnystrompp.m` line-for-line. The probes Ω₂ are generated
 /// internally by default: Gaussian columns normalized to ‖·‖₂ = √m
-/// (uniformly-random direction, fixed norm — NOT plain Gaussian); an
+/// (uniformly-random direction, fixed norm - NOT plain Gaussian); an
 /// explicit Ω₂ block can be passed to override (test fixtures).
 ///
 /// The driver is numbered to match Algorithm 1 of the funNyström++
@@ -93,10 +139,15 @@ public:
 
     // Phase-2 oracle convention. false = Lanczos-FA (fAfun fills f(A)·Ω₂, m×s,
     // and the driver dots it with Ω₂). true = Lanczos-QFA (fAfun fills the s×s
-    // quadratic form Ω₂ᵀ f(A) Ω₂ — via BlockLanczosQFA, or diagonal-only via
-    // the scalar LanczosQFA — and the driver takes its trace, which reads ONLY
+    // quadratic form Ω₂ᵀ f(A) Ω₂ - via BlockLanczosQFA, or diagonal-only via
+    // the scalar LanczosQFA - and the driver takes its trace, which reads ONLY
     // the diagonal); QFA skips the f(A)·Ω₂ mapback entirely.
     bool use_qfa = false;
+
+    // Phase-2 probe distribution (kernel-internal fill only; an explicit
+    // caller-supplied Omega2 or auto-tier probe block bypasses this). Default
+    // preserves every existing call site's RNG stream and output bit-for-bit.
+    ProbeDist probe_dist = ProbeDist::SphereGaussian;
 
     // ---- knob-free tier ("auto"): state for the (matvec_budget, eps) overload ----
     // The auto overload owns its Phase-2 oracle (the expert overload takes fAfun
@@ -119,12 +170,6 @@ public:
     int64_t auto_probe_block = 4;
     T       auto_probe_frac  = (T)0.125;
     int64_t auto_depth_cap   = 0;
-    // VESTIGIAL: Phase-2 batching existed to dodge BlockLanczosQFA's one-block
-    // (t*s)^2 dense eigenproblem. The scalar oracle has per-column tridiagonals
-    // (no block eigenproblem), so batching buys nothing; the member is kept only
-    // so existing call sites stay stable. Remove with the next MEX-side
-    // schema change.
-    int64_t auto_qfa_batch   = 100;
     // Outputs of the last auto call, for cost accounting: the chosen rank/probe
     // count/oracle depth cap, the matvecs the probe actually spent
     // (auto_probe_matvecs = sum of per-column depths <= b*probe_cap), the
@@ -156,6 +201,36 @@ public:
     T*       auto_probe_gauss = nullptr; int64_t auto_probe_gauss_sz = 0;
     uint8_t* auto_probe_cert  = nullptr; int64_t auto_probe_cert_sz  = 0;
     int64_t* auto_probe_depth = nullptr; int64_t auto_probe_depth_sz = 0;
+
+    // ---- knob-free tier ("adaptive"): state for the (eps, matvec_cap) overload ----
+    // Same depth-probe-then-split idea as the auto tier, but the probe and the
+    // Phase-2 oracle are both the BLOCK certified Gauss-Radau class: one joint
+    // Krylov space for all probe columns instead of s independent scalar ones.
+    // That is cheaper per matvec (one block recurrence, not s scalar ones) but
+    // couples the columns into a single s*t <= n Krylov-space constraint the
+    // scalar tier does not have.
+    BlockLanczosQFA<T> adaptive_bqfa;
+    int64_t adaptive_probe_block = 4;
+    T       adaptive_k_const     = (T)1;
+    T       adaptive_s_const     = (T)1;
+    // Probe depth cap: shares auto_depth_cap, capped at min(auto_depth_cap or n,
+    // max(1, n/b)) - the probe also respects the block-Krylov limit d*b <= n.
+    // Outputs of the last adaptive call: the chosen rank/probe count/depth,
+    // the probe's and the oracle's matvec spend, and the certification flags
+    // for each phase (captured before the shared adaptive_bqfa instance is
+    // reused, same reason as the auto tier's auto_phase2_certified).
+    int64_t adaptive_k = 0, adaptive_s = 0, adaptive_t = 0;
+    int64_t adaptive_probe_matvecs   = 0;
+    int64_t adaptive_oracle_matvecs  = 0;
+    bool    adaptive_probe_certified  = false;
+    bool    adaptive_phase2_certified = false;
+    double  t_adaptive_probe_ms = 0.0;
+    // Final block Gauss / Gauss-Radau traces from the last Phase-2 oracle call
+    // (see BlockLanczosQFA::tr_U / tr_L); exposed for diagnostics.
+    T adaptive_tr_U = (T)0, adaptive_tr_L = (T)0;
+    // Probe scratch: n x b Rademacher block, b x b block quadratic form.
+    T* adaptive_probe_buf = nullptr; int64_t adaptive_probe_buf_sz = 0;
+    T* adaptive_M_buf     = nullptr; int64_t adaptive_M_buf_sz     = 0;
 
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
     // public so tests can inspect them; in production code you'd treat
@@ -203,6 +278,8 @@ public:
         delete[] auto_probe_gauss;
         delete[] auto_probe_cert;
         delete[] auto_probe_depth;
+        delete[] adaptive_probe_buf;
+        delete[] adaptive_M_buf;
     }
 
     /// Returns the estimate t = t1 + t2 of tr(f(A)).
@@ -224,7 +301,7 @@ public:
     ///     do not have (Lanczos-FA in production; exact dense oracle in
     ///     tests). Expensive and approximate.
     /// CALLER OBLIGATION: the two must realize the same f. If they disagree,
-    /// t2 silently estimates tr(f₁(A)) − tr(f₂(Â)) — nonsense with no error
+    /// t2 silently estimates tr(f₁(A)) − tr(f₂(Â)) - nonsense with no error
     /// raised. In practice Lanczos-FA also evaluates f only on scalars (the
     /// Ritz values of its tridiagonal), so pass the same lambda once directly
     /// as fscalar and once captured inside the fAfun wrapper.
@@ -235,7 +312,7 @@ public:
     ///                      realize the same f as fAfun (see the contract
     ///                      note above).
     /// @param[in]  k        Phase 1 Nyström rank. Precondition: 1 <= k <= m,
-    ///                      and for a sparse SASO sketch keep k <~ m/2 — as k
+    ///                      and for a sparse SASO sketch keep k <~ m/2 - as k
     ///                      approaches m the probability of an exactly-zero
     ///                      sketch column grows, the Gram Ωᵀ(A+νI)Ω becomes
     ///                      exactly singular, and NystromEVD's potrf throws;
@@ -249,15 +326,17 @@ public:
     ///                      inside NystromEVD with `this->vec_nnz` nonzeros
     ///                      per row; 0 = auto ~log(k)); advanced past the draw.
     /// @param[in]  Omega2   Phase-2 Hutchinson probes (m × s, col-major).
-    ///                      Pass nullptr to generate them inside the kernel: a
-    ///                      Gaussian block drawn from `state`, each column
-    ///                      normalized to ‖·‖₂ = √n. Pass an explicit block to
+    ///                      Pass nullptr to generate them inside the kernel: by
+    ///                      default (probe_dist = SphereGaussian) a Gaussian
+    ///                      block drawn from `state`, each column normalized to
+    ///                      ‖·‖₂ = √n; probe_dist can switch this to Rademacher
+    ///                      (see the member doc). Pass an explicit block to
     ///                      override (e.g. test fixtures). When k == m Phase 2
     ///                      is skipped and Omega2 is unread.
     /// @param[in]  f_zero   Optional f(0). Default std::nullopt produces
     ///                      Persson-MATLAB-aligned output (no zero-fill
     ///                      correction; bit-exact cross-validation anchor).
-    ///                      Pass a finite f(0) to opt in to PR-#132-style
+    ///                      Pass a finite f(0) to opt in to
     ///                      "zero-fill" semantics: tr(f(Â)) is computed
     ///                      assuming the rank-k Â is treated as an n×n
     ///                      operator with f(0) on the orthogonal
@@ -272,7 +351,8 @@ public:
     /// @param[out] t2_out   Phase 2 stochastic correction; 0 when k == m.
     /// @return     t = t1 + t2.
     template <linops::SymmetricLinearOperator SLO, typename RNG,
-              typename FAFun, typename FScalar>
+              std::invocable<int64_t, int64_t, const T*, T*> FAFun,
+              std::invocable<T> FScalar>
     T call(
         SLO &A_op,
         FAFun &&fAfun,
@@ -305,7 +385,7 @@ public:
     ///      is not promoted into t blindly: t = min(probe-reached depth,
     ///      m_rem/(2*s_min), n) with m_rem = B - probe spend and a probe-count
     ///      floor s_min = 4, so the 50/50 split below always yields
-    ///      s >= s_min — more budget always buys more probes AND more rank
+    ///      s >= s_min - more budget always buys more probes AND more rank
     ///      (never the old s == 2 lock). Always t = max(1, min(t, n)).
     ///   3. Split: 50/50 in matvecs, s = floor(m_rem/(2t)),
     ///      k = (m_rem - s*t)/q. The rank is capped at n/2 (the k -> n
@@ -321,7 +401,7 @@ public:
     ///   5. Probe-sample reuse: the probe's CERTIFIED columns are valid
     ///      Hutchinson samples drawn with the same sphere-normalized Gaussian
     ///      convention as Omega2, so their quadratic forms gᵢᵀf(A)gᵢ (and the
-    ///      matching gᵢᵀf(Â)gᵢ from the Phase-1 eigenpairs — zero extra
+    ///      matching gᵢᵀf(Â)gᵢ from the Phase-1 eigenpairs - zero extra
     ///      matvecs) join the Phase-2 average: the effective sample count is
     ///      s + (# certified probe columns) and t2 is re-averaged over it.
     ///      Uncertified probe columns carry no accuracy statement and are
@@ -344,7 +424,7 @@ public:
     /// one unit of rank, i.e. B >= max(2b + 2*s_min,
     /// ceil(2*s_min/(1 - auto_probe_frac))); running a depth-1 oracle
     /// silently is not an acceptable fallback.
-    template <linops::SymmetricLinearOperator SLO, typename RNG, typename FScalar>
+    template <linops::SymmetricLinearOperator SLO, typename RNG, std::invocable<T> FScalar>
     T call(
         SLO &A_op,
         FScalar &&fscalar,
@@ -355,15 +435,156 @@ public:
         T &t2_out,
         std::optional<T> f_zero = std::nullopt
     );
+
+    /// Adaptive overload: the caller sets a target accuracy `eps` (no
+    /// upfront matvec budget); the rank k, probe count s, and oracle depth t
+    /// are chosen inside from a certified Krylov-depth PROBE, then held to
+    /// that depth by the certified Gauss-Radau stop in Phase 2. Unlike the
+    /// `auto` tier (scalar oracle, budget-first, one certified depth per
+    /// probe column), this tier uses the BLOCK certified oracle throughout:
+    /// one joint Krylov space serves all probe/Hutchinson columns at once,
+    /// which is cheaper per matvec but ties the columns to a single
+    /// s*t <= n constraint (see `detail::compute_adaptive_split`).
+    ///
+    ///   1. Depth probe: run the adaptive BLOCK Gauss-Radau certificate
+    ///      (stop_rule = Radau, adaptive_rtol = eps, reorth = 1) on
+    ///      adaptive_probe_block Rademacher columns, capped at
+    ///      min(auto_depth_cap or n, max(1, n/b)) - the probe also respects
+    ///      the block-Krylov limit d*b <= n. The probe
+    ///      and the Phase-2 oracle below share one `adaptive_bqfa` instance;
+    ///      the probe's matvecs/certification/traces are snapshotted into
+    ///      the adaptive_probe_* members before Phase 2 overwrites them.
+    ///   2. Depth t = max(1, min(probe's d_used, n)) - the depth the probe
+    ///      actually certified (or reached) at rtol = eps, directly reused
+    ///      as the Phase-2 oracle's depth cap (no median/heuristic step: the
+    ///      block probe already ran the SAME certificate Phase 2 will use).
+    ///   3. Split: (k, s) = detail::compute_adaptive_split(t, eps, n,
+    ///      adaptive_k_const, adaptive_s_const, 4). If the block-Krylov
+    ///      guard s*t <= n leaves s < 4, throws std::invalid_argument naming
+    ///      that limit and recommending the scalar `auto` tier, which is not
+    ///      bound by a joint block Krylov space.
+    ///   4. Optional matvec_cap: if probe + q*k + s*t exceeds it, k is
+    ///      clamped first to what the remaining budget can still afford (at
+    ///      least one rank unit and 4 depth-t probes), then s absorbs the
+    ///      rest under the same n-k / block-Krylov clamps as step 3. Throws
+    ///      std::invalid_argument (message contains "infeasible") if even
+    ///      the clamped split cannot fund 4 probes.
+    ///   5. Delegate to the expert call() above with use_qfa = true, q = 1,
+    ///      and an fAfun that calls adaptive_bqfa.call(..., t, Y) directly:
+    ///      the block oracle already produces the full s x s quadratic form
+    ///      the use_qfa trace read consumes, so (unlike the scalar auto
+    ///      tier) no diagonal-only repacking is needed.
+    ///   6. Probe reuse (all-or-nothing): the block Gauss-Radau certificate
+    ///      brackets tr(M) for the WHOLE probe block, not per-column
+    ///      diagonal entries the way the scalar tier's per-column
+    ///      certified[] flags do - so there is no per-column accuracy
+    ///      statement to reuse selectively. When the probe certified (and
+    ///      k < n), ALL b probe columns fold into the Phase-2 average as
+    ///      extra zero-matvec samples; when it did not, none do.
+    ///
+    /// Throws std::invalid_argument for eps outside (0, 1) or
+    /// adaptive_probe_block < 1, in addition to the infeasibility cases
+    /// above.
+    template <linops::SymmetricLinearOperator SLO, typename RNG, std::invocable<T> FScalar>
+    T call(
+        SLO &A_op,
+        FScalar &&fscalar,
+        T eps,
+        RandBLAS::RNGState<RNG> &state,
+        T &t1_out,
+        T &t2_out,
+        std::optional<int64_t> matvec_cap = std::nullopt,
+        std::optional<T> f_zero = std::nullopt
+    );
+
+private:
+    /// Fill an n×s probe block (column-major, lda = n) into `buf` per
+    /// `probe_dist`, advancing `state` past the draw. Shared by both
+    /// kernel-internal probe-fill sites (expert-overload Omega2 and the
+    /// auto-tier depth probe) so the two conventions cannot drift apart.
+    template <typename RNG>
+    void fill_probe_block(T* buf, int64_t n, int64_t s, RandBLAS::RNGState<RNG> &state);
+
+    /// Fold a probe block's samples into the Phase-2 average t2_out via the
+    /// Phase-1 eigenpairs (y = Uᵀg; zero extra matvecs). Shared by the auto
+    /// tier's per-column reuse (mask selects only CERTIFIED probe columns)
+    /// and the adaptive tier's all-or-nothing reuse (mask == nullptr selects
+    /// every column); both blend via the same
+    ///   t2 <- (s·t2 + Σ_included [src[j] - ghat_j]) / (s + n_included)
+    /// formula, differing only in which columns qualify and where the
+    /// gᵀf(A)g value src[j] comes from (per-column certified quadratic form
+    /// for auto, the block certificate's M diagonal for adaptive - hence
+    /// src_stride: 1 for a flat length-b array, b+1 to read a b×b matrix's
+    /// diagonal in place). Returns the number of columns folded in (0 if
+    /// t2_out was left untouched).
+    template <std::invocable<T> FScalar>
+    int64_t fold_probe_reuse(
+        FScalar &&fscalar, int64_t n, int64_t k, int64_t b,
+        const T* probe_buf, const T* src_base, int64_t src_stride,
+        const uint8_t* mask, std::optional<T> f_zero, T &t2_out, int64_t s
+    ) {
+        util::upsize(this->Y_2, this->Y_2_sz, k * b);
+        blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
+                   k, b, n, (T)1, this->U, n, probe_buf, n, (T)0, this->Y_2, k);
+        const bool apply_fzero = f_zero.has_value();
+        const T    fz          = apply_fzero ? *f_zero : (T)0;
+        T probe_sum = (T)0;
+        int64_t n_incl = 0;
+        for (int64_t j = 0; j < b; ++j) {
+            if (mask && !mask[j]) continue;
+            const T* yj = this->Y_2 + j * k;
+            T ghat = (T)0;
+            for (int64_t i = 0; i < k; ++i)
+                ghat += fscalar(this->lambda[i]) * yj[i] * yj[i];
+            if (apply_fzero) {
+                // Zero-fill complement term, same convention as the expert
+                // call: f(Â) = U·diag(f(λ))·Uᵀ + f(0)·(I − U·Uᵀ).
+                const T* gj  = probe_buf + j * n;
+                const T g_sq = blas::dot(n, gj, 1, gj, 1);
+                const T y_sq = blas::dot(k, yj, 1, yj, 1);
+                ghat += fz * (g_sq - y_sq);
+            }
+            probe_sum += src_base[j * src_stride] - ghat;
+            ++n_incl;
+        }
+        if (n_incl > 0)
+            t2_out = (t2_out * (T)s + probe_sum) / (T)(s + n_incl);
+        return n_incl;
+    }
 };
 
+
+// --- Phase-2 probe fill --------------------------------------------------
+
+template <typename T>
+template <typename RNG>
+void FunNystromPP<T>::fill_probe_block(T* buf, int64_t n, int64_t s, RandBLAS::RNGState<RNG> &state) {
+    if (this->probe_dist == ProbeDist::Rademacher) {
+        RandBLAS::DenseDist Dr(n, s, RandBLAS::ScalarDist::Uniform);
+        state = RandBLAS::fill_dense(Dr, buf, state);
+        for (int64_t e = 0; e < n * s; ++e)
+            buf[e] = (buf[e] >= (T)0) ? (T)1 : (T)-1;   // sign(): column norm == sqrt(n) exactly
+        return;
+    }
+    // SphereGaussian (default): Gaussian columns rescaled to ||.||_2 = sqrt(n).
+    // Fill+rescale order preserved bit-for-bit from the pre-ProbeDist code.
+    RandBLAS::DenseDist D(n, s);                 // Gaussian (default family)
+    state = RandBLAS::fill_dense(D, buf, state);
+    const T target = std::sqrt((T)n);
+    for (int64_t j = 0; j < s; ++j) {
+        T* col = buf + j * n;
+        T nrm  = blas::nrm2(n, col, 1);
+        if (nrm > (T)0) blas::scal(n, target / nrm, col, 1);
+    }
+}
 
 
 // --- Phase 2: FunNystromPP::call ---------------------------------------
 
 template <typename T>
 template <linops::SymmetricLinearOperator SLO, typename RNG,
-          typename FAFun, typename FScalar>
+          std::invocable<int64_t, int64_t, const T*, T*> FAFun,
+          std::invocable<T> FScalar>
 T FunNystromPP<T>::call(
     SLO &A_op,
     FAFun &&fAfun,
@@ -418,7 +639,7 @@ T FunNystromPP<T>::call(
     this->k_out = k;
 
     // f(0) for the optional zero-fill correction term in tr(f(Â)). Full
-    // semantics (nullopt = Persson-MATLAB anchor; finite = PR-#132 zero-fill;
+    // semantics (nullopt = Persson-MATLAB anchor; finite = zero-fill;
     // no auto-resolve from fscalar(0), which would give -∞ for f = log) are
     // documented on the f_zero @param above. The two conventions differ, for
     // a fixed Ω, by  f(0)·[(m−k) − (‖Ω‖²_F − ‖VᵀΩ‖²_F)/s],  which vanishes in
@@ -440,7 +661,7 @@ T FunNystromPP<T>::call(
     //   where Y = Uᵀ · Ω₂ (shape k × s); i.e. t2 = tr_bot − tr_cor with the
     //   two 1/ℓ probe averages of lines 5-6 computed jointly (ℓ ≡ s).
     //
-    // [Alg. 1, line 4] the probes g₁,…,g_ℓ are the columns of Ω₂ —
+    // [Alg. 1, line 4] the probes g₁,…,g_ℓ are the columns of Ω₂ -
     //   kernel-internal sphere-normalized Gaussians by default, or
     //   caller-supplied when Omega2 != nullptr (resolved below).
     //
@@ -456,30 +677,23 @@ T FunNystromPP<T>::call(
         auto t_p2_start = std::chrono::steady_clock::now();
 
         // [Alg. 1, line 4] Resolve Ω₂. Caller-supplied when Omega2 != nullptr;
-        //   otherwise generated inside the kernel: a Gaussian n×s block drawn
-        //   from `state`, each column normalized to ‖·‖₂ = √n (uniformly-random
-        //   direction, fixed norm √n).
+        //   otherwise generated inside the kernel per `probe_dist` (default:
+        //   Gaussian n×s block drawn from `state`, each column normalized to
+        //   ‖·‖₂ = √n - uniformly-random direction, fixed norm √n).
         const T* Om2 = Omega2;
         if (Om2 == nullptr) {
             util::upsize(this->Omega2_buf, this->Omega2_buf_sz, m * s);
-            RandBLAS::DenseDist D2(m, s);                 // Gaussian (default family)
-            state = RandBLAS::fill_dense(D2, this->Omega2_buf, state);
-            const T target = std::sqrt((T)m);
-            for (int64_t j = 0; j < s; ++j) {
-                T* col = this->Omega2_buf + j * m;
-                T nrm  = blas::nrm2(m, col, 1);
-                if (nrm > (T)0) blas::scal(m, target / nrm, col, 1);
-            }
+            this->fill_probe_block(this->Omega2_buf, m, s, state);
             Om2 = this->Omega2_buf;
         }
 
-        // [Alg. 1, line 6 — prep] Y_2 ← Uᵀ · Ω₂  (k × s), so that
+        // [Alg. 1, line 6 - prep] Y_2 ← Uᵀ · Ω₂  (k × s), so that
         //   gᵢᵀ·U·f(Λ)·Uᵀ·gᵢ = Σⱼ f(λⱼ)·Y_2[j,i]².
         util::upsize(this->Y_2, this->Y_2_sz, k * s);
         blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
                    k, s, m, (T)1, this->U, m, Om2, m, (T)0, this->Y_2, k);
 
-        // [Alg. 1, line 5 — oracle] tr_AΩ ← tr(Ω₂ᵀ·f(A)·Ω₂). Two conventions,
+        // [Alg. 1, line 5 - oracle] tr_AΩ ← tr(Ω₂ᵀ·f(A)·Ω₂). Two conventions,
         //   selected by use_qfa (see the member doc):
         //     FA  : fAfun fills fAOmega = f(A)·Ω₂ (m×s); trace = Σⱼ⟨Ω₂ⱼ, fAOmegaⱼ⟩.
         //     QFA : fAfun fills the s×s matrix M = Ω₂ᵀf(A)Ω₂ directly, skipping
@@ -519,7 +733,7 @@ T FunNystromPP<T>::call(
             tr_AhatOmega += fz * (omega_fro_sq - y2_fro_sq);
         }
 
-        // [Alg. 1, lines 5-6 — probe average] t2 = tr_bot − tr_cor
+        // [Alg. 1, lines 5-6 - probe average] t2 = tr_bot − tr_cor
         //   = (tr_AΩ − tr_AhatΩ)/ℓ  (single division; ℓ ≡ s).
         t2_out = (tr_AOmega - tr_AhatOmega) / (T)s;
         auto t_p2_end = std::chrono::steady_clock::now();
@@ -541,7 +755,7 @@ T FunNystromPP<T>::call(
 // --- Knob-free tier: FunNystromPP::call(A, f, matvec_budget, eps, ...) --------
 
 template <typename T>
-template <linops::SymmetricLinearOperator SLO, typename RNG, typename FScalar>
+template <linops::SymmetricLinearOperator SLO, typename RNG, std::invocable<T> FScalar>
 T FunNystromPP<T>::call(
     SLO &A_op,
     FScalar &&fscalar,
@@ -588,6 +802,34 @@ T FunNystromPP<T>::call(
             " at the depth-2 floor plus " + std::to_string(s_min) +
             " depth-1 Hutchinson probes and at least one unit of rank).");
 
+    // Reset all auto_* telemetry up front, before the probe (the first
+    // operation below that can throw): a throw out of the probe or the
+    // delegated call must not leave a previous call's values looking like
+    // this call's result, same reasoning as the k_out / t_specrec_ms reset
+    // in the expert call() above.
+    this->auto_k = this->auto_s = this->auto_t = 0;
+    this->auto_probe_matvecs    = 0;
+    this->auto_oracle_matvecs   = 0;
+    // FALSE, not the field's declared default of true (:184): a throw out of
+    // the probe call below must not leave a catching caller reading
+    // "converged == true, probe_matvecs == 0" - the exact misattribution
+    // ("converged instantly") this reset exists to prevent. The real value
+    // is set from auto_sqfa.all_certified once the probe actually returns.
+    this->auto_probe_converged  = false;
+    this->auto_phase2_certified = false;
+    this->t_probe_ms            = 0.0;
+    // The per-column probe snapshots (auto_probe_gauss/cert/depth) are only
+    // overwritten below via std::copy AFTER auto_sqfa.call() returns; if that
+    // call throws, a stale copy from a previous call would otherwise survive
+    // this reset and be misattributable to the current (failed) call. Zero
+    // them here too, upsizing to the current b first.
+    util::upsize(this->auto_probe_gauss, this->auto_probe_gauss_sz, b);
+    util::upsize(this->auto_probe_cert,  this->auto_probe_cert_sz,  b);
+    util::upsize(this->auto_probe_depth, this->auto_probe_depth_sz, b);
+    std::fill(this->auto_probe_gauss, this->auto_probe_gauss + b, (T)0);
+    std::fill(this->auto_probe_cert,  this->auto_probe_cert  + b, (uint8_t)0);
+    std::fill(this->auto_probe_depth, this->auto_probe_depth + b, (int64_t)0);
+
     // ---- 1. Depth probe: adaptive QFA certificate on a small probe block ----
     // The probe may spend at most ~auto_probe_frac of the budget (default
     // 1/8): its depth cap is auto_probe_frac*B/b, floored at 2 so tiny
@@ -597,23 +839,14 @@ T FunNystromPP<T>::call(
         (int64_t)(this->auto_probe_frac * (T)matvec_budget / (T)b));
     const int64_t probe_cap = std::min({user_cap, n, frac_cap});
 
-    this->t_probe_ms            = 0.0;
-    this->auto_phase2_certified = false;
     auto t_probe_start = clk::now();
 
-    // Probe block: Gaussian, columns normalized to sqrt(n) (the same probe
-    // convention as the internal Omega2 — which is what makes the certified
-    // probe columns reusable as Hutchinson samples in step 5 below).
+    // Probe block: same probe_dist convention as the internal Omega2 (fill
+    // via fill_probe_block) - which is what makes the certified probe
+    // columns reusable as Hutchinson samples in step 5 below.
     util::upsize(this->auto_probe_buf, this->auto_probe_buf_sz, n * b);
     util::upsize(this->auto_M_buf,     this->auto_M_buf_sz,     b);   // scalar QFA writes a length-b (per-column) output, not b*b
-    RandBLAS::DenseDist Dp(n, b);
-    state = RandBLAS::fill_dense(Dp, this->auto_probe_buf, state);
-    const T colnorm_target = std::sqrt((T)n);
-    for (int64_t j = 0; j < b; ++j) {
-        T* col = this->auto_probe_buf + j * n;
-        T nrm  = blas::nrm2(n, col, 1);
-        if (nrm > (T)0) blas::scal(n, colnorm_target / nrm, col, 1);
-    }
+    this->fill_probe_block(this->auto_probe_buf, n, b, state);
 
     this->auto_sqfa.adaptive      = true;
     this->auto_sqfa.adaptive_rtol = eps;
@@ -639,9 +872,9 @@ T FunNystromPP<T>::call(
     int64_t t;
     if (this->auto_probe_converged) {
         // Certified: t is the MEDIAN of the b per-column certified depths.
-        // The max over columns biases the depth up — buying per-probe accuracy
+        // The max over columns biases the depth up - buying per-probe accuracy
         // the O(1/sqrt(s)) stochastic term cannot use, at the cost of halving
-        // s — and the certificate tolerance already carries headroom. Upper
+        // s - and the certificate tolerance already carries headroom. Upper
         // median for even b (rounds toward the deeper middle depth).
         std::sort(this->auto_probe_depth, this->auto_probe_depth + b);
         t = (b % 2 == 1)
@@ -682,8 +915,16 @@ T FunNystromPP<T>::call(
     }
     // s >= 1 in both branches: pre-cap, t <= m_rem/2 gives s = floor(m_rem/(2t))
     // >= 1; post-cap, the branch is taken only when m_rem - s*t > q*k_cap, so
-    // the re-derived s = floor((m_rem - q*k_cap)/t) can only grow.
-    assert(s >= 1);
+    // the re-derived s = floor((m_rem - q*k_cap)/t) can only grow. Checked with
+    // an always-on throw (not assert): a future change to s_min, min_budget, or
+    // the depth-policy clamps above could silently violate this and divide by
+    // zero at t2_out's s-division.
+    if (s < 1)
+        throw std::logic_error(
+            "FunNystromPP::call(auto): internal invariant s >= 1 violated after "
+            "the 50/50 split; got s = " + std::to_string(s) + " (m_rem = " +
+            std::to_string(m_rem) + ", t = " + std::to_string(t) + ", k = " +
+            std::to_string(k) + ")");
     // Cap the probe count at n - k (the estimator's k + s <= n convention; the
     // block-QFA oracle also requires a block no wider than n). Past this point
     // the estimator SATURATES: a larger budget buys nothing more in this tier,
@@ -731,44 +972,229 @@ T FunNystromPP<T>::call(
     // The probe's certified columns are valid Hutchinson samples: the same
     // sphere-normalized Gaussian convention as the internal Omega2, with
     // quadratic forms gᵀf(A)g certified to rtol = eps. Fold them into the
-    // Phase-2 average,
-    //   t2 ← (s·t2 + Σ_cert [gᵀf(A)g − gᵀf(Â)g]) / (s + b_cert),
-    // where gᵀf(Â)g comes from the Phase-1 eigenpairs exactly like the other
-    // columns (y = Uᵀg; zero extra matvecs). Uncertified columns carry no
-    // accuracy statement and are never reused. The probe's matvecs are
-    // already charged to the budget, so the accounting is unchanged.
-    int64_t b_cert = 0;
-    for (int64_t j = 0; j < b; ++j)
-        if (this->auto_probe_cert[j]) ++b_cert;
-    if (b_cert > 0 && k < n) {
-        // Y_2 (k × s from the expert call) is dead scratch at this point;
-        // reuse it for the k × b probe projection Uᵀ·G_probe.
-        util::upsize(this->Y_2, this->Y_2_sz, k * b);
-        blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-                   k, b, n, (T)1, this->U, n, this->auto_probe_buf, n,
-                   (T)0, this->Y_2, k);
-        const bool apply_fzero = f_zero.has_value();
-        const T    fz          = apply_fzero ? *f_zero : (T)0;
-        T probe_sum = (T)0;
-        for (int64_t j = 0; j < b; ++j) {
-            if (!this->auto_probe_cert[j]) continue;
-            const T* yj = this->Y_2 + j * k;
-            T ghat = (T)0;
-            for (int64_t i = 0; i < k; ++i)
-                ghat += fscalar(this->lambda[i]) * yj[i] * yj[i];
-            if (apply_fzero) {
-                // Zero-fill complement term, same convention as the expert
-                // call: f(Â) = U·diag(f(λ))·Uᵀ + f(0)·(I − U·Uᵀ).
-                const T* gj  = this->auto_probe_buf + j * n;
-                const T g_sq = blas::dot(n, gj, 1, gj, 1);
-                const T y_sq = blas::dot(k, yj, 1, yj, 1);
-                ghat += fz * (g_sq - y_sq);
-            }
-            probe_sum += this->auto_probe_gauss[j] - ghat;
-        }
-        t2_out = (t2_out * (T)s + probe_sum) / (T)(s + b_cert);
-        est    = t1_out + t2_out;
+    // Phase-2 average via fold_probe_reuse (mask = auto_probe_cert selects
+    // only the certified columns; src_stride = 1 reads the flat per-column
+    // gᵀf(A)g array). Uncertified columns carry no accuracy statement and
+    // are never reused. The probe's matvecs are already charged to the
+    // budget, so the accounting is unchanged.
+    if (k < n) {
+        int64_t b_cert = this->fold_probe_reuse(
+            fscalar, n, k, b, this->auto_probe_buf, this->auto_probe_gauss,
+            /*src_stride=*/1, this->auto_probe_cert, f_zero, t2_out, s);
+        if (b_cert > 0) est = t1_out + t2_out;
     }
+    return est;
+}
+
+
+// --- Adaptive tier: FunNystromPP::call(A, f, eps, state, ...) -----------------
+
+template <typename T>
+template <linops::SymmetricLinearOperator SLO, typename RNG, std::invocable<T> FScalar>
+T FunNystromPP<T>::call(
+    SLO &A_op,
+    FScalar &&fscalar,
+    T eps,
+    RandBLAS::RNGState<RNG> &state,
+    T &t1_out,
+    T &t2_out,
+    std::optional<int64_t> matvec_cap,
+    std::optional<T> f_zero
+) {
+    using clk = std::chrono::steady_clock;
+    const int64_t n = A_op.dim;
+    const int64_t q = 1;       // single-pass Nystrom, same convention as the auto tier
+    const int64_t s_min = 4;   // probe-count floor (block-Krylov guard may still cut below it)
+
+    if (!(eps > (T)0) || !(eps < (T)1))
+        throw std::invalid_argument(
+            "FunNystromPP::call(adaptive): eps must lie in (0, 1); got " + std::to_string((double)eps));
+    const int64_t b = std::min(this->adaptive_probe_block, n);
+    if (b < 1)
+        throw std::invalid_argument(
+            "FunNystromPP::call(adaptive): adaptive_probe_block must be >= 1; got " +
+            std::to_string(this->adaptive_probe_block));
+
+    // Reset all adaptive_* telemetry up front, before the probe (the first
+    // operation below that can throw): a throw out of the probe or the
+    // delegated call must not leave a previous call's values looking like
+    // this call's result, same reasoning as the k_out / t_specrec_ms reset
+    // in the expert call() above (and the auto tier's analogous reset).
+    this->adaptive_k = this->adaptive_s = this->adaptive_t = 0;
+    this->adaptive_probe_matvecs    = 0;
+    this->adaptive_oracle_matvecs   = 0;
+    this->adaptive_probe_certified  = false;
+    this->adaptive_phase2_certified = false;
+    this->adaptive_tr_U = this->adaptive_tr_L = (T)0;
+    this->t_adaptive_probe_ms = 0.0;
+
+    // Rademacher for the WHOLE eps-targeted tier, from the depth probe
+    // through the delegated Phase-2 call: the paper's Alg. 1 samples +-1
+    // Hutchinson probes throughout, not just for depth discovery, so
+    // probe_dist stays Rademacher until the delegate call in step 5 (whose
+    // own internal Omega2 fill also goes through fill_probe_block) returns.
+    // Saved once here and restored on EVERY exit path - including a throw
+    // from any feasibility check below - alongside use_qfa (set in step 5),
+    // which needs the same exception-safe treatment (previously use_qfa
+    // alone was try/catch-guarded around just the delegate call; probe_dist
+    // was restored immediately after the probe fill with no guard at all,
+    // so a throw from steps 2-5 left it stuck on Rademacher).
+    const ProbeDist saved_probe_dist = this->probe_dist;
+    const bool      saved_use_qfa    = this->use_qfa;
+    this->probe_dist = ProbeDist::Rademacher;
+    T est;
+    try {
+        // ---- 1. Depth probe: adaptive BLOCK Gauss-Radau certificate on a
+        //         small Rademacher probe block. The probe's OWN depth cap
+        //         must respect the same d*b <= n block-Krylov limit the
+        //         Phase-2 oracle does: capping at n alone let d*b exceed n
+        //         on essentially every call (the degenerate block-Krylov
+        //         regime BlockLanczosFA warns about), firing its d*s > n
+        //         stderr NOTE routinely rather than only in genuinely
+        //         degenerate configurations.
+        const int64_t user_cap = (this->auto_depth_cap > 0) ? this->auto_depth_cap : n;
+        const int64_t block_krylov_probe_cap = std::max((int64_t)1, n / b);
+        const int64_t probe_cap = std::min({user_cap, n, block_krylov_probe_cap});
+
+        auto t_probe_start = clk::now();
+
+        util::upsize(this->adaptive_probe_buf, this->adaptive_probe_buf_sz, n * b);
+        util::upsize(this->adaptive_M_buf,     this->adaptive_M_buf_sz,     b * b);
+        this->fill_probe_block(this->adaptive_probe_buf, n, b, state);
+
+        this->adaptive_bqfa.adaptive      = true;
+        this->adaptive_bqfa.stop_rule     = BlockQFAStop::Radau;
+        this->adaptive_bqfa.return_mode   = BlockQFAReturn::Midpoint;
+        this->adaptive_bqfa.adaptive_rtol = eps;
+        this->adaptive_bqfa.reorth        = true;
+        this->adaptive_bqfa.call(A_op, this->adaptive_probe_buf, n, b, fscalar, probe_cap,
+                                 this->adaptive_M_buf);
+
+        // Snapshot the probe's outputs NOW: Phase 2 reuses the same
+        // adaptive_bqfa instance and overwrites matvecs / certified / d_used /
+        // tr_U / tr_L.
+        const int64_t probe_matvecs   = this->adaptive_bqfa.matvecs;
+        const bool    probe_certified = this->adaptive_bqfa.certified;
+        const int64_t d_used_probe    = this->adaptive_bqfa.d_used;
+        this->adaptive_probe_matvecs   = probe_matvecs;
+        this->adaptive_probe_certified = probe_certified;
+        this->adaptive_tr_U = this->adaptive_bqfa.tr_U;
+        this->adaptive_tr_L = this->adaptive_bqfa.tr_L;
+
+        this->t_adaptive_probe_ms = std::chrono::duration<double, std::milli>(
+            clk::now() - t_probe_start).count();
+
+        // ---- 2. Depth: directly the probe's certified (or reached) depth ----
+        // An UNCERTIFIED probe (the Radau bracket never closed within
+        // probe_cap, so d_used_probe == probe_cap) is a LABELED DEGRADATION,
+        // not an error: it does not throw here. t is simply the depth the
+        // probe reached, adaptive_probe_certified is already false (snapshot
+        // above), and adaptive_phase2_certified (step 5) will predictably
+        // also come out false - the caller sees the reduced confidence in
+        // the estimate through those flags rather than losing the estimate
+        // entirely. Any throw further down (the s*t <= n block-Krylov limit
+        // in step 3, an infeasible matvec_cap in step 4) fires purely from
+        // the (t, eps, n) arithmetic and is independent of certification.
+        const int64_t t = std::max((int64_t)1, std::min(d_used_probe, n));
+        this->adaptive_t = t;
+
+        // ---- 3. Split ----
+        detail::AdaptiveSplit split = detail::compute_adaptive_split(
+            t, eps, n, this->adaptive_k_const, this->adaptive_s_const, s_min);
+        int64_t k = split.k, s = split.s;
+
+        if (s < s_min)
+            throw std::invalid_argument(
+                "FunNystromPP::call(adaptive): the block-Krylov limit s*t <= n leaves only " +
+                std::to_string(s) + " Hutchinson probe(s) at depth t = " + std::to_string(t) +
+                " (n = " + std::to_string(n) + ", eps = " + std::to_string((double)eps) +
+                "); need >= " + std::to_string(s_min) + ". This eps/n regime is infeasible for "
+                "the eps-targeted block tier - use the knob-free `auto` (scalar) tier instead, "
+                "whose per-column Krylov spaces are not tied to a joint s*t <= n limit.");
+
+        // ---- 4. Optional matvec cap: clamp k first, then recompute s ----
+        if (matvec_cap.has_value()) {
+            const int64_t cap = *matvec_cap;
+            int64_t spend = probe_matvecs + q * k + s * t;
+            if (spend > cap) {
+                const int64_t avail = cap - probe_matvecs;
+                // Clamp k to what's left after reserving s_min probes at depth t
+                // (mirrors the auto tier's rank-cap-then-recompute-s pattern),
+                // then let s absorb whatever remains under the same n-k and
+                // block-Krylov clamps step 3 used.
+                k = std::max((int64_t)1, std::min(k, (avail - s_min * t) / q));
+                s = (avail - q * k) / t;
+                s = std::min(s, n - k);
+                s = std::min(s, n / t);
+                spend = probe_matvecs + q * k + s * t;
+                if (s < s_min || spend > cap)
+                    throw std::invalid_argument(
+                        "FunNystromPP::call(adaptive): matvec_cap = " + std::to_string(cap) +
+                        " is infeasible for eps = " + std::to_string((double)eps) + " at depth "
+                        "t = " + std::to_string(t) + " (probe already spent " +
+                        std::to_string(probe_matvecs) + "); even after clamping the rank to " +
+                        std::to_string(k) + " fewer than " + std::to_string(s_min) +
+                        " Hutchinson probes remain.");
+            }
+        }
+        this->adaptive_k = k;
+        this->adaptive_s = s;
+
+        // ---- 5. Delegate to the expert overload with a certified BLOCK QFA
+        //         oracle. probe_dist is still Rademacher here: the delegate's
+        //         own internal Omega2 fill goes through fill_probe_block too,
+        //         so the Phase-2 Hutchinson probes are Rademacher as well
+        //         (the paper's Alg. 1 samples +-1 probes, not Gaussian). The
+        //         block oracle produces the FULL s x s quadratic form
+        //         directly into Y, which is exactly the layout the use_qfa
+        //         trace read consumes (col-major, ld = s) - no diagonal-only
+        //         repacking like the scalar auto tier needs.
+        this->adaptive_oracle_matvecs   = 0;
+        this->adaptive_phase2_certified = true;   // vacuously true if Phase 2 is skipped (k == n)
+        // adaptive_bqfa's config (adaptive / stop_rule / return_mode /
+        // adaptive_rtol / reorth) was set once above for the probe and is
+        // reused unchanged here: call() only reads those fields, never
+        // writes them, so there is nothing to re-set (same pattern as the
+        // scalar auto tier's auto_sqfa, configured once before its own
+        // Phase-2 lambda).
+        auto fAfun = [&](int64_t fa_n, int64_t fa_s, const T* Bblk, T* Y) {
+            this->adaptive_bqfa.call(A_op, Bblk, fa_n, fa_s, fscalar, t, Y);
+            this->adaptive_oracle_matvecs += this->adaptive_bqfa.matvecs;
+            // Captured HERE, after the Phase-2 oracle ran: the probe's flag is
+            // already saved in adaptive_probe_certified, and this call overwrites
+            // adaptive_bqfa.certified / tr_U / tr_L.
+            this->adaptive_phase2_certified =
+                this->adaptive_phase2_certified && this->adaptive_bqfa.certified;
+            this->adaptive_tr_U = this->adaptive_bqfa.tr_U;
+            this->adaptive_tr_L = this->adaptive_bqfa.tr_L;
+        };
+        this->use_qfa = true;
+        est = this->call(A_op, fAfun, fscalar, k, s, q, state,
+                         /*Omega2=*/nullptr, t1_out, t2_out, f_zero);
+
+        // ---- 6. Probe reuse (all-or-nothing) ----
+        // The block certificate brackets tr(M) for the WHOLE probe block, not
+        // per-column diagonal entries the way the scalar tier's per-column
+        // certified[] flags do: there is no per-column accuracy statement to
+        // reuse selectively, so reuse is all-or-nothing on whether the block
+        // certified. When it did, all b probe columns join the Phase-2
+        // average via fold_probe_reuse (mask = nullptr selects every column;
+        // src_stride = b+1 reads gᵀf(A)g off the diagonal of the b×b block
+        // certificate matrix M_probe). The probe's matvecs were already
+        // charged above, so the accounting is unchanged.
+        if (probe_certified && k < n) {
+            this->fold_probe_reuse(
+                fscalar, n, k, b, this->adaptive_probe_buf, this->adaptive_M_buf,
+                /*src_stride=*/b + 1, /*mask=*/nullptr, f_zero, t2_out, s);
+            est = t1_out + t2_out;
+        }
+    } catch (...) {
+        this->probe_dist = saved_probe_dist;
+        this->use_qfa     = saved_use_qfa;
+        throw;
+    }
+    this->probe_dist = saved_probe_dist;
+    this->use_qfa     = saved_use_qfa;
     return est;
 }
 

@@ -7,6 +7,7 @@
 
 #include <RandBLAS.hh>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -106,12 +107,12 @@ long measure_us(Fn&& fn) {
 /// that probability negligible, which is what vec_nnz = 0 ("auto") resolves
 /// to at sketch time.
 ///
-/// Ω stays in sparse form wherever it appears — it is never densified. At
+/// Ω stays in sparse form wherever it appears - it is never densified. At
 /// q = 1: line 2 applies it through the operator's SkOp matvec, line 4's ν·Ω
 /// update is a scatter-add over the m·vec_nnz stored nonzeros, and line 5's
 /// Gram applies Ωᵀ as a sketching operator via RandBLAS::sketch_general
 /// (O(m·vec_nnz·k), vs O(m·k²) for a dense GEMM). At q > 1 the recovery
-/// consumes the dense orthonormalized iterate Q instead — which is where the
+/// consumes the dense orthonormalized iterate Q instead - which is where the
 /// sketch naturally *becomes* dense, through Q ← orthonormalize(A·…); the
 /// subspace-iteration passes ping-pong between ws.Q and ws.Y via pointer
 /// swaps; no m×k copies anywhere. In code the sketching operator has exactly
@@ -250,9 +251,11 @@ void NystromEVD(
     //   recovery then clamps a large part of the spectrum. Not blocked, but
     //   flagged once per instantiation below.
     if constexpr (sizeof(T) < 8) {
-        static bool nu_note_emitted = false;
-        if (!nu_note_emitted) {
-            nu_note_emitted = true;
+        // Atomic: NystromEVD<float> can be called concurrently from multiple
+        // threads, and a plain bool would race on this check-then-set (worst
+        // case the note prints more than once).
+        static std::atomic<bool> nu_note_emitted{false};
+        if (!nu_note_emitted.exchange(true, std::memory_order_relaxed)) {
             std::fprintf(stderr,
                 "NOTE NystromEVD: single-precision shift nu ~ n*eps*sqrt(vec_nnz)*||A||_2 "
                 "can reach ~1e-3*||A||_2 at n ~ 3000 and clamps the recovered "
@@ -264,7 +267,7 @@ void NystromEVD(
 
     // [Alg. 2, line 4] Y_ν ← Y + ν·Ω = (A+νI)·Ω  (overwrites ws.Y).
     //   Sparse path: ν·Ω has only m·vec_nnz stored entries (vec_nnz per row),
-    //   so the update is a scatter-add over the SASO's COO triplets — no dense
+    //   so the update is a scatter-add over the SASO's COO triplets - no dense
     //   image of Ω needed.
     if (q == 1) {
         auto S_coo = RandBLAS::coo_view_of_skop(S);
@@ -276,13 +279,13 @@ void NystromEVD(
 
     // [Alg. 2, line 5a] H ← Ωᵀ·Y_ν  (k×k = Ωᵀ(A+νI)Ω, SPD since A+νI is).
     //   Sparse path: apply Ωᵀ as a sketching operator (RandBLAS::sketch_general,
-    //   the same primitive CQRRPT uses to apply its SASO) — O(m·vec_nnz·k) vs
+    //   the same primitive CQRRPT uses to apply its SASO) - O(m·vec_nnz·k) vs
     //   O(mk²) for the dense GEMM.
     //   H is symmetric in exact arithmetic, but either product forms its two
     //   triangles from independent accumulations, so they disagree at roundoff
     //   (‖H−Hᵀ‖ ~ ε‖Ω‖‖Y_ν‖). The Cholesky below reads a single triangle, so
     //   average H ← (H+Hᵀ)/2 (util::symmetrize; deliberately NOT the
-    //   reflect-one-triangle RandBLAS::symmetrize — both triangles carry
+    //   reflect-one-triangle RandBLAS::symmetrize - both triangles carry
     //   equally valid information). potrf then factors the symmetric part,
     //   the nearest symmetric matrix in ‖·‖_F, rather than whichever of two
     //   slightly different matrices the Uplo convention would select. O(k²),
@@ -299,7 +302,7 @@ void NystromEVD(
     // [Alg. 2, line 5b] C ← chol(H), upper. SPD by construction; guard defensively.
     //   No need to zero the strict lower triangle of the factor: the only
     //   consumer is the Uplo::Upper trsm below, which never reads it.
-    int chol_status = lapack::potrf(Uplo::Upper, k, ws.G, k);
+    int64_t chol_status = lapack::potrf(Uplo::Upper, k, ws.G, k);
     if (chol_status != 0)
         throw std::runtime_error(
             "NystromEVD: shifted Cholesky failed (potrf status " +

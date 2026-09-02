@@ -27,8 +27,20 @@ enum class BlockQFAStop : int {
 /// Which value BlockLanczosQFA returns when the Radau certificate is active.
 enum class BlockQFAReturn : int {
     Gauss    = 0,  ///< the plain block Gauss value (matches the scalar oracle's default)
-    Midpoint = 1   ///< (M_U + M_L)/2 — for operator-monotone f the two quadratures err on
+    Midpoint = 1   ///< (M_U + M_L)/2 - for operator-monotone f the two quadratures err on
                    ///< opposite sides, so the midpoint halves the one-sided Gauss bias for free
+};
+
+/// Denominator used by the certified Radau bracket test in `radau_bracket_check`
+/// (app-blanczos.tex, Thm adaptive-stopping): |tr(M_U) − tr(M_L)| ≤ adaptive_rtol · scale.
+enum class BlockQFAScale : int {
+    MaxBoth   = 0,  ///< scale = max(|tr_U|, |tr_L|, tiny) - our deliberate conservative
+                    ///< default: robust even outside the operator-monotone regime, where
+                    ///< tr_L can exceed tr_U and a Gauss-only scale would understate it.
+    GaussSide = 1   ///< scale = max(|tr_U|, tiny) - the theorem's stated form, ε·tr(L_t)
+                    ///< on the Gauss side. Coincides with MaxBoth whenever tr_U ≥ tr_L,
+                    ///< which holds throughout for PSD A and operator-monotone f ≥ 0
+                    ///< (Golub–Meurant: Gauss upper-bounds Radau-at-0 in that regime).
 };
 
 /// d-step block Lanczos-QFA: the *quadrature form* Bᵀ f(A) B (s×s), NOT the
@@ -47,7 +59,7 @@ enum class BlockQFAReturn : int {
 ///
 /// Adaptive depth (optional, `adaptive = true`) with two stopping rules:
 ///
-/// stop_rule = Radau (default) — CERTIFIED block Gauss/Gauss-Radau bracket.
+/// stop_rule = Radau (default) - CERTIFIED block Gauss/Gauss-Radau bracket.
 ///   At check depth t form the plain block Gauss value tr(M_U) from T_t, and
 ///   the Gauss-Radau value tr(M_L) from T̂_t: T_t with its bottom-right
 ///   diagonal block replaced by
@@ -59,14 +71,19 @@ enum class BlockQFAReturn : int {
 ///   the exact block analogue of the scalar pivot trick in LanczosQFA
 ///   (α̂_t = α_t − d_t): with T_{t−1} = L D Lᵀ and L unit-lower
 ///   block-bidiagonal, forward substitution on the trailing block-column of
-///   the identity gives Eᵀ T_{t−1}⁻¹ E = D_{t−1}⁻¹ exactly — no (t·s)-sized
+///   the identity gives Eᵀ T_{t−1}⁻¹ E = D_{t−1}⁻¹ exactly - no (t·s)-sized
 ///   solve is ever formed. For the operator-monotone f this class targets,
 ///   Gauss and Radau-at-0 err on opposite sides (Golub–Meurant), so
-///     |tr(M_U) − tr(M_L)| ≤ adaptive_rtol · |tr(M_L)|
-///   is a certified relative-error stop (Raphael's block criterion; the scale
-///   is guarded as max(|tr_U|, |tr_L|, tiny) against roundoff inversion at
-///   the convergence floor). A non-PD pivot (potrf failure on D) means T is
-///   not positive definite — indefinite A or breakdown — and disables the
+///     |tr(M_U) − tr(M_L)| ≤ adaptive_rtol · tr(L_t)
+///   is a certified relative-error stop (app-blanczos.tex, Thm adaptive-stopping;
+///   Raphael's block criterion). `stop_scale` selects the denominator:
+///   GaussSide takes the theorem literally (scale = max(|tr_U|, tiny), the Gauss
+///   side); MaxBoth (default) additionally guards against tr_L exceeding tr_U
+///   outside the operator-monotone regime by taking scale = max(|tr_U|, |tr_L|,
+///   tiny). The two coincide up to roundoff whenever tr_U ≥ tr_L, which holds
+///   throughout for the PSD-A, operator-monotone-f≥0 case this class targets -
+///   MaxBoth is the conservative default. A non-PD pivot (potrf failure on D) means T is
+///   not positive definite - indefinite A or breakdown - and disables the
 ///   certificate for the rest of the run: the recurrence runs to the cap and
 ///   the result is reported UNcertified rather than dividing by a bad pivot,
 ///   the same policy as the scalar class. The bracket is also evaluated once
@@ -74,11 +91,11 @@ enum class BlockQFAReturn : int {
 ///   the last ladder check and the cap is still reported certified (the
 ///   scalar class historically missed this).
 ///
-/// stop_rule = Window — legacy heuristic, kept selectable: stop at the first
+/// stop_rule = Window - legacy heuristic, kept selectable: stop at the first
 ///   check where |tr(M_k) − tr(M_{k−δ})| ≤ rtol · |tr(M_k)| over a delay
 ///   window δ. No certificate; certified stays false.
 ///
-/// Check cadence: util::qfa_check_due (shared with the scalar oracle) — a
+/// Check cadence: util::qfa_check_due (shared with the scalar oracle) - a
 /// ~1.5× geometric ladder by default, fixed stride for check_every > 1. Each
 /// check costs syevd work of size (t·s) and zero matvecs.
 ///
@@ -87,7 +104,7 @@ enum class BlockQFAReturn : int {
 /// the initial factor R₀ are read here. The Krylov basis K_big is built by the
 /// recurrence but never read by the reconstruction, which is exactly the mapback
 /// QFA avoids. (The recurrence still allocates and fills K_big; with reorth = 0
-/// only three n×s blocks of it are mathematically needed — an accepted
+/// only three n×s blocks of it are mathematically needed - an accepted
 /// memory-over-speed tradeoff of reusing the FA recurrence unchanged.)
 ///
 /// @tparam T  Floating-point scalar type.
@@ -95,22 +112,28 @@ template <typename T>
 class BlockLanczosQFA {
 public:
     /// Reorthogonalization control (forwarded to the recurrence).
-    ///  1 = full block reorthogonalization; 0 = none.
-    int64_t reorth = 1;
+    ///  true = full block reorthogonalization; false = none.
+    bool reorth = true;
 
     // ---- adaptive depth controls (used only when `adaptive`) --------------
     bool           adaptive      = false;                ///< choose depth online
     BlockQFAStop   stop_rule     = BlockQFAStop::Radau;  ///< certificate variant
     BlockQFAReturn return_mode   = BlockQFAReturn::Gauss;///< value returned on a certified stop
+    BlockQFAScale  stop_scale    = BlockQFAScale::MaxBoth;///< Radau bracket denominator (see BlockQFAScale)
     T              adaptive_rtol = (T)1e-2;              ///< Radau: certified rel err; Window: rel-change tol
     int64_t        check_every   = 1;                    ///< 1 = geometric ladder; >1 = fixed stride
 
-    // Window-rule knobs (stop_rule = Window only). First convergence test is
-    // at depth (adaptive_min + adaptive_delay), so these set the floor on
-    // d_used. delay=2 was chosen empirically (2026-07-10): across easy-to-
-    // moderate spectra it matched delay=5's accuracy exactly while stopping
-    // ~3 steps sooner. Named constants so callers that reuse an instance
-    // across calls can RESTORE them rather than relying on fresh construction.
+    // Window-rule knobs (stop_rule = Window only). First convergence test
+    // fires after adaptive_delay+1 checks at or past adaptive_min; since
+    // checks follow the check-cadence ladder (util::qfa_check_due), not
+    // every depth, the corresponding d_used floor is generally deeper than
+    // adaptive_min + adaptive_delay. delay=2 was chosen empirically
+    // (2026-07-10) under dense per-step checking, before the ladder gate was
+    // applied to this branch: across easy-to-moderate spectra it matched
+    // delay=5's accuracy exactly while stopping ~3 steps sooner; not
+    // reverified against the ladder-gated cadence. Named constants so
+    // callers that reuse an instance across calls can RESTORE them rather
+    // than relying on fresh construction.
     static constexpr int64_t default_adaptive_delay = 2;
     static constexpr int64_t default_adaptive_min   = 2;
     int64_t adaptive_delay  = default_adaptive_delay;  ///< δ: compare depth k against k − δ checks
@@ -126,13 +149,13 @@ public:
     /// Reused block recurrence + its buffers (K_big, R0_buf, T_blk, ...).
     BlockLanczosFA<T> fa;
 
-    // Scratch (raw buffers, grown never shrunk — house workspace rule):
+    // Scratch (raw buffers, grown never shrunk - house workspace rule):
     //  workspace : compute_M's preserving path (eig_vals + W + T-copy).
     //  M_scratch : s×s Gauss-side M from certificate checks (never disturbs `out`).
     //  ML_scratch: s×s Radau-side M from certificate checks.
     //  D_buf     : s×s current block-LDLᵀ pivot D_t (lower triangle valid).
-    //  Dchol_buf : s×s scratch — Cholesky factor of D_{t−1}, then reused.
-    //  Bt_buf    : s×s scratch — B_{t−1}ᵀ, overwritten by L⁻¹B_{t−1}ᵀ (trsm).
+    //  Dchol_buf : s×s scratch - Cholesky factor of D_{t−1}, then reused.
+    //  Bt_buf    : s×s scratch - B_{t−1}ᵀ, overwritten by L⁻¹B_{t−1}ᵀ (trsm).
     //  hist_buf  : Window rule's tr(M_k) history (one entry per check, ≤ d).
     T* workspace  = nullptr; int64_t workspace_sz  = 0;
     T* M_scratch  = nullptr; int64_t M_scratch_sz  = 0;
@@ -148,7 +171,7 @@ public:
     // where `apply` is all compute_M work (certificate checks + the final M),
     // `run_lanczos` is the recurrence net of certificate time, and `reorth`
     // is the recurrence's block-MGS time (propagated from the held
-    // BlockLanczosFA — this oracle DOES pay reorthogonalization cost whenever
+    // BlockLanczosFA - this oracle DOES pay reorthogonalization cost whenever
     // reorth = 1, unlike the basis-free scalar LanczosQFA).
     bool timing = false;
     std::vector<long> times;
@@ -214,7 +237,7 @@ public:
 
             if (!have_M) {
                 // Ran to the cap. If the pivot chain survived, evaluate the
-                // bracket once AT the cap — the ladder rarely lands exactly on
+                // bracket once AT the cap - the ladder rarely lands exactly on
                 // d, and a bracket that closed in the gap must still be
                 // reported certified. Order matters: the Radau side needs
                 // T_blk intact (preserving copy), the Gauss side can then
@@ -234,6 +257,7 @@ public:
             const int64_t dmax = d;
             auto stop_after = [&](int64_t kdepth) -> bool {
                 if (kdepth < this->adaptive_min || kdepth >= dmax) return false;
+                if (!util::qfa_check_due(kdepth, this->check_every)) return false;
                 steady_clock::time_point c0, c1;
                 if (this->timing) c0 = steady_clock::now();
                 // preserve_T: the recurrence continues past this check.
@@ -320,7 +344,7 @@ public:
             V = W + s * m;
             // General copy (not just the lower triangle): the strict upper of
             // the leading block of T_blk is zero from the recurrence's memset,
-            // and copying it keeps V fully initialized — syevd only contracts
+            // and copying it keeps V fully initialized - syevd only contracts
             // to read one triangle, and an uninitialized upper half trips
             // memory sanitizers for no saving.
             lapack::lacpy(lapack::MatrixType::General, m, m, fa.T_blk, src_ld, V, m);
@@ -332,7 +356,7 @@ public:
 
     /// Radau-side variant: same reduction, but from T̂ = T with the trailing
     /// diagonal block replaced by Â_t = A_t − D_t (D_last = the maintained
-    /// pivot D_t, s×s, lower triangle valid). Always preserving — the Gauss
+    /// pivot D_t, s×s, lower triangle valid). Always preserving - the Gauss
     /// side and/or the continuing recurrence still need T_blk.
     template <std::invocable<T> F>
     void compute_M_radau(F f, int64_t s, int64_t kdepth, int64_t dmax,
@@ -361,7 +385,7 @@ public:
 private:
     // ------------------------------------------------------------------
     /// Shared tail of the two compute_M variants: given the m×m symmetric V
-    /// (ld = v_ld; destroyed — eigenvectors overwrite it), form
+    /// (ld = v_ld; destroyed - eigenvectors overwrite it), form
     /// out = R₀ᵀ · [f(V)]_{1:s,1:s} · R₀ (s×s).
     template <std::invocable<T> F>
     void reduce_fT_to_M(F f, int64_t s, int64_t m, T* V, int64_t v_ld,
@@ -390,8 +414,8 @@ private:
 
     /// Advance the block-LDLᵀ pivot to depth `kdepth`:
     ///   kdepth == 1: D ← A_1;   kdepth ≥ 2: D ← A_t − B_{t−1} D⁻¹ B_{t−1}ᵀ.
-    /// D_buf's LOWER triangle is the valid data throughout (all consumers —
-    /// potrf here and the corner subtraction in compute_M_radau — read lower
+    /// D_buf's LOWER triangle is the valid data throughout (all consumers -
+    /// potrf here and the corner subtraction in compute_M_radau - read lower
     /// only). Returns false when D fails Cholesky (T not PD: indefinite A or
     /// breakdown), which permanently disables the certificate for this run.
     bool update_pivot(int64_t kdepth, int64_t s, int64_t dmax) {
@@ -437,8 +461,9 @@ private:
         }
         this->tr_U = trU;
         this->tr_L = trL;
-        const T scale = std::max({std::abs(trU), std::abs(trL),
-                                  std::numeric_limits<T>::min()});
+        const T scale = (this->stop_scale == BlockQFAScale::GaussSide)
+            ? std::max(std::abs(trU), std::numeric_limits<T>::min())
+            : std::max({std::abs(trU), std::abs(trL), std::numeric_limits<T>::min()});
         return std::abs(trU - trL) <= this->adaptive_rtol * scale;
     }
 };

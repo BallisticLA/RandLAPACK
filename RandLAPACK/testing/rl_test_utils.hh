@@ -497,7 +497,8 @@ template <typename T, typename RNG>
 ///   bytes  0..7   : int64_t n_rows
 ///   bytes  8..15  : int64_t n_cols
 ///   bytes 16..    : n_rows * n_cols T values, column-major
-/// MATLAB side: `bench_matlab/save_dense_bin.m`, `load_dense_bin.m`.
+/// MATLAB side: `utils/save_dense_bin.m`, `utils/load_dense_bin.m` in the
+/// FunNystromPP_benchmark harness.
 /// NOTE: the header is written in native byte order, so files are not
 /// portable across architectures of differing endianness. This is adequate
 /// for the single-host MATLAB<->C++ harness; do not treat it as a general

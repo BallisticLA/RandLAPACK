@@ -151,8 +151,8 @@ int main(int argc, char **argv) {
     // True trace via syevd of a copy.
     // In timing mode we skip syevd (dominates wall-clock at n=2000) — the
     // estimate vs ground-truth is verified separately by cross-validation.
-    // The exact-LFA path also needs the eigendecomp, so it is forced off
-    // in timing mode (use scalar or block LFA instead).
+    // Exception: the exact-LFA path needs the eigendecomp regardless, so
+    // it IS still computed (and true_tr/err reported) even in timing mode.
     T true_tr = std::nan("0");
     T *A_cpy = nullptr;   // eigenvectors of A after syevd (raw; owned here)
     T *ev    = nullptr;   // eigenvalues
