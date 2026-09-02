@@ -182,6 +182,12 @@ add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_li
 # FunNyström++ v2 benchmark (reference-aligned baseline; Phase 0 stub)
 add_benchmark(NAME FunNystromPP_benchmark CXX_SOURCES bench_FunNystromPP/FunNystromPP_benchmark.cc LINK_LIBS ${Benchmark_libs})
 
+# QFA micro-benchmark: block vs scalar, adaptive vs fixed (LOCAL) -- see
+# agent-workspace/randnla/project-plans/2026-09-02-qfa-micro-benchmark-plan.md
+add_benchmark(NAME qfa_micro CXX_SOURCES bench_FunNystromPP/qfa_micro.cc LINK_LIBS ${Benchmark_libs})
+
+add_benchmark(NAME qfa_timing_probe CXX_SOURCES bench_FunNystromPP/qfa_timing_probe.cc LINK_LIBS ${Benchmark_libs})
+
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})

@@ -176,6 +176,14 @@ public:
     bool timing = false;
     std::vector<long> times;
     long _t_matvec_us = 0;
+    // Profiling probe addition (2026-09-02, qfa_timing_probe): cert_us was
+    // previously a call()-local variable folded into times[2] (apply_us)
+    // together with the final compute_M reconstruction; these two members
+    // expose it directly, plus a count of certificate evaluations actually
+    // performed (each radau_bracket_check() call, ladder-triggered or the
+    // at-cap re-check), for runtime-attribution profiling.
+    long    _t_cert_us   = 0;
+    int64_t cert_checks  = 0;
 
     BlockLanczosQFA()                                  = default;
     BlockLanczosQFA(const BlockLanczosQFA&)            = delete;
@@ -203,6 +211,7 @@ public:
 
         steady_clock::time_point t_start, t_lanczos_end, t_end;
         long cert_us = 0;   // compute_M time spent inside the certificate
+        int64_t n_cert_checks = 0;
         if (this->timing) t_start = steady_clock::now();
 
         this->certified = false;
@@ -227,6 +236,7 @@ public:
                 steady_clock::time_point c0, c1;
                 if (this->timing) c0 = steady_clock::now();
                 bool closed = radau_bracket_check(f, s, kdepth, dmax);
+                ++n_cert_checks;
                 if (this->timing) { c1 = steady_clock::now(); cert_us += duration_cast<microseconds>(c1 - c0).count(); }
                 return closed;
             };
@@ -246,6 +256,7 @@ public:
                     steady_clock::time_point c0, c1;
                     if (this->timing) c0 = steady_clock::now();
                     this->certified = radau_bracket_check(f, s, this->d_used, d);
+                    ++n_cert_checks;
                     if (this->timing) { c1 = steady_clock::now(); cert_us += duration_cast<microseconds>(c1 - c0).count(); }
                     have_M = true;   // scratches hold the at-cap pair
                 }
@@ -308,6 +319,8 @@ public:
         this->matvecs = s * this->d_used;
 
         this->_t_matvec_us = fa._t_matvec_us;
+        this->_t_cert_us   = cert_us;
+        this->cert_checks  = n_cert_checks;
         if (this->timing) {
             t_end = steady_clock::now();
             long total_us   = duration_cast<microseconds>(t_end         - t_start).count();
