@@ -100,6 +100,7 @@ inline std::string env_or(const char* key) {
 inline void write_env_line(std::ostream& out) {
     out << "# env RANDLAPACK_GRAM_LEFT=" << env_or("RANDLAPACK_GRAM_LEFT")
         << " RANDLAPACK_CHOL_MAX_RETRIES=" << env_or("RANDLAPACK_CHOL_MAX_RETRIES")
+        << " RANDLAPACK_CHOL_SYMMETRIZE=" << env_or("RANDLAPACK_CHOL_SYMMETRIZE")
         << " RANDLAPACK_SCHOLQR3_SHIFT=" << env_or("RANDLAPACK_SCHOLQR3_SHIFT")
         << " RANDLAPACK_BLAS2_THREADS=" << env_or("RANDLAPACK_BLAS2_THREADS")
         << " RANDLAPACK_FFT_THREADS=" << env_or("RANDLAPACK_FFT_THREADS")

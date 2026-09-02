@@ -63,6 +63,22 @@ inline bool scholqr3_eps_shift() {
     return v;
 }
 
+// Env-gated (read once): the pre-factorization Gram symmetrization
+// G <- (G + G^T)/2 defaults ON (the paper's implementation section prescribes
+// it, and its roundoff assumption presumes it). RANDLAPACK_CHOL_SYMMETRIZE=0
+// disables it, so potrf factorizes the upper triangle as computed — the
+// pre-audit (pre-B5) behavior, kept for A/B campaigns isolating the
+// symmetrization's ULP-level effect on borderline pivots. Any other value,
+// or unset, means the default. Same static-cache caveat as above: validate
+// via benchmarks, not gtests.
+inline bool chol_symmetrize() {
+    static const bool v = []() {
+        const char* s = std::getenv("RANDLAPACK_CHOL_SYMMETRIZE");
+        return s == nullptr || std::string(s) != "0";
+    }();
+    return v;
+}
+
 
 // ============================================================================
 // blocked_preconditioned_gram
@@ -431,15 +447,23 @@ int cholqr_primitive(
     // agree only up to formation rounding; the average is written into BOTH
     // triangles so the retry-restore below reproduces the symmetrized matrix
     // exactly. O(n^2), negligible next to potrf's n^3/3.
-    if (timing) t0 = steady_clock::now();
-    for (int64_t j = 0; j < n; ++j) {
-        for (int64_t i = 0; i < j; ++i) {
-            T avg = (G[i + j * n] + G[j + i * n]) / T(2);
-            G[i + j * n] = avg;
-            G[j + i * n] = avg;
+    // RANDLAPACK_CHOL_SYMMETRIZE=0 (chol_symmetrize() above) skips this, so
+    // potrf sees the upper triangle as computed. In that mode a retry restores
+    // the upper from the as-computed strict LOWER, i.e. the transpose of what
+    // attempt 0 factorized — the two differ by formation rounding only, which
+    // is immaterial under a shift >= eps*trace (same argument as the restore
+    // note below).
+    if (chol_symmetrize()) {
+        if (timing) t0 = steady_clock::now();
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i < j; ++i) {
+                T avg = (G[i + j * n] + G[j + i * n]) / T(2);
+                G[i + j * n] = avg;
+                G[j + i * n] = avg;
+            }
         }
+        if (timing) { t1 = steady_clock::now(); gemm_us += duration_cast<microseconds>(t1 - t0).count(); }
     }
-    if (timing) { t1 = steady_clock::now(); gemm_us += duration_cast<microseconds>(t1 - t0).count(); }
 
     // ---- Step 3: Cholesky G = (R^chol)^T R^chol, with adaptive-shift retry ----
     //
