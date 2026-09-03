@@ -381,7 +381,8 @@ static long long run_sweep(
     const std::vector<FuncSpec>&   funcs,
     const std::vector<int64_t>&    s_list,
     const std::vector<T>&          tol_list,
-    int trials, int64_t n, uint64_t base_seed, FILE* fp
+    int trials, int64_t n, uint64_t base_seed, FILE* fp,
+    bool use_banded, bool use_cgs2
 ) {
     long long rows_written = 0;
     const int64_t max_s = *std::max_element(s_list.begin(), s_list.end());
@@ -395,6 +396,18 @@ static long long run_sweep(
 
     RandLAPACK::LanczosQFA<T>      scalar_oracle;
     RandLAPACK::BlockLanczosQFA<T> block_oracle;
+    // OPT-1 gate 3 (d_used identity census): route the block-certified/
+    // block-fixed arms' single eigensolve call site through the banded or
+    // dense route per --banded=0/1 (default banded=0, matching the class
+    // default). Never touched per-iteration below - block_oracle is reused
+    // across the whole sweep with every other knob reset per call, but this
+    // one is a run-level A/B choice, not a per-cell one.
+    block_oracle.use_banded_eig = use_banded;
+    // OPT-2 gate 2/3 (2026-09-02-blockqfa-optimization-plan.md): same
+    // run-level A/B choice for the reorth kernel (BlockLanczosFA's
+    // use_cgs2_reorth, reached through block_oracle.fa), --cgs2=0/1,
+    // default 0 (block-MGS, matching BlockLanczosFA's class default).
+    block_oracle.fa.use_cgs2_reorth = use_cgs2;
 
     for (const auto& mspec : matrices) {
         const uint64_t mkey = derive_key(base_seed, ROLE_MATRIX, (uint64_t)matrix_global_index(mspec.name));
@@ -593,7 +606,7 @@ static long long run_sweep(
 // =====================================================================
 // [Smoke: stage (a), its own tiny hardcoded grid -- NOT the real grid rule]
 // =====================================================================
-static long long run_smoke(uint64_t base_seed, FILE* fp) {
+static long long run_smoke(uint64_t base_seed, FILE* fp, bool use_banded, bool use_cgs2) {
     const int64_t n = 200, s = 4, trials = 2;
     const T tol = (T)1e-2;
     const std::vector<int64_t> depths = {4, 10, 20};   // "2-3 depths" per the plan
@@ -610,6 +623,8 @@ static long long run_smoke(uint64_t base_seed, FILE* fp) {
     T* out_s = new T[s]; T* out_ss = new T[s * s];
     RandLAPACK::LanczosQFA<T> scalar_oracle;
     RandLAPACK::BlockLanczosQFA<T> block_oracle;
+    block_oracle.use_banded_eig = use_banded;   // OPT-1 gate 3, see run_sweep's comment
+    block_oracle.fa.use_cgs2_reorth = use_cgs2; // OPT-2 gate 2/3, see run_sweep's comment
 
     for (int trial = 0; trial < trials; ++trial) {
         const uint64_t pkey = derive_key(base_seed, ROLE_PROBE, (uint64_t)s_global_index(s), (uint64_t)trial);
@@ -733,9 +748,13 @@ static std::string blas_backend() {
 #endif
 }
 
-static void write_header(FILE* fp, const std::string& mode, uint64_t base_seed, int64_t n) {
+static void write_header(FILE* fp, const std::string& mode, uint64_t base_seed, int64_t n, bool use_banded, bool use_cgs2) {
     std::fprintf(fp, "# qfa_micro benchmark output (plan: 2026-09-02-qfa-micro-benchmark-plan.md, pass 10 FROZEN)\n");
     std::fprintf(fp, "# mode=%s\n", mode.c_str());
+    std::fprintf(fp, "# use_banded_eig=%d (OPT-1 2026-09-02-blockqfa-optimization-plan.md gate-3 census toggle; "
+                      "--banded=0/1, default 0)\n", use_banded ? 1 : 0);
+    std::fprintf(fp, "# use_cgs2_reorth=%d (OPT-2 2026-09-02-blockqfa-optimization-plan.md gate-2/3 census toggle; "
+                      "--cgs2=0/1, default 0)\n", use_cgs2 ? 1 : 0);
     std::fprintf(fp, "# n=%lld\n", (long long)n);
     std::fprintf(fp, "# base_seed=%llu\n", (unsigned long long)base_seed);
     std::fprintf(fp, "# matrix_seed: key = derive_key(base_seed, ROLE_MATRIX=1, matrix_global_index); "
@@ -790,18 +809,43 @@ static void print_timing_summary() {
 // [main]
 // =====================================================================
 static void print_usage(const char* prog) {
-    std::fprintf(stderr, "Usage: %s <out.csv> [seed] [--smoke|--calibrate]\n", prog);
+    std::fprintf(stderr, "Usage: %s <out.csv> [seed] [--smoke|--calibrate] [--banded=0|1] [--cgs2=0|1]\n", prog);
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2 || argc > 4) { print_usage(argv[0]); return 1; }
+    if (argc < 2 || argc > 6) { print_usage(argv[0]); return 1; }
     const std::string out_path = argv[1];
-    const uint64_t seed = (argc >= 3) ? std::strtoull(argv[2], nullptr, 10) : 42ull;
+    uint64_t seed = 42ull;
+    if (argc >= 3) {
+        char* endptr = nullptr;
+        seed = std::strtoull(argv[2], &endptr, 10);
+        // Reject loudly rather than silently misparsing a flag (e.g.
+        // "--banded=1") landing in the positional seed slot as seed 0.
+        if (endptr == argv[2] || *endptr != '\0') {
+            std::fprintf(stderr, "error: expected a numeric seed in argv[2], got '%s'\n", argv[2]);
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
     std::string mode = "full";
-    if (argc == 4) {
-        std::string flag = argv[3];
+    // OPT-1 gate 3 (d_used identity census, 2026-09-02-blockqfa-optimization-
+    // plan.md): --banded=0/1 routes the block-certified/block-fixed arms'
+    // eigensolve through the dense or banded path (default 0, matching
+    // BlockLanczosQFA::use_banded_eig's shipped default post-ruling).
+    // Accepted in any position after argv[2], alongside --smoke/--calibrate.
+    bool use_banded = false;
+    // OPT-2 gate 2/3 (same plan): --cgs2=0/1 routes the reorth kernel
+    // (BlockLanczosFA::use_cgs2_reorth) through block-MGS or CGS2 (default
+    // 0, matching BlockLanczosFA's shipped default).
+    bool use_cgs2 = false;
+    for (int ai = 3; ai < argc; ++ai) {
+        std::string flag = argv[ai];
         if (flag == "--smoke") mode = "smoke";
         else if (flag == "--calibrate") mode = "calibrate";
+        else if (flag == "--banded=0") use_banded = false;
+        else if (flag == "--banded=1") use_banded = true;
+        else if (flag == "--cgs2=0") use_cgs2 = false;
+        else if (flag == "--cgs2=1") use_cgs2 = true;
         else { std::fprintf(stderr, "unknown flag '%s'\n", flag.c_str()); print_usage(argv[0]); return 1; }
     }
 
@@ -811,8 +855,8 @@ int main(int argc, char** argv) {
     try {
         if (mode == "smoke") {
             const int64_t n = 200;
-            write_header(fp, mode, seed, n);
-            long long rows = run_smoke(seed, fp);
+            write_header(fp, mode, seed, n, use_banded, use_cgs2);
+            long long rows = run_smoke(seed, fp, use_banded, use_cgs2);
             write_metric7_trailer(fp);
             std::fclose(fp);
             print_timing_summary();
@@ -826,13 +870,13 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "[smoke] PASS\n");
         } else if (mode == "calibrate") {
             const int64_t n = 1500;
-            write_header(fp, mode, seed, n);
+            write_header(fp, mode, seed, n, use_banded, use_cgs2);
             std::vector<MatrixSpec> matrices = {{"geo1e6", (T)1e6, true}};
             std::vector<FuncSpec> funcs;
             funcs.push_back({"log1p", [](T x) { return std::log1p(std::max(x, (T)0)); }});
             std::vector<int64_t> s_list = {4};
             std::vector<T> tol_list = {(T)1e-2};
-            long long rows = run_sweep(matrices, funcs, s_list, tol_list, /*trials=*/2, n, seed, fp);
+            long long rows = run_sweep(matrices, funcs, s_list, tol_list, /*trials=*/2, n, seed, fp, use_banded, use_cgs2);
             write_metric7_trailer(fp);
             std::fclose(fp);
             print_timing_summary();
@@ -846,7 +890,7 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "[calibrate] PASS\n");
         } else {   // full sweep
             const int64_t n = 1500;
-            write_header(fp, mode, seed, n);
+            write_header(fp, mode, seed, n, use_banded, use_cgs2);
             std::vector<MatrixSpec> matrices = {
                 {"geo1e3", (T)1e3, true}, {"geo1e6", (T)1e6, true}, {"logu1e6", (T)1e6, false}
             };
@@ -855,7 +899,7 @@ int main(int argc, char** argv) {
             funcs.push_back({"log1p", [](T x) { return std::log1p(std::max(x, (T)0)); }});
             std::vector<int64_t> s_list = {4, 16};
             std::vector<T> tol_list = {(T)1e-2, (T)1e-4};
-            long long rows = run_sweep(matrices, funcs, s_list, tol_list, /*trials=*/8, n, seed, fp);
+            long long rows = run_sweep(matrices, funcs, s_list, tol_list, /*trials=*/8, n, seed, fp, use_banded, use_cgs2);
             write_metric7_trailer(fp);
             std::fclose(fp);
             print_timing_summary();

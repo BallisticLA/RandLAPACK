@@ -67,6 +67,12 @@ public:
     ///  false = none.
     bool reorth = true;
 
+    /// OPT-2 escape hatch (2026-09-02 plan). MEASURED (qfa_timing_probe gate 5,
+    /// 2026-09-03): rejected as shipped default - CGS2 is 1.04x-16.6x SLOWER
+    /// than MGS in _t_reorth_us across all 5 probe cells. Default false (MGS);
+    /// kept as a tested opt-in. Full A/B table: benchmark/bench_FunNystromPP reports.
+    bool use_cgs2_reorth = false;
+
     // Internal buffers - grown with new/delete[], never shrunk between calls.
     // Dimension key: n = operator dimension, s = block size, d = Lanczos steps.
     //
@@ -87,7 +93,12 @@ public:
     //   exactly one apply_f (the call() pairing; re-applying a different f
     //   requires re-running the recurrence).
     // workspace: apply_f scratch - eig_vals (d*s) + G (d*s×s) + C1 (d*s×s).
-    // proj_buf:  s*s - reorthogonalization scratch (Q_p^T * Y projection); reused across steps.
+    // proj_buf:  reorthogonalization scratch (Q^T * Y projection); reused
+    //   across steps. Block-MGS only ever needs s*s (one previous block's
+    //   projection at a time). CGS2 (OPT-2, use_cgs2_reorth) needs the
+    //   WHOLE history's projection at once - up to (d*s)*s = O(d*s*s) -
+    //   so this buffer is sized to d*s*s whenever reorth is on, covering
+    //   either kernel with one allocation.
     T* K_big     = nullptr; int64_t K_big_sz     = 0;
     T* R0_buf    = nullptr; int64_t R0_sz        = 0;
     T* tau_buf   = nullptr; int64_t tau_buf_sz   = 0;
@@ -188,7 +199,7 @@ public:
         util::upsize(R0_buf,  R0_sz,      s * s);
         util::upsize(tau_buf, tau_buf_sz, s);
         util::upsize(T_blk,   T_blk_sz,   m * m);
-        if (reorth) util::upsize(proj_buf, proj_buf_sz, s * s);
+        if (reorth) util::upsize(proj_buf, proj_buf_sz, d * s * s);
 
         // Zero T_blk's background once per run (persistent workspace: it holds
         // the previous call's eigenvectors); the recurrence then writes only
@@ -249,15 +260,40 @@ public:
                 // whole Q_basis[0..i] at once) was attempted for BLAS-3 locality but
                 // regressed orthogonality (left ‖QᵀQ−I‖ ~ 1); reverted pending a
                 // correct CGS. Toggle reorthogonalization with `reorth`.
+                //
+                // OPT-2 (2026-09-02 plan, use_cgs2_reorth): the fix for the
+                // history warning above is CGS2 - classical Gram-Schmidt
+                // against the WHOLE contiguous history basis, applied
+                // TWICE. Q_hist = K_big[0 .. hist_cols-1] interpreted as
+                // one n x hist_cols matrix (ld = n) is exactly
+                // [Q_0|...|Q_step] with no copy needed (K_big's blocks are
+                // already contiguous). Each pass is ONE big GEMM pair
+                // (W = Q_histᵀ·Z; Z −= Q_hist·W) instead of `step+1` small
+                // ones; two passes recover MGS-equivalent stability
+                // (textbook CGS2 result) where the single-pass variant
+                // above catastrophically failed.
                 std::chrono::steady_clock::time_point _r0;
                 if (timing) _r0 = std::chrono::steady_clock::now();
                 if (reorth) {
-                    for (int64_t prev = 0; prev <= step; ++prev) {
-                        T* Q_p = K_big + prev * n * s;
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                                   s, s, n, (T)1.0, Q_p, n, Y, n, (T)0.0, proj_buf, s);
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                   n, s, s, (T)-1.0, Q_p, n, proj_buf, s, (T)1.0, Y, n);
+                    if (use_cgs2_reorth) {
+                        T* Q_hist = K_big;                    // n x hist_cols, ld = n
+                        const int64_t hist_cols = (step + 1) * s;
+                        for (int pass = 0; pass < 2; ++pass) {
+                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+                                       hist_cols, s, n, (T)1.0, Q_hist, n, Y, n,
+                                       (T)0.0, proj_buf, hist_cols);
+                            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                       n, s, hist_cols, (T)-1.0, Q_hist, n, proj_buf, hist_cols,
+                                       (T)1.0, Y, n);
+                        }
+                    } else {
+                        for (int64_t prev = 0; prev <= step; ++prev) {
+                            T* Q_p = K_big + prev * n * s;
+                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+                                       s, s, n, (T)1.0, Q_p, n, Y, n, (T)0.0, proj_buf, s);
+                            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                       n, s, s, (T)-1.0, Q_p, n, proj_buf, s, (T)1.0, Y, n);
+                        }
                     }
                 }
                 if (timing) _t_reorth_us += std::chrono::duration_cast<std::chrono::microseconds>(

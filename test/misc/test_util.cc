@@ -463,6 +463,86 @@ TEST_F(TestUtil, test_normc) {
     test_normc(all_data);
 }
 
+// ===== sy_to_sb_lower: dense-lower-triangle -> LAPACK compact-band packer ===
+// Written from scratch for OPT-1 (rl_lanczos_qfa_block.hh's banded
+// eigensolve route) since no banded-storage helper existed in the tree.
+// Two checks: (1) direct entry-by-entry packing, including lda > n and
+// ldab > kd+1 (submatrix / padded-buffer cases the real call site uses),
+// and (2) an end-to-end correctness check - pack a random symmetric banded
+// matrix, run lapack::sbevd on the packed form and lapack::syevd on the
+// dense form, and confirm both report the same eigenvalues (this doubles
+// as a preflight check on the sbtrd/stedc call conventions used elsewhere).
+TEST_F(TestUtil, test_sy_to_sb_lower_packs_entries_directly) {
+    // n = 7, kd = 3 (a representative block size), lda = 9 > n (submatrix
+    // view), ldab = 5 > kd+1 = 4 (padded band buffer) - both must be
+    // respected, not just the tight-packed defaults.
+    const int64_t n = 7, kd = 3, lda = 9, ldab = 5;
+    std::vector<double> A(lda * n, 0.0);
+    // Fill every entry (including outside the eventual band) with a
+    // distinct value so an out-of-band read would be caught by a wrong
+    // comparison below.
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < lda; ++i)
+            A[i + j * lda] = (double)(i * 100 + j);
+
+    std::vector<double> AB(ldab * n, -1.0);
+    RandLAPACK::util::sy_to_sb_lower(n, kd, A.data(), lda, AB.data(), ldab);
+
+    for (int64_t j = 0; j < n; ++j) {
+        const int64_t i_hi = std::min(n - 1, j + kd);
+        for (int64_t i = j; i <= i_hi; ++i) {
+            ASSERT_EQ(AB[(i - j) + j * ldab], A[i + j * lda])
+                << "j=" << j << " i=" << i;
+        }
+        // Padding rows of AB beyond the populated band entries for this
+        // column must be untouched from their sentinel (packer must not
+        // overrun into padding).
+        for (int64_t row = (i_hi - j) + 1; row < ldab; ++row) {
+            ASSERT_EQ(AB[row + j * ldab], -1.0) << "j=" << j << " row=" << row;
+        }
+    }
+}
+
+TEST_F(TestUtil, test_sy_to_sb_lower_eigenvalues_match_dense_sbevd) {
+    for (auto [n, kd, seed] : {std::tuple<int64_t, int64_t, uint32_t>
+            {12, 3, 0}, {20, 4, 1}, {5, 4, 2} /* kd = n-1: full dense band */}) {
+        // Build a random SYMMETRIC matrix banded at kd: fill only the lower
+        // band with RandBLAS randomness, then mirror to the upper triangle.
+        // Entries strictly outside the band are left at 0.
+        std::vector<double> A(n * n, 0.0);
+        auto state = RandBLAS::RNGState<r123::Philox4x32>(seed);
+        std::vector<double> band_vals((kd + 1) * n);
+        RandBLAS::DenseDist Dd((kd + 1) * n, 1, RandBLAS::ScalarDist::Uniform);
+        RandBLAS::fill_dense(Dd, band_vals.data(), state);
+        int64_t k = 0;
+        for (int64_t j = 0; j < n; ++j) {
+            const int64_t i_hi = std::min(n - 1, j + kd);
+            for (int64_t i = j; i <= i_hi; ++i) {
+                double v = band_vals[k++];
+                A[i + j * n] = v;
+                A[j + i * n] = v;
+            }
+        }
+
+        std::vector<double> AB((kd + 1) * n);
+        RandLAPACK::util::sy_to_sb_lower(n, kd, A.data(), n, AB.data(), kd + 1);
+
+        std::vector<double> W_band(n), W_dense(n);
+        std::vector<double> Z_band(n * n);
+        lapack::sbevd(lapack::Job::Vec, blas::Uplo::Lower, n, kd,
+                       AB.data(), kd + 1, W_band.data(), Z_band.data(), n);
+
+        std::vector<double> A_cpy(A);
+        lapack::syevd(lapack::Job::NoVec, blas::Uplo::Lower, n, A_cpy.data(), n, W_dense.data());
+
+        for (int64_t i = 0; i < n; ++i) {
+            double scale = std::max({std::abs(W_band[i]), std::abs(W_dense[i]), 1.0});
+            EXPECT_NEAR(W_band[i], W_dense[i], 1e-10 * scale)
+                << "n=" << n << " kd=" << kd << " eigenvalue " << i;
+        }
+    }
+}
+
 TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
     int64_t m = 1000;
     int64_t n = 100;

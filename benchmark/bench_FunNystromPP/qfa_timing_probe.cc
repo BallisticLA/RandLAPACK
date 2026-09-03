@@ -165,9 +165,12 @@ static void print_run_row(const char* cell, int trial, const RunResult& r) {
 }
 
 static RunResult run_once(MatrixData& M, T* B, int64_t n, int64_t s, T tol,
-                          const std::function<T(T)>& f, T* out_ss) {
+                          const std::function<T(T)>& f, T* out_ss, bool use_banded,
+                          bool use_cgs2) {
     linops::ExplicitSymLinOp<T> A_op(n, Uplo::Upper, M.A, n, Layout::ColMajor);
     RandLAPACK::BlockLanczosQFA<T> qfa;
+    qfa.use_banded_eig = use_banded;   // OPT-1 gate 5: A/B timing toggle, --banded=0/1
+    qfa.fa.use_cgs2_reorth = use_cgs2; // OPT-2 gate 5: A/B timing toggle, --cgs2=0/1
     qfa.reorth        = true;
     qfa.timing        = true;
     qfa.adaptive       = true;
@@ -194,10 +197,38 @@ static RunResult run_once(MatrixData& M, T* B, int64_t n, int64_t s, T tol,
     return r;
 }
 
-int main() {
+int main(int argc, char** argv) {
     using namespace std::chrono;
     const uint64_t base_seed = 20260902ull;
     const int NTRIALS_DEFAULT = 3;
+
+    // OPT-1 gate 5 (A/B timing, 2026-09-02-blockqfa-optimization-plan.md):
+    // --banded=0/1 routes every cell's eigensolve through the dense or
+    // banded path (default 0, matching BlockLanczosQFA::use_banded_eig's
+    // shipped default post-ruling -- the banded route loses 2.1x at
+    // s=16/n=4000, see the class doc comment). Re-run this binary once
+    // with each value on the SAME 5 cells to produce the old-vs-new
+    // per-bucket timing table the plan's gate 5 asks for.
+    // OPT-2 gate 5 (same plan): --cgs2=0/1 routes the reorth kernel
+    // (BlockLanczosFA::use_cgs2_reorth) through block-MGS or CGS2 (default
+    // 0, matching BlockLanczosFA's shipped default). The _t_reorth_us
+    // bucket printed below is the acceptance signal: it must decrease with
+    // --cgs2=1 or the change is rejected (plan gate 5).
+    bool use_banded = false;
+    bool use_cgs2   = false;
+    for (int ai = 1; ai < argc; ++ai) {
+        std::string flag = argv[ai];
+        if (flag == "--banded=0") use_banded = false;
+        else if (flag == "--banded=1") use_banded = true;
+        else if (flag == "--cgs2=0") use_cgs2 = false;
+        else if (flag == "--cgs2=1") use_cgs2 = true;
+        else {
+            std::fprintf(stderr, "Usage: %s [--banded=0|1] [--cgs2=0|1]\n", argv[0]);
+            return 1;
+        }
+    }
+    std::printf("=== qfa_timing_probe: use_banded_eig=%d use_cgs2_reorth=%d ===\n",
+                use_banded ? 1 : 0, use_cgs2 ? 1 : 0);
 
     std::function<T(T)> f_sqrt   = [](T x) { return std::sqrt(std::max(x, (T)0)); };
     std::function<T(T)> f_log1p  = [](T x) { return std::log1p(std::max(x, (T)0)); };
@@ -216,6 +247,7 @@ int main() {
 
     std::printf("=== qfa_timing_probe: per-run timing table ===\n");
     std::printf("cell tr  n      s   d_stop  total_us    matvec(pct)              reorth(pct)              cert(pct)                other(pct)               certified checks\n");
+    std::fflush(stdout);
 
     // Cache built matrices per n (geo1e6 only), so cells sharing n reuse A/Q.
     std::vector<MatrixData> mats_by_n;    // parallel to unique n values encountered
@@ -256,11 +288,12 @@ int main() {
             gen_probe(c.n, c.s, B, pkey);
 
             auto t0 = steady_clock::now();
-            RunResult r = run_once(M, B, c.n, c.s, c.tol, f, out_ss);
+            RunResult r = run_once(M, B, c.n, c.s, c.tol, f, out_ss, use_banded, use_cgs2);
             auto t1 = steady_clock::now();
             double wall_sec = duration<double>(t1 - t0).count();
 
             print_run_row(c.label, trial, r);
+            std::fflush(stdout);
             row.runs.push_back(r);
 
             // Time-budget guard for the slow n=4000 cells (d, e): if a single
@@ -279,8 +312,21 @@ int main() {
         agg.push_back(std::move(row));
     }
 
+    // Fix (2026-09-03, cosmetic-bug item of the OPT-1 finalization pass):
+    // stdout is fully block-buffered once it is not a terminal (i.e. every
+    // redirected/piped invocation of this probe - the normal way it is run
+    // for A/B timing), so this aggregate table, emitted only at the very
+    // end of main(), could be silently lost if the process's own stdio
+    // buffer was never flushed before the process ended (e.g. killed by a
+    // caller's wrapper before returning from main()) even though the
+    // underlying computation had fully finished and was correct - the
+    // per-trial rows above looked fine because there were enough of them to
+    // fill the buffer, but this short footer often was not. fflush after
+    // each row (and after this header) makes the table visible
+    // incrementally rather than depending on a clean process exit.
     std::printf("\n=== qfa_timing_probe: per-cell aggregate (avg over trials actually run) ===\n");
     std::printf("cell n     s   f      tol      trials  avg_total_us  matvec%%  reorth%%  cert%%  other%%  checks_performed(total/avg)  final_eig_size(d_stop*s, avg)\n");
+    std::fflush(stdout);
     for (const auto& row : agg) {
         long sum_total = 0, sum_matvec = 0, sum_reorth = 0, sum_cert = 0, sum_other = 0;
         long long sum_checks = 0, sum_eig = 0;
@@ -299,6 +345,7 @@ int main() {
                     sum_checks, nr ? (double)sum_checks / nr : 0.0,
                     nr ? (double)sum_eig / nr : 0.0,
                     row.budget_cut ? "  [BUDGET-CUT: fewer trials than planned]" : "");
+        std::fflush(stdout);
     }
 
     delete[] B; delete[] out_ss;

@@ -630,6 +630,28 @@ void symmetrize(int64_t n, T* A, int64_t lda) {
     }
 }
 
+/// Pack the LOWER triangle of an n x n symmetric matrix A, banded with
+/// bandwidth kd (only |i-j| <= kd is ever read - entries outside the band
+/// are never touched, regardless of what they hold), into LAPACK's compact
+/// lower symmetric-band storage AB (the layout `lapack::sbtrd`/`sbevd`
+/// consume): AB(1+i-j, j) = A(i,j) for j <= i <= min(n-1, j+kd), 0-based,
+/// col-major, `ldab` >= kd+1. `lda` is A's leading dimension (may exceed n
+/// when A is a submatrix view of a larger buffer, e.g. a leading block of
+/// BlockLanczosQFA's T_blk). No LAPACK banded-storage packer existed
+/// anywhere in this tree before OPT-1 (rl_lanczos_qfa_block.hh's banded
+/// eigensolve route); this is written from scratch against the LAPACK sb*
+/// storage docs. `AB` must already be sized (kd+1)*n by the caller
+/// (util::upsize convention) - this function does not resize.
+template <typename T>
+void sy_to_sb_lower(int64_t n, int64_t kd, const T* A, int64_t lda, T* AB, int64_t ldab) {
+    for (int64_t j = 0; j < n; ++j) {
+        const int64_t i_hi = std::min(n - 1, j + kd);
+        for (int64_t i = j; i <= i_hi; ++i) {
+            AB[(i - j) + j * ldab] = A[i + j * lda];
+        }
+    }
+}
+
 /// Shared certificate-check cadence for the adaptive Lanczos-QFA oracles
 /// (scalar LanczosQFA and BlockLanczosQFA — single-sourced so the two cannot
 /// drift). Each check at depth t costs eigensolves of size O(t) (scalar) or

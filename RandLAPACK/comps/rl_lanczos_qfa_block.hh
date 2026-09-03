@@ -123,6 +123,12 @@ public:
     T              adaptive_rtol = (T)1e-2;              ///< Radau: certified rel err; Window: rel-change tol
     int64_t        check_every   = 1;                    ///< 1 = geometric ladder; >1 = fixed stride
 
+    /// OPT-1 escape hatch (2026-09-02 plan). MEASURED (qfa_timing_probe gate 5,
+    /// 2026-09-02): rejected as shipped default - wins 6-27% at small s/m,
+    /// LOSES 2.1x at s=16/n=4000. Default false (bit-identical to pre-OPT-1);
+    /// kept as a tested opt-in. Full A/B table: benchmark/bench_FunNystromPP reports.
+    bool use_banded_eig = false;
+
     // Window-rule knobs (stop_rule = Window only). First convergence test
     // fires after adaptive_delay+1 checks at or past adaptive_min; since
     // checks follow the check-cadence ladder (util::qfa_check_due), not
@@ -157,6 +163,21 @@ public:
     //  Dchol_buf : s×s scratch - Cholesky factor of D_{t−1}, then reused.
     //  Bt_buf    : s×s scratch - B_{t−1}ᵀ, overwritten by L⁻¹B_{t−1}ᵀ (trsm).
     //  hist_buf  : Window rule's tr(M_k) history (one entry per check, ≤ d).
+    //
+    //  OPT-1 banded-route scratch (reduce_fT_to_M_banded; only touched when
+    //  use_banded_eig). Peak workspace is LARGER than the dense path's
+    //  in-place reuse (AB + Q_band + Z + P all live simultaneously vs. one
+    //  m×m overwrite today - a documented memory-vs-FLOPs tradeoff, plan
+    //  pass 1 F4):
+    //  AB_buf    : (kd+1)*m <= (s+1)*m - packed compact-band storage (sbtrd's
+    //              AB); kd = min(s, m-1), so equality holds for kdepth >= 2
+    //              only - at kdepth == 1 (m == s), kd = s-1 and the
+    //              allocation is s*m, not (s+1)*m.
+    //  Qband_buf : m*m       - orthogonal transform accumulated by sbtrd (ldq = m).
+    //  Eband_buf : m-1       - tridiagonal off-diagonal (sbtrd out / stedc in).
+    //  Zband_buf : m*m       - un-fused tridiagonal eigenvectors from stedc.
+    //  Pband_buf : s*m       - first s rows of Q_band·Z (ld = s); the banded
+    //              route's analogue of the dense route's "first s rows of V".
     T* workspace  = nullptr; int64_t workspace_sz  = 0;
     T* M_scratch  = nullptr; int64_t M_scratch_sz  = 0;
     T* ML_scratch = nullptr; int64_t ML_scratch_sz = 0;
@@ -164,6 +185,11 @@ public:
     T* Dchol_buf  = nullptr; int64_t Dchol_buf_sz  = 0;
     T* Bt_buf     = nullptr; int64_t Bt_buf_sz     = 0;
     T* hist_buf   = nullptr; int64_t hist_buf_sz   = 0;
+    T* AB_buf     = nullptr; int64_t AB_buf_sz     = 0;
+    T* Qband_buf  = nullptr; int64_t Qband_buf_sz  = 0;
+    T* Eband_buf  = nullptr; int64_t Eband_buf_sz  = 0;
+    T* Zband_buf  = nullptr; int64_t Zband_buf_sz  = 0;
+    T* Pband_buf  = nullptr; int64_t Pband_buf_sz  = 0;
 
     // Profiling, matching the LanczosFA / BlockLanczosFA surface: set `timing`
     // and read `times` after call(). Six slots, microseconds:
@@ -192,6 +218,8 @@ public:
     ~BlockLanczosQFA() {
         delete[] workspace; delete[] M_scratch; delete[] ML_scratch;
         delete[] D_buf; delete[] Dchol_buf; delete[] Bt_buf; delete[] hist_buf;
+        delete[] AB_buf; delete[] Qband_buf; delete[] Eband_buf;
+        delete[] Zband_buf; delete[] Pband_buf;
     }
 
     // ------------------------------------------------------------------
@@ -303,8 +331,10 @@ public:
             // No live scratch copy (fixed depth, Window ran to the cap, or the
             // pivot chain died): final M from the leading d_used block.
             // preserve_T = false, since the recurrence is over and the next
-            // run_lanczos re-initializes T_blk; the syevd works in place on
-            // fa.T_blk (no (d·s)² copy).
+            // run_lanczos re-initializes T_blk; on the dense route the syevd
+            // works in place on fa.T_blk (no (d·s)² copy) - the banded route
+            // reads its own AB/Qband/Eband/Zband/Pband scratch instead and
+            // leaves fa.T_blk untouched either way.
             compute_M(f, s, this->d_used, d, out, false);
         }
         // Final traces. When a certificate pair is live both were set inside
@@ -341,9 +371,13 @@ public:
     /// preserve_T = true:  copy that block into a compact m×m buffer first, so
     ///   fa.T_blk stays intact and the recurrence can continue after an adaptive
     ///   certificate check (costs an extra m×m workspace + lacpy).
-    /// preserve_T = false: syevd directly in fa.T_blk (eigenvectors overwrite
-    ///   the block tridiagonal, exactly like BlockLanczosFA::apply_f). Only
-    ///   valid once the recurrence is finished.
+    /// preserve_T = false: on the dense route (use_banded_eig = false), syevd
+    ///   runs directly in fa.T_blk (eigenvectors overwrite the block
+    ///   tridiagonal, exactly like BlockLanczosFA::apply_f) - only valid once
+    ///   the recurrence is finished. On the banded route (use_banded_eig =
+    ///   true) this flag is a no-op for T_blk: sbtrd/stedc run on the packed
+    ///   AB/Qband/Eband/Zband/Pband scratch and fa.T_blk is only ever read,
+    ///   never destroyed, regardless of preserve_T.
     template <std::invocable<T> F>
     void compute_M(F f, int64_t s, int64_t kdepth, int64_t dmax, T* out, bool preserve_T) {
         const int64_t m      = kdepth * s;   // active tridiagonal dimension
@@ -397,32 +431,110 @@ public:
 
 private:
     // ------------------------------------------------------------------
-    /// Shared tail of the two compute_M variants: given the m×m symmetric V
-    /// (ld = v_ld; destroyed - eigenvectors overwrite it), form
-    /// out = R₀ᵀ · [f(V)]_{1:s,1:s} · R₀ (s×s).
+    /// Shared final assembly step for BOTH the dense and banded eigensolve
+    /// routes: given the m eigenvalues and P, the first s ROWS of the
+    /// corresponding eigenvectors (s×m, ld = p_ld - the dense route passes
+    /// its full m×m eigenvector buffer with p_ld = v_ld and relies on the
+    /// GEMM below reading only its first s rows; the banded route passes a
+    /// compact s×m buffer with p_ld = s), form
+    /// out = R₀ᵀ · [f(T)]_{1:s,1:s} · R₀ (s×s).
     template <std::invocable<T> F>
-    void reduce_fT_to_M(F f, int64_t s, int64_t m, T* V, int64_t v_ld,
-                        T* eig_vals, T* W, T* out) {
-        lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, m, V, v_ld, eig_vals);
-        // W[i,j] = f(λⱼ)·V[i,j] for i = 0..s-1 (first s rows of V, col-scaled).
-        // Ritz values are clamped to ≥ 0 before f: A ⪰ 0 by assumption, and
-        // the Radau construction pins nodes at 0 ± roundoff, so f must be
-        // finite at 0 (use the shifted log(x+1), never a raw log).
+    void assemble_M_from_eig(F f, int64_t s, int64_t m, const T* P, int64_t p_ld,
+                             const T* eig_vals, T* W, T* out) {
+        // W[i,j] = f(λⱼ)·P[i,j] for i = 0..s-1. Ritz values are clamped to
+        // ≥ 0 before f: A ⪰ 0 by assumption, and the Radau construction
+        // pins nodes at 0 ± roundoff, so f must be finite at 0 (use the
+        // shifted log(x+1), never a raw log).
         for (int64_t j = 0; j < m; ++j) {
             T fev = f(std::max(eig_vals[j], (T)0));
-            const T* V_col = V + j * v_ld;
+            const T* P_col = P + j * p_ld;
             T*       W_col = W + j * s;
             for (int64_t i = 0; i < s; ++i)
-                W_col[i] = fev * V_col[i];
+                W_col[i] = fev * P_col[i];
         }
-        // [f(T)]_{1:s,1:s} = P·Wᵀ, P = first s rows of V (s×m, lda = v_ld).
+        // [f(T)]_{1:s,1:s} = P·Wᵀ.
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
-                   s, s, m, (T)1.0, V, v_ld, W, s, (T)0.0, out, s);
+                   s, s, m, (T)1.0, P, p_ld, W, s, (T)0.0, out, s);
         // M = R₀ᵀ · out · R₀  (R₀ upper triangular s×s in fa.R0_buf, ld = s).
         blas::trmm(Layout::ColMajor, Side::Left,  Uplo::Upper, Op::Trans,   Diag::NonUnit,
                    s, s, (T)1.0, fa.R0_buf, s, out, s);
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
                    s, s, (T)1.0, fa.R0_buf, s, out, s);
+    }
+
+    /// Original (pre-OPT-1) route: dense lapack::syevd on the full m×m V
+    /// (ld = v_ld; destroyed in place - eigenvectors overwrite it), then
+    /// assemble from its first s rows directly (p_ld = v_ld, no extra copy).
+    template <std::invocable<T> F>
+    void reduce_fT_to_M_dense(F f, int64_t s, int64_t m, T* V, int64_t v_ld,
+                              T* eig_vals, T* W, T* out) {
+        lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, m, V, v_ld, eig_vals);
+        assemble_M_from_eig(f, s, m, V, v_ld, eig_vals, W, out);
+    }
+
+    /// OPT-1 banded route: V (ld = v_ld) is symmetric with EXACT bandwidth
+    /// kd = s (proven structurally - block-tridiagonal T_blk's populated
+    /// entries satisfy |row-col| <= s exactly, and the Radau corner
+    /// replacement stays inside the existing trailing diagonal block, so it
+    /// does not widen the band; see the plan's pass-1 code-truth review).
+    /// One degenerate case: kdepth == 1 (m == s, the leading block is a
+    /// single dense s×s tile with no off-diagonal companion) has a true
+    /// bandwidth of only m-1, and LAPACK's sb* routines require kd <= n-1 -
+    /// clamp kd = min(s, m-1) to cover it (kd = s otherwise, unaffected).
+    ///
+    /// Route: pack V's lower triangle into compact band storage AB
+    /// (sy_to_sb_lower, written from scratch for this - no packer existed
+    /// in the tree), reduce band -> tridiagonal via sbtrd (Job::Vec = 'V',
+    /// accumulating the orthogonal transform into Qband_buf), diagonalize
+    /// the tridiagonal via stedc (Job::Vec = compz 'I' - un-fused
+    /// "eigenvectors of the tridiagonal only" mode; NOT Job::UpdateVec,
+    /// which is a different, fused mode that expects an existing orthogonal
+    /// factor already in Z - a real gotcha flagged by the plan's pass-1
+    /// review), then ONE (s×m)(m×m) GEMM to backtransform only the first s
+    /// rows we actually need: P = Qband_buf[0:s, :] * Zband_buf (the GEMM's
+    /// M=s parameter reads just those rows from the m×m Qband_buf, no copy
+    /// needed first). V itself is only READ here (never overwritten),
+    /// unlike the dense route.
+    template <std::invocable<T> F>
+    void reduce_fT_to_M_banded(F f, int64_t s, int64_t m, const T* V, int64_t v_ld,
+                               T* eig_vals, T* W, T* out) {
+        const int64_t kd   = std::min(s, m - 1);
+        const int64_t ldab = kd + 1;
+        util::upsize(AB_buf,    AB_buf_sz,    ldab * m);
+        util::upsize(Qband_buf, Qband_buf_sz, m * m);
+        util::upsize(Eband_buf, Eband_buf_sz, std::max<int64_t>(1, m - 1));
+        util::upsize(Zband_buf, Zband_buf_sz, m * m);
+        util::upsize(Pband_buf, Pband_buf_sz, s * m);
+
+        util::sy_to_sb_lower(m, kd, V, v_ld, AB_buf, ldab);
+        // sbtrd: symmetric band -> tridiagonal (eig_vals/Eband_buf), Q_band
+        // accumulated into Qband_buf (ldq = m).
+        lapack::sbtrd(lapack::Job::Vec, blas::Uplo::Lower, m, kd,
+                      AB_buf, ldab, eig_vals, Eband_buf, Qband_buf, m);
+        // stedc, un-fused (Job::Vec -> compz 'I'): Zband_buf = eigenvectors
+        // of the pure tridiagonal; eig_vals overwritten with the sorted
+        // eigenvalues of T (== eigenvalues of V, sbtrd is an orthogonal
+        // similarity).
+        lapack::stedc(lapack::Job::Vec, m, eig_vals, Eband_buf, Zband_buf, m);
+        // P = first s rows of (Q_band · Z): the ONE (s×m)(m×m) GEMM the
+        // plan calls for, reading only rows 0..s-1 of Qband_buf (lda = m).
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                   s, m, m, (T)1.0, Qband_buf, m, Zband_buf, m, (T)0.0, Pband_buf, s);
+        assemble_M_from_eig(f, s, m, Pband_buf, s, eig_vals, W, out);
+    }
+
+    /// Shared tail of the two compute_M variants: given the m×m symmetric V
+    /// (ld = v_ld), form out = R₀ᵀ · [f(V)]_{1:s,1:s} · R₀ (s×s). Routes
+    /// through the dense or banded eigensolve per `use_banded_eig` (OPT-1
+    /// escape hatch; see its doc comment above).
+    template <std::invocable<T> F>
+    void reduce_fT_to_M(F f, int64_t s, int64_t m, T* V, int64_t v_ld,
+                        T* eig_vals, T* W, T* out) {
+        if (this->use_banded_eig) {
+            reduce_fT_to_M_banded(f, s, m, V, v_ld, eig_vals, W, out);
+        } else {
+            reduce_fT_to_M_dense(f, s, m, V, v_ld, eig_vals, W, out);
+        }
     }
 
     /// Advance the block-LDLᵀ pivot to depth `kdepth`:
