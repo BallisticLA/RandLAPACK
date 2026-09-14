@@ -44,12 +44,15 @@
 //   pcg_restart_drop (default 1e-4): per-round relative residual drop that ends
 //   a round, pcg_ne only. CLI-exposed so this benchmark and FEM2 match on the
 //   drop factor and the round/iteration caps (pcg_max_restarts,
-//   pcg_restart_maxit, maxit). Two pcg_ne knobs still differ from FEM2 and are
-//   NOT CLI-exposed here: the inner absolute-residual guard (FEM2 passes
-//   eps^0.85; this benchmark always passes 0.0) and the outer-stagnation window
-//   (FEM2 honors RANDLAPACK_IR_OUTER_STAG; this benchmark always uses
-//   restarted_pcg_ne's fixed default). Round counts across the two benchmarks
-//   are comparable only insofar as those two knobs do not bind.
+//   pcg_restart_maxit, maxit). The inner absolute-residual guard is passed
+//   with FEM2's value (eps^0.85, see abs_guard below) since 2026-09-14; before
+//   that this benchmark passed 0.0, and every row that ended at the data-noise
+//   floor paid two FULL inner solves for the stagnation-confirmation cycles
+//   (25 to 45 iterations each for Blendenpik and CholQR) where FEM2 paid one
+//   iteration each, so the iteration totals of the two benchmarks were not
+//   comparable. One pcg_ne knob still differs and is NOT CLI-exposed here: the
+//   outer-stagnation window (FEM2 honors RANDLAPACK_IR_OUTER_STAG; this
+//   benchmark always uses restarted_pcg_ne's fixed default, the same value, 2).
 //
 // Warm start policy: the sketch-and-solve x0 warm start is Blendenpik-only.
 // Bit 32 therefore runs TWO variants, "Blendenpik" (its own warm start) and
@@ -166,6 +169,14 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "pcg_restart_drop must lie in (0,1) (got %s)\n", argv[17]);
         return 1;
     }
+    // Absolute inner-target guard for the shared engine (mirrors
+    // CQRRT_linop_applications.cc): once a cycle's normal-equation residual has
+    // fallen to abs_guard * ||g0||, g0 being the first cycle's NE right-hand
+    // side, the inner solve stops instead of grinding a further
+    // pcg_restart_drop factor on rounding noise. At the data-noise floor the NE
+    // residual is at rounding level, so the two confirmation cycles of the
+    // outer stagnation exit cost one iteration each instead of a full solve.
+    const double abs_guard = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     int64_t block_size = 256;
     const double relnoise = 1e-11;   // data noise level (hoisted so the CSV header echoes it)
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }
@@ -309,7 +320,8 @@ int main(int argc, char** argv) {
         << " solver=" << solver;
     if (use_pcg || (method_mask & 128)) out << " pcg_restart_maxit=" << pcg_restart_maxit
                      << " pcg_max_restarts=" << pcg_max_restarts
-                     << " pcg_restart_drop=" << pcg_restart_drop;
+                     << " pcg_restart_drop=" << pcg_restart_drop
+                     << " inner_abs_tol=" << abs_guard;
     out << "\n";
     // Host provenance: wall-clock timings and MKL thread behavior are
     // machine-specific, so a CSV must name the machine it ran on.
@@ -444,7 +456,8 @@ int main(int argc, char** argv) {
             auto rres = rl::bench::run_refined_blendenpik<double, RNG>(
                 A_hat, rhs.data(), mtot, x.data(), n,
                 d_factor, sketch_nnz, state, warm,
-                tol, maxit, pcg_restart_maxit, pcg_restart_drop, pcg_max_restarts);
+                tol, maxit, pcg_restart_maxit, pcg_restart_drop, pcg_max_restarts,
+                /*stag_window=*/20, /*stag_rel_improve=*/1e-3, /*inner_abs_tol=*/abs_guard);
             qr_status = rres.qr_status;
             if (qr_status == 0) {
                 qr_us    = rres.qr_us;
@@ -518,7 +531,7 @@ int main(int argc, char** argv) {
                 flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(),
                                                     tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
                                                     pcg_max_restarts, &pcg_rounds, lt, &solver_relres,
-                                                    20, 1e-3, 0.0, &hist);
+                                                    20, 1e-3, abs_guard, &hist);
                 have_hist = true;
                 stop_reason = pcg_reason(flag);
             } else {
@@ -574,7 +587,7 @@ int main(int argc, char** argv) {
                     flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(),
                                                         tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
                                                         pcg_max_restarts, &pcg_rounds, lt, &solver_relres,
-                                                        20, 1e-3, 0.0, &hist);
+                                                        20, 1e-3, abs_guard, &hist);
                     have_hist = true;
                     stop_reason = pcg_reason(flag);
                 } else {
