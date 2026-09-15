@@ -213,6 +213,11 @@ public:
     int64_t adaptive_probe_block = 4;
     T       adaptive_k_const     = (T)1;
     T       adaptive_s_const     = (T)1;
+    // Probe family for the whole eps-targeted tier: true (the paper's Alg. 1)
+    // forces Rademacher, false leaves probe_dist alone. Set it false when a
+    // Rademacher quadratic form is exact on the test matrix, as on a diagonal
+    // one, which would make the tier's error degenerate rather than sampled.
+    bool    adaptive_rademacher  = true;
     // Probe depth cap: shares auto_depth_cap, capped at min(auto_depth_cap or n,
     // max(1, n/b)) - the probe also respects the block-Krylov limit d*b <= n.
     // Outputs of the last adaptive call: the chosen rank/probe count/depth,
@@ -448,7 +453,8 @@ public:
     ///
     ///   1. Depth probe: run the adaptive BLOCK Gauss-Radau certificate
     ///      (stop_rule = Radau, adaptive_rtol = eps, reorth = 1) on
-    ///      adaptive_probe_block Rademacher columns, capped at
+    ///      adaptive_probe_block Rademacher columns (sphere columns when
+    ///      adaptive_rademacher is false), capped at
     ///      min(auto_depth_cap or n, max(1, n/b)) - the probe also respects
     ///      the block-Krylov limit d*b <= n. The probe
     ///      and the Phase-2 oracle below share one `adaptive_bqfa` instance;
@@ -1039,9 +1045,11 @@ T FunNystromPP<T>::call(
     // alone was try/catch-guarded around just the delegate call; probe_dist
     // was restored immediately after the probe fill with no guard at all,
     // so a throw from steps 2-5 left it stuck on Rademacher).
+    // adaptive_rademacher = false leaves probe_dist untouched, for test
+    // matrices on which a +-1 quadratic form is exact (e.g. diagonal ones).
     const ProbeDist saved_probe_dist = this->probe_dist;
     const bool      saved_use_qfa    = this->use_qfa;
-    this->probe_dist = ProbeDist::Rademacher;
+    if (this->adaptive_rademacher) this->probe_dist = ProbeDist::Rademacher;
     T est;
     try {
         // ---- 1. Depth probe: adaptive BLOCK Gauss-Radau certificate on a

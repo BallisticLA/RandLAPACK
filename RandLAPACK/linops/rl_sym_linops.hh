@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: ExplicitSymLinOp, RegExplicitSymLinOp, SpectralPrecond —
+// Public API: ExplicitSymLinOp, DiagSymLinOp, RegExplicitSymLinOp, SpectralPrecond,
 // symmetric linear operators for use with SymmetricLinearOperator-templated algorithms.
 
 #include "rl_exceptions.hh"
@@ -16,12 +16,18 @@
 namespace RandLAPACK::linops {
 
 // Symmetric linear operators for use with algorithms templated on
-// SymmetricLinearOperator. Three concrete types are provided:
+// SymmetricLinearOperator. Four concrete types are provided:
 //
 //   ExplicitSymLinOp      — wraps a dense symmetric matrix (upper or lower
 //                           triangle, any layout). Applies C := alpha*A*B + beta*C
 //                           via blas::symm, handling layout mismatches between A
 //                           and (B, C) by flipping the Uplo parameter.
+//
+//   DiagSymLinOp          - diag(lambda) from a pointer to the n diagonal entries;
+//                           the n x n matrix is never formed. Same two apply
+//                           overloads as ExplicitSymLinOp (dense right operand and
+//                           RandBLAS sketching operator), so the two are
+//                           interchangeable in the templated drivers.
 //
 //   RegExplicitSymLinOp   — a container that implicitly holds num_ops >= 1 symmetric
 //                           linear operators, all of which differ from one another
@@ -151,6 +157,121 @@ struct ExplicitSymLinOp {
                 S_coo, 0, 0,
                 beta, C, ldc
             );
+        }
+    }
+};
+
+/*********************************************************/
+/*                                                       */
+/*                    DiagSymLinOp                       */
+/*                                                       */
+/*********************************************************/
+
+/// Diagonal symmetric linear operator satisfying SymmetricLinearOperator.
+///
+/// Represents A = diag(lambda) from a pointer to the dim entries of lambda; the
+/// dim x dim matrix is never formed. The dense apply is a row scaling of B. The
+/// sketching-operator apply walks a sparse operator's COO triples directly and
+/// dispatches a dense operator through the dense apply, mirroring
+/// ExplicitSymLinOp so the two types are interchangeable in the drivers.
+///
+/// The caller owns lambda and keeps it alive for the operator's lifetime.
+template <typename T>
+struct DiagSymLinOp {
+
+    using scalar_t = T;
+    const int64_t m;
+    const int64_t dim;
+    const T* lambda;
+
+    DiagSymLinOp(
+        int64_t dim,
+        const T* lambda
+    ) : m(dim), dim(dim), lambda(lambda) {}
+
+    // C := alpha * diag(lambda) * B + beta * C. C is not read when beta == 0.
+    // Strides: ColMajor needs ldb, ldc >= dim; RowMajor needs ldb, ldc >= n.
+    void operator()(
+        Layout layout,
+        int64_t n,
+        T alpha,
+        T* const B,
+        int64_t ldb,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        const int64_t min_ld = (layout == Layout::ColMajor) ? dim : n;
+        randlapack_require(ldb >= min_ld) << "ldb=" << ldb << " < " << min_ld << " (stride must cover the operator dimension in ColMajor or n in RowMajor)";
+        randlapack_require(ldc >= min_ld) << "ldc=" << ldc << " < " << min_ld << " (stride must cover the operator dimension in ColMajor or n in RowMajor)";
+        if (layout == Layout::ColMajor) {
+            for (int64_t j = 0; j < n; ++j) {
+                const T* bj = B + j * ldb;
+                T* cj = C + j * ldc;
+                if (beta == (T)0) {
+                    for (int64_t i = 0; i < dim; ++i) cj[i] = alpha * lambda[i] * bj[i];
+                } else {
+                    for (int64_t i = 0; i < dim; ++i) cj[i] = alpha * lambda[i] * bj[i] + beta * cj[i];
+                }
+            }
+        } else {
+            for (int64_t i = 0; i < dim; ++i) {
+                const T* bi = B + i * ldb;
+                T* ci = C + i * ldc;
+                const T a = alpha * lambda[i];
+                if (beta == (T)0) {
+                    for (int64_t j = 0; j < n; ++j) ci[j] = a * bi[j];
+                } else {
+                    for (int64_t j = 0; j < n; ++j) ci[j] = a * bi[j] + beta * ci[j];
+                }
+            }
+        }
+    }
+
+    inline T operator()(int64_t i, int64_t j) {
+        return (i == j) ? lambda[i] : (T)0;
+    }
+
+    /// SkOp overload, same contract as ExplicitSymLinOp's. A dense operator is
+    /// filled and applied through the dense path. A sparse operator is filled if
+    /// needed and its COO triples (i, j, v) are accumulated as
+    /// C[i, j] += alpha * lambda[i] * v after C is scaled by beta; the sketch is
+    /// never densified. ColMajor only, which is all the drivers use.
+    template <RandBLAS::SketchingOperator SkOp>
+    void operator()(
+        Layout layout,
+        int64_t n_vecs,
+        T alpha,
+        SkOp& S,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        if constexpr (requires { S.buff; S.layout; S.dist; }) {
+            if (S.buff == nullptr) RandBLAS::fill_dense(S);
+            int64_t ldS = S.dist.dim_major;
+            randblas_require(S.layout == layout);
+            (*this)(layout, n_vecs, alpha, S.buff, ldS, beta, C, ldc);
+        } else {
+            randlapack_require(layout == Layout::ColMajor) << "DiagSymLinOp sparse-sketch apply supports ColMajor only";
+            randlapack_require(ldc >= dim) << "ldc=" << ldc << " < dim=" << dim << " (ldc must be >= operator dimension)";
+            if (S.nnz < 0) RandBLAS::fill_sparse(S);
+            auto S_coo = RandBLAS::coo_view_of_skop(S);
+            randlapack_require(S_coo.index_base == RandBLAS::sparse_data::IndexBase::Zero) << "sparse sketch view must be zero-based";
+            randlapack_require(S_coo.n_rows == dim && S_coo.n_cols == n_vecs) << "sparse sketch is " << S_coo.n_rows << " x " << S_coo.n_cols << ", expected " << dim << " x " << n_vecs;
+            for (int64_t j = 0; j < n_vecs; ++j) {
+                T* cj = C + j * ldc;
+                if (beta == (T)0) {
+                    std::fill(cj, cj + dim, (T)0);
+                } else if (beta != (T)1) {
+                    for (int64_t i = 0; i < dim; ++i) cj[i] *= beta;
+                }
+            }
+            for (int64_t t = 0; t < S_coo.nnz; ++t) {
+                const int64_t i = (int64_t)S_coo.rows[t];
+                const int64_t j = (int64_t)S_coo.cols[t];
+                C[i + j * ldc] += alpha * lambda[i] * S_coo.vals[t];
+            }
         }
     }
 };

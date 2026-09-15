@@ -482,6 +482,81 @@ TEST_F(TestFunNystromPP, ScalarQFAcertifiedRelErr) {
 }
 
 
+// ===== First-row implicit QL evaluates the same quadrature as stevd =========
+// use_first_row_ql swaps the certificate's eigensolver (full-eigenvector stevd)
+// for implicit QL that rotates only the first eigenvector row. Nothing else
+// changes, so on the same matrix and probes the two modes must certify the
+// same columns at the same depths and return the same Gauss/Radau values to
+// roundoff - in adaptive mode (checks along the whole ladder, then the at-cap
+// re-check) and in fixed-depth mode (one evaluation at t = d). The matrix has
+// a 1e8 spread of eigenvalues so the tridiagonals carry ghost clusters, the
+// regime where a wrong eigensolver shows (stevr is off by 3-6x there).
+TEST_F(TestFunNystromPP, ScalarQFAfirstRowQLmatchesStevd) {
+    using T = double;
+    const int64_t n = 400, s = 6;
+    // A = Q diag(lambda) Q^T, lambda geometric over [1, spread], Q from QR of a Gaussian.
+    auto build = [&](T spread, int seed) {
+        T *A = new T[n * n];
+        T *G = randn<T>(n, n, seed);
+        T *tau = new T[n];
+        lapack::geqrf(n, n, G, n, tau);
+        lapack::orgqr(n, n, n, G, n, tau);
+        T *Gs = new T[n * n];
+        for (int64_t j = 0; j < n; ++j) {
+            const T lj = std::pow(spread, (T)1 - (T)j / (T)n);
+            for (int64_t i = 0; i < n; ++i) Gs[i + j * n] = G[i + j * n] * lj;
+        }
+        blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::Trans,
+                   n, n, n, (T)1, Gs, n, G, n, (T)0, A, n);
+        delete[] G; delete[] tau; delete[] Gs;
+        return A;
+    };
+    T *A_mild = build((T)1e3, /*seed=*/89);   // certifies at heterogeneous depths
+    T *A_hard = build((T)1e8, /*seed=*/91);   // ghost clusters; never certifies at n = 400
+    linops::ExplicitSymLinOp<T> op_mild(n, blas::Uplo::Upper, A_mild, n, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> op_hard(n, blas::Uplo::Upper, A_hard, n, Layout::ColMajor);
+    T *Bmat = randn<T>(n, s, /*seed=*/97);
+    auto fscalar = [](T x) { return std::log1p(x); };
+
+    // Three regimes: adaptive on the mild matrix (every column certifies well
+    // before the cap, on the ladder), adaptive on the hard matrix (every column
+    // runs to the cap and the at-cap re-check fires), and fixed depth on the
+    // hard matrix (one evaluation at t = d).
+    struct Cfg { linops::ExplicitSymLinOp<T>* op; bool adaptive; int64_t d; bool expect_cert; };
+    for (const Cfg cfg : {Cfg{&op_mild, true, n, true}, Cfg{&op_hard, true, n, false}, Cfg{&op_hard, false, 250, false}}) {
+        const bool adaptive = cfg.adaptive;
+        const int64_t d = cfg.d;
+        RandLAPACK::LanczosQFA<T> ref, ql;
+        ref.adaptive = ql.adaptive = adaptive;
+        ref.adaptive_rtol = ql.adaptive_rtol = (T)1e-6;
+        ql.use_first_row_ql = true;
+        T *out_ref = new T[s]; T *out_ql = new T[s];
+        ref.call(*cfg.op, Bmat, n, s, fscalar, d, out_ref);
+        ql.call(*cfg.op, Bmat, n, s, fscalar, d, out_ql);
+        EXPECT_EQ(ref.matvecs, ql.matvecs) << "adaptive=" << adaptive;
+        EXPECT_EQ(ref.d_used, ql.d_used) << "adaptive=" << adaptive;
+        EXPECT_EQ(ref.all_certified, ql.all_certified) << "adaptive=" << adaptive;
+        T maxrel = 0;
+        int64_t tmin = n, tmax = 0;
+        for (int64_t j = 0; j < s; ++j) {
+            EXPECT_EQ(ref.t_used[j], ql.t_used[j]) << "col " << j;
+            EXPECT_EQ(ref.certified[j], ql.certified[j]) << "col " << j;
+            tmin = std::min(tmin, ql.t_used[j]); tmax = std::max(tmax, ql.t_used[j]);
+            maxrel = std::max(maxrel, std::abs(out_ref[j] - out_ql[j]) / std::abs(out_ref[j]));
+            if (adaptive && ref.certified[j])
+                maxrel = std::max(maxrel, std::abs(ref.radau_val[j] - ql.radau_val[j]) / std::abs(ref.radau_val[j]));
+        }
+        std::printf("first-row QL vs stevd (adaptive=%d, %s): t_used in [%ld, %ld] matvecs=%ld certified=%d  max rel diff=%.2e\n",
+                    (int)adaptive, cfg.op == &op_mild ? "mild" : "hard", (long)tmin, (long)tmax,
+                    (long)ql.matvecs, (int)ql.all_certified, maxrel);
+        if (cfg.expect_cert) { EXPECT_TRUE(ql.all_certified); EXPECT_LT(tmax, d); }
+        EXPECT_LT(maxrel, 1e-10);
+        delete[] out_ref; delete[] out_ql;
+    }
+    delete[] A_mild; delete[] A_hard; delete[] Bmat;
+}
+
+
 // ===== Adaptive stopping with heterogeneous per-column depths ===============
 // One probe column is an exact eigenvector of A: its Krylov space is
 // 1-dimensional, so it breaks down (β = 0) and certifies exactly at t = 1
@@ -4095,4 +4170,125 @@ TEST_F(TestFunNystromPP, BlockQFAGaussSideScaleDiverges) {
         << " noise_floor=" << noise_floor;
 
     delete[] A; delete[] Bmat; delete[] M_max; delete[] M_gauss;
+}
+
+
+// ===== DiagSymLinOp: interchangeable with a dense diag(lambda) in every tier ==
+// Same RNG state (and, for the expert tier, the same explicit Omega2 and the
+// same exact oracle), so both operators see identical sketches and probes. Only
+// the matvec arithmetic differs (blas::symm / right_spmm against a stored
+// diagonal versus a row scaling), so the estimates must agree to rounding.
+TEST_F(TestFunNystromPP, DiagSymLinOpMatchesDenseDiagAllTiers) {
+    using T = double;
+    const int64_t n = 300, k = 40, s = 30, q = 1;
+    const T kappa = 1e3, eps = 1e-3;
+    const int64_t budget = 600;
+
+    T *A   = build_hard_psd<T>(n, kappa);
+    T *lam = new T[n];
+    for (int64_t i = 0; i < n; ++i) lam[i] = A[i + i * n];
+    linops::ExplicitSymLinOp<T> A_dense(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    linops::DiagSymLinOp<T>     A_diag(n, lam);
+    auto fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
+    auto fAfun   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
+    T *Omega2 = randn<T>(n, s, /*seed=*/91);
+    const T rtol = 1e-10;
+
+    // Expert tier.
+    {
+        RandLAPACK::FunNystromPP<T> d1, d2;
+        RandBLAS::RNGState<RNG> s1(501), s2(501);
+        T a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+        T e1 = d1.call(A_dense, fAfun, fscalar, k, s, q, s1, Omega2, a1, b1);
+        T e2 = d2.call(A_diag,  fAfun, fscalar, k, s, q, s2, Omega2, a2, b2);
+        std::printf("diag-vs-dense expert: %.12e vs %.12e\n", e1, e2);
+        EXPECT_LE(std::abs(e1 - e2), rtol * std::abs(e1));
+        EXPECT_LE(std::abs(a1 - a2), rtol * std::abs(a1));
+    }
+    // Auto tier (internal probes drawn from the state).
+    {
+        RandLAPACK::FunNystromPP<T> d1, d2;
+        RandBLAS::RNGState<RNG> s1(502), s2(502);
+        T a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+        T e1 = d1.call(A_dense, fscalar, budget, eps, s1, a1, b1);
+        T e2 = d2.call(A_diag,  fscalar, budget, eps, s2, a2, b2);
+        std::printf("diag-vs-dense auto:   %.12e vs %.12e (k=%ld/%ld d=%ld/%ld)\n", e1, e2,
+                    (long)d1.auto_k, (long)d2.auto_k, (long)d1.auto_sqfa.d_used, (long)d2.auto_sqfa.d_used);
+        EXPECT_LE(std::abs(e1 - e2), rtol * std::abs(e1));
+        EXPECT_EQ(d1.auto_k, d2.auto_k);
+    }
+    // Adaptive tier (eps-targeted block tier).
+    {
+        RandLAPACK::FunNystromPP<T> d1, d2;
+        RandBLAS::RNGState<RNG> s1(503), s2(503);
+        T a1 = 0, b1 = 0, a2 = 0, b2 = 0;
+        T e1 = d1.call(A_dense, fscalar, eps, s1, a1, b1);
+        T e2 = d2.call(A_diag,  fscalar, eps, s2, a2, b2);
+        std::printf("diag-vs-dense adapt:  %.12e vs %.12e (k=%ld/%ld t=%ld/%ld)\n", e1, e2,
+                    (long)d1.adaptive_k, (long)d2.adaptive_k, (long)d1.adaptive_t, (long)d2.adaptive_t);
+        EXPECT_LE(std::abs(e1 - e2), rtol * std::abs(e1));
+        EXPECT_EQ(d1.adaptive_k, d2.adaptive_k);
+        EXPECT_EQ(d1.adaptive_t, d2.adaptive_t);
+    }
+    delete[] A;
+    delete[] lam;
+    delete[] Omega2;
+}
+
+
+// ===== Adaptive tier: adaptive_rademacher selects the probe distribution =====
+// On a diagonal matrix a Rademacher quadratic form g' f(A) g equals tr f(A)
+// exactly, which makes a diagonal test of the eps-targeted tier degenerate.
+// The flag (default true, the paper's choice) must switch BOTH probe fills,
+// the depth probe block and the delegated Phase-2 block, to the sphere family.
+// Checked on the buffers themselves, not on the error, which the estimator's
+// structure does not bound tightly enough for a deterministic threshold.
+TEST_F(TestFunNystromPP, AdaptiveRademacherFlagControlsProbes) {
+    using T = double;
+    const int64_t n = 600;
+    const T eps = 1e-3, kappa = 1e3;
+
+    T *lam = new T[n];
+    T tr = 0;
+    for (int64_t i = 0; i < n; ++i) {
+        lam[i] = std::pow(kappa, (T)i / (T)(n - 1));
+        tr += std::sqrt(lam[i]);
+    }
+    linops::DiagSymLinOp<T> A_op(n, lam);
+    auto fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
+    auto all_pm1 = [](const T* buf, int64_t len) {
+        for (int64_t e = 0; e < len; ++e)
+            if (std::abs(buf[e]) != (T)1) return false;
+        return true;
+    };
+
+    // Default: Rademacher everywhere, so the probe block certificate brackets
+    // the exact block trace b * tr f(A).
+    RandLAPACK::FunNystromPP<T> rad;
+    ASSERT_TRUE(rad.adaptive_rademacher);
+    RandBLAS::RNGState<RNG> st1(777);
+    T t1 = 0, t2 = 0;
+    T est_rad = rad.call(A_op, fscalar, eps, st1, t1, t2);
+    const int64_t b = rad.adaptive_probe_block;
+    EXPECT_TRUE(all_pm1(rad.adaptive_probe_buf, n * b));
+    EXPECT_TRUE(all_pm1(rad.Omega2_buf, n * rad.adaptive_s));
+    ASSERT_TRUE(rad.adaptive_probe_certified);
+    T diag_sum = 0;
+    for (int64_t i = 0; i < b; ++i) diag_sum += rad.adaptive_M_buf[i + i * b];
+    EXPECT_LE(std::abs(diag_sum - (T)b * tr), (T)2 * eps * (T)b * tr);
+    EXPECT_EQ(rad.probe_dist, RandLAPACK::ProbeDist::SphereGaussian);   // restored after the call
+
+    // Flag off: sphere probes in both fills, same seed, different estimate.
+    RandLAPACK::FunNystromPP<T> sph;
+    sph.adaptive_rademacher = false;
+    RandBLAS::RNGState<RNG> st2(777);
+    T est_sph = sph.call(A_op, fscalar, eps, st2, t1, t2);
+    EXPECT_FALSE(all_pm1(sph.adaptive_probe_buf, n * b));
+    EXPECT_FALSE(all_pm1(sph.Omega2_buf, n * sph.adaptive_s));
+    EXPECT_NE(est_rad, est_sph);
+    EXPECT_EQ(sph.probe_dist, RandLAPACK::ProbeDist::SphereGaussian);
+    std::printf("adaptive probes: rademacher est=%.8e sphere est=%.8e true=%.8e\n", est_rad, est_sph, tr);
+    EXPECT_LT(std::abs(est_rad - tr) / tr, 5e-2);
+    EXPECT_LT(std::abs(est_sph - tr) / tr, 5e-2);
+    delete[] lam;
 }

@@ -75,7 +75,9 @@ namespace RandLAPACK {
 /// already done. `matvecs` reports the actual total Σⱼ t_j.
 ///
 /// Cost of a certificate check at depth t: two t×t symmetric-tridiagonal
-/// eigensolves (stevd) per active column - zero matvecs, and negligible next
+/// eigensolves per active column (full-eigenvector stevd by default, O(t³);
+/// first-row implicit QL with `use_first_row_ql`, O(t²) - measured 3.3-3.6x
+/// cheaper on the check bucket at t = 3000) - zero matvecs, and negligible next
 /// to an n-length matvec for the depths this method runs at (tens).
 ///
 /// @tparam T  Floating-point scalar type.
@@ -86,6 +88,9 @@ public:
     bool    adaptive      = false;   ///< per-column Gauss-Radau certified stop
     T       adaptive_rtol = (T)1e-2; ///< certified relative-error tolerance
     int64_t check_every   = 1;       ///< 1 = geometric check ladder; >1 = fixed stride (checks at t ≥ 2 either way)
+    /// Opt-in: e₁ᵀ f(T_t) e₁ via implicit QL accumulating only the first eigenvector
+    /// row (O(t²), O(t) scratch) instead of full-eigenvector stevd (O(t³), t×t scratch).
+    bool    use_first_row_ql = false;
 
     // ---- outputs of the last call ------------------------------------------
     int64_t d_used        = 0;       ///< max over columns of the depth used
@@ -199,7 +204,7 @@ public:
             ws_depth = 0;
         } else {
             ws_depth = d;
-            util::upsize(workspace, workspace_sz, s * (d * d + 2 * d));
+            util::upsize(workspace, workspace_sz, s * slot_stride());
         }
         // Partials are cache-line padded per thread (see partial_stride).
         util::upsize(panel_par, panel_par_sz, (int64_t)nthreads * partial_stride(s));
@@ -689,6 +694,7 @@ private:
     /// assumption; the Radau node sits at 0 ± roundoff).
     template <std::invocable<T> F>
     T quad_e1(F f, int64_t t, T* a, T* b, T* Z) {
+        if (use_first_row_ql) return quad_e1_ql(f, t, a, b, Z);
         // Nonzero info means stevd did not converge and a/Z hold garbage;
         // fail loudly rather than certify against it.
         const int64_t info = lapack::stevd(lapack::Job::Vec, t, a, b, Z, t);
@@ -700,6 +706,71 @@ private:
             const T z0 = Z[i * t + 0];
             acc += f(std::max(a[i], (T)0)) * z0 * z0;
         }
+        return acc;
+    }
+
+    /// e₁ᵀ f(T) e₁ by implicit QL with Wilkinson shifts (imtql2 form), rotating only
+    /// the first eigenvector row z (z[i]² = Gauss weight of node d[i]); no t×t matrix.
+    /// d and e (t entries each, e[t-1] is scratch) are destroyed; z needs t entries.
+    template <std::invocable<T> F>
+    T quad_e1_ql(F f, int64_t t, T* d, T* e, T* z) {
+        z[0] = (T)1;
+        for (int64_t i = 1; i < t; ++i) z[i] = (T)0;
+        if (t > 1) {
+            const T eps = std::numeric_limits<T>::epsilon();
+            e[t - 1] = (T)0;
+            for (int64_t l = 0; l < t; ++l) {
+                int64_t iter = 0;
+                while (true) {
+                    // Look for a negligible subdiagonal to split off the
+                    // trailing block [l, m].
+                    int64_t m;
+                    for (m = l; m < t - 1; ++m) {
+                        const T dd = std::abs(d[m]) + std::abs(d[m + 1]);
+                        if (std::abs(e[m]) <= eps * dd) break;
+                    }
+                    if (m == l) break;   // d[l] has converged
+                    if (++iter > 60)
+                        throw std::runtime_error("LanczosQFA: implicit QL failed to converge at depth "
+                            + std::to_string(t) + " (eigenvalue " + std::to_string(l) + ").");
+                    // Wilkinson shift from the leading 2x2, then one implicit
+                    // QL sweep from m-1 down to l.
+                    T g = (d[l + 1] - d[l]) / ((T)2 * e[l]);
+                    T r = std::hypot(g, (T)1);
+                    g = d[m] - d[l] + e[l] / (g + std::copysign(r, g));
+                    T sn = (T)1, cs = (T)1, p = (T)0;
+                    int64_t i;
+                    for (i = m - 1; i >= l; --i) {
+                        T fq = sn * e[i];
+                        const T bq = cs * e[i];
+                        r = std::hypot(fq, g);
+                        e[i + 1] = r;
+                        if (r == (T)0) {   // underflow: recover and restart the sweep
+                            d[i + 1] -= p;
+                            e[m] = (T)0;
+                            break;
+                        }
+                        sn = fq / r; cs = g / r;
+                        g = d[i + 1] - p;
+                        r = (d[i] - g) * sn + (T)2 * cs * bq;
+                        p = sn * r;
+                        d[i + 1] = g + p;
+                        g = cs * r - bq;
+                        // First-row accumulation of the rotation on columns (i, i+1).
+                        fq = z[i + 1];
+                        z[i + 1] = sn * z[i] + cs * fq;
+                        z[i]     = cs * z[i] - sn * fq;
+                    }
+                    if (r == (T)0 && i >= l) continue;
+                    d[l] -= p;
+                    e[l] = g;
+                    e[m] = (T)0;
+                }
+            }
+        }
+        T acc = (T)0;
+        for (int64_t i = 0; i < t; ++i)
+            acc += f(std::max(d[i], (T)0)) * z[i] * z[i];
         return acc;
     }
 
@@ -726,10 +797,16 @@ private:
     /// no preservation across the re-map - every evaluation copies fresh
     /// alpha/beta histories in.
     void ensure_eval_ws(int64_t t, int64_t s) {
-        if (t > ws_depth) {
-            ws_depth = t;
-            util::upsize(workspace, workspace_sz, s * (ws_depth * ws_depth + 2 * ws_depth));
-        }
+        if (t > ws_depth) ws_depth = t;
+        // Always re-check the byte count: the stride depends on the evaluation
+        // mode, which may have been switched between calls.
+        util::upsize(workspace, workspace_sz, s * slot_stride());
+    }
+
+    /// Per-slot scratch stride: alpha copy + beta copy + either the t×t
+    /// eigenvector matrix (stevd) or the first-row vector z (implicit QL).
+    int64_t slot_stride() const {
+        return use_first_row_ql ? 3 * ws_depth : ws_depth * ws_depth + 2 * ws_depth;
     }
 
     /// Eigensolve scratch for the column `col`. Indexed by COLUMN, not thread
@@ -739,7 +816,7 @@ private:
     /// ws_depth (the largest depth evaluated so far this call, or the cap d on
     /// a fixed-depth run), never from the cap alone; see ensure_eval_ws.
     T* slot_ws(int64_t col) {
-        return workspace + col * (ws_depth * ws_depth + 2 * ws_depth);
+        return workspace + col * slot_stride();
     }
 };
 
