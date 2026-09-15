@@ -35,9 +35,15 @@
 //                              bit was previously CQRRT_linop_bqrrp and was reused
 //                              for refine rows, so a script written against the old
 //                              assignment gets refine rows, not the BQRRP variant.
-//               rspec mode accepts bits 0-4 only and warns on 32/64.
+//                 bit 7 (128): unpreconditioned (irlsq_reg only). The shared
+//                              refinement engine on the raw operator with
+//                              R = nullptr: no factor is built, so the row is the
+//                              reference point without a preconditioner, the
+//                              same row the Toeplitz benchmark carries.
+//               rspec mode accepts bits 0-4 only and warns on 32/64/128; irlsq
+//               (sparse) mode rejects 128.
 //   The campaign mask 127 = bits 0-6 (all five Q-less methods + both Blendenpik
-//   families).
+//   families); 128 is run on its own (mask 128) as an overlay row.
 //
 // Trailing optional args after precond_prec (irlsq / irlsq_reg):
 //   [ir_max_inner] inner-CG iteration cap per outer refinement step (default 200).
@@ -465,9 +471,10 @@ static std::vector<std::string> decode_method_mask(int64_t method_mask, bool wit
             algs.push_back("Blendenpik_refine");
             algs.push_back("Blendenpik_cold_refine");
         }
-    } else if (method_mask & (32 | 64)) {
-        std::cerr << "Warning: method_mask bits 32/64 (Blendenpik families) are not "
-                     "available in this mode and are ignored.\n";
+        if (method_mask & 128) algs.push_back("unpreconditioned");   // engine on the raw operator, no factor
+    } else if (method_mask & (32 | 64 | 128)) {
+        std::cerr << "Warning: method_mask bits 32/64/128 (Blendenpik families, "
+                     "unpreconditioned) are not available in this mode and are ignored.\n";
     }
     return algs;
 }
@@ -884,6 +891,11 @@ static int run_benchmark_inner(
 
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
+        return 1;
+    }
+    if (std::find(selected_algs.begin(), selected_algs.end(), "unpreconditioned") != selected_algs.end()) {
+        std::cerr << "Error: method_mask bit 128 (unpreconditioned) is implemented for the "
+                     "irlsq_reg path only.\n";
         return 1;
     }
 
@@ -1792,6 +1804,7 @@ static int run_irlsq_reg(
             std::fill(R_P, R_P + n * n, (P_precond)0);
             auto state = run_states[run_idx];
             const bool is_bp = (alg_name.rfind("Blendenpik", 0) == 0);
+            const bool is_unprec = (alg_name == "unpreconditioned");
 
             std::cout << "[Run " << run_idx << ", " << alg_name << "] QR(" << precond_prec_str
                       << ") ... " << std::flush;
@@ -1805,6 +1818,13 @@ static int run_irlsq_reg(
                 run_blendenpik_family<T_solve, RNG>(J_Ts, b.data(), m, x_ls, n, R_T,
                     (T_solve)d_factor, sketch_nnz, state, alg_name, tol_T, outer_tol_eff,
                     mem, res);
+            } else if (is_unprec) {
+                // No factor: the row is the refinement engine on the raw operator
+                // (R = nullptr below). Nothing is built, so the build phase, the
+                // Cholesky records and the storage model keep their "no value"
+                // sentinels and the solve is the whole row.
+                res.qr_status = 0; res.qr_time_us = 0;
+                res.qr_breakdown.clear(); res.analytical_kb = -1;
             } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
                 qr.max_retries = bench_chol_max_retries();
@@ -1859,13 +1879,14 @@ static int run_irlsq_reg(
                 all_results.push_back(res);
                 continue;
             }
-            res.kappa_measured = is_bp ? (T_solve)kappa_from_R_diag<T_solve>(R_T, n)
-                                       : (T_solve)kappa_from_R_diag<P_precond>(R_P, n);
+            res.kappa_measured = is_unprec ? (T_solve)-1
+                               : is_bp     ? (T_solve)kappa_from_R_diag<T_solve>(R_T, n)
+                                           : (T_solve)kappa_from_R_diag<P_precond>(R_P, n);
             std::cout << "done (" << res.qr_time_us << " us, kappa~"
                       << std::scientific << std::setprecision(2) << (double)res.kappa_measured << ")";
 
             // Cast R to solve precision (Blendenpik already produced R_T directly).
-            if (!is_bp) for (int64_t i = 0; i < n * n; ++i) R_T[i] = (T_solve)R_P[i];
+            if (!is_bp && !is_unprec) for (int64_t i = 0; i < n * n; ++i) R_T[i] = (T_solve)R_P[i];
 
             // NOTE ordering: the orthogonality diagnostic is computed
             // AFTER the solve, not here. It materializes Q = A R^{-1} (m x n, about
@@ -1895,7 +1916,11 @@ static int run_irlsq_reg(
                 ir.outer_tol = (g_ir_outer_tol >= 0) ? (T_solve)g_ir_outer_tol
                              : (T_solve)10 * std::numeric_limits<T_solve>::epsilon();
                 ir.outer_stag_window = ir_outer_stag_window();
-                int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
+                // R = nullptr selects the engine's unpreconditioned normal
+                // equations (the restarted_pcg_ne contract); every other row
+                // passes its factor as the right preconditioner.
+                int ir_status = ir.call(J_Ts, is_unprec ? nullptr : R_T, is_unprec ? (int64_t)0 : n,
+                                        b.data(), m, x_ls, n);
                 auto ls_t1 = steady_clock::now();
                 if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
                 res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
@@ -1912,8 +1937,12 @@ static int run_irlsq_reg(
             // Outside the RSS window on purpose; see the ordering note above.
             // compute_cond gates cond_precond identically in both irlsq and
             // irlsq_reg.
-            res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size,
-                compute_cond ? &res.cond_precond : nullptr);
+            if (is_unprec) {
+                res.orth_error = (T_solve)-1;   // no factor, no Q; -1 = "no value" (plotters print N/A)
+            } else {
+                res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size,
+                    compute_cond ? &res.cond_precond : nullptr);
+            }
 
             // Higham normwise backward error ||Ax-b|| / (||A||_2 ||x|| + ||b||).
             std::vector<T_solve> Ax(m, (T_solve)0);
