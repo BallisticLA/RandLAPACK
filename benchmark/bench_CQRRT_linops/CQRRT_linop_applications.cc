@@ -202,6 +202,10 @@ struct bench_result {
     // Q-factor orthogonality: ||Q^T Q - I||_F / sqrt(n), computed for all methods.
     T orth_error;
 
+    // Solution vector, kept only until the post-pass backward-error evaluation
+    // (build_kw_reference in cqrrt_bench_common.hh); cleared afterwards.
+    std::vector<T> x_hat;
+
     // IR-LSQ-mode fields
     long ir_total_us;
     long ir_setup_us = 0;  // warm-start x0 build time, its OWN slot (NOT inside
@@ -1925,6 +1929,7 @@ static int run_irlsq_reg(
             T_solve err_sq = 0;
             for (int64_t i = 0; i < n; ++i) { T_solve dd = x_ls[i] - x_true[i]; err_sq += dd * dd; }
             res.ls_solution_error = (x_true_norm > 0) ? std::sqrt(err_sq) / x_true_norm : (T_solve)-1;
+            res.x_hat.assign(x_ls, x_ls + n);   // for the post-pass backward error
 
             std::cout << "done (" << res.ir_total_us << " us, bwd_err="
                       << std::scientific << std::setprecision(3) << (double)res.ls_residual_norm
@@ -1949,6 +1954,53 @@ static int run_irlsq_reg(
     std::cout << "IR-LSQ-reg breakdown written to " << breakdown_file << "\n";
     write_rounds_csv<T_solve>(rounds_file, all_results);
     std::cout << "IR-LSQ-reg per-round records written to " << rounds_file << "\n";
+
+    // ---- Backward error (sketched Karlson-Walden, EMN24): post-pass ----
+    // Built after every timed row, so no row's timing or RSS window sees it.
+    std::string kw_sidecar;
+    try {
+        std::cout << "\nBackward-error reference: sketched Karlson-Walden, d=2n=" << 2 * n
+                  << ", nnz=" << sketch_nnz << " ... " << std::flush;
+        auto kw_t0 = steady_clock::now();
+        RandBLAS::RNGState<RNG> kw_state((uint32_t)20240914);
+        auto kw_ref = RandLAPACK::bench::build_kw_reference<T_solve, RNG>(
+            J_Ts, m, n, 2 * n, sketch_nnz, kw_state, block_size);
+        double kw_build_s = duration_cast<microseconds>(steady_clock::now() - kw_t0).count() / 1e6;
+        std::cout << "done (" << std::fixed << std::setprecision(1) << kw_build_s << " s, ||A||_F="
+                  << std::scientific << std::setprecision(6) << (double)kw_ref.A_fro << ")\n";
+        std::vector<T_solve> Ax(m, (T_solve)0), ATr(n, (T_solve)0);
+        std::ostringstream kw_rows;
+        for (auto& r : all_results) {
+            if (r.qr_status != 0 || r.x_hat.empty()) continue;
+            J_Ts(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+                 m, 1, n, (T_solve)1.0, r.x_hat.data(), n, (T_solve)0.0, Ax.data(), m);
+            for (int64_t i = 0; i < m; ++i) Ax[i] = b[i] - Ax[i];   // r = b - A x
+            T_solve r_norm = blas::nrm2(m, Ax.data(), 1);
+            T_solve x_norm = blas::nrm2(n, r.x_hat.data(), 1);
+            J_Ts(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
+                 n, 1, m, (T_solve)1.0, Ax.data(), m, (T_solve)0.0, ATr.data(), n);
+            T_solve be_theta, be_inf, theta, res_orth;
+            RandLAPACK::bench::kw_backward_error<T_solve>(kw_ref, ATr.data(), r_norm, x_norm, b_norm,
+                                                          be_theta, be_inf, theta, res_orth);
+            std::cout << "  [" << r.alg_name << "] run " << r.run_idx << ": BE_theta="
+                      << std::scientific << std::setprecision(3) << (double)be_theta
+                      << " BE_inf=" << (double)be_inf << " res_orth=" << (double)res_orth << "\n";
+            kw_rows << r.alg_name << "," << r.run_idx << ","
+                    << std::scientific << std::setprecision(6) << be_theta << "," << be_inf << ","
+                    << theta << "," << r_norm << "," << x_norm << "," << res_orth << "\n";
+            r.x_hat.clear(); r.x_hat.shrink_to_fit();
+        }
+        kw_sidecar = RandLAPACK::bench::kw_provenance_line<T_solve>(kw_ref, b_norm, kw_build_s)
+                   + RandLAPACK::bench::kKWCsvHeader + kw_rows.str();
+    } catch (const std::exception& e) {
+        std::cerr << "\nWARNING: backward-error post-pass FAILED (" << e.what()
+                  << "); the results CSVs above are complete, only the sidecar is missing.\n";
+        kw_sidecar = std::string("# backward-error post-pass FAILED: ") + e.what() + "\n";
+    }
+
+    std::string kw_file = output_dir + "/" + time_buf + "_irlsq_reg_backward_error.csv";
+    { std::ofstream kw_out(kw_file); kw_out << kw_sidecar; }
+    std::cout << "IR-LSQ-reg backward-error sidecar written to " << kw_file << "\n";
     return 0;
 }
 

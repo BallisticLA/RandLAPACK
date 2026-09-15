@@ -371,6 +371,11 @@ int main(int argc, char** argv) {
     // Per-round sidecar: one row per
     // (algorithm, run, round) for every pcg_ne solve, from PCGRoundHistory.
     std::string csv_rounds = outdir + "/" + tstamp + "_toeplitz_ls_rounds.csv";
+    // Solutions of the successful rows, kept for the post-pass backward error
+    // (sketched Karlson-Walden, see cqrrt_bench_common.hh). The reference is
+    // built after the last timed row so no row's timing or RSS window sees it.
+    struct KWPending { std::string alg; int run_idx; std::vector<double> x; };
+    std::vector<KWPending> kw_pending;
     std::ofstream out_rounds(csv_rounds);
     out_rounds << rl::bench::kRoundsCsvHeader;
 
@@ -632,6 +637,7 @@ int main(int argc, char** argv) {
             recov = std::sqrt(re) / std::max(x_true_norm, 1e-300);
         }
         delete[] R_bp_owned;   // no-op if never set; R_metrics above was its only use
+        if (qr_status == 0) kw_pending.push_back({alg, run_idx, x});
 
         std::printf("  qr_status=%d iters=%d flag=%d reason=%s qr_us=%lld setup_us=%lld solve_us=%lld total_row_us=%lld peak_kb=%lld\n",
                     qr_status, iters, flag, stop_reason.c_str(), (long long)qr_us, (long long)setup_us,
@@ -696,6 +702,45 @@ int main(int argc, char** argv) {
     }
     out_rounds.close();
     out.close();
-    std::printf("\nresults -> %s\nrounds  -> %s\n", csv.c_str(), csv_rounds.c_str());
+
+    // ---- Backward error (sketched Karlson-Walden, EMN24): post-pass on the
+    // augmented problem A_hat x ~ rhs that every row actually solved. ----
+    std::string csv_kw = outdir + "/" + tstamp + "_toeplitz_ls_backward_error.csv";
+    try {
+        std::printf("\nBackward-error reference: sketched Karlson-Walden, d=2n=%lld, nnz=%lld ... ",
+                    (long long)(2 * n), (long long)sketch_nnz);
+        std::fflush(stdout);
+        auto kw_t0 = steady_clock::now();
+        RandBLAS::RNGState<RNG> kw_state((uint32_t)20240914);
+        auto kw_ref = rl::bench::build_kw_reference<double, RNG>(A_hat, mtot, n, 2 * n, sketch_nnz,
+                                                                 kw_state, block_size);
+        double kw_build_s = duration_cast<microseconds>(steady_clock::now() - kw_t0).count() / 1e6;
+        std::printf("done (%.1f s, ||A||_F=%.6e)\n", kw_build_s, kw_ref.A_fro);
+        std::ofstream kw_out(csv_kw);
+        kw_out << rl::bench::kw_provenance_line<double>(kw_ref, rhs_norm, kw_build_s)
+               << rl::bench::kKWCsvHeader;
+        std::vector<double> Ax_kw(mtot, 0.0), ATr(n, 0.0);
+        for (const auto& p : kw_pending) {
+            A_hat(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, mtot, 1, n, 1.0,
+                  p.x.data(), n, 0.0, Ax_kw.data(), mtot);
+            for (int64_t i = 0; i < mtot; ++i) Ax_kw[i] = rhs[i] - Ax_kw[i];   // r = rhs - A_hat x
+            double r_norm = blas::nrm2(mtot, Ax_kw.data(), 1);
+            double x_norm = blas::nrm2(n, p.x.data(), 1);
+            A_hat(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, 1, mtot, 1.0,
+                  Ax_kw.data(), mtot, 0.0, ATr.data(), n);
+            double be_theta, be_inf, theta, res_orth;
+            rl::bench::kw_backward_error<double>(kw_ref, ATr.data(), r_norm, x_norm, rhs_norm,
+                                                 be_theta, be_inf, theta, res_orth);
+            std::printf("  [%s] run %d: BE_theta=%.3e BE_inf=%.3e res_orth=%.3e\n",
+                        p.alg.c_str(), p.run_idx, be_theta, be_inf, res_orth);
+            kw_out << p.alg << "," << p.run_idx << "," << std::scientific << std::setprecision(6)
+                   << be_theta << "," << be_inf << "," << theta << "," << r_norm << ","
+                   << x_norm << "," << res_orth << "\n";
+        }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "\nWARNING: backward-error post-pass FAILED (%s); the results and rounds CSVs are complete.\n", e.what());
+    }
+    std::printf("\nresults -> %s\nrounds  -> %s\nbackward error -> %s\n",
+                csv.c_str(), csv_rounds.c_str(), csv_kw.c_str());
     return 0;
 }

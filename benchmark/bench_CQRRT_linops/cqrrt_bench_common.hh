@@ -282,5 +282,133 @@ static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n
     return orth;
 }
 
+// ---------------------------------------------------------------------------
+// Least-squares backward error: Karlson-Walden estimate, sketched form
+// (Epperly, Meier, Nakatsukasa 2024, Fact 4.1 and eq. 4.2).
+//
+// For a computed solution x of min ||b - A y||, the backward error with
+// perturbation weight theta in (0, inf] is
+//
+//   BE_theta(x) = min ||[dA, theta*db]||_F  s.t.  x = argmin ||(b+db) - (A+dA) y||,
+//
+// estimated within a factor sqrt(2) (their Fact 4.1) by
+//
+//   BEhat_theta(x) = theta / sqrt(1 + theta^2 ||x||^2)
+//                    * || (A^T A + nu^2 I)^{-1/2} A^T (b - A x) ||,
+//   nu^2 = theta^2 ||b - A x||^2 / (1 + theta^2 ||x||^2).
+//
+// With A^T A replaced by (SA)^T (SA) for a sparse sign sketch S with d rows
+// this is the sketched estimate (their eq. 4.2): from the SVD SA = U Sigma V^T,
+//   || (Sigma^2 + nu^2 I)^{-1/2} V^T A^T (b - A x) ||,
+// accurate to a small constant factor for d >= 2n (their Prop. 4.2 and the
+// remark after it). Two weights are reported, both relative to ||A||_F, the
+// scale on which "backward stable" means "a small multiple of u":
+//   theta = ||A||_F / ||b||   (what their Algorithm 4 tests at run time), and
+//   theta = inf               (perturb A only; their Definition 1.1).
+//
+// The reference (sketch + SVD) is built once per problem, AFTER every timed
+// row, so no row's timing or peak-RSS window contains it: n operator
+// applications to form SA plus one d x n SVD. ||A||_F is accumulated exactly
+// from the operator's columns while SA is formed. The estimate needs the small
+// singular directions accurately (they carry the largest weights
+// 1/(sigma_i^2 + nu^2)), which is why this is an SVD of the sketch and not an
+// eigendecomposition of its Gram matrix.
+template <typename T>
+struct KWBackwardErrorRef {
+    int64_t n = 0, d = 0, nnz = 0;
+    T A_fro = 0;              // ||A||_F, exact, from the operator's columns
+    std::vector<T> sigma;     // singular values of SA, descending
+    std::vector<T> VT;        // n x n col-major; row i = i-th right singular vector
+};
+
+template <typename T, typename RNG, typename GLO>
+static KWBackwardErrorRef<T> build_kw_reference(GLO& A_op, int64_t m, int64_t n, int64_t d,
+                                                int64_t sketch_nnz, RandBLAS::RNGState<RNG> state,
+                                                int64_t block_size) {
+    randlapack_require(d >= n) << "build_kw_reference: d=" << d << " must be >= n=" << n;
+    KWBackwardErrorRef<T> ref;
+    ref.n = n; ref.d = d; ref.nnz = sketch_nnz;
+    RandBLAS::SparseDist D(d, m, sketch_nnz, RandBLAS::Axis::Short);
+    RandBLAS::SparseSkOp<T> S(D, state);
+    RandBLAS::fill_sparse(S);
+
+    int64_t b = (block_size > 0 && block_size < n) ? block_size : n;
+    std::vector<T> SA((size_t)d * n, (T)0);
+    std::vector<T> E((size_t)n * b, (T)0), Y((size_t)m * b, (T)0);
+    T fro_sq = 0;
+    for (int64_t j0 = 0; j0 < n; j0 += b) {
+        int64_t bk = std::min(b, n - j0);
+        std::fill(E.begin(), E.end(), (T)0);
+        for (int64_t j = 0; j < bk; ++j) E[(size_t)(j0 + j) + (size_t)j * n] = (T)1;
+        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+             m, bk, n, (T)1, E.data(), n, (T)0, Y.data(), m);
+        for (int64_t j = 0; j < bk; ++j) {
+            T c = blas::nrm2(m, Y.data() + (size_t)j * m, 1);
+            fro_sq += c * c;
+        }
+        RandBLAS::sketch_general(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+                                 d, bk, m, (T)1, S, 0, 0, Y.data(), m,
+                                 (T)0, SA.data() + (size_t)j0 * d, d);
+    }
+    ref.A_fro = std::sqrt(fro_sq);
+    ref.sigma.assign(n, (T)0);
+    ref.VT.assign((size_t)n * n, (T)0);
+    // Divide-and-conquer SVD (gesdd, not gesvd: the bidiagonal QR phase of
+    // gesvd with vectors is essentially sequential and would take hours at
+    // n = 33024). jobz = OverwriteVec with d >= n: the left vectors overwrite
+    // SA in place (U is not referenced) and the n rows of V^T land in VT.
+    int64_t info = lapack::gesdd(lapack::Job::OverwriteVec, d, n, SA.data(), d,
+                                 ref.sigma.data(), nullptr, 1, ref.VT.data(), n);
+    randlapack_require(info == 0) << "build_kw_reference: gesdd returned info=" << info;
+    return ref;
+}
+
+// Evaluate the estimate for one solution. ATr = A^T (b - A x) (length n),
+// r_norm = ||b - A x||, x_norm = ||x||, b_norm = ||b||. be_theta_rel and
+// be_inf_rel are relative to ||A||_F; theta_out echoes ||A||_F/||b||; res_orth
+// is the residual-orthogonality ratio ||A^T r|| / (||A||_F ||r||) (their
+// Corollary 1.2), recorded alongside. -1 marks an undefined value.
+template <typename T>
+static void kw_backward_error(const KWBackwardErrorRef<T>& ref, const T* ATr,
+                              T r_norm, T x_norm, T b_norm,
+                              T& be_theta_rel, T& be_inf_rel, T& theta_out, T& res_orth) {
+    const int64_t n = ref.n;
+    std::vector<T> z((size_t)n, (T)0);
+    blas::gemv(blas::Layout::ColMajor, blas::Op::NoTrans, n, n, (T)1, ref.VT.data(), n,
+               ATr, 1, (T)0, z.data(), 1);
+    auto estimate = [&](T nu_sq, T prefactor) {
+        T acc = 0;
+        for (int64_t i = 0; i < n; ++i)
+            acc += z[i] * z[i] / (ref.sigma[i] * ref.sigma[i] + nu_sq);
+        return prefactor * std::sqrt(acc);
+    };
+    T theta = (b_norm > 0) ? ref.A_fro / b_norm : (T)0;
+    T den   = (T)1 + theta * theta * x_norm * x_norm;
+    T be_theta = estimate(theta * theta * r_norm * r_norm / den, theta / std::sqrt(den));
+    T be_inf   = (x_norm > 0) ? estimate(r_norm * r_norm / (x_norm * x_norm), (T)1 / x_norm) : (T)-1;
+    be_theta_rel = (ref.A_fro > 0) ? be_theta / ref.A_fro : (T)-1;
+    be_inf_rel   = (ref.A_fro > 0 && be_inf >= 0) ? be_inf / ref.A_fro : (T)-1;
+    theta_out    = theta;
+    T ATr_norm   = blas::nrm2(n, ATr, 1);
+    res_orth     = (ref.A_fro > 0 && r_norm > 0) ? ATr_norm / (ref.A_fro * r_norm) : (T)-1;
+}
+
+// Sidecar CSV (one row per successful (algorithm, run)); the writer prepends
+// a '#' provenance line naming d, nnz, seed, ||A||_F, ||b||, theta.
+inline const char* kKWCsvHeader =
+    "algorithm,run,be_kw_theta,be_kw_inf,theta,r_norm,x_norm,res_orth\n";
+
+template <typename T>
+static std::string kw_provenance_line(const KWBackwardErrorRef<T>& ref, T b_norm, double build_s) {
+    std::ostringstream h;
+    h << "# sketched Karlson-Walden backward error (Epperly-Meier-Nakatsukasa 2024, eq. 4.2),"
+      << " relative to ||A||_F; d=" << ref.d << " nnz=" << ref.nnz << " seed=20240914"
+      << " ||A||_F=" << std::scientific << std::setprecision(6) << (double)ref.A_fro
+      << " ||b||=" << (double)b_norm
+      << " theta=||A||_F/||b||=" << (double)((b_norm > 0) ? ref.A_fro / b_norm : (T)0)
+      << " reference_build_s=" << std::fixed << std::setprecision(1) << build_s << "\n";
+    return h.str();
+}
+
 } // namespace bench
 } // namespace RandLAPACK
