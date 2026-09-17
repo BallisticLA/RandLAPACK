@@ -51,6 +51,11 @@
 //                  ceiling in earlier CSVs. Pass <= 0 to keep the default.
 //   [ir_inner_tol] inner-CG relative-residual tolerance (default: eps^0.85 in the
 //                  working precision, ~4.9e-14 in double). Pass < 0 to keep it.
+//                  In paced mode (ir_round_drop > 0) this is the ABSOLUTE floor at
+//                  which a round stops at once; pass 0 to disable that floor
+//                  (rounds then always run to the ir_round_drop factor, the rule
+//                  the Toeplitz benchmark used before 2026-09-14). 0 is rejected
+//                  in legacy mode, where the value is the per-round tolerance.
 //   [ir_round_drop] per-round inner-CG residual drop (default 1e-4; restart
 //                  pacing, replacing [ir_inner_restarts] in this slot).
 //                  Each round's CG stops after this relative drop and the outer
@@ -307,6 +312,14 @@ static void record_chol_shift(bench_result<TR>& res, const T (&shifts)[N], const
 static int    g_ir_max_inner = 200;    // <= 0 => keep the IterRefineLSQ default
 static double g_ir_inner_tol = -1.0;   // <  0 => eps^0.85 in the working precision
 static double g_ir_round_drop = 1e-4;  // per-round CG drop; 0 = legacy fixed-tol rounds
+// Effective inner tolerance / absolute floor: < 0 keeps `dflt` (eps^0.85 in the
+// working precision), 0 disables the absolute floor (paced mode only, checked at
+// parse time), > 0 is the value. One place so the three call sites agree.
+template <typename T>
+static T ir_inner_tol_eff(T dflt) {
+    if (g_ir_inner_tol < 0.0) return dflt;
+    return (T)g_ir_inner_tol;
+}
 static int    g_ir_n_steps = 50;       // outer-round cap (campaign-canonical 50; the
                                        // cap must not bind before tol + maxit do:
                                        // native_ill CholQR2 genuinely uses 50 rounds.)
@@ -498,8 +511,7 @@ static void run_blendenpik_family(
     const bool warm   = (alg_name == "Blendenpik") || (alg_name == "Blendenpik_refine");
     const int  max_inner = (g_ir_max_inner > 0) ? g_ir_max_inner : 200;
     const int  budget    = max_inner * g_ir_n_steps;   // same budget the IR methods get
-    const T    inner_tol = (g_ir_inner_tol > 0) ? (T)g_ir_inner_tol
-                         : std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
+    const T    inner_tol = ir_inner_tol_eff<T>(std::pow(std::numeric_limits<T>::epsilon(), (T)0.85));
 
     if (is_ref) {
         // Refined rows: init_only sketch-and-solve x0, ALL iterative work in the
@@ -1098,7 +1110,7 @@ static int run_benchmark_inner(
                     std::fill(x_ls, x_ls + n, (T)0.0);
 
                     RandLAPACK::IterRefineLSQ<T> ir(
-                        /*tol=*/     (g_ir_inner_tol > 0) ? (T)g_ir_inner_tol : tol,
+                        /*tol=*/     ir_inner_tol_eff<T>(tol),
                         /*max_inner=*/(g_ir_max_inner > 0) ? g_ir_max_inner : 200,
                         /*n_steps=*/g_ir_n_steps,
                         /*timing=*/true,
@@ -1909,7 +1921,7 @@ static int run_irlsq_reg(
                 // for IR methods.
                 std::fill(x_ls, x_ls + n, (T_solve)0.0);
                 RandLAPACK::IterRefineLSQ<T_solve> ir(
-                    (g_ir_inner_tol > 0) ? (T_solve)g_ir_inner_tol : tol_T,
+                    ir_inner_tol_eff<T_solve>(tol_T),
                     (g_ir_max_inner > 0) ? g_ir_max_inner : 200,
                     g_ir_n_steps, true, false);
                 ir.round_drop = (T_solve)g_ir_round_drop;
@@ -2149,6 +2161,12 @@ int run_benchmark(int argc, char* argv[]) {
         std::cerr << "Error: slot 13 is [ir_round_drop] (was "
                      "[ir_inner_restarts]); it must lie in [0, 1). Regenerate "
                      "the job scripts.\n";
+        return 1;
+    }
+    if (g_ir_inner_tol == 0.0 && g_ir_round_drop <= 0.0) {
+        std::cerr << "Error: ir_inner_tol = 0 (absolute floor off) is only "
+                     "meaningful in paced mode (ir_round_drop > 0); in legacy "
+                     "mode it is the per-round tolerance and cannot be 0.\n";
         return 1;
     }
     // Outer-round cap. Campaign-canonical 50 (previously 20, then 4): under
