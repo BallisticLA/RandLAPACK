@@ -26,7 +26,7 @@
 //
 // CLI: <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> <tol> <maxit>
 //      <d_factor> <sketch_nnz> [seed] [num_runs] [solver] [pcg_restart_maxit]
-//      [pcg_max_restarts] [pcg_restart_drop]
+//      [pcg_max_restarts] [pcg_restart_drop] [inner_abs_tol]
 //   method_mask bits: 1 CQRRT, 2 CholQR, 4 sCholQR3, 8 sCholQR3_basic, 16 CholQR2,
 //                     32 Blendenpik (published; warm and cold rows),
 //                     64 unpreconditioned,
@@ -44,13 +44,16 @@
 //   pcg_restart_drop (default 1e-4): per-round relative residual drop that ends
 //   a round, pcg_ne only. CLI-exposed so this benchmark and FEM2 match on the
 //   drop factor and the round/iteration caps (pcg_max_restarts,
-//   pcg_restart_maxit, maxit). The inner absolute-residual guard is passed
-//   with FEM2's value (eps^0.85, see abs_guard below) since 2026-09-14; before
-//   that this benchmark passed 0.0, and every row that ended at the data-noise
-//   floor paid two FULL inner solves for the stagnation-confirmation cycles
-//   (25 to 45 iterations each for Blendenpik and CholQR) where FEM2 paid one
-//   iteration each, so the iteration totals of the two benchmarks were not
-//   comparable. One pcg_ne knob still differs and is NOT CLI-exposed here: the
+//   pcg_restart_maxit, maxit).
+//   inner_abs_tol (default eps^0.85, FEM2's value; pass < 0 to keep it, 0 to
+//   disable): the inner absolute-residual guard, see abs_guard below. Passed
+//   since 2026-09-14; before that this benchmark passed 0.0, and every row that
+//   ended at the data-noise floor paid two FULL inner solves for the
+//   stagnation-confirmation cycles (25 to 45 iterations each for Blendenpik and
+//   CholQR) where FEM2 paid one iteration each, so the iteration totals of the
+//   two benchmarks were not comparable. CLI-exposed 2026-09-17 so the floor can
+//   be varied without a rebuild (same slot semantics as FEM2's ir_inner_tol).
+//   One pcg_ne knob still differs and is NOT CLI-exposed here: the
 //   outer-stagnation window (FEM2 honors RANDLAPACK_IR_OUTER_STAG; this
 //   benchmark always uses restarted_pcg_ne's fixed default, the same value, 2).
 //
@@ -119,7 +122,8 @@ int main(int argc, char** argv) {
     if (argc < 12) {
         std::fprintf(stderr, "usage: %s <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> "
                              "<tol> <maxit> <d_factor> <sketch_nnz> [seed] [num_runs] [solver] "
-                             "[pcg_restart_maxit] [pcg_max_restarts] [pcg_restart_drop]\n", argv[0]);
+                             "[pcg_restart_maxit] [pcg_max_restarts] [pcg_restart_drop] "
+                             "[inner_abs_tol]\n", argv[0]);
         return 1;
     }
     std::string prec = argv[1];          // "double" (v1)
@@ -176,7 +180,14 @@ int main(int argc, char** argv) {
     // pcg_restart_drop factor on rounding noise. At the data-noise floor the NE
     // residual is at rounding level, so the two confirmation cycles of the
     // outer stagnation exit cost one iteration each instead of a full solve.
-    const double abs_guard = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    // argv[18] overrides: < 0 (or absent) keeps eps^0.85, 0 disables the guard.
+    const double abs_guard_default = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    const double abs_guard_cli = (argc > 18) ? std::stod(argv[18]) : -1.0;
+    const double abs_guard = (abs_guard_cli < 0.0) ? abs_guard_default : abs_guard_cli;
+    if (abs_guard >= 1.0) {
+        std::fprintf(stderr, "inner_abs_tol must lie in [0,1) (got %s)\n", argv[18]);
+        return 1;
+    }
     int64_t block_size = 256;
     const double relnoise = 1e-11;   // data noise level (hoisted so the CSV header echoes it)
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }
