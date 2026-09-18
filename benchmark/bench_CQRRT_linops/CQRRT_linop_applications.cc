@@ -94,9 +94,9 @@
 #include <cstdlib>
 #include <functional>
 #include <memory>
-#include <type_traits>
 #include <numeric>
 #include <random>
+#include <type_traits>
 
 // Extras utilities (Eigen-dependent)
 #include "../../extras/misc/ext_util.hh"
@@ -369,7 +369,8 @@ static void write_env_provenance(std::ofstream& out) {
         << " round_drop=" << g_ir_round_drop << " n_steps=" << g_ir_n_steps
         << " outer_tol=" << g_ir_outer_tol
         << " outer_stag_window=" << ir_outer_stag_window()
-        << " be_tol_mult=" << g_be_tol_mult << " be_tol=" << g_be_tol_eff << "\n";
+        << " be_tol_mult=" << g_be_tol_mult << " be_tol=" << g_be_tol_eff
+        << " kw_sketch_nnz=" << RandLAPACK::bench::kKWSketchNNZ << "\n";   // the oracle's sketch, not --sketch-nnz
 }
 
 // Summarize an IterRefineLSQ run's inner-CG behavior into the CSV fields.
@@ -539,7 +540,11 @@ static void run_blendenpik_family(
         res.ir_setup_us = rr.setup_us;                 // x0 build (0 for the cold row)
         res.t_be_us     = rr.history.t_be_us;          // oracle time (already outside solve_us)
         res.be_x0       = rr.history.be_x0;            // oracle value of x0 (warm row; -1 cold/off)
-        res.be_final    = rr.history.be.empty() ? rr.history.be_x0 : rr.history.be.back();
+        // Oracle on but nothing measured (no round ran and no warm x0): +inf, so the
+        // value can never read as "below the target"; -1 stays "oracle off".
+        res.be_final    = !rr.history.be.empty() ? rr.history.be.back()
+                        : (rr.history.be_x0 >= 0) ? rr.history.be_x0
+                        : (be_tol >= (T)0) ? std::numeric_limits<T>::infinity() : (T)-1;
         res.x0_relres   = rr.x0_relres;                // warm-start quality (-1 cold)
         std::copy(rr.R, rr.R + rr.R_sz, R_T);
         // QR-breakdown slots for Blendenpik-family rows (see the breakdown
@@ -1139,7 +1144,9 @@ static int run_irlsq_reg(
                 res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count() - ir.t_be_us;
                 res.t_be_us     = ir.t_be_us;
                 res.be_x0       = ir.be_x0;            // always -1: IR rows start cold
-                res.be_final    = ir.be_per_step.empty() ? ir.be_x0 : ir.be_per_step.back();
+                res.be_final    = !ir.be_per_step.empty() ? ir.be_per_step.back()
+                                : (be_tol >= (T_solve)0) ? std::numeric_limits<T_solve>::infinity()
+                                : (T_solve)-1;          // cold rows have no x0 value
                 res.ir_outer_iters = ir.outer_iters_done;
                 res.ir_inner_iters_total = 0;
                 for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
@@ -1421,6 +1428,14 @@ int run_benchmark(int argc, char* argv[]) {
     if (g_ir_n_steps < 1) {
         std::cerr << "Error: steps must be >= 1.\n";
         return 1;
+    }
+    if constexpr (std::is_same_v<T, float>) {
+        // Refuse at parse time, before the matrices are loaded: the backward-error
+        // reference is not meaningful in float (see run_irlsq_reg for the reason).
+        if (g_be_tol_mult > 0.0) {
+            std::cerr << "Error: --be-tol-mult > 0 requires the double solve precision.\n";
+            return 1;
+        }
     }
 
     // Column-scaling target for V. Fixed at 1 (no rescaling): the FEM2 generators bake the

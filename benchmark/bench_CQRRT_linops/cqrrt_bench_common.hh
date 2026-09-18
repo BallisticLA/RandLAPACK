@@ -480,6 +480,11 @@ static void kw_backward_error(const KWBackwardErrorRef<T>& ref, const T* ATr,
     T be_inf   = (x_norm > 0) ? estimate(r_norm * r_norm / (x_norm * x_norm), (T)1 / x_norm) : (T)-1;
     be_theta_rel = (ref.A_fro > 0) ? be_theta / ref.A_fro : (T)-1;
     be_inf_rel   = (ref.A_fro > 0 && be_inf >= 0) ? be_inf / ref.A_fro : (T)-1;
+    // A NaN (0/0 from a zero singular value of a rank-deficient sketch meeting a
+    // zero component, or a diverged iterate) is reported as +inf: unmistakable in
+    // the sidecar and never below any target. -1 stays the "undefined" sentinel.
+    if (std::isnan(be_theta_rel)) be_theta_rel = std::numeric_limits<T>::infinity();
+    if (std::isnan(be_inf_rel))   be_inf_rel   = std::numeric_limits<T>::infinity();
     theta_out    = theta;
     T ATr_norm   = blas::nrm2(n, ATr, 1);
     res_orth     = (ref.A_fro > 0 && r_norm > 0) ? ATr_norm / (ref.A_fro * r_norm) : (T)-1;

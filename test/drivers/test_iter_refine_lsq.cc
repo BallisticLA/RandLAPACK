@@ -641,6 +641,63 @@ TEST_F(TestIterRefineLSQ, ls_tolerance_outranks_the_oracle_in_the_same_round) {
     EXPECT_LE(hist.be.back(), shared_tol);              // the oracle was met too, and lost
 }
 
+// An operator whose transposed apply is NOT the adjoint of its forward apply makes the
+// preconditioned normal-equation operator indefinite, so CG breaks down at once
+// (p^T H p <= 0). Used to force the breakdown exit deterministically.
+template <typename T>
+struct TwoFacedOp {
+    using scalar_t = T;
+    DenseLinOp<T> fwd;    // applies A
+    DenseLinOp<T> adj;    // applies (-A)^T in place of A^T
+    const int64_t n_rows, n_cols;
+    TwoFacedOp(int64_t m, int64_t n, const T* A, const T* negA)
+        : fwd(m, n, A, m, Layout::ColMajor), adj(m, n, negA, m, Layout::ColMajor),
+          n_rows(m), n_cols(n) {}
+    void operator()(Layout layout, blas::Op tA, blas::Op tB, int64_t mm, int64_t nn, int64_t kk,
+                    T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc) {
+        if (tA == blas::Op::NoTrans) fwd(layout, tA, tB, mm, nn, kk, alpha, B, ldb, beta, C, ldc);
+        else                         adj(layout, tA, tB, mm, nn, kk, alpha, B, ldb, beta, C, ldc);
+    }
+    void operator()(blas::Side side, Layout layout, blas::Op tA, blas::Op tB, int64_t mm, int64_t nn,
+                    int64_t kk, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc) {
+        if (tA == blas::Op::NoTrans) fwd(side, layout, tA, tB, mm, nn, kk, alpha, B, ldb, beta, C, ldc);
+        else                         adj(side, layout, tA, tB, mm, nn, kk, alpha, B, ldb, beta, C, ldc);
+    }
+};
+
+// Precedence: a CG breakdown in the triggering round outranks the oracle. The oracle here
+// reports success unconditionally; the run must still end with status 2 and record the
+// oracle value for the round.
+TEST_F(TestIterRefineLSQ, breakdown_outranks_the_oracle_in_the_same_round) {
+    using T = double;
+    int64_t m = 90, n = 12;
+    std::vector<T> A(m * n), negA(m * n), b(m), x_true(n);
+    fill_random(A, 585);
+    fill_random(x_true, 586);
+    for (int64_t i = 0; i < m * n; ++i) negA[i] = -A[i];
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A.data(), m, n, R.data(), n);
+    TwoFacedOp<T> J(m, n, A.data(), negA.data());
+
+    int calls = 0;
+    RandLAPACK::BackwardErrorOracle<T> always_met = [&](const T*, const T*, const T*) -> T { ++calls; return (T)0; };
+    std::vector<T> x(n, 0);
+    RandLAPACK::PCGRoundHistory<T> hist;
+    int iters = -1, rounds = -1;
+    int st = RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+        (T)0, 4000, iters, 200, (T)1e-4, -1, &rounds, nullptr, nullptr,
+        20, (T)1e-3, (T)0, &hist, nullptr, 0, always_met, /*be_tol=*/(T)1);
+    EXPECT_EQ(st, 2);
+    EXPECT_EQ(rounds, 1);
+    EXPECT_EQ(calls, 1);
+    ASSERT_EQ(hist.status.size(), (size_t)1);
+    EXPECT_EQ(hist.status[0], static_cast<int>(RandLAPACK::InnerCGStatus::Breakdown));
+    ASSERT_EQ(hist.be.size(), (size_t)1);
+    EXPECT_LE(hist.be[0], (T)1);                        // the oracle passed and still lost
+}
+
 // With be_tol < 0 the oracle is never called and the run is bit-identical to a run without it.
 TEST_F(TestIterRefineLSQ, be_oracle_with_negative_tol_is_never_called_and_changes_nothing) {
     using T = double;

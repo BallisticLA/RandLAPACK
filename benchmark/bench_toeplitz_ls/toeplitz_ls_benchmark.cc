@@ -411,7 +411,8 @@ int main(int argc, char** argv) {
                      << " pcg_restart_drop=" << pcg_restart_drop
                      << " inner_abs_tol=" << abs_guard;
     // Echoed unconditionally: the refine rows run the engine whatever the solver knob says.
-    out << " be_tol_mult=" << be_tol_mult << " be_tol=" << be_tol;
+    out << " be_tol_mult=" << be_tol_mult << " be_tol=" << be_tol
+        << " kw_sketch_nnz=" << rl::bench::kKWSketchNNZ;   // the oracle's sketch, not --sketch-nnz
     out << "\n";
     // Host provenance: wall-clock timings and MKL thread behavior are
     // machine-specific, so a CSV must name the machine it ran on.
@@ -801,7 +802,11 @@ int main(int argc, char** argv) {
         if (have_hist) {
             t_be_us  = hist.t_be_us;
             be_x0    = hist.be_x0;
-            be_final = hist.be.empty() ? hist.be_x0 : hist.be.back();
+            // Oracle on but nothing measured (no round ran and no warm x0): +inf, so
+            // the value can never read as "below the target"; -1 stays "oracle off".
+            be_final = !hist.be.empty() ? hist.be.back()
+                     : (hist.be_x0 >= 0) ? hist.be_x0
+                     : (be_tol >= 0.0) ? std::numeric_limits<double>::infinity() : -1.0;
             t_inner_us = hist.t_inner_us;
             t_fwd_in   = hist.t_fwd_inner_us;
             t_adj_in   = hist.t_adj_inner_us;
