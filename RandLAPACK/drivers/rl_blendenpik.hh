@@ -161,8 +161,9 @@ class Blendenpik_linops {
             // ---- Step 2: unpivoted Householder QR of the sketch; R = upper(Ask) ----
             t0 = clock::now();
             lapack::geqrf(d, n, Ask, d, tau);
+            // R is value-initialized above and lacpy touches only the upper triangle,
+            // so the strict lower is already zero.
             lapack::lacpy(MatrixType::Upper, n, n, Ask, d, R, n);
-            if (n > 1) lapack::laset(MatrixType::Lower, n - 1, n - 1, (T)0, (T)0, R + 1, n);
             if (timing) t_qr = duration_cast<microseconds>(clock::now() - t0).count();
 
             if (!RandLAPACK::util::diag_is_nonzero(n, R, n)) {

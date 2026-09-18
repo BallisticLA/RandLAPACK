@@ -109,11 +109,6 @@ struct IterRefineLSQ {
     /// documentation). <= 0 disables the floor exit. Decoupled from
     /// inner_stag_window: the two mechanisms are independent.
     int outer_stag_window = 2;
-    /// Optional initial iterate to refine (length n), or nullptr for the cold
-    /// start that every Q-less method uses. Lets another solver's answer
-    /// (Blendenpik's) be handed to refinement, separating preconditioner
-    /// quality from solver structure in the benchmark suite.
-    const T* warm_x0 = nullptr;
     /// Enable per-step / per-substep timing breakdown.
     bool timing;
     /// Print convergence info to stdout.
@@ -138,7 +133,7 @@ struct IterRefineLSQ {
     std::vector<T>   inner_best_relres_per_step;
     std::vector<int> inner_best_iter_per_step;
     /// True LS relative residual after each round (engine ls_relres, kept for
-    /// the per-round campaign sidecar records).
+    /// the per-round sidecar records).
     std::vector<T> ls_relres_per_step;
     /// Final relative residual ||b - J x|| / ||b|| (or ||b - J x|| if ||b|| == 0).
     T final_residual_norm;
@@ -188,9 +183,7 @@ struct IterRefineLSQ {
     /// @param b     Right-hand side, length m.
     /// @param m     Number of rows of J / length of b.
     /// @param x     Solution buffer, length n. Incoming content is ignored: the
-    ///              start is cold (the policy for Q-less methods) unless
-    ///              warm_x0 is set, in which case THAT iterate is refined
-    ///              (the Blendenpik handoff).
+    ///              start is always cold, the policy for Q-less methods.
     /// @param n     Number of columns of J / length of x.
     ///
     /// @returns 0 on success; nonzero on inner-CG breakdown.
@@ -206,9 +199,7 @@ struct IterRefineLSQ {
         using clock = std::chrono::steady_clock;
         auto t_start = clock::now();
 
-        // Cold start unless the caller supplied warm_x0: no
-        // zero-fill needed here, restarted_pcg_ne unconditionally overwrites x
-        // (cold start or warm_x0 refinement, both handled inside the engine).
+        // No zero-fill needed: restarted_pcg_ne unconditionally overwrites x.
 
         // Legacy mode (round_drop <= 0): rounds run to the fixed inner_tol
         // relative to their own right-hand side, no absolute guard.
@@ -232,10 +223,10 @@ struct IterRefineLSQ {
             timing ? times4 : nullptr,
             &final_rel,
             inner_stag_window, inner_stag_rel_improve,
-            abs_guard, &hist, warm_x0, outer_stag_window);
+            abs_guard, &hist, /*x0=*/nullptr, outer_stag_window);
         engine_status = st;
 
-        // Republish the engine's per-round records under the historical names.
+        // Republish the engine's per-round records under this class's field names.
         inner_iters_per_step       = hist.iters;
         inner_status_per_step      = hist.status;
         inner_relres_per_step      = hist.relres;
