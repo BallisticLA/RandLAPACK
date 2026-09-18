@@ -156,8 +156,9 @@ struct PCGRoundHistory {
 ///                      before the first round and after every round; a value
 ///                      <= be_tol ends the run with status 5. The LS tolerance
 ///                      takes precedence on every path: a run that meets tol
-///                      reports 0 even if the oracle also passed. The oracle's
-///                      wall time is kept out of times[3] and reported in
+///                      reports 0 even if the oracle also passed; a CG breakdown
+///                      in the triggering round reports 2. The oracle's wall
+///                      time is kept out of times[3] and reported in
 ///                      history->t_be_us.
 /// @returns 0 if the LS tolerance was met;
 ///          1 if the total inner-iteration budget was exhausted;
@@ -316,7 +317,13 @@ int restarted_pcg_ne(
     int status = 1;
     auto eval_oracle = [&](T& out) {
         auto tb = clock::now();
-        out = be_oracle(x, wm, r_ne);           // r_ne holds A^T (b - A x) at every call site
+        // Evaluate at the solve's pinned level-2 width: an ambient-width gemv here
+        // would force two OpenMP team re-formations per round (see
+        // rl_blas2_threads.hh), and that cost would land in the NEXT capped
+        // region's time, not in t_be.
+        { Blas2ThreadGuard tg(n);
+            out = be_oracle(x, wm, r_ne);       // r_ne holds A^T (b - A x) at every call site
+        }
         t_be += duration_cast<microseconds>(clock::now() - tb).count();
     };
 
@@ -462,8 +469,8 @@ int restarted_pcg_ne(
         }
 
         if (relres <= tol) { status = 0; break; }
+        if (kret != 0) { status = 2; break; }             // breakdown: R unusable; outranks the oracle
         if (be_active && be_round <= be_tol) { status = 5; break; }   // oracle target met
-        if (kret != 0) { status = 2; break; }             // breakdown: R unusable
         // A zero-iteration round changes nothing, so the loop must end either
         // way; gate the MEANING on the kernel status, not the count: a round
         // whose target was already met at entry is the LS floor (the NE

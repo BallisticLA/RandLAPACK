@@ -11,6 +11,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <random>
 #include <vector>
 
@@ -512,6 +514,131 @@ TEST_F(TestIterRefineLSQ, be_oracle_stops_engine_with_status_5) {
         EXPECT_NEAR(hist.be[k], hist.ls_relres[k], 1e-13 * std::max((T)1, hist.ls_relres[k]));
     EXPECT_EQ(hist.be_x0, (T)-1);                       // cold start: no x0 evaluation
     EXPECT_GE(hist.t_be_us, 0L);
+}
+
+// At a status-5 exit the returned x is bitwise the iterate the oracle last saw, the total
+// iteration count equals the sum of the per-round counts, and final_relres is the last
+// round's LS relres. Also pins the timing exclusion: times[3] must not contain the
+// oracle's own wall time.
+TEST_F(TestIterRefineLSQ, be_oracle_exit_returns_the_evaluated_iterate_and_consistent_counts) {
+    using T = double;
+    int64_t m = 120, n = 20;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 555);
+    fill_random(x_true, 556);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 557, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+    std::vector<T> x_seen(n, 0);
+    RandLAPACK::BackwardErrorOracle<T> oracle = [&](const T* x, const T* r, const T*) -> T {
+        std::copy(x, x + n, x_seen.begin());             // snapshot of what the oracle was shown
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));   // make t_be measurable
+        return blas::nrm2(m, r, 1) / b_norm;
+    };
+    std::vector<T> x(n, 0);
+    RandLAPACK::PCGRoundHistory<T> hist;
+    int iters = 0, rounds = 0;
+    long times[4] = {0, 0, 0, 0};
+    T final_relres = (T)-1;
+    auto t0 = std::chrono::steady_clock::now();
+    int st = RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+        (T)0, 4000, iters, 200, (T)1e-4, -1, &rounds, times, &final_relres,
+        20, (T)1e-3, (T)0, &hist, nullptr, 0, oracle, (T)1e-6);
+    long wall_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::steady_clock::now() - t0).count();
+    ASSERT_EQ(st, 5);
+    for (int64_t i = 0; i < n; ++i) EXPECT_EQ(x[i], x_seen[i]) << "element " << i;
+    int sum_iters = 0; for (int v : hist.iters) sum_iters += v;
+    EXPECT_EQ(iters, sum_iters);
+    ASSERT_FALSE(hist.ls_relres.empty());
+    EXPECT_EQ(final_relres, hist.ls_relres.back());
+    EXPECT_GE(hist.t_be_us, 20000L * rounds);            // the sleeps were counted
+    EXPECT_LT(times[3], wall_us - hist.t_be_us / 2);      // and kept out of the solver total
+}
+
+// An ACTIVE oracle that is never met (be_tol = 0 against a strictly positive measure) must
+// leave status, counts, x and the LS history identical to a run without an oracle: the
+// oracle may only end a run, never change it.
+TEST_F(TestIterRefineLSQ, active_but_unmet_oracle_changes_nothing) {
+    using T = double;
+    int64_t m = 120, n = 20;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 565);
+    fill_random(x_true, 566);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 567, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    auto run = [&](RandLAPACK::BackwardErrorOracle<T> oracle, T be_tol, std::vector<T>& x,
+                   int& iters, int& rounds, RandLAPACK::PCGRoundHistory<T>& hist) {
+        return RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+            (T)1e-10, 4000, iters, 200, (T)1e-4, -1, &rounds, nullptr, nullptr,
+            20, (T)1e-3, (T)0, &hist, nullptr, 2, oracle, be_tol);
+    };
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+    int calls = 0;
+    RandLAPACK::BackwardErrorOracle<T> positive = [&](const T*, const T* r, const T*) -> T {
+        ++calls; return blas::nrm2(m, r, 1) / b_norm;   // > 0 for every iterate here
+    };
+    std::vector<T> xa(n, 0), xb(n, 0);
+    int ia = 0, ra = 0, ib = 0, rb = 0;
+    RandLAPACK::PCGRoundHistory<T> ha, hb;
+    int sa = run({}, (T)-1, xa, ia, ra, ha);
+    int sb = run(positive, (T)0, xb, ib, rb, hb);       // active, never satisfied
+    EXPECT_EQ(calls, rb);
+    EXPECT_EQ(sa, sb);
+    EXPECT_NE(sb, 5);
+    EXPECT_EQ(ia, ib);
+    EXPECT_EQ(ra, rb);
+    for (int64_t i = 0; i < n; ++i) EXPECT_EQ(xa[i], xb[i]) << "element " << i;
+    ASSERT_EQ(ha.ls_relres.size(), hb.ls_relres.size());
+    for (size_t k = 0; k < ha.ls_relres.size(); ++k) EXPECT_EQ(ha.ls_relres[k], hb.ls_relres[k]);
+    for (T v : hb.be) EXPECT_GT(v, (T)0);               // recorded, never -1, never met
+}
+
+// Precedence: when the LS tolerance and the oracle are met in the same round the run
+// reports status 0 (tol), never 5.
+TEST_F(TestIterRefineLSQ, ls_tolerance_outranks_the_oracle_in_the_same_round) {
+    using T = double;
+    int64_t m = 120, n = 20;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 575);
+    fill_random(x_true, 576);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 577, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+    RandLAPACK::BackwardErrorOracle<T> oracle = [&](const T*, const T* r, const T*) -> T {
+        return blas::nrm2(m, r, 1) / b_norm;            // identical to the engine's LS relres
+    };
+    std::vector<T> x(n, 0);
+    RandLAPACK::PCGRoundHistory<T> hist;
+    int iters = 0, rounds = 0;
+    const T shared_tol = (T)1e-6;                       // tol == be_tol: both met in one round
+    int st = RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+        shared_tol, 4000, iters, 200, (T)1e-4, -1, &rounds, nullptr, nullptr,
+        20, (T)1e-3, (T)0, &hist, nullptr, 0, oracle, shared_tol);
+    EXPECT_EQ(st, 0);
+    ASSERT_FALSE(hist.be.empty());
+    EXPECT_LE(hist.be.back(), shared_tol);              // the oracle was met too, and lost
 }
 
 // With be_tol < 0 the oracle is never called and the run is bit-identical to a run without it.
