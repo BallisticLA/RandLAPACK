@@ -10,6 +10,7 @@
 #include <RandLAPACK.hh>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <random>
 #include <vector>
 
@@ -462,4 +463,158 @@ TEST_F(TestIterRefineLSQ, outer_tol_stops_refinement_early) {
     EXPECT_LT(ir.outer_iters_done, 8);              // stopped before the step budget
     EXPECT_GT(ir.outer_iters_done, 0);              // but did real work
     EXPECT_LE(ir.final_residual_norm, (T)1e-8);     // and the claim is honest
+}
+
+
+// ---- Backward-error oracle exit (engine status 5) --------------------------
+// The oracle is a caller-supplied std::function; these tests feed it the LS
+// relative residual itself, so every recorded value can be checked against the
+// engine's own ls_relres.
+
+// The engine stops with status 5 as soon as the oracle is at or below be_tol,
+// records the oracle value for every round, and calls it exactly once per round.
+TEST_F(TestIterRefineLSQ, be_oracle_stops_engine_with_status_5) {
+    using T = double;
+    int64_t m = 120, n = 20;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 515);
+    fill_random(x_true, 516);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);   // imperfect R: several rounds
+    fill_random(pert, 517, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+    int calls = 0;
+    RandLAPACK::BackwardErrorOracle<T> oracle = [&](const T* x, const T* r, const T* ATr) -> T {
+        (void)x; (void)ATr; ++calls;
+        return blas::nrm2(m, r, 1) / b_norm;      // the LS relres itself, as a checkable measure
+    };
+    std::vector<T> x(n, 0);
+    RandLAPACK::PCGRoundHistory<T> hist;
+    int iters = 0, rounds = 0;
+    int st = RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+        /*tol=*/(T)0, /*max_iters=*/4000, iters, /*restart_maxit=*/200, /*restart_drop=*/(T)1e-4,
+        /*max_restarts=*/-1, &rounds, nullptr, nullptr, /*stag_window=*/20,
+        /*stag_rel_improve=*/(T)1e-3, /*inner_abs_tol=*/(T)0, &hist, /*x0=*/nullptr,
+        /*outer_stag_window=*/0, oracle, /*be_tol=*/(T)1e-6);
+    EXPECT_EQ(st, 5);
+    EXPECT_GE(rounds, 1);
+    ASSERT_EQ(hist.be.size(), (size_t)rounds);
+    EXPECT_EQ(calls, rounds);
+    EXPECT_LE(hist.be.back(), (T)1e-6);
+    for (size_t k = 0; k + 1 < hist.be.size(); ++k) EXPECT_GT(hist.be[k], (T)1e-6);
+    for (size_t k = 0; k < hist.be.size(); ++k)        // measured on the same b - A x the engine uses
+        EXPECT_NEAR(hist.be[k], hist.ls_relres[k], 1e-13 * std::max((T)1, hist.ls_relres[k]));
+    EXPECT_EQ(hist.be_x0, (T)-1);                       // cold start: no x0 evaluation
+    EXPECT_GE(hist.t_be_us, 0L);
+}
+
+// With be_tol < 0 the oracle is never called and the run is bit-identical to a run without it.
+TEST_F(TestIterRefineLSQ, be_oracle_with_negative_tol_is_never_called_and_changes_nothing) {
+    using T = double;
+    int64_t m = 120, n = 20;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 525);
+    fill_random(x_true, 526);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 527, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    auto run = [&](RandLAPACK::BackwardErrorOracle<T> oracle, T be_tol, std::vector<T>& x,
+                   int& iters, int& rounds, RandLAPACK::PCGRoundHistory<T>& hist) {
+        return RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+            (T)1e-10, 4000, iters, 200, (T)1e-4, -1, &rounds, nullptr, nullptr,
+            20, (T)1e-3, (T)0, &hist, nullptr, 2, oracle, be_tol);
+    };
+    int calls = 0;
+    RandLAPACK::BackwardErrorOracle<T> counting = [&](const T*, const T*, const T*) -> T { ++calls; return (T)0; };
+    std::vector<T> xa(n, 0), xb(n, 0);
+    int ia = 0, ra = 0, ib = 0, rb = 0;
+    RandLAPACK::PCGRoundHistory<T> ha, hb;
+    int sa = run({}, (T)-1, xa, ia, ra, ha);
+    int sb = run(counting, (T)-1, xb, ib, rb, hb);
+    EXPECT_EQ(calls, 0);
+    EXPECT_EQ(sa, sb);
+    EXPECT_EQ(ia, ib);
+    EXPECT_EQ(ra, rb);
+    for (int64_t i = 0; i < n; ++i) EXPECT_DOUBLE_EQ(xa[i], xb[i]) << "element " << i;
+    ASSERT_EQ(hb.be.size(), (size_t)rb);
+    for (T v : hb.be) EXPECT_EQ(v, (T)-1);
+    EXPECT_EQ(hb.t_be_us, 0L);
+}
+
+// A warm start that already meets be_tol returns 5 with zero rounds and zero iterations,
+// and the x0 evaluation is recorded.
+TEST_F(TestIterRefineLSQ, be_oracle_warm_start_already_converged_returns_5_without_iterating) {
+    using T = double;
+    int64_t m = 100, n = 15;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 535);
+    fill_random(x_true, 536);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+    RandLAPACK::BackwardErrorOracle<T> oracle = [&](const T*, const T* r, const T*) -> T {
+        return blas::nrm2(m, r, 1) / b_norm;
+    };
+    std::vector<T> x(n, 0);
+    RandLAPACK::PCGRoundHistory<T> hist;
+    int iters = -1, rounds = -1;
+    int st = RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+        (T)0, 4000, iters, 200, (T)1e-4, -1, &rounds, nullptr, nullptr,
+        20, (T)1e-3, (T)0, &hist, /*x0=*/x_true.data(), 0, oracle, /*be_tol=*/(T)1e-8);
+    EXPECT_EQ(st, 5);
+    EXPECT_EQ(iters, 0);
+    EXPECT_EQ(rounds, 0);
+    EXPECT_TRUE(hist.be.empty());
+    EXPECT_GE(hist.be_x0, (T)0);
+    EXPECT_LE(hist.be_x0, (T)1e-8);
+    for (int64_t i = 0; i < n; ++i) EXPECT_NEAR(x[i], x_true[i], 1e-10);
+}
+
+// IterRefineLSQ forwards the oracle to the engine and republishes its per-round values.
+// call() keeps its contract (0 unless the inner CG broke down); the oracle exit is
+// visible through engine_status, exactly like the LS-floor exit is today.
+TEST_F(TestIterRefineLSQ, iter_refine_lsq_forwards_be_oracle) {
+    using T = double;
+    int64_t m = 120, n = 20;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 545);
+    fill_random(x_true, 546);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 547, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+    IterRefineLSQ<T> ir(/*tol=*/(T)0, /*max_inner=*/200, /*n_steps=*/20);
+    ir.outer_tol = (T)0;
+    ir.outer_stag_window = 0;
+    ir.be_oracle = [&](const T*, const T* r, const T*) -> T { return blas::nrm2(m, r, 1) / b_norm; };
+    ir.be_tol = (T)1e-6;
+    std::vector<T> x(n, 0);
+    ASSERT_EQ(ir.call(J, R.data(), n, b.data(), m, x.data(), n), 0);
+    EXPECT_EQ(ir.engine_status, 5);
+    ASSERT_EQ(ir.be_per_step.size(), (size_t)ir.outer_iters_done);
+    EXPECT_LE(ir.be_per_step.back(), (T)1e-6);
+    EXPECT_EQ(ir.be_x0, (T)-1);
+    EXPECT_GE(ir.t_be_us, 0L);
 }
