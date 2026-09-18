@@ -54,12 +54,9 @@ class sCholQR3_linops {
         // [10] fwd3     [11] adj3    [12] gemm3   [13] chol3   [14] upd3
         // [15] q_mat    [16] rest    [17] total
         std::vector<long> times;
-        /// Total measured wall-clock (microseconds) of the last call(), or -1 if timing
-        /// was off. Every driver in this family packs the total as the LAST times[] entry,
-        /// but the entry COUNT differs per driver (6 / 11 / 15 / 18). Callers used to hard-
-        /// code that index (times[5], times[10], times[14], times[17]), so adding or
-        /// removing one slot silently wrote the wrong number into every CSV with no compile
-        /// error. Read the total through here instead.
+        /// Total wall-clock (us) of the last call(), or -1 if timing was off. Always read
+        /// the total through here: it is the last times[] entry, but the entry count differs
+        /// per driver in this family, so a hard-coded index breaks silently when a slot moves.
         long total_us() const { return times.empty() ? -1L : times.back(); }
 
         int64_t block_size;
@@ -221,12 +218,9 @@ class sCholQR3_linops_basic {
         //  syrk vs adj/fwd as separate signals; the heavy lifters are folded into
         //  fwd/adj from blocked_preconditioned_gram and into chol from potrf.)
         std::vector<long> times;
-        /// Total measured wall-clock (microseconds) of the last call(), or -1 if timing
-        /// was off. Every driver in this family packs the total as the LAST times[] entry,
-        /// but the entry COUNT differs per driver (6 / 11 / 15 / 18). Callers used to hard-
-        /// code that index (times[5], times[10], times[14], times[17]), so adding or
-        /// removing one slot silently wrote the wrong number into every CSV with no compile
-        /// error. Read the total through here instead.
+        /// Total wall-clock (us) of the last call(), or -1 if timing was off. Always read
+        /// the total through here: it is the last times[] entry, but the entry count differs
+        /// per driver in this family, so a hard-coded index breaks silently when a slot moves.
         long total_us() const { return times.empty() ? -1L : times.back(); }
 
         // Adaptive shift policy, shared with sCholQR3_linops.

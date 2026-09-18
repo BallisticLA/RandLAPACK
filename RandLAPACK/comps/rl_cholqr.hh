@@ -66,7 +66,7 @@ inline bool scholqr3_eps_shift() {
 // Env-gated (read once): the pre-factorization Gram symmetrization
 // G <- (G + G^T)/2 defaults ON (the paper's implementation section prescribes
 // it, and its roundoff assumption presumes it). RANDLAPACK_CHOL_SYMMETRIZE=0
-// disables it, so potrf factorizes the upper triangle as computed — the
+// disables it, so potrf factorizes the upper triangle as computed: the
 // pre-audit (pre-B5) behavior, kept for A/B campaigns isolating the
 // symmetrization's ULP-level effect on borderline pivots. Any other value,
 // or unset, means the default. Same static-cache caveat as above: validate
@@ -179,17 +179,62 @@ void blocked_preconditioned_gram(
 }
 
 
+// Solves P X = I for X, where P is n x n upper triangular. X is then upper triangular too,
+// so column j is zero below row j and a panel of columns [j, j+b) only involves the leading
+// j+b rows of P. Solving at full width costs n^3 flops where n^3/3 suffices.
+//
+// Bit-identical to the full-width solve: the skipped rows hold exact zeros, and back
+// substitution over them contributes 0*P_ik terms that leave every partial sum unchanged.
+// (That equivalence assumes P is finite, which it is: the callers gate on a nonzero
+// diagonal and P comes from a Cholesky factor.)
+//
+// X must already hold the identity on entry; the panels read their own right-hand side
+// from it in place.
+template <typename T>
+inline void invert_upper_into(const T* P, int64_t ldp, T* X, int64_t ldx,
+                              int64_t n, int64_t b_panel) {
+    if (n <= 0) return;
+    const int64_t b = std::max<int64_t>(1, std::min(b_panel, n));
+    for (int64_t j = 0; j < n; j += b) {
+        const int64_t bj   = std::min(b, n - j);
+        const int64_t lead = j + bj;   // rows of X that can be nonzero in this panel
+        blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
+                   lead, bj, T(1), P, ldp, X + j * ldx, ldx);
+    }
+}
+
+// Computes B := U * B, where U and B are both n x n upper triangular. The product is upper
+// triangular too (B[i,j] sums G[i,k] B[k,j] over i <= k <= j), so a panel of columns
+// [j, j+b) has nonzeros only in its leading j+b rows and needs only that leading block of U.
+// A full-width trmm does n^3 flops where n^3/3 suffices.
+//
+// Like invert_upper_into, this is NOT bit-identical to the full-width call: the arithmetic on
+// the nonzero part is the same, but BLAS picks different internal blocking for a different
+// operand shape, which reorders accumulation at ULP level. Measured 1e-17 (n=5) to 1e-11
+// (n=512) against the full-width result.
+template <typename T>
+inline void trmm_upper_upper_left(const T* U, int64_t ldu, T* B, int64_t ldb,
+                                  int64_t n, int64_t b_panel) {
+    if (n <= 0) return;
+    const int64_t b = std::max<int64_t>(1, std::min(b_panel, n));
+    for (int64_t j = 0; j < n; j += b) {
+        const int64_t bj   = std::min(b, n - j);
+        const int64_t lead = j + bj;
+        blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
+                   lead, bj, T(1), U, ldu, B + j * ldb, ldb);
+    }
+}
+
 // Materialize Q = A * R^{-1} (m x n) block-by-block via the linop, for the
 // test/verify paths of the CholQR-family drivers. R is n x n upper-triangular
 // (ld = ldr); Q_out (m x n, leading dimension ldq) is caller-allocated. Forms
-// R^{-1} once (n x n trsm), then applies A to its column blocks. Not on any
-// timed/algorithmic path.
+// R^{-1} once, then applies A to its column blocks. Not on any timed/algorithmic path.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 void materialize_Q_from_R(GLO& A, const T* R, int64_t ldr,
                           int64_t m, int64_t n, int64_t b_eff, T* Q_out, int64_t ldq) {
     T* R_inv = new T[n * n];
     RandLAPACK::util::eye(n, n, R_inv);
-    blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, T(1), R, ldr, R_inv, n);
+    invert_upper_into<T>(R, ldr, R_inv, n, n, b_eff);
     for (int64_t j = 0; j < n; j += b_eff) {
         int64_t b_j = std::min(b_eff, n - j);
         A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_j, n, T(1), R_inv + j * n, n, T(0), Q_out + j * ldq, ldq);
@@ -314,7 +359,7 @@ int cholqr_primitive(
                     return 1;
                 }
                 RandLAPACK::util::eye(n, n, R_pre);
-                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, T(1), P, n, R_pre, n);
+                invert_upper_into<T>(P, n, R_pre, n, n, b_eff);
                 if (n > 1)
                     lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), R_pre + 1, n);
                 break;
@@ -450,7 +495,7 @@ int cholqr_primitive(
     // RANDLAPACK_CHOL_SYMMETRIZE=0 (chol_symmetrize() above) skips this, so
     // potrf sees the upper triangle as computed. In that mode a retry restores
     // the upper from the as-computed strict LOWER, i.e. the transpose of what
-    // attempt 0 factorized — the two differ by formation rounding only, which
+    // attempt 0 factorized; the two differ by formation rounding only, which
     // is immaterial under a shift >= eps*trace (same argument as the restore
     // note below).
     if (chol_symmetrize()) {
@@ -588,7 +633,7 @@ int cholqr_primitive(
         lapack::lacpy(MatrixType::Upper, n, n, P, n, R, ldr);
         if (n > 1)
             lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), R + 1, ldr);
-        blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, T(1), G, n, R, ldr);
+        trmm_upper_upper_left<T>(G, n, R, ldr, n, b_eff);
     } else {
         lapack::lacpy(MatrixType::Upper, n, n, G, n, R, ldr);
         if (n > 1)

@@ -62,16 +62,11 @@ public:
         randlapack_require(!sampler_.joinable())
             << "PeakRSSTracker::start: sampler already running; call stop() first";
 
-        // Release freed heap back to the OS before taking the baseline.
-        // RSS is process-cumulative: glibc keeps freed arenas
-        // mapped, so without this the FIRST tracked algorithm in a benchmark
-        // absorbs the whole process ramp-up (its delta over-reports) while
-        // every later one reuses already-faulted pages (delta ~0, the
-        // "peak_rss_kb=4" effect). Trimming resets
-        // the floor to live memory only, making per-method deltas comparable
-        // regardless of execution order. Frees only unused arena space; no
-        // effect on correctness or on MKL's internal buffers (a warmup pass
-        // should absorb those).
+        // Release freed heap to the OS before taking the baseline. RSS is
+        // process-cumulative and glibc keeps freed arenas mapped, so without this the first
+        // tracked algorithm absorbs the whole process ramp-up while later ones reuse
+        // already-faulted pages, making per-method deltas depend on execution order.
+        // Frees only unused arena space.
 #if defined(__GLIBC__)
         malloc_trim(0);
 #endif
@@ -214,15 +209,11 @@ static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t b
     return bytes / 1024;
 }
 
-// sCholQR3_linops_basic: same sequencing argument as the blocked variant; b_eff = n
-// collapse of 3*n*n + (m+n)*b_eff + n gives 3*n*n + (m+n)*n + n = 4*n*n + m*n + n.
-// Validated against the formula above on the matrix-free Toeplitz operator:
-// ratio 0.987 to 1.028 (n = 1000 and n = 4000), superseding the earlier
-// validation against the pre-diag-backup 5*n*n + m*n formula. On an operator whose
-// applies allocate (FEM2's nested CompositeOperator) this driver-only figure is
-// NOT the process peak: b_eff = n makes each per-apply temporary inner_dim * n,
-// and FEM2 large measured 255 GB against a 126 GB driver workspace. See the
-// SCOPE note at the top of this section before quoting this number.
+// sCholQR3_linops_basic: same sequencing argument as the blocked variant; the b_eff = n
+// collapse of 3*n*n + (m+n)*b_eff + n gives 4*n*n + m*n + n.
+// This counts the DRIVER's workspace only. On an operator whose applies allocate (a nested
+// CompositeOperator), b_eff = n makes each per-apply temporary inner_dim * n and the process
+// peak is far higher, so read the SCOPE note at the top of this section before quoting it.
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
     long bytes = static_cast<long>(sizeof(T)) * (4L * n * n + (long)m * n + n);
