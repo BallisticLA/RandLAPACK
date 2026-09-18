@@ -78,6 +78,22 @@ struct ToeplitzLinOp {
     DFTI_DESCRIPTOR_HANDLE desc_b = nullptr;
     int64_t batch_committed = 0;
 
+    // Real-to-complex state for the single-right-hand-side path (the CG/LSQR inner loop,
+    // which issues by far the most applies). Both the embedding and every right-hand side
+    // are real and the output is taken as the real part, so a complex-to-complex transform
+    // computes a conjugate-symmetric spectrum and then discards half of it. An r2c/c2r pair
+    // computes L/2+1 bins instead of L: about half the flops, half the pointwise multiply,
+    // and no imaginary parts to store or zero.
+    //
+    // The spectra Femb/FembT stay full length and are still built by the complex descriptor:
+    // for a real signal F[k] = conj(F[L-k]), so their first L/2+1 entries ARE the half
+    // spectrum this path needs. That keeps one source of truth for the embedding and leaves
+    // the batched path below untouched.
+    int64_t Lh = 0;                   // L/2 + 1, the conjugate-even bin count
+    T* work_r = nullptr;              // real scratch, length L
+    std::complex<T>* work_c = nullptr;// half spectrum, length Lh
+    DFTI_DESCRIPTOR_HANDLE desc_r = nullptr;
+
     /// @param c  first column of T (length m).
     /// @param r  first row of T (length n).  Requires c[0] == r[0].
     /// (There is no trailing block_size parameter: multi-RHS blocking is
@@ -128,6 +144,29 @@ struct ToeplitzLinOp {
         }
         dfti_check(DftiCommitDescriptor(desc), "DftiCommitDescriptor(desc)");
 
+        // Real-to-complex pair for the single-RHS path. Out-of-place, because an in-place
+        // real transform needs the input padded to 2*(L/2+1) reals and the extra bookkeeping
+        // buys nothing here. CONJUGATE_EVEN_STORAGE must be set explicitly: the legacy
+        // default packs the spectrum in CCS format, which is not an array of std::complex.
+        Lh     = L / 2 + 1;
+        work_r = new T[L];
+        work_c = new std::complex<T>[Lh];
+        dfti_check(DftiCreateDescriptor(&desc_r, prec, DFTI_REAL, 1, (MKL_LONG)L),
+                   "DftiCreateDescriptor(desc_r)");
+        dfti_check(DftiSetValue(desc_r, DFTI_PLACEMENT, DFTI_NOT_INPLACE),
+                   "DftiSetValue(desc_r, DFTI_PLACEMENT)");
+        dfti_check(DftiSetValue(desc_r, DFTI_CONJUGATE_EVEN_STORAGE, DFTI_COMPLEX_COMPLEX),
+                   "DftiSetValue(desc_r, DFTI_CONJUGATE_EVEN_STORAGE)");
+        dfti_check(DftiSetValue(desc_r, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L)),
+                   "DftiSetValue(desc_r, DFTI_BACKWARD_SCALE)");
+        {
+            int commit_cap = RandLAPACK::fft_thread_cap();
+            if (commit_cap > 0)
+                dfti_check(DftiSetValue(desc_r, DFTI_THREAD_LIMIT, (MKL_LONG)commit_cap),
+                           "DftiSetValue(desc_r, DFTI_THREAD_LIMIT)");
+        }
+        dfti_check(DftiCommitDescriptor(desc_r), "DftiCommitDescriptor(desc_r)");
+
         // Forward embedding: [c(0..m-1); zeros; flipud(r(1..n-1))]  -> Femb = fft(emb).
         build_embedding(c, m, r, n, Femb);
         // Transpose embedding (T' = toeplitz(r,c)): [r(0..n-1); zeros; flipud(c(1..m-1))].
@@ -137,7 +176,9 @@ struct ToeplitzLinOp {
     ~ToeplitzLinOp() {
         if (desc)   DftiFreeDescriptor(&desc);
         if (desc_b) DftiFreeDescriptor(&desc_b);
+        if (desc_r) DftiFreeDescriptor(&desc_r);
         delete[] Femb; delete[] FembT; delete[] work; delete[] work_b;
+        delete[] work_r; delete[] work_c;
     }
 
     ToeplitzLinOp(const ToeplitzLinOp&) = delete;
@@ -181,19 +222,21 @@ struct ToeplitzLinOp {
         }
 
         if (nrhs == 1) {
-            // Single right-hand side (the CG/LSQR loops): the original in-place path.
+            // Single right-hand side (the CG/LSQR loops): real-to-complex, so the transform
+            // works on L/2+1 bins instead of L. Fuse's leading Lh entries are the half
+            // spectrum, since the embedding is real and its transform conjugate-symmetric.
             const T* bj = B;
             T*       cj = C;
-            for (int64_t i = 0; i < in_rows; ++i) work[i] = std::complex<T>(bj[i], (T)0);
-            for (int64_t i = in_rows; i < L; ++i) work[i] = std::complex<T>((T)0, (T)0);
+            for (int64_t i = 0; i < in_rows; ++i) work_r[i] = bj[i];
+            for (int64_t i = in_rows; i < L; ++i) work_r[i] = (T)0;
             {   // Cap the transform's threads: MKL's threaded FFT intermittently
                 // stalls 16-32 ms per call at full width on this class of machine,
                 // which a solver converging in a few applies cannot average out.
                 // See rl_blas2_threads.hh for the measurements.
                 RandLAPACK::Blas2ThreadGuard fftg(fft_cap, 0);
-                DftiComputeForward(desc, work);
-                for (int64_t i = 0; i < L; ++i) work[i] *= Fuse[i];
-                DftiComputeBackward(desc, work);   // scaled by 1/L
+                DftiComputeForward(desc_r, work_r, work_c);
+                for (int64_t i = 0; i < Lh; ++i) work_c[i] *= Fuse[i];
+                DftiComputeBackward(desc_r, work_c, work_r);   // scaled by 1/L
             }
             // beta == 0 must NOT read C: BLAS semantics say C is write-only in that
             // case, and callers rely on it: CompositeOperator hands this operator a
@@ -201,9 +244,9 @@ struct ToeplitzLinOp {
             // indeterminate memory by zero, which is 0 for normal values but NaN for a
             // trap representation. Branch on beta rather than trusting the buffer.
             if (beta == (T)0) {
-                for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * work[i].real();
+                for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * work_r[i];
             } else {
-                for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * work[i].real() + beta * cj[i];
+                for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * work_r[i] + beta * cj[i];
             }
             return;
         }

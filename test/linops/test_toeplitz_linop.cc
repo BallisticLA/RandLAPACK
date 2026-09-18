@@ -188,3 +188,41 @@ TEST_F(TestToeplitzLinOp, beta_zero_does_not_read_garbage_trans) {
     run_case(Top, cs, Op::Trans, nrhs, /*alpha=*/1.0, /*beta=*/0.0,
              /*poison_c=*/true, /*seed=*/109);
 }
+
+// The single-right-hand-side path uses a real-to-complex transform while the batched path
+// uses the complex-to-complex one. They must agree: same operator, same input, different
+// internal transform. Run at a realistic size, because the small cases above cannot expose
+// an accuracy difference that only accumulates over a long solve.
+TEST_F(TestToeplitzLinOp, single_column_matches_batched_path_at_scale) {
+    for (auto [m, n] : std::vector<std::pair<int64_t,int64_t>>{{2000,400},{8000,1000}}) {
+        Case cs = make_case(m, n, 99);
+        ext::ToeplitzLinOp<double> Top(cs.c.data(), cs.m, cs.r.data(), cs.n);
+
+        for (Op ts : {Op::NoTrans, Op::Trans}) {
+            const int64_t out_rows = (ts == Op::NoTrans) ? cs.m : cs.n;
+            const int64_t in_rows  = (ts == Op::NoTrans) ? cs.n : cs.m;
+
+            vector<double> B(in_rows);
+            RNGState<> st(7);
+            RandBLAS::fill_dense(RandBLAS::DenseDist(in_rows, 1), B.data(), st);
+
+            // Single column: real-to-complex path.
+            vector<double> c_single(out_rows, 0.0);
+            Top(Layout::ColMajor, ts, Op::NoTrans, out_rows, 1, in_rows,
+                1.0, B.data(), in_rows, 0.0, c_single.data(), out_rows);
+
+            // Two columns with the same data in column 0: batched complex-to-complex path.
+            vector<double> B2(in_rows * 2);
+            std::copy(B.begin(), B.end(), B2.begin());
+            std::copy(B.begin(), B.end(), B2.begin() + in_rows);
+            vector<double> c_batched(out_rows * 2, 0.0);
+            Top(Layout::ColMajor, ts, Op::NoTrans, out_rows, 2, in_rows,
+                1.0, B2.data(), in_rows, 0.0, c_batched.data(), out_rows);
+
+            double err = rel_fro_err(c_single.data(), c_batched.data(), out_rows);
+            EXPECT_LE(err, 1e-14) << "m=" << m << " n=" << n
+                                  << " trans=" << (ts == Op::NoTrans ? "N" : "T")
+                                  << " rel_fro=" << err;
+        }
+    }
+}
