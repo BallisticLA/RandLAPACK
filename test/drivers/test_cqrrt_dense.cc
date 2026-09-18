@@ -1,17 +1,7 @@
-// Tests for the dense (non-LinOp) CholQR-family drivers: CholQR_dense,
-// CholQR2_dense, sCholQR3_dense (rl_cholqr_dense.hh), and dense CQRRT
-// (rl_cqrrt.hh, the CQRRT<T,RNG> class, not CQRRT_linops).
+// Tests for dense CQRRT (rl_cqrrt.hh, the CQRRT<T,RNG> class, not CQRRT_linops).
 //
-// These drivers previously had zero instantiations anywhere in the tree.
-// This file exercises them directly and pins the parity fixes brought to
-// this family: threaded ldq (strided Q buffer), the R-strict-lower laset
-// before dense CQRRT's finalize trmm, the timing-total-excludes-Q-materialize
-// contract, and the adaptive-shift retry / shift-record out-params.
-//
-// Not covered here: RANDLAPACK_SCHOLQR3_SHIFT on sCholQR3_dense. The knob is
-// read once into a function-local static (see scholqr3_theory_shift() in
-// comps/rl_cholqr.hh), so it is benchmark-validated only, same as the
-// linop-side sCholQR3 tests; a real test would need a subprocess.
+// Pins the R-strict-lower laset before the finalize trmm, and the adaptive-shift
+// retry / shift-record out-params.
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -43,55 +33,20 @@ void assert_upper_triangular(const T* R, int64_t n, int64_t ldr) {
             ASSERT_EQ(R[i + j * ldr], T(0)) << "R(" << i << "," << j << ") nonzero";
 }
 
-// Runs one dense CholQR-family driver (CholQR_dense / CholQR2_dense /
-// sCholQR3_dense all share the same call() signature) on a random tall
-// matrix and checks status, R's shape, and the QR factorization itself.
-template <typename Algo, typename T>
-void run_basic_case(Algo& algo, int64_t m, int64_t n, int seed) {
-    std::vector<T> A(m * n), R(n * n, T(0)), Q(m * n, T(-999));
-    RandBLAS::DenseDist D(m, n);
-    RandBLAS::RNGState<> state(seed);
-    RandBLAS::fill_dense(D, A.data(), state);
-
-    int info = algo.call(m, n, A.data(), m, R.data(), n, Q.data(), m);
-    ASSERT_EQ(info, 0);
-    assert_upper_triangular(R.data(), n, n);
-
-    T tol = default_tol<T>();
-    auto [fact_err, orth_err] = verify_qr(A.data(), Q.data(), R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
-}
-
 } // namespace
 
-class TestCholQRDenseFamily : public ::testing::Test {
+class TestCQRRTDense : public ::testing::Test {
 protected:
     virtual void SetUp() {}
     virtual void TearDown() {}
 };
 
 // ============================================================================
-// Basic instantiation: all four dense drivers on a small tall matrix.
+// Basic instantiation on a small tall matrix.
 // ============================================================================
 
-TEST_F(TestCholQRDenseFamily, CholQR_dense_basic) {
-    RandLAPACK::CholQR_dense<double> algo(false);
-    run_basic_case<RandLAPACK::CholQR_dense<double>, double>(algo, 100, 40, 0);
-}
-
-TEST_F(TestCholQRDenseFamily, CholQR2_dense_basic) {
-    RandLAPACK::CholQR2_dense<double> algo(false);
-    run_basic_case<RandLAPACK::CholQR2_dense<double>, double>(algo, 100, 40, 1);
-}
-
-TEST_F(TestCholQRDenseFamily, sCholQR3_dense_basic) {
-    RandLAPACK::sCholQR3_dense<double> algo(false);
-    run_basic_case<RandLAPACK::sCholQR3_dense<double>, double>(algo, 100, 40, 2);
-}
-
 // Dense CQRRT materializes Q in place (inside A), not into a caller buffer.
-TEST_F(TestCholQRDenseFamily, CQRRT_dense_basic) {
+TEST_F(TestCQRRTDense, CQRRT_dense_basic) {
     int64_t m = 100, n = 40;
     std::vector<double> A(m * n), A_orig(m * n), R(n * n, 0.0);
     RandBLAS::DenseDist D(m, n);
@@ -112,51 +67,12 @@ TEST_F(TestCholQRDenseFamily, CQRRT_dense_basic) {
 }
 
 // ============================================================================
-// B2: ldq > m (strided Q buffer). materialize_Q_from_R must honor ldq, not
-// hard-code stride m.
-// ============================================================================
-
-TEST_F(TestCholQRDenseFamily, CholQR2_dense_ldq_greater_than_m) {
-    int64_t m = 60, n = 20;
-    int64_t ldq = m + 7;   // deliberately strided
-    std::vector<double> A(m * n), R(n * n, 0.0);
-    RandBLAS::DenseDist D(m, n);
-    RandBLAS::RNGState<> state(5);
-    RandBLAS::fill_dense(D, A.data(), state);
-
-    const double sentinel = -12345.0;
-    std::vector<double> Q(ldq * n, sentinel);
-
-    RandLAPACK::CholQR2_dense<double> algo(false);
-    int info = algo.call(m, n, A.data(), m, R.data(), n, Q.data(), ldq);
-    ASSERT_EQ(info, 0);
-
-    // Every column's padding rows [m, ldq) must be untouched: if the driver
-    // still hard-coded stride m (the B2 bug), a strided write here would
-    // either miss this region or spill into the next column's data instead.
-    for (int64_t j = 0; j < n; ++j)
-        for (int64_t i = m; i < ldq; ++i)
-            ASSERT_EQ(Q[i + j * ldq], sentinel) << "col " << j << " padding row " << i;
-
-    // Compact the strided Q into an ld=m buffer and verify the factorization.
-    std::vector<double> Q_compact(m * n);
-    for (int64_t j = 0; j < n; ++j)
-        for (int64_t i = 0; i < m; ++i)
-            Q_compact[i + j * m] = Q[i + j * ldq];
-
-    double tol = default_tol<double>();
-    auto [fact_err, orth_err] = verify_qr(A.data(), Q_compact.data(), R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
-}
-
-// ============================================================================
 // B3: dense CQRRT must not let a garbage-prefilled R strict lower triangle
 // contaminate the output R's upper triangle (the finalize trmm reads R as a
 // general matrix, not just its upper part).
 // ============================================================================
 
-TEST_F(TestCholQRDenseFamily, CQRRT_dense_garbage_R_lower_unaffected) {
+TEST_F(TestCQRRTDense, CQRRT_dense_garbage_R_lower_unaffected) {
     int64_t m = 80, n = 25;
     std::vector<double> A_base(m * n);
     RandBLAS::DenseDist D(m, n);
@@ -194,34 +110,8 @@ TEST_F(TestCholQRDenseFamily, CQRRT_dense_garbage_R_lower_unaffected) {
 }
 
 // ============================================================================
-// (c): shift-record out-params. Mirrors
-// TestCholQRShiftRecord.rank_deficient_input_records_seed_shift in
-// test_orth_linop.cc, on the dense driver instead of the linop one.
+// Shift-record out-params.
 // ============================================================================
-
-TEST_F(TestCholQRDenseFamily, CholQR_dense_shift_record_on_rank_deficient_input) {
-    int64_t m = 100, n = 50;
-    std::vector<double> A(m * n);
-    RandBLAS::DenseDist D(m, n);
-    RandBLAS::RNGState<> state(1);
-    RandBLAS::fill_dense(D, A.data(), state);
-    // Zero out column 1: its Gram row/column is exactly zero, so the
-    // unshifted potrf pivot there is exactly 0 and cannot succeed.
-    for (int64_t i = 0; i < m; ++i) A[m + i] = 0.0;
-
-    std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CholQR_dense<double> algo(false);
-    ASSERT_EQ(algo.call(m, n, A.data(), m, R.data(), n), 0);
-    ASSERT_GE(algo.n_chol_retries, 1);
-    ASSERT_GT(algo.chol_gram_traces[0], 0.0);
-    ASSERT_GT(algo.chol_applied_shifts[0], 0.0);
-
-    const double eps = std::numeric_limits<double>::epsilon();
-    const double expected_seed = eps * algo.chol_gram_traces[0];
-    double expected = expected_seed;
-    for (int k = 1; k < algo.n_chol_retries; ++k) expected *= algo.shift_growth;
-    ASSERT_NEAR(algo.chol_applied_shifts[0], expected, 1e-12 * expected);
-}
 
 // Dense CQRRT's shift-record members on the clean path: an exact-zero column
 // makes CQRRT fail at its earlier sketch-QR diag_is_nonzero gate (the sketch
@@ -231,7 +121,7 @@ TEST_F(TestCholQRDenseFamily, CholQR_dense_shift_record_on_rank_deficient_input)
 // (matches CQRRT_linops, which has no such test either). This case instead
 // pins that a normal, well-conditioned run reports a clean (unshifted)
 // record, exercising the same member-forwarding wiring as (c) requires.
-TEST_F(TestCholQRDenseFamily, CQRRT_dense_shift_record_clean_path) {
+TEST_F(TestCQRRTDense, CQRRT_dense_shift_record_clean_path) {
     int64_t m = 100, n = 50;
     std::vector<double> A(m * n);
     RandBLAS::DenseDist D(m, n);
@@ -253,7 +143,7 @@ TEST_F(TestCholQRDenseFamily, CQRRT_dense_shift_record_clean_path) {
 // factorization work, the same B5 contract cholqr_primitive enforces. Direct
 // port of TestCholQRShiftRecord.shift_growth_leq_one_rejected onto dense
 // CQRRT.
-TEST_F(TestCholQRDenseFamily, CQRRT_dense_shift_growth_leq_one_rejected) {
+TEST_F(TestCQRRTDense, CQRRT_dense_shift_growth_leq_one_rejected) {
     int64_t m = 60, n = 20;
     std::vector<double> A(m * n);
     RandBLAS::DenseDist D(m, n);

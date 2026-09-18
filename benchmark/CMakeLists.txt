@@ -158,7 +158,6 @@ set(
 )
 add_benchmark(NAME CQRRT_linop_applications           CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_applications.cc           LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
-add_benchmark(NAME CQRRT_diagnostic                   CXX_SOURCES bench_CQRRT_linops/CQRRT_diagnostic.cc                   LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 
 # Toeplitz LS benchmark (autoregression/system-id experiment). The matrix-free
 # prolate-Toeplitz operator (extras/linops/ext_toeplitz_linop.hh) uses MKL's FFT (DFTI),

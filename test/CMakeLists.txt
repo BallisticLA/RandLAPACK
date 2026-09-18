@@ -11,6 +11,7 @@ if (GTest_FOUND)
         comps/test_qb.cc
         comps/test_preconditioners.cc
         comps/test_rf.cc
+        comps/test_triangular_panels.cc
         comps/test_syrf.cc
         comps/test_rpchol.cc
         drivers/test_krill.cc
@@ -22,7 +23,7 @@ if (GTest_FOUND)
         drivers/test_hqrrp.cc
         drivers/test_abrik.cc
         drivers/test_orth_linop.cc
-        drivers/test_cholqr_dense.cc
+        drivers/test_cqrrt_dense.cc
         drivers/test_iter_refine_lsq.cc
         drivers/test_lsqr_blendenpik.cc
         drivers/test_refined_blendenpik.cc
