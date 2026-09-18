@@ -439,7 +439,7 @@ int main(int argc, char** argv) {
            "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us,"
            "solver,pcg_rounds,"
            "lsqr_iters,stop_reason,t_inner_us,t_fwd_inner_us,t_adj_inner_us,"
-           "t_trsm_inner_us,t_overhead_us,total_row_us,x0_relres,chol_shift_abs,chol_shift_rel,t_be_us,be_x0\n";
+           "t_trsm_inner_us,t_overhead_us,total_row_us,x0_relres,chol_shift_abs,chol_shift_rel,t_be_us,be_x0,be_final\n";
     // Column notes: pcg_rounds (renamed from pcg_restarts) holds TOTAL
     // rounds run, which is what the engine reports. iterations = engine inner CG
     // iterations (or LSQR iterations for the published Blendenpik rows and lsqr
@@ -492,12 +492,12 @@ int main(int argc, char** argv) {
     auto build_kw = [&]() {
         if (kw_ref_ptr) return;
         std::printf("\nBackward-error reference: sketched Karlson-Walden, d=2n=%lld, nnz=%lld ... ",
-                    (long long)(2 * n), (long long)sketch_nnz);
+                    (long long)(2 * n), (long long)rl::bench::kKWSketchNNZ);
         std::fflush(stdout);
         auto kw_t0 = steady_clock::now();
         RandBLAS::RNGState<RNG> kw_state((uint32_t)20240914);
         kw_ref_ptr = std::make_unique<rl::bench::KWBackwardErrorRef<double>>(
-            rl::bench::build_kw_reference<double, RNG>(A_hat, mtot, n, 2 * n, sketch_nnz,
+            rl::bench::build_kw_reference<double, RNG>(A_hat, mtot, n, 2 * n, rl::bench::kKWSketchNNZ,
                                                        kw_state, block_size));
         kw_build_s = duration_cast<microseconds>(steady_clock::now() - kw_t0).count() / 1e6;
         std::printf("done (%.1f s, ||A||_F=%.6e)\n", kw_build_s, kw_ref_ptr->A_fro);
@@ -797,9 +797,11 @@ int main(int argc, char** argv) {
         long t_inner_us = -1, t_fwd_in = -1, t_adj_in = -1, t_trsm_in = -1, t_overhead_us = -1;
         long   t_be_us = -1;   // oracle wall time; -1 where no engine history exists
         double be_x0   = -1;   // oracle value of the warm start (refine warm row); -1 otherwise
+        double be_final = -1;  // oracle value of the RETURNED iterate; -1 when off or no engine
         if (have_hist) {
-            t_be_us = hist.t_be_us;
-            be_x0   = hist.be_x0;
+            t_be_us  = hist.t_be_us;
+            be_x0    = hist.be_x0;
+            be_final = hist.be.empty() ? hist.be_x0 : hist.be.back();
             t_inner_us = hist.t_inner_us;
             t_fwd_in   = hist.t_fwd_inner_us;
             t_adj_in   = hist.t_adj_inner_us;
@@ -821,7 +823,7 @@ int main(int argc, char** argv) {
             << lsqr_iters_col << "," << stop_reason << ","
             << t_inner_us << "," << t_fwd_in << "," << t_adj_in << "," << t_trsm_in << ","
             << t_overhead_us << "," << total_row_us << "," << x0_relres << ","
-            << chol_shift_abs << "," << chol_shift_rel << "," << t_be_us << "," << be_x0 << "\n";
+            << chol_shift_abs << "," << chol_shift_rel << "," << t_be_us << "," << be_x0 << "," << be_final << "\n";
         out.flush();   // partial results survive a scheduler kill mid-campaign
 
         if (have_hist) {

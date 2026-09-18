@@ -394,6 +394,12 @@ static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n
 // singular directions accurately (they carry the largest weights
 // 1/(sigma_i^2 + nu^2)), which is why this is an SVD of the sketch and not an
 // eigendecomposition of its Gram matrix.
+// Nonzeros per column of the reference sketch. Pinned at the paper's zeta = 8
+// (EMN24 Section 4.2) and deliberately NOT the benchmark's --sketch-nnz knob:
+// the oracle's estimate must not move when a campaign sweeps the solver's
+// sketch density.
+inline constexpr int64_t kKWSketchNNZ = 8;
+
 template <typename T>
 struct KWBackwardErrorRef {
     int64_t n = 0, d = 0, nnz = 0;
@@ -427,8 +433,13 @@ static KWBackwardErrorRef<T> build_kw_reference(GLO& A_op, int64_t m, int64_t n,
             T c = blas::nrm2(m, Y.data() + (size_t)j * m, 1);
             fro_sq += c * c;
         }
+        // The paper's embedding is S = zeta^{-1/2} [s_1 ... s_m] with +/-1 entries.
+        // RandBLAS samples the +/-1 entries unscaled and exposes the zeta^{-1/2}
+        // factor as dist.isometry_scale; without it every singular value of SA is
+        // sqrt(zeta) too large and the estimate is understated by up to that factor
+        // exactly in the converged regime (nu^2 -> 0), i.e. at the stop test.
         RandBLAS::sketch_general(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                                 d, bk, m, (T)1, S, 0, 0, Y.data(), m,
+                                 d, bk, m, (T)S.dist.isometry_scale, S, 0, 0, Y.data(), m,
                                  (T)0, SA.data() + (size_t)j0 * d, d);
     }
     ref.A_fro = std::sqrt(fro_sq);
@@ -503,19 +514,27 @@ make_kw_oracle(const KWBackwardErrorRef<T>& ref, int64_t m, int64_t n, T b_norm)
         T x_norm = blas::nrm2(n, x, 1);
         T be_theta, be_inf, theta, res_orth;
         kw_backward_error<T>(ref, ATr, r_norm, x_norm, b_norm, be_theta, be_inf, theta, res_orth);
+        // The estimator's -1 sentinel (||A||_F = 0) and a NaN from a diverged iterate
+        // must never satisfy `be <= be_tol`: map both to +inf so the run continues
+        // and the CSV shows the failure instead of a spurious convergence.
+        if (!(be_theta >= (T)0)) return std::numeric_limits<T>::infinity();
         return be_theta;
     };
 }
 
 // be-tol-mult knob: <= 0 turns the oracle off (-1), otherwise the tolerance is
-// mult * sqrt(n) * u. The estimator is Epperly-Meier-Nakatsukasa 2024 (arXiv:2406.03468,
-// eq. 4.2; their Algorithm 4 stops at 1u); the sqrt(n) u constant is the termination
-// threshold of Epperly-Greenbaum-Nakatsukasa 2025 (arXiv:2502.17767, Section 5,
-// Algorithm 5.1 line 20), so mult = 1 is that paper's rule on this paper's estimate.
+// mult * sqrt(n) * u with u the unit roundoff (epsilon / 2: 1.1e-16 in double).
+// The estimate is Epperly-Meier-Nakatsukasa 2024's sketched Karlson-Walden backward
+// error (arXiv:2406.03468, eq. 4.2), relative to ||A||_F; their Algorithm 4 stops it at
+// 1u, their code at MATLAB eps. The sqrt(n) factor follows the square-system rule of
+// Epperly-Greenbaum-Nakatsukasa 2025 (arXiv:2502.17767, Algorithm 5.1 line 20,
+// berr <= n^{1/2} u on the Rigal-Gaches error), transplanted here to the least-squares
+// estimate as a dimension-aware constant; mult lets a campaign move it.
 template <typename T>
 static T resolve_be_tol(double mult, int64_t n) {
     if (mult <= 0.0) return (T)-1;
-    return (T)(mult * std::sqrt((double)n) * (double)std::numeric_limits<T>::epsilon());
+    const double u = 0.5 * (double)std::numeric_limits<T>::epsilon();
+    return (T)(mult * std::sqrt((double)n) * u);
 }
 
 // ---------------------------------------------------------------------------

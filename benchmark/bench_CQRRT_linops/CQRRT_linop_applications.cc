@@ -94,6 +94,7 @@
 #include <cstdlib>
 #include <functional>
 #include <memory>
+#include <type_traits>
 #include <numeric>
 #include <random>
 
@@ -268,6 +269,8 @@ struct bench_result {
     long t_be_us = -1;                // wall time inside the oracle, excluded from every solve time;
                                       // -1 where no engine ran (published Blendenpik rows, failed builds)
     T    be_x0   = (T)-1;             // oracle value of a warm start (refine warm row); -1 otherwise
+    T    be_final = (T)-1;            // oracle value of the RETURNED iterate (last round, or x0 on a
+                                      // zero-round exit); -1 when the oracle was off or no engine ran
 
     // RSS WINDOW SEMANTICS, per path:
     //   irlsq / rspec: Q-less rows stop the tracker right after the QR build
@@ -536,6 +539,7 @@ static void run_blendenpik_family(
         res.ir_setup_us = rr.setup_us;                 // x0 build (0 for the cold row)
         res.t_be_us     = rr.history.t_be_us;          // oracle time (already outside solve_us)
         res.be_x0       = rr.history.be_x0;            // oracle value of x0 (warm row; -1 cold/off)
+        res.be_final    = rr.history.be.empty() ? rr.history.be_x0 : rr.history.be.back();
         res.x0_relres   = rr.x0_relres;                // warm-start quality (-1 cold)
         std::copy(rr.R, rr.R + rr.R_sz, R_T);
         // QR-breakdown slots for Blendenpik-family rows (see the breakdown
@@ -729,7 +733,7 @@ static void write_irlsq_reg_results(
            "orth_error,ir_total_us,ir_outer_iters,ir_inner_iters_total,"
            "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec,chol_retries,"
            "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond,ir_setup_us,"
-           "lsqr_iters,engine_status,stop_reason,x0_relres,chol_shift_abs,chol_shift_rel,t_be_us,be_x0\n";
+           "lsqr_iters,engine_status,stop_reason,x0_relres,chol_shift_abs,chol_shift_rel,t_be_us,be_x0,be_final\n";
     // Sentinel note: chol_retries and chol_shift_abs/chol_shift_rel use -1 for
     // "no Cholesky in this row" (Blendenpik family, unpreconditioned) or "QR
     // failed before a retry/shift record existed"; 0 still means "Cholesky
@@ -756,7 +760,8 @@ static void write_irlsq_reg_results(
             << std::scientific << std::setprecision(6) << r.chol_shift_abs << ","
             << std::scientific << std::setprecision(6) << r.chol_shift_rel << ","
             << r.t_be_us << ","
-            << std::scientific << std::setprecision(6) << r.be_x0
+            << std::scientific << std::setprecision(6) << r.be_x0 << ","
+            << std::scientific << std::setprecision(6) << r.be_final
             << "\n";
     }
 }
@@ -892,16 +897,26 @@ static int run_irlsq_reg(
     // for the sidecar, as before.
     const T_solve be_tol = RandLAPACK::bench::resolve_be_tol<T_solve>(g_be_tol_mult, n);
     g_be_tol_eff = (double)be_tol;
+    if constexpr (std::is_same_v<T_solve, float>) {
+        // A float gesdd of a kappa ~ 1e10 sketch returns singular values that are
+        // noise below ~1e-7 sigma_max, exactly the directions the estimate weights
+        // most; the number it would print is meaningless. Refuse rather than mislead.
+        if (be_tol >= (T_solve)0) {
+            std::cerr << "FATAL: --be-tol-mult > 0 requires a double solve precision; "
+                         "the backward-error reference is not meaningful in float.\n";
+            return 2;
+        }
+    }
     std::unique_ptr<RandLAPACK::bench::KWBackwardErrorRef<T_solve>> kw_ref_ptr;
     double kw_build_s = 0.0;
     auto build_kw = [&]() {
         if (kw_ref_ptr) return;
         std::cout << "\nBackward-error reference: sketched Karlson-Walden, d=2n=" << 2 * n
-                  << ", nnz=" << sketch_nnz << " ... " << std::flush;
+                  << ", nnz=" << RandLAPACK::bench::kKWSketchNNZ << " ... " << std::flush;
         auto kw_t0 = steady_clock::now();
         RandBLAS::RNGState<RNG> kw_state((uint32_t)20240914);
         kw_ref_ptr = std::make_unique<RandLAPACK::bench::KWBackwardErrorRef<T_solve>>(
-            RandLAPACK::bench::build_kw_reference<T_solve, RNG>(J_Ts, m, n, 2 * n, sketch_nnz,
+            RandLAPACK::bench::build_kw_reference<T_solve, RNG>(J_Ts, m, n, 2 * n, RandLAPACK::bench::kKWSketchNNZ,
                                                               kw_state, block_size));
         kw_build_s = duration_cast<microseconds>(steady_clock::now() - kw_t0).count() / 1e6;
         std::cout << "done (" << std::fixed << std::setprecision(1) << kw_build_s << " s, ||A||_F="
@@ -1124,6 +1139,7 @@ static int run_irlsq_reg(
                 res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count() - ir.t_be_us;
                 res.t_be_us     = ir.t_be_us;
                 res.be_x0       = ir.be_x0;            // always -1: IR rows start cold
+                res.be_final    = ir.be_per_step.empty() ? ir.be_x0 : ir.be_per_step.back();
                 res.ir_outer_iters = ir.outer_iters_done;
                 res.ir_inner_iters_total = 0;
                 for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
