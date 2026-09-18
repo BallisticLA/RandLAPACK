@@ -6,6 +6,8 @@
 #include <RandBLAS.hh>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
@@ -142,7 +144,8 @@ inline const char* pcg_stop_reason(int status) {
     switch (status) {
         case 0: return "tol";       case 1: return "budget";
         case 2: return "breakdown"; case 3: return "rounds";
-        case 4: return "floor";     default: return "unknown";
+        case 4: return "floor";     case 5: return "be";
+        default: return "unknown";
     }
 }
 inline const char* lsqr_stop_reason(bool converged, int stop_test) {
@@ -192,18 +195,20 @@ inline void write_host_line(std::ostream& out) {
 
 // Schema for the per-round engine records sidecar (restarted_pcg_ne /
 // IterRefineLSQ): one row per (algorithm, run, round).
+// be_kw: sketched Karlson-Walden backward error of the iterate after the round,
+// relative to ||A||_F; -1 when the oracle was off.
 inline const char* kRoundsCsvHeader =
-    "algorithm,run,round,inner_iters,inner_status,inner_relres,best_relres,best_iter,ls_relres\n";
+    "algorithm,run,round,inner_iters,inner_status,inner_relres,best_relres,best_iter,ls_relres,be_kw\n";
 
 // Write one round record row (round_idx is 1-based, matching every caller).
 template <typename T>
 static void write_round_row(std::ostream& out, const std::string& alg, int64_t run_idx,
                             size_t round_idx, int iters, int status, T relres,
-                            T best_relres, int best_iter, T ls_relres) {
+                            T best_relres, int best_iter, T ls_relres, T be_kw) {
     out << alg << "," << run_idx << "," << round_idx << ","
         << iters << "," << status << ","
         << std::scientific << std::setprecision(6) << relres << ","
-        << best_relres << "," << best_iter << "," << ls_relres << "\n";
+        << best_relres << "," << best_iter << "," << ls_relres << "," << be_kw << "\n";
 }
 
 // Fold a driver's per-pass Cholesky shift record (chol_applied_shifts /
@@ -484,6 +489,33 @@ static std::string kw_provenance_line(const KWBackwardErrorRef<T>& ref, T b_norm
       << " theta=||A||_F/||b||=" << (double)((b_norm > 0) ? ref.A_fro / b_norm : (T)0)
       << " reference_build_s=" << std::fixed << std::setprecision(1) << build_s << "\n";
     return h.str();
+}
+
+// The engine's convergence oracle built on the sketched Karlson-Walden reference: the
+// paper's step-two termination test. The reference must outlive the returned function
+// (the drivers hold it in a unique_ptr for the whole run). Returns be_theta relative to
+// ||A||_F, the same number the sidecar's be_kw_theta column reports for the final x.
+template <typename T>
+static RandLAPACK::BackwardErrorOracle<T>
+make_kw_oracle(const KWBackwardErrorRef<T>& ref, int64_t m, int64_t n, T b_norm) {
+    return [&ref, m, n, b_norm](const T* x, const T* r, const T* ATr) -> T {
+        T r_norm = blas::nrm2(m, r, 1);
+        T x_norm = blas::nrm2(n, x, 1);
+        T be_theta, be_inf, theta, res_orth;
+        kw_backward_error<T>(ref, ATr, r_norm, x_norm, b_norm, be_theta, be_inf, theta, res_orth);
+        return be_theta;
+    };
+}
+
+// be-tol-mult knob: <= 0 turns the oracle off (-1), otherwise the tolerance is
+// mult * sqrt(n) * u. The estimator is Epperly-Meier-Nakatsukasa 2024 (arXiv:2406.03468,
+// eq. 4.2; their Algorithm 4 stops at 1u); the sqrt(n) u constant is the termination
+// threshold of Epperly-Greenbaum-Nakatsukasa 2025 (arXiv:2502.17767, Section 5,
+// Algorithm 5.1 line 20), so mult = 1 is that paper's rule on this paper's estimate.
+template <typename T>
+static T resolve_be_tol(double mult, int64_t n) {
+    if (mult <= 0.0) return (T)-1;
+    return (T)(mult * std::sqrt((double)n) * (double)std::numeric_limits<T>::epsilon());
 }
 
 // ---------------------------------------------------------------------------

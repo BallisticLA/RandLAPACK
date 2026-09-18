@@ -79,6 +79,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <memory>
 #include <ctime>
 #include <fstream>
 #include <random>
@@ -144,11 +145,13 @@ static void print_toep_usage(const char* exe) {
       "  --pcg-max-restarts=N   [50]      additional rounds after the first\n"
       "  --round-drop=F         [1e-4]    per-round residual drop, in (0,1)\n"
       "  --inner-tol=F          [-1]      inner absolute floor; <0 = eps^0.85, 0 = off\n"
+      "  --be-tol-mult=F        [0]       stop a run once the sketched Karlson-Walden backward\n"
+      "                                   error is <= F*sqrt(n)*u (Epperly's test); 0 = off\n"
       "\n"
       "The positional form is still accepted for existing job scripts, but is deprecated:\n"
       "  <prec> <outdir> <m> <n> <omega> <lambda_rel> <mask> <tol> <maxit> <d_factor>\n"
       "  <sketch_nnz> [seed] [runs] [solver] [pcg_restart_maxit] [pcg_max_restarts]\n"
-      "  [round_drop] [inner_abs_tol]\n", exe);
+      "  [round_drop] [inner_abs_tol] [be_tol_mult]\n", exe);
 }
 
 int main(int argc, char** argv) {
@@ -159,6 +162,7 @@ int main(int argc, char** argv) {
     double omega = 0.14, lambda_rel = 1e-20, tol = 1e-12, d_factor = 2.0;
     int maxit = 3000, pcg_restart_maxit = 500, pcg_max_restarts = 50;
     double pcg_restart_drop = 1e-4, abs_guard_cli = -1.0;
+    double be_tol_mult = 0.0;   // <= 0 => backward-error oracle off (today's behaviour)
 
     if (rl::bench::BenchArgs::looks_named(argc, argv)) {
         try {
@@ -166,7 +170,7 @@ int main(int argc, char** argv) {
             a.reject_unknown({"precision", "out", "m", "n", "omega", "lambda-rel", "mask",
                               "tol", "maxit", "d-factor", "sketch-nnz", "seed", "runs",
                               "solver", "pcg-restart-maxit", "pcg-max-restarts",
-                              "round-drop", "inner-tol", "help"});
+                              "round-drop", "inner-tol", "be-tol-mult", "help"});
             if (a.has("help")) { print_toep_usage(argv[0]); return 0; }
             std::string prec = a.str("precision", "double");
             if (prec != "double") {
@@ -191,6 +195,7 @@ int main(int argc, char** argv) {
             pcg_max_restarts  = (int)a.i64("pcg-max-restarts", 50);
             pcg_restart_drop  = a.dbl("round-drop", 1e-4);
             abs_guard_cli     = a.dbl("inner-tol", -1.0);
+            be_tol_mult       = a.dbl("be-tol-mult", 0.0);
             if (m <= 0 || n <= 0) {
                 std::fprintf(stderr, "--m and --n are required and must be positive\n");
                 return 1;
@@ -230,6 +235,7 @@ int main(int argc, char** argv) {
         pcg_max_restarts  = (argc > 16) ? std::stoi(argv[16]) : 50;
         pcg_restart_drop  = (argc > 17) ? std::stod(argv[17]) : 1e-4;
         abs_guard_cli     = (argc > 18) ? std::stod(argv[18]) : -1.0;
+        be_tol_mult       = (argc > 19) ? std::stod(argv[19]) : 0.0;
     }
 
     if (num_runs < 1) {
@@ -256,6 +262,9 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "inner-tol must lie in [0,1) (got %g)\n", abs_guard);
         return 1;
     }
+    // Backward-error termination (Epperly's step-two test): -1 = off, else
+    // be_tol_mult * sqrt(n) * u on the sketched Karlson-Walden estimate.
+    const double be_tol = rl::bench::resolve_be_tol<double>(be_tol_mult, n);
     int64_t block_size = 256;
     const double relnoise = 1e-11;   // data noise level (hoisted so the CSV header echoes it)
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }
@@ -401,6 +410,8 @@ int main(int argc, char** argv) {
                      << " pcg_max_restarts=" << pcg_max_restarts
                      << " pcg_restart_drop=" << pcg_restart_drop
                      << " inner_abs_tol=" << abs_guard;
+    // Echoed unconditionally: the refine rows run the engine whatever the solver knob says.
+    out << " be_tol_mult=" << be_tol_mult << " be_tol=" << be_tol;
     out << "\n";
     // Host provenance: wall-clock timings and MKL thread behavior are
     // machine-specific, so a CSV must name the machine it ran on.
@@ -428,7 +439,7 @@ int main(int argc, char** argv) {
            "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us,"
            "solver,pcg_rounds,"
            "lsqr_iters,stop_reason,t_inner_us,t_fwd_inner_us,t_adj_inner_us,"
-           "t_trsm_inner_us,t_overhead_us,total_row_us,x0_relres,chol_shift_abs,chol_shift_rel\n";
+           "t_trsm_inner_us,t_overhead_us,total_row_us,x0_relres,chol_shift_abs,chol_shift_rel,t_be_us,be_x0\n";
     // Column notes: pcg_rounds (renamed from pcg_restarts) holds TOTAL
     // rounds run, which is what the engine reports. iterations = engine inner CG
     // iterations (or LSQR iterations for the published Blendenpik rows and lsqr
@@ -451,12 +462,15 @@ int main(int argc, char** argv) {
     // (algorithm, run, round) for every pcg_ne solve, from PCGRoundHistory.
     std::string csv_rounds = outdir + "/" + tstamp + "_toeplitz_ls_rounds.csv";
     // Solutions of the successful rows, kept for the post-pass backward error
-    // (sketched Karlson-Walden, see cqrrt_bench_common.hh). The reference is
-    // built after the last timed row so no row's timing or RSS window sees it.
+    // (sketched Karlson-Walden, see cqrrt_bench_common.hh). With the oracle off
+    // the reference is built after the last timed row so no row's timing or RSS
+    // window sees it; with the oracle on it already exists (built before the loop).
     struct KWPending { std::string alg; int run_idx; std::vector<double> x; };
     std::vector<KWPending> kw_pending;
     std::ofstream out_rounds(csv_rounds);
-    out_rounds << rl::bench::kRoundsCsvHeader;
+    out_rounds << "# Per-round engine records (restarted_pcg_ne). inner_status: 0 Converged, 1 HitCap, 2 Breakdown, 3 Stagnated.\n"
+               << "# be_kw: sketched Karlson-Walden backward error after the round, relative to ||A||_F; -1 when the oracle was off.\n"
+               << rl::bench::kRoundsCsvHeader;
 
     // stop_reason mapping (shared with bench_CQRRT_linops; cqrrt_bench_common.hh):
     // names the exit condition so the CSV can distinguish "hit the LS floor
@@ -467,6 +481,39 @@ int main(int argc, char** argv) {
     };
 
     std::vector<double> R(n*n), x(n), Tx(m), Ax(mtot);
+
+    // Backward-error oracle for the engine. The reference (sketch + SVD of A_hat, the
+    // operator every row solves against) is built BEFORE the timed rows when the knob
+    // is on: per-matrix instrumentation shared by every method, outside every row's
+    // timer, and only a baseline shift for the RSS tracker. When the knob is off it is
+    // built after the rows, for the sidecar, as before.
+    std::unique_ptr<rl::bench::KWBackwardErrorRef<double>> kw_ref_ptr;
+    double kw_build_s = 0.0;
+    auto build_kw = [&]() {
+        if (kw_ref_ptr) return;
+        std::printf("\nBackward-error reference: sketched Karlson-Walden, d=2n=%lld, nnz=%lld ... ",
+                    (long long)(2 * n), (long long)sketch_nnz);
+        std::fflush(stdout);
+        auto kw_t0 = steady_clock::now();
+        RandBLAS::RNGState<RNG> kw_state((uint32_t)20240914);
+        kw_ref_ptr = std::make_unique<rl::bench::KWBackwardErrorRef<double>>(
+            rl::bench::build_kw_reference<double, RNG>(A_hat, mtot, n, 2 * n, sketch_nnz,
+                                                       kw_state, block_size));
+        kw_build_s = duration_cast<microseconds>(steady_clock::now() - kw_t0).count() / 1e6;
+        std::printf("done (%.1f s, ||A||_F=%.6e)\n", kw_build_s, kw_ref_ptr->A_fro);
+    };
+    rl::BackwardErrorOracle<double> be_oracle;
+    if (be_tol >= 0.0) {
+        // A failed reference build is fatal here, never a silent fall back to the
+        // floor rule: that would produce an era labelled as oracle-terminated that was not.
+        try { build_kw(); }
+        catch (const std::exception& e) {
+            std::fprintf(stderr, "FATAL: be-tol-mult > 0 requires the backward-error reference "
+                                 "and its build failed: %s\n", e.what());
+            return 2;
+        }
+        be_oracle = rl::bench::make_kw_oracle<double>(*kw_ref_ptr, mtot, n, rhs_norm);
+    }
 
     for (const auto& alg : algs) {
     for (int64_t run_idx = 0; run_idx < num_runs; ++run_idx) {   // body indent unchanged on purpose
@@ -541,7 +588,8 @@ int main(int argc, char** argv) {
                 A_hat, rhs.data(), mtot, x.data(), n,
                 d_factor, sketch_nnz, state, warm,
                 tol, maxit, pcg_restart_maxit, pcg_restart_drop, pcg_max_restarts,
-                /*stag_window=*/20, /*stag_rel_improve=*/1e-3, /*inner_abs_tol=*/abs_guard);
+                /*stag_window=*/20, /*stag_rel_improve=*/1e-3, /*inner_abs_tol=*/abs_guard,
+                /*outer_stag_window=*/2, be_oracle, be_tol);
             qr_status = rres.qr_status;
             if (qr_status == 0) {
                 qr_us    = rres.qr_us;
@@ -615,7 +663,8 @@ int main(int argc, char** argv) {
                 flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(),
                                                     tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
                                                     pcg_max_restarts, &pcg_rounds, lt, &solver_relres,
-                                                    20, 1e-3, abs_guard, &hist);
+                                                    20, 1e-3, abs_guard, &hist, /*x0=*/nullptr,
+                                                    /*outer_stag_window=*/2, be_oracle, be_tol);
                 have_hist = true;
                 stop_reason = pcg_reason(flag);
             } else {
@@ -669,7 +718,8 @@ int main(int argc, char** argv) {
                     flag = rl::restarted_pcg_ne<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(),
                                                         tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
                                                         pcg_max_restarts, &pcg_rounds, lt, &solver_relres,
-                                                        20, 1e-3, abs_guard, &hist);
+                                                        20, 1e-3, abs_guard, &hist, /*x0=*/nullptr,
+                                                        /*outer_stag_window=*/2, be_oracle, be_tol);
                     have_hist = true;
                     stop_reason = pcg_reason(flag);
                 } else {
@@ -688,6 +738,9 @@ int main(int argc, char** argv) {
         // computed below, after this timestamp). A total that the parts must sum
         // to is what exposes dropped time slices.
         long total_row_us = duration_cast<microseconds>(steady_clock::now() - t0).count();
+        // The backward-error oracle is instrumentation, not row work: keep it out of
+        // the whole-row wall clock, as the engine keeps it out of solve_us.
+        if (have_hist) total_row_us -= hist.t_be_us;
 
         // Metrics: solver/data/aug/normal relres, recovery, orth, cond.
         double orth_err = -1, aug_relres = -1, data_relres = -1, normal_relres = -1, recov = -1;
@@ -742,7 +795,11 @@ int main(int argc, char** argv) {
 
         // Inner-kernel/overhead split (pcg rows; -1 where no history exists).
         long t_inner_us = -1, t_fwd_in = -1, t_adj_in = -1, t_trsm_in = -1, t_overhead_us = -1;
+        long   t_be_us = -1;   // oracle wall time; -1 where no engine history exists
+        double be_x0   = -1;   // oracle value of the warm start (refine warm row); -1 otherwise
         if (have_hist) {
+            t_be_us = hist.t_be_us;
+            be_x0   = hist.be_x0;
             t_inner_us = hist.t_inner_us;
             t_fwd_in   = hist.t_fwd_inner_us;
             t_adj_in   = hist.t_adj_inner_us;
@@ -764,14 +821,14 @@ int main(int argc, char** argv) {
             << lsqr_iters_col << "," << stop_reason << ","
             << t_inner_us << "," << t_fwd_in << "," << t_adj_in << "," << t_trsm_in << ","
             << t_overhead_us << "," << total_row_us << "," << x0_relres << ","
-            << chol_shift_abs << "," << chol_shift_rel << "\n";
+            << chol_shift_abs << "," << chol_shift_rel << "," << t_be_us << "," << be_x0 << "\n";
         out.flush();   // partial results survive a scheduler kill mid-campaign
 
         if (have_hist) {
             for (size_t r = 0; r < hist.iters.size(); ++r) {
                 rl::bench::write_round_row(out_rounds, alg, run_idx, r + 1,
                     hist.iters[r], hist.status[r], hist.relres[r],
-                    hist.best_relres[r], hist.best_iter[r], hist.ls_relres[r]);
+                    hist.best_relres[r], hist.best_iter[r], hist.ls_relres[r], hist.be[r]);
             }
             out_rounds.flush();
         }
@@ -784,15 +841,8 @@ int main(int argc, char** argv) {
     // augmented problem A_hat x ~ rhs that every row actually solved. ----
     std::string csv_kw = outdir + "/" + tstamp + "_toeplitz_ls_backward_error.csv";
     try {
-        std::printf("\nBackward-error reference: sketched Karlson-Walden, d=2n=%lld, nnz=%lld ... ",
-                    (long long)(2 * n), (long long)sketch_nnz);
-        std::fflush(stdout);
-        auto kw_t0 = steady_clock::now();
-        RandBLAS::RNGState<RNG> kw_state((uint32_t)20240914);
-        auto kw_ref = rl::bench::build_kw_reference<double, RNG>(A_hat, mtot, n, 2 * n, sketch_nnz,
-                                                                 kw_state, block_size);
-        double kw_build_s = duration_cast<microseconds>(steady_clock::now() - kw_t0).count() / 1e6;
-        std::printf("done (%.1f s, ||A||_F=%.6e)\n", kw_build_s, kw_ref.A_fro);
+        build_kw();   // no-op when the oracle already built it before the rows
+        const auto& kw_ref = *kw_ref_ptr;
         std::ofstream kw_out(csv_kw);
         kw_out << rl::bench::kw_provenance_line<double>(kw_ref, rhs_norm, kw_build_s)
                << rl::bench::kKWCsvHeader;

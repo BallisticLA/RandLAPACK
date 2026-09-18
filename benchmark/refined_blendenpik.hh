@@ -53,7 +53,7 @@ struct RefinedBlendenpikResult {
     T    x0_relres = (T)-1;    ///< true ||b - A x0||/||b|| of the handed-off x0
                                ///< (warm row; -1 for the cold row)
     // ---- phase 2: shared engine ----
-    int  status        = 1;    ///< restarted_pcg_ne status (0/1/2/3/4)
+    int  status        = 1;    ///< restarted_pcg_ne status (0/1/2/3/4/5)
     int  iters         = 0;    ///< engine inner CG iterations ONLY
     int  rounds        = 0;    ///< outer rounds run
     T    solver_relres = (T)-1;///< true LS relres at engine exit
@@ -109,7 +109,8 @@ RefinedBlendenpikResult<T> run_refined_blendenpik(
     T tol, int max_iters,
     int restart_maxit, T restart_drop, int max_restarts,
     int stag_window = 20, T stag_rel_improve = (T)1e-3,
-    T inner_abs_tol = (T)0, int outer_stag_window = 2)
+    T inner_abs_tol = (T)0, int outer_stag_window = 2,
+    RandLAPACK::BackwardErrorOracle<T> be_oracle = {}, T be_tol = (T)-1)
 {
     RefinedBlendenpikResult<T> res;
 
@@ -141,7 +142,7 @@ RefinedBlendenpikResult<T> run_refined_blendenpik(
         stag_window, stag_rel_improve, inner_abs_tol,
         &res.history,
         warm ? x0.data() : nullptr,
-        outer_stag_window);
+        outer_stag_window, be_oracle, be_tol);
     res.solve_us  = lt[3];
     res.t_fwd_us  = lt[0];
     res.t_adj_us  = lt[1];

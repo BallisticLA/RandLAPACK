@@ -93,6 +93,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 #include <numeric>
 #include <random>
 
@@ -263,6 +264,10 @@ struct bench_result {
     // published Blendenpik rows and failed builds. Written to the *_rounds.csv sidecar.
     std::vector<int> round_iters, round_status, round_best_iter;
     std::vector<T>   round_relres, round_best_relres, round_ls_relres;
+    std::vector<T>   round_be;        // oracle value after each round (-1 when the oracle was off)
+    long t_be_us = -1;                // wall time inside the oracle, excluded from every solve time;
+                                      // -1 where no engine ran (published Blendenpik rows, failed builds)
+    T    be_x0   = (T)-1;             // oracle value of a warm start (refine warm row); -1 otherwise
 
     // RSS WINDOW SEMANTICS, per path:
     //   irlsq / rspec: Q-less rows stop the tracker right after the QR build
@@ -302,6 +307,9 @@ static void record_chol_shift(bench_result<TR>& res, const T (&shifts)[N], const
 // diagnostic sweep separate those two effects without a rebuild.
 static int    g_ir_max_inner = 200;    // <= 0 => keep the IterRefineLSQ default
 static double g_ir_inner_tol = -1.0;   // <  0 => eps^0.85 in the working precision
+static double g_be_tol_mult  = 0.0;    // <= 0 => backward-error oracle off (today's behaviour);
+                                       // > 0 => stop when the sketched KW estimate <= mult*sqrt(n)*u
+static double g_be_tol_eff   = -1.0;   // resolved be_tol, echoed in the header; -1 = off
 static double g_ir_round_drop = 1e-4;  // per-round CG drop; 0 = legacy fixed-tol rounds
 // Effective inner tolerance / absolute floor: < 0 keeps `dflt` (eps^0.85 in the
 // working precision), 0 disables the absolute floor (paced mode only, checked at
@@ -357,7 +365,8 @@ static void write_env_provenance(std::ofstream& out) {
     out << "# ir knobs: max_inner=" << g_ir_max_inner << " inner_tol=" << g_ir_inner_tol
         << " round_drop=" << g_ir_round_drop << " n_steps=" << g_ir_n_steps
         << " outer_tol=" << g_ir_outer_tol
-        << " outer_stag_window=" << ir_outer_stag_window() << "\n";
+        << " outer_stag_window=" << ir_outer_stag_window()
+        << " be_tol_mult=" << g_be_tol_mult << " be_tol=" << g_be_tol_eff << "\n";
 }
 
 // Summarize an IterRefineLSQ run's inner-CG behavior into the CSV fields.
@@ -443,6 +452,7 @@ static void copy_round_records(const RandLAPACK::PCGRoundHistory<T>& h, bench_re
     res.round_relres      = h.relres;
     res.round_best_relres = h.best_relres;
     res.round_ls_relres   = h.ls_relres;
+    res.round_be          = h.be;
 }
 template <typename T>
 static void record_ir_outputs(const RandLAPACK::IterRefineLSQ<T>& ir, bench_result<T>& res) {
@@ -454,6 +464,7 @@ static void record_ir_outputs(const RandLAPACK::IterRefineLSQ<T>& ir, bench_resu
     res.round_relres      = ir.inner_relres_per_step;
     res.round_best_relres = ir.inner_best_relres_per_step;
     res.round_ls_relres   = ir.ls_relres_per_step;
+    res.round_be          = ir.be_per_step;
 }
 
 // Shared method-mask decode, to avoid per-path copies diverging (the rspec
@@ -496,6 +507,7 @@ static void run_blendenpik_family(
     GLO& A_op, const T* b, int64_t m, T* x_ls, int64_t n, T* R_T,
     T d_factor, int64_t sketch_nnz, RandBLAS::RNGState<RNG> state,
     const std::string& alg_name, T tol, T outer_tol_eff,
+    const RandLAPACK::BackwardErrorOracle<T>& be_oracle, T be_tol,
     RandLAPACK::PeakRSSTracker& mem, bench_result<T>& res)
 {
     const bool is_ref = (alg_name.find("_refine") != std::string::npos);
@@ -516,12 +528,14 @@ static void run_blendenpik_family(
             A_op, b, m, x_ls, n, d_factor, sketch_nnz, state, warm,
             outer_tol_eff, budget, max_inner, drop, g_ir_n_steps - 1,
             /*stag_window=*/20, /*stag_rel_improve=*/(T)1e-3, abs_guard,
-            ir_outer_stag_window());
+            ir_outer_stag_window(), be_oracle, be_tol);
         res.qr_status = rr.qr_status;
         res.peak_rss_kb = mem.stop();
         if (res.qr_status != 0) return;
         res.qr_time_us  = rr.qr_us;
         res.ir_setup_us = rr.setup_us;                 // x0 build (0 for the cold row)
+        res.t_be_us     = rr.history.t_be_us;          // oracle time (already outside solve_us)
+        res.be_x0       = rr.history.be_x0;            // oracle value of x0 (warm row; -1 cold/off)
         res.x0_relres   = rr.x0_relres;                // warm-start quality (-1 cold)
         std::copy(rr.R, rr.R + rr.R_sz, R_T);
         // QR-breakdown slots for Blendenpik-family rows (see the breakdown
@@ -605,12 +619,14 @@ static void write_rounds_csv(const std::string& filename,
     std::ofstream out(filename);
     out << "# Per-round engine records (restarted_pcg_ne / IterRefineLSQ).\n"
         << "# inner_status: 0 Converged, 1 HitCap, 2 Breakdown, 3 Stagnated.\n"
+        << "# be_kw: sketched Karlson-Walden backward error after the round, relative to ||A||_F; -1 when the oracle was off.\n"
         << kRoundsCsvHeader;
     for (const auto& r : results) {
         for (size_t k = 0; k < r.round_iters.size(); ++k) {
             write_round_row(out, r.alg_name, r.run_idx, k + 1,
                 r.round_iters[k], r.round_status[k], r.round_relres[k],
-                r.round_best_relres[k], r.round_best_iter[k], r.round_ls_relres[k]);
+                r.round_best_relres[k], r.round_best_iter[k], r.round_ls_relres[k],
+                r.round_be[k]);
         }
     }
 }
@@ -713,7 +729,7 @@ static void write_irlsq_reg_results(
            "orth_error,ir_total_us,ir_outer_iters,ir_inner_iters_total,"
            "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec,chol_retries,"
            "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond,ir_setup_us,"
-           "lsqr_iters,engine_status,stop_reason,x0_relres,chol_shift_abs,chol_shift_rel\n";
+           "lsqr_iters,engine_status,stop_reason,x0_relres,chol_shift_abs,chol_shift_rel,t_be_us,be_x0\n";
     // Sentinel note: chol_retries and chol_shift_abs/chol_shift_rel use -1 for
     // "no Cholesky in this row" (Blendenpik family, unpreconditioned) or "QR
     // failed before a retry/shift record existed"; 0 still means "Cholesky
@@ -738,7 +754,9 @@ static void write_irlsq_reg_results(
             << r.lsqr_iters << "," << r.engine_status << "," << r.stop_reason << ","
             << std::scientific << std::setprecision(6) << r.x0_relres << ","
             << std::scientific << std::setprecision(6) << r.chol_shift_abs << ","
-            << std::scientific << std::setprecision(6) << r.chol_shift_rel
+            << std::scientific << std::setprecision(6) << r.chol_shift_rel << ","
+            << r.t_be_us << ","
+            << std::scientific << std::setprecision(6) << r.be_x0
             << "\n";
     }
 }
@@ -866,6 +884,41 @@ static int run_irlsq_reg(
     // ||A||_2 and ||b|| for the Higham backward-error metric.
     T_solve A_2norm = estimate_op_2norm<T_solve>(J_Ts, m, n, 10);
     T_solve b_norm  = blas::nrm2(m, b.data(), 1);
+
+    // Backward-error oracle (the paper's step-two termination test). The reference is
+    // built BEFORE the timed rows when the knob is on: it is per-matrix instrumentation
+    // shared by every method, sits outside every row's timer, and only raises the RSS
+    // baseline the tracker subtracts. When the knob is off it is built after the rows,
+    // for the sidecar, as before.
+    const T_solve be_tol = RandLAPACK::bench::resolve_be_tol<T_solve>(g_be_tol_mult, n);
+    g_be_tol_eff = (double)be_tol;
+    std::unique_ptr<RandLAPACK::bench::KWBackwardErrorRef<T_solve>> kw_ref_ptr;
+    double kw_build_s = 0.0;
+    auto build_kw = [&]() {
+        if (kw_ref_ptr) return;
+        std::cout << "\nBackward-error reference: sketched Karlson-Walden, d=2n=" << 2 * n
+                  << ", nnz=" << sketch_nnz << " ... " << std::flush;
+        auto kw_t0 = steady_clock::now();
+        RandBLAS::RNGState<RNG> kw_state((uint32_t)20240914);
+        kw_ref_ptr = std::make_unique<RandLAPACK::bench::KWBackwardErrorRef<T_solve>>(
+            RandLAPACK::bench::build_kw_reference<T_solve, RNG>(J_Ts, m, n, 2 * n, sketch_nnz,
+                                                              kw_state, block_size));
+        kw_build_s = duration_cast<microseconds>(steady_clock::now() - kw_t0).count() / 1e6;
+        std::cout << "done (" << std::fixed << std::setprecision(1) << kw_build_s << " s, ||A||_F="
+                  << std::scientific << std::setprecision(6) << (double)kw_ref_ptr->A_fro << ")\n";
+    };
+    RandLAPACK::BackwardErrorOracle<T_solve> be_oracle;
+    if (be_tol >= (T_solve)0) {
+        // A failed reference build is fatal here, never a silent fall back to the
+        // floor rule: that would produce an era labelled as oracle-terminated that was not.
+        try { build_kw(); }
+        catch (const std::exception& e) {
+            std::cerr << "FATAL: be-tol-mult > 0 requires the backward-error reference and its build failed: "
+                      << e.what() << "\n";
+            return 2;
+        }
+        be_oracle = RandLAPACK::bench::make_kw_oracle<T_solve>(*kw_ref_ptr, m, n, b_norm);
+    }
     std::cout << "||A||_2 ~ " << A_2norm << ", ||b|| = " << b_norm << "\n";
 
     // Regularization per the collaborator's spec: mu = mu_factor * u(precond),
@@ -975,7 +1028,7 @@ static int run_irlsq_reg(
                                       : (T_solve)10 * std::numeric_limits<T_solve>::epsilon();
                 run_blendenpik_family<T_solve, RNG>(J_Ts, b.data(), m, x_ls, n, R_T,
                     (T_solve)d_factor, sketch_nnz, state, alg_name, tol_T, outer_tol_eff,
-                    mem, res);
+                    be_oracle, be_tol, mem, res);
             } else if (is_unprec) {
                 // No factor: the row is the refinement engine on the raw operator
                 // (R = nullptr below). Nothing is built, so the build phase, the
@@ -1058,6 +1111,8 @@ static int run_irlsq_reg(
                 ir.outer_tol = (g_ir_outer_tol >= 0) ? (T_solve)g_ir_outer_tol
                              : (T_solve)10 * std::numeric_limits<T_solve>::epsilon();
                 ir.outer_stag_window = ir_outer_stag_window();
+                ir.be_oracle = be_oracle;
+                ir.be_tol    = be_tol;
                 // R = nullptr selects the engine's unpreconditioned normal
                 // equations (the restarted_pcg_ne contract); every other row
                 // passes its factor as the right preconditioner.
@@ -1065,7 +1120,10 @@ static int run_irlsq_reg(
                                         b.data(), m, x_ls, n);
                 auto ls_t1 = steady_clock::now();
                 if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
-                res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
+                // Wall clock minus the oracle: the oracle is instrumentation, not solver work.
+                res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count() - ir.t_be_us;
+                res.t_be_us     = ir.t_be_us;
+                res.be_x0       = ir.be_x0;            // always -1: IR rows start cold
                 res.ir_outer_iters = ir.outer_iters_done;
                 res.ir_inner_iters_total = 0;
                 for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
@@ -1130,18 +1188,12 @@ static int run_irlsq_reg(
     std::cout << "IR-LSQ-reg per-round records written to " << rounds_file << "\n";
 
     // ---- Backward error (sketched Karlson-Walden, EMN24): post-pass ----
-    // Built after every timed row, so no row's timing or RSS window sees it.
+    // With the oracle off the reference is built here, after every timed row, so no
+    // row's timing or RSS window sees it; with the oracle on it already exists.
     std::string kw_sidecar;
     try {
-        std::cout << "\nBackward-error reference: sketched Karlson-Walden, d=2n=" << 2 * n
-                  << ", nnz=" << sketch_nnz << " ... " << std::flush;
-        auto kw_t0 = steady_clock::now();
-        RandBLAS::RNGState<RNG> kw_state((uint32_t)20240914);
-        auto kw_ref = RandLAPACK::bench::build_kw_reference<T_solve, RNG>(
-            J_Ts, m, n, 2 * n, sketch_nnz, kw_state, block_size);
-        double kw_build_s = duration_cast<microseconds>(steady_clock::now() - kw_t0).count() / 1e6;
-        std::cout << "done (" << std::fixed << std::setprecision(1) << kw_build_s << " s, ||A||_F="
-                  << std::scientific << std::setprecision(6) << (double)kw_ref.A_fro << ")\n";
+        build_kw();   // no-op when the oracle already built it before the rows
+        const auto& kw_ref = *kw_ref_ptr;
         std::vector<T_solve> Ax(m, (T_solve)0), ATr(n, (T_solve)0);
         std::ostringstream kw_rows;
         for (auto& r : all_results) {
@@ -1233,11 +1285,14 @@ static void print_app_usage(const char* exe) {
       "  --round-drop=F    [1e-4]   per-round residual drop; 0 = legacy fixed-tol rounds\n"
       "  --steps=N         [50]     outer refinement round cap\n"
       "  --outer-tol=F     [-1]     outer early exit; <0 = 10*eps, 0 = run all steps\n"
+      "  --be-tol-mult=F   [0]      stop a run once the sketched Karlson-Walden backward error\n"
+      "                             is <= F*sqrt(n)*u (Epperly's termination test); 0 = off\n"
       "\n"
       "The positional form is still accepted for existing job scripts, but is deprecated:\n"
       "  <precision> <out> <runs> irlsq_reg <K> <M> <V> <d_factor> [sketch_nnz]\n"
       "  [block_size] [compute_cond] [mask] [noise] [omega] [power_j] [kappa_target]\n"
-      "  [mu_factor] [precond_prec] [max_inner] [inner_tol] [round_drop] [steps] [outer_tol]\n";
+      "  [mu_factor] [precond_prec] [max_inner] [inner_tol] [round_drop] [steps] [outer_tol]\n"
+      "  [be_tol_mult]\n";
 }
 
 template <typename T, typename RNG = r123::Philox4x32>
@@ -1256,7 +1311,7 @@ int run_benchmark(int argc, char* argv[]) {
             a.reject_unknown({"precision", "out", "runs", "K", "M", "V", "d-factor",
                               "sketch-nnz", "block-size", "compute-cond", "mask", "noise",
                               "mu-factor", "precond-prec", "max-inner", "inner-tol",
-                              "round-drop", "steps", "outer-tol", "help"});
+                              "round-drop", "steps", "outer-tol", "be-tol-mult", "help"});
             if (a.has("help")) { print_app_usage(argv[0]); return 0; }
             output_dir   = a.require_str("out");
             num_runs     = a.i64("runs", 1);
@@ -1277,6 +1332,7 @@ int run_benchmark(int argc, char* argv[]) {
             g_ir_round_drop = a.dbl("round-drop", 1e-4);
             g_ir_n_steps    = (int)a.i64("steps", 50);
             g_ir_outer_tol  = a.dbl("outer-tol", -1.0);
+            g_be_tol_mult   = a.dbl("be-tol-mult", 0.0);
         } catch (const std::exception& e) {
             std::cerr << "Error: " << e.what() << "\n\n";
             print_app_usage(argv[0]);
@@ -1328,10 +1384,10 @@ int run_benchmark(int argc, char* argv[]) {
         g_ir_round_drop = opt_double(13, 1e-4);
         g_ir_n_steps    = (int)opt_long(14, 50);
         g_ir_outer_tol  = opt_double(15, -1.0);
-        if (argc > dfactor_idx + 16) {
-            std::cerr << "Error: [ir_warm_start]/[bp_warm_start] CLI knobs were removed "
-                         "(Blendenpik-only warm start, both variants always run). "
-                         "Regenerate the job scripts.\n";
+        g_be_tol_mult   = opt_double(16, 0.0);
+        if (argc > dfactor_idx + 17) {
+            std::cerr << "Error: no positional slot exists beyond [be_tol_mult] (slot 16). "
+                         "Regenerate the job scripts or use the named form (--help).\n";
             return 1;
         }
     }
