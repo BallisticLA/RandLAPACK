@@ -33,9 +33,11 @@
 //   * The loop exits when ||b - A x|| / ||b|| <= tol (success), when the TOTAL
 //     inner-iteration budget max_iters is exhausted, when the round budget
 //     max_restarts is spent, when the inner CG breaks down (indefinite H apply,
-//     a sign the factor R is unusable), or when outer_stag_window consecutive
-//     rounds fail to improve the true LS residual (the LS-floor exit). Each exit
-//     has its own status code; see @returns.
+//     a sign the factor R is unusable), when outer_stag_window consecutive
+//     rounds fail to improve the true LS residual (the LS-floor exit), or when
+//     an optional caller-supplied convergence oracle (a backward-error
+//     estimate in the benchmarks) falls to be_tol. Each exit has its own
+//     status code; see @returns.
 //
 // The convergence test is on the true LS residual, matching the reference; the
 // inner drop tolerance only paces the restarts.
@@ -49,11 +51,25 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <vector>
 
 
 namespace RandLAPACK {
+
+
+/// Caller-supplied convergence oracle for restarted_pcg_ne. Called on a supplied
+/// x0 before the first round and after every round, with the current iterate x
+/// (length n), the true residual r = b - A x (length m) and its adjoint product
+/// A^T r (length n), all already formed by the restart loop, so the oracle adds
+/// only its own arithmetic. Returns a nonnegative measure; the loop ends with
+/// status 5 when it is <= be_tol. The benchmarks pass the sketched
+/// Karlson-Walden backward error here (Epperly, Meier and Nakatsukasa 2024,
+/// arXiv:2406.03468, eq. 4.2: the quantity their Algorithm 4 tests every fifth
+/// inner iteration of its second refinement step).
+template <typename T>
+using BackwardErrorOracle = std::function<T(const T* x, const T* r, const T* ATr)>;
 
 
 /// Per-round records of one restarted_pcg_ne run, for callers that need more
@@ -71,14 +87,18 @@ struct PCGRoundHistory {
     std::vector<T>   best_relres;    ///< best kernel relres seen in the round
     std::vector<int> best_iter;      ///< iteration achieving best_relres
     std::vector<T>   ls_relres;      ///< true LS relres after the round
+    std::vector<T>   be;             ///< oracle value after the round (-1 when no oracle is active)
+    T    be_x0           = (T)-1;    ///< oracle value of a supplied x0 (-1: cold start or inactive)
     long t_inner_us      = 0;        ///< wallclock inside pcg_inner
     long t_fwd_inner_us  = 0;        ///< A applies inside the kernel
     long t_adj_inner_us  = 0;        ///< A^T applies inside the kernel
     long t_trsm_inner_us = 0;        ///< trsv time inside the kernel
+    long t_be_us         = 0;        ///< wallclock inside the oracle, EXCLUDED from times[3]
     void clear() {
         iters.clear(); status.clear(); relres.clear();
-        best_relres.clear(); best_iter.clear(); ls_relres.clear();
-        t_inner_us = t_fwd_inner_us = t_adj_inner_us = t_trsm_inner_us = 0;
+        best_relres.clear(); best_iter.clear(); ls_relres.clear(); be.clear();
+        be_x0 = (T)-1;
+        t_inner_us = t_fwd_inner_us = t_adj_inner_us = t_trsm_inner_us = t_be_us = 0;
     }
 };
 
@@ -130,13 +150,23 @@ struct PCGRoundHistory {
 ///                      end the loop as an LS-floor exit. <= 0 disables the outer
 ///                      exit. Decoupled from stag_window: the two mechanisms
 ///                      are independent.
+/// @param[in]  be_oracle, be_tol  optional convergence oracle (see
+///                      BackwardErrorOracle). Active only when be_oracle is
+///                      non-empty AND be_tol >= 0. Evaluated on a supplied x0
+///                      before the first round and after every round; a value
+///                      <= be_tol ends the run with status 5. The LS tolerance
+///                      takes precedence on every path: a run that meets tol
+///                      reports 0 even if the oracle also passed. The oracle's
+///                      wall time is kept out of times[3] and reported in
+///                      history->t_be_us.
 /// @returns 0 if the LS tolerance was met;
 ///          1 if the total inner-iteration budget was exhausted;
 ///          2 if the inner CG broke down or made no progress (reference flag 2);
 ///          3 if the outer round budget (max_restarts) was spent;
 ///          4 if the run ended at its LS floor (outer stagnation exit, or an
-///            exactly-zero NE residual with the LS tolerance still unmet).
-///          Codes 3 and 4 are distinct from 1; callers that only test
+///            exactly-zero NE residual with the LS tolerance still unmet);
+///          5 if the caller's oracle met be_tol (see be_oracle).
+///          Codes 3, 4 and 5 are distinct from 1; callers that only test
 ///          zero/nonzero are unaffected.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 int restarted_pcg_ne(
@@ -156,7 +186,9 @@ int restarted_pcg_ne(
     T inner_abs_tol = (T)0,
     PCGRoundHistory<T>* history = nullptr,
     const T* x0 = nullptr,
-    int outer_stag_window = 2)
+    int outer_stag_window = 2,
+    BackwardErrorOracle<T> be_oracle = {},
+    T be_tol = (T)-1)
 {
     randlapack_require(restart_drop > (T)0 && restart_drop < (T)1)
         << "restarted_pcg_ne: restart_drop must lie in (0,1)";
@@ -276,6 +308,18 @@ int restarted_pcg_ne(
     // NE residual from the TRUE residual b - A x0 in the same stable form the
     // restart loop uses (g - H z would reintroduce the cancellation this
     // stable form avoids).
+    // Optional convergence oracle (see BackwardErrorOracle). Its wall time is
+    // accumulated separately so times[3] keeps measuring the solver alone.
+    const bool be_active = static_cast<bool>(be_oracle) && be_tol >= (T)0;
+    long t_be = 0;
+    bool be_done = false;
+    int status = 1;
+    auto eval_oracle = [&](T& out) {
+        auto tb = clock::now();
+        out = be_oracle(x, wm, r_ne);           // r_ne holds A^T (b - A x) at every call site
+        t_be += duration_cast<microseconds>(clock::now() - tb).count();
+    };
+
     T relres;
     if (x0 == nullptr) {
         // z = 0, so x = 0 exactly and ||b - A x|| / ||b|| = 1 with no arithmetic:
@@ -299,6 +343,14 @@ int restarted_pcg_ne(
         A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
           n, 1, m, (T)1.0, wm, m, (T)0.0, r_ne, n);
         t_adj += duration_cast<microseconds>(clock::now() - ta).count();
+        if (be_active) {
+            // Same precedence as inside the loop: the LS tolerance wins. A start
+            // that already meets tol is reported as 0 by the epilogue; the oracle
+            // only ends a run that tol would not have ended.
+            T be0; eval_oracle(be0);
+            if (history) history->be_x0 = be0;
+            if (relres > tol && be0 <= be_tol) { be_done = true; status = 5; }
+        }
         if (prec) {
             auto ts = clock::now();
             { Blas2ThreadGuard tg(n);
@@ -315,7 +367,6 @@ int restarted_pcg_ne(
 
     iters_done = 0;
     int restarts = 0;
-    int status = 1;
 
     // Outer stagnation state: when tol sits below the problem's achievable LS
     // floor (e.g. a data noise floor above the requested tolerance), every
@@ -329,7 +380,7 @@ int restarted_pcg_ne(
     T   ls_stag_ref    = relres;
     int ls_flat_rounds = 0;
 
-    while (relres > tol && iters_done < max_iters) {
+    while (!be_done && relres > tol && iters_done < max_iters) {
         if (max_restarts >= 0 && restarts > max_restarts) { status = 3; break; }  // round budget spent
         T ne_norm = blas::nrm2(n, r_ne, 1);
         if (ne_norm == (T)0) {
@@ -382,11 +433,14 @@ int restarted_pcg_ne(
         // et al. Alg. 1 line 5) rather than the reference's g - H z, which
         // subtracts two large kappa-contaminated quantities and floors the
         // achievable accuracy on hard problems.
+        T be_round = (T)-1;
         {
             auto ta = clock::now();
             A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
               n, 1, m, (T)1.0, wm, m, (T)0.0, r_ne, n);
             t_adj += duration_cast<microseconds>(clock::now() - ta).count();
+            // The oracle wants the raw A^T r, so it runs before the triangular solve.
+            if (be_active) eval_oracle(be_round);
             if (prec) {
                 auto ts = clock::now();
                 { Blas2ThreadGuard tg(n);   // cap threads: see rl_blas2_threads.hh
@@ -404,9 +458,11 @@ int restarted_pcg_ne(
             history->best_relres.push_back(rep.best_relres);
             history->best_iter.push_back(rep.best_iter);
             history->ls_relres.push_back(relres);
+            history->be.push_back(be_round);
         }
 
         if (relres <= tol) { status = 0; break; }
+        if (be_active && be_round <= be_tol) { status = 5; break; }   // oracle target met
         if (kret != 0) { status = 2; break; }             // breakdown: R unusable
         // A zero-iteration round changes nothing, so the loop must end either
         // way; gate the MEANING on the kernel status, not the count: a round
@@ -432,16 +488,20 @@ int restarted_pcg_ne(
         }
     }
 
-    if (relres <= tol) status = 0;
+    // A status of 5 is only ever set with relres > tol (see the precedence rule),
+    // so this guard is belt and braces: it keeps a future edit from turning a
+    // zero-round oracle exit into a "tol" exit with an empty round history.
+    if (status != 5 && relres <= tol) status = 0;
 
     if (restarts_done) *restarts_done = restarts;
     if (times) { times[0] = t_fwd; times[1] = t_adj; times[2] = t_trsm;
-                 times[3] = duration_cast<microseconds>(clock::now() - total_start).count(); }
+                 times[3] = duration_cast<microseconds>(clock::now() - total_start).count() - t_be; }
     if (history) {
         history->t_inner_us      = t_kernel;
         history->t_fwd_inner_us  = t_fwd_in;
         history->t_adj_inner_us  = t_adj_in;
         history->t_trsm_inner_us = t_trsm_in;
+        history->t_be_us         = t_be;
     }
     if (final_relres) *final_relres = relres;
     cleanup();

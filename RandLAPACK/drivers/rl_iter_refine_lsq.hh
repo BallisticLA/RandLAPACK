@@ -109,6 +109,11 @@ struct IterRefineLSQ {
     /// documentation). <= 0 disables the floor exit. Decoupled from
     /// inner_stag_window: the two mechanisms are independent.
     int outer_stag_window = 2;
+    /// Optional convergence oracle forwarded to the engine (see BackwardErrorOracle
+    /// in rl_restarted_pcg_ne.hh). Active only when non-empty and be_tol >= 0; the
+    /// run then ends with engine status 5 as soon as the oracle is <= be_tol.
+    BackwardErrorOracle<T> be_oracle;
+    T be_tol = (T)-1;
     /// Enable per-step / per-substep timing breakdown.
     bool timing;
     /// Print convergence info to stdout.
@@ -135,10 +140,16 @@ struct IterRefineLSQ {
     /// True LS relative residual after each round (engine ls_relres, kept for
     /// the per-round sidecar records).
     std::vector<T> ls_relres_per_step;
+    /// Oracle value after each round (-1 when inactive) and of the start (always -1
+    /// here, the start is cold); engine history republished.
+    std::vector<T> be_per_step;
+    T be_x0 = (T)-1;
+    /// Wall time spent inside the oracle, already excluded from times[0] and times[5].
+    long t_be_us = 0;
     /// Final relative residual ||b - J x|| / ||b|| (or ||b - J x|| if ||b|| == 0).
     T final_residual_norm;
     /// The engine's exit status, verbatim (see restarted_pcg_ne @returns:
-    /// 0 tol met, 1 budget, 2 breakdown, 3 round budget, 4 LS floor). Recorded
+    /// 0 tol met, 1 budget, 2 breakdown, 3 round budget, 4 LS floor, 5 oracle). Recorded
     /// so callers can report WHY a run ended, not just whether it converged.
     int engine_status = 1;
     /// Total inner CG iterations summed over all rounds, for callers that report a
@@ -223,7 +234,8 @@ struct IterRefineLSQ {
             timing ? times4 : nullptr,
             &final_rel,
             inner_stag_window, inner_stag_rel_improve,
-            abs_guard, &hist, /*x0=*/nullptr, outer_stag_window);
+            abs_guard, &hist, /*x0=*/nullptr, outer_stag_window,
+            be_oracle, be_tol);
         engine_status = st;
 
         // Republish the engine's per-round records under this class's field names.
@@ -233,6 +245,9 @@ struct IterRefineLSQ {
         inner_best_relres_per_step = hist.best_relres;
         inner_best_iter_per_step   = hist.best_iter;
         ls_relres_per_step         = hist.ls_relres;
+        be_per_step                = hist.be;
+        be_x0                      = hist.be_x0;
+        t_be_us                    = hist.t_be_us;
         outer_iters_done    = rounds;
         final_residual_norm = final_rel;
 
@@ -248,8 +263,10 @@ struct IterRefineLSQ {
         }
 
         if (timing) {
+            // The oracle's wall time is not solver work: keep it out of the total
+            // (and hence out of "other"), exactly as the engine keeps it out of times4[3].
             long total = std::chrono::duration_cast<std::chrono::microseconds>(
-                             clock::now() - t_start).count();
+                             clock::now() - t_start).count() - hist.t_be_us;
             // Non-overlapping [outer_total, inner_cg_total, trsm, fwd, adj, other]:
             // op totals are all-inclusive; "other" subtracts the kernel wallclock
             // and the outer-only op time so nothing is counted twice.
