@@ -118,74 +118,142 @@ static void compute_orth_and_cond(AOp& A, const double* R, int64_t mtot, int64_t
     cond_out = cond_tmp;
 }
 
+static void print_toep_usage(const char* exe) {
+    std::fprintf(stderr,
+      "Usage (named form, preferred):\n"
+      "  %s --out=DIR --m=ROWS --n=COLS [options]\n"
+      "\n"
+      "Required:\n"
+      "  --out=DIR              output directory for the CSVs\n"
+      "  --m=ROWS --n=COLS      problem shape (m >= n)\n"
+      "\n"
+      "Options (default in brackets; every default below is the value the job scripts use,\n"
+      "so in practice only --out, --m and --n need to be given):\n"
+      "  --precision=double     [double]  only double is supported\n"
+      "  --omega=F              [0.14]    prolate Toeplitz shape parameter\n"
+      "  --lambda-rel=F         [1e-20]   relative regularization\n"
+      "  --mask=N               [255]     method bitmask\n"
+      "  --tol=F                [1e-12]   solver tolerance\n"
+      "  --maxit=N              [3000]    solver iteration cap\n"
+      "  --d-factor=F           [2.0]     sketch oversampling\n"
+      "  --sketch-nnz=N         [4]       nonzeros per sketch column\n"
+      "  --seed=N               [1]       RNG seed\n"
+      "  --runs=N               [1]       repeats per method\n"
+      "  --solver=lsqr|pcg_ne   [pcg_ne]  outer solver\n"
+      "  --pcg-restart-maxit=N  [500]     inner iterations per round\n"
+      "  --pcg-max-restarts=N   [50]      additional rounds after the first\n"
+      "  --round-drop=F         [1e-4]    per-round residual drop, in (0,1)\n"
+      "  --inner-tol=F          [-1]      inner absolute floor; <0 = eps^0.85, 0 = off\n"
+      "\n"
+      "The positional form is still accepted for existing job scripts, but is deprecated:\n"
+      "  <prec> <outdir> <m> <n> <omega> <lambda_rel> <mask> <tol> <maxit> <d_factor>\n"
+      "  <sketch_nnz> [seed] [runs] [solver] [pcg_restart_maxit] [pcg_max_restarts]\n"
+      "  [round_drop] [inner_abs_tol]\n", exe);
+}
+
 int main(int argc, char** argv) {
-    if (argc < 12) {
-        std::fprintf(stderr, "usage: %s <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> "
-                             "<tol> <maxit> <d_factor> <sketch_nnz> [seed] [num_runs] [solver] "
-                             "[pcg_restart_maxit] [pcg_max_restarts] [pcg_restart_drop] "
-                             "[inner_abs_tol]\n", argv[0]);
-        return 1;
+    // Defaults are the values every job script in the repo passes: of the 18 positional
+    // arguments this driver used to take, only the output directory, m and n ever varied.
+    std::string outdir, solver = "pcg_ne";
+    int64_t m = 0, n = 0, method_mask = 255, sketch_nnz = 4, seed = 1, num_runs = 1;
+    double omega = 0.14, lambda_rel = 1e-20, tol = 1e-12, d_factor = 2.0;
+    int maxit = 3000, pcg_restart_maxit = 500, pcg_max_restarts = 50;
+    double pcg_restart_drop = 1e-4, abs_guard_cli = -1.0;
+
+    if (rl::bench::BenchArgs::looks_named(argc, argv)) {
+        try {
+            rl::bench::BenchArgs a(argc, argv);
+            a.reject_unknown({"precision", "out", "m", "n", "omega", "lambda-rel", "mask",
+                              "tol", "maxit", "d-factor", "sketch-nnz", "seed", "runs",
+                              "solver", "pcg-restart-maxit", "pcg-max-restarts",
+                              "round-drop", "inner-tol", "help"});
+            if (a.has("help")) { print_toep_usage(argv[0]); return 0; }
+            std::string prec = a.str("precision", "double");
+            if (prec != "double") {
+                std::fprintf(stderr, "--precision must be double (this benchmark is double "
+                                     "precision only); got \"%s\"\n", prec.c_str());
+                return 1;
+            }
+            outdir            = a.require_str("out");
+            m                 = a.i64("m", 0);
+            n                 = a.i64("n", 0);
+            omega             = a.dbl("omega", 0.14);
+            lambda_rel        = a.dbl("lambda-rel", 1e-20);
+            method_mask       = a.i64("mask", 255);
+            tol               = a.dbl("tol", 1e-12);
+            maxit             = (int)a.i64("maxit", 3000);
+            d_factor          = a.dbl("d-factor", 2.0);
+            sketch_nnz        = a.i64("sketch-nnz", 4);
+            seed              = a.i64("seed", 1);
+            num_runs          = a.i64("runs", 1);
+            solver            = a.str("solver", "pcg_ne");
+            pcg_restart_maxit = (int)a.i64("pcg-restart-maxit", 500);
+            pcg_max_restarts  = (int)a.i64("pcg-max-restarts", 50);
+            pcg_restart_drop  = a.dbl("round-drop", 1e-4);
+            abs_guard_cli     = a.dbl("inner-tol", -1.0);
+            if (m <= 0 || n <= 0) {
+                std::fprintf(stderr, "--m and --n are required and must be positive\n");
+                return 1;
+            }
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "Error: %s\n\n", e.what());
+            print_toep_usage(argv[0]);
+            return 1;
+        }
+    } else {
+        // Deprecated positional form, kept so existing job scripts keep running unchanged.
+        if (argc < 12) { print_toep_usage(argv[0]); return 1; }
+        std::fprintf(stderr, "WARNING: positional arguments are deprecated; a value in the "
+                             "wrong slot is parsed and echoed rather than rejected, which has "
+                             "silently invalidated a campaign before. Run with --help for the "
+                             "named form.\n");
+        std::string prec = argv[1];
+        if (prec != "double") {
+            std::fprintf(stderr, "prec must be \"double\" (this benchmark is double precision "
+                                 "only, v1); got \"%s\"\n", prec.c_str());
+            return 1;
+        }
+        outdir      = argv[2];
+        m           = std::stoll(argv[3]);
+        n           = std::stoll(argv[4]);
+        omega       = std::stod(argv[5]);
+        lambda_rel  = std::stod(argv[6]);
+        method_mask = std::stoll(argv[7]);
+        tol         = std::stod(argv[8]);
+        maxit       = std::stoi(argv[9]);
+        d_factor    = std::stod(argv[10]);
+        sketch_nnz  = std::stoll(argv[11]);
+        seed        = (argc > 12) ? std::stoll(argv[12]) : 1;
+        num_runs    = (argc > 13) ? std::stoll(argv[13]) : 1;
+        solver      = (argc > 14) ? argv[14] : "pcg_ne";
+        pcg_restart_maxit = (argc > 15) ? std::stoi(argv[15]) : 500;
+        pcg_max_restarts  = (argc > 16) ? std::stoi(argv[16]) : 50;
+        pcg_restart_drop  = (argc > 17) ? std::stod(argv[17]) : 1e-4;
+        abs_guard_cli     = (argc > 18) ? std::stod(argv[18]) : -1.0;
     }
-    std::string prec = argv[1];          // "double" (v1)
-    if (prec != "double") {
-        std::fprintf(stderr, "prec must be \"double\" (this benchmark is double precision "
-                             "only, v1); got \"%s\"\n", prec.c_str());
-        return 1;
-    }
-    std::string outdir = argv[2];
-    int64_t m = std::stoll(argv[3]);
-    int64_t n = std::stoll(argv[4]);
-    double omega = std::stod(argv[5]);
-    double lambda_rel = std::stod(argv[6]);
-    int64_t method_mask = std::stoll(argv[7]);
-    double tol = std::stod(argv[8]);
-    int maxit = std::stoi(argv[9]);
-    double d_factor = std::stod(argv[10]);
-    int64_t sketch_nnz = std::stoll(argv[11]);
-    int64_t seed = (argc > 12) ? std::stoll(argv[12]) : 1;
-    // Repetitions per method, all recorded. Timing at 4-7 LSQR iterations is at
-    // the noise floor of a single run; 5 runs + best-of in the plotter is the
-    // fix. Default 1 keeps old invocations valid.
-    int64_t num_runs = (argc > 13) ? std::stoll(argv[13]) : 1;
+
     if (num_runs < 1) {
-        std::fprintf(stderr, "num_runs must be >= 1 (got %lld)\n", (long long)num_runs);
+        std::fprintf(stderr, "runs must be >= 1 (got %lld)\n", (long long)num_runs);
         return 1;
     }
-    // Solver selection; default pcg_ne (see file header for the
-    // lsqr/pcg_ne split). The pcg_ne knob defaults (pcg_restart_maxit,
-    // pcg_max_restarts, pcg_restart_drop) are documented at their own CLI
-    // parses below, not repeated here.
-    std::string solver = (argc > 14) ? argv[14] : "pcg_ne";
     if (solver == "restarted_pcg_ne") solver = "pcg_ne";
     if (solver != "lsqr" && solver != "pcg_ne") {
         std::fprintf(stderr, "solver must be \"lsqr\" or \"pcg_ne\" (got \"%s\")\n", solver.c_str());
         return 1;
     }
     const bool use_pcg = (solver == "pcg_ne");
-    const int    pcg_restart_maxit = (argc > 15) ? std::stoi(argv[15]) : 500;
-    // max_restarts counts ADDITIONAL rounds after the first. Default 50: the
-    // round cap must not bind before tol and maxit do.
-    const int    pcg_max_restarts  = (argc > 16) ? std::stoi(argv[16]) : 50;
-    // Per-round pacing; CLI-exposed so this benchmark and FEM2 use the same
-    // round-drop factor and stay comparable on round counts.
-    const double pcg_restart_drop  = (argc > 17) ? std::stod(argv[17]) : 1e-4;
     if (!(pcg_restart_drop > 0.0 && pcg_restart_drop < 1.0)) {
-        std::fprintf(stderr, "pcg_restart_drop must lie in (0,1) (got %s)\n", argv[17]);
+        std::fprintf(stderr, "round-drop must lie in (0,1) (got %g)\n", pcg_restart_drop);
         return 1;
     }
-    // Absolute inner-target guard for the shared engine (mirrors
-    // CQRRT_linop_applications.cc): once a cycle's normal-equation residual has
-    // fallen to abs_guard * ||g0||, g0 being the first cycle's NE right-hand
-    // side, the inner solve stops instead of grinding a further
-    // pcg_restart_drop factor on rounding noise. At the data-noise floor the NE
-    // residual is at rounding level, so the two confirmation cycles of the
-    // outer stagnation exit cost one iteration each instead of a full solve.
-    // argv[18] overrides: < 0 (or absent) keeps eps^0.85, 0 disables the guard.
+    // Absolute inner-target guard for the shared engine (mirrors the FEM2 driver): once a
+    // cycle's normal-equation residual has fallen to abs_guard * ||g0||, g0 being the first
+    // cycle's NE right-hand side, the inner solve stops instead of grinding a further
+    // round-drop factor on rounding noise. Negative (or absent) keeps eps^0.85; 0 disables it.
     const double abs_guard_default = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    const double abs_guard_cli = (argc > 18) ? std::stod(argv[18]) : -1.0;
     const double abs_guard = (abs_guard_cli < 0.0) ? abs_guard_default : abs_guard_cli;
     if (abs_guard >= 1.0) {
-        std::fprintf(stderr, "inner_abs_tol must lie in [0,1) (got %s)\n", argv[18]);
+        std::fprintf(stderr, "inner-tol must lie in [0,1) (got %g)\n", abs_guard);
         return 1;
     }
     int64_t block_size = 256;
@@ -561,30 +629,28 @@ int main(int argc, char** argv) {
             solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];  // t_trsm is 0 here (no R)
         } else {
             // Build R via the selected Q-less QR method, then shared LSQR with right precond R.
+            // Copies one shared-helper QR harvest into this benchmark's loose locals.
+            auto harvest = [&](const rl::bench::QRRun& d, const auto& qr, size_t npasses) {
+                qr_status = d.status;
+                chol_retries = d.chol_retries;
+                if (d.status == 0) { qr_us = d.qr_time_us; analytical_kb = d.analytical_kb; fold_chol_shift(qr, npasses); }
+            };
             if (alg == "CholQR") {
                 rl::CholQR_linops<double> qr(true, tol); qr.block_size = block_size;
-                qr.max_retries = rl::bench::bench_chol_max_retries();
-                qr_status = qr.call(A_hat, R.data(), n);
-                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 1);
-                    analytical_kb = rl::cholqr_linops_analytical_kb<double>(mtot, n, block_size); }
+                harvest(rl::bench::run_cholqr_family(qr, A_hat, R.data(), n, [&]{
+                    return rl::cholqr_linops_analytical_kb<double>(mtot, n, block_size); }), qr, 1);
             } else if (alg == "CholQR2") {
                 rl::CholQR2_linops<double> qr(true, tol); qr.block_size = block_size;
-                qr.max_retries = rl::bench::bench_chol_max_retries();
-                qr_status = qr.call(A_hat, R.data(), n);
-                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 2);
-                    analytical_kb = rl::cholqr2_linops_analytical_kb<double>(mtot, n, block_size); }
+                harvest(rl::bench::run_cholqr_family(qr, A_hat, R.data(), n, [&]{
+                    return rl::cholqr2_linops_analytical_kb<double>(mtot, n, block_size); }), qr, 2);
             } else if (alg == "sCholQR3") {
                 rl::sCholQR3_linops<double> qr(true, tol); qr.block_size = block_size;
-                qr.max_retries = rl::bench::bench_chol_max_retries();
-                qr_status = qr.call(A_hat, R.data(), n);
-                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 3);
-                    analytical_kb = rl::scholqr3_linops_analytical_kb<double>(mtot, n, block_size); }
+                harvest(rl::bench::run_cholqr_family(qr, A_hat, R.data(), n, [&]{
+                    return rl::scholqr3_linops_analytical_kb<double>(mtot, n, block_size); }), qr, 3);
             } else if (alg == "sCholQR3_basic") {
                 rl::sCholQR3_linops_basic<double> qr(true, tol);
-                qr.max_retries = rl::bench::bench_chol_max_retries();
-                qr_status = qr.call(A_hat, R.data(), n);
-                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 3);
-                    analytical_kb = rl::scholqr3_linops_basic_analytical_kb<double>(mtot, n); }
+                harvest(rl::bench::run_cholqr_family(qr, A_hat, R.data(), n, [&]{
+                    return rl::scholqr3_linops_basic_analytical_kb<double>(mtot, n); }), qr, 3);
             } else { // CQRRT_linop
                 rl::CQRRT_linops<double, RNG> qr(true, tol);
                 qr.max_retries = rl::bench::bench_chol_max_retries();
@@ -751,6 +817,9 @@ int main(int argc, char** argv) {
     } catch (const std::exception& e) {
         std::fprintf(stderr, "\nWARNING: backward-error post-pass FAILED (%s); the results and rounds CSVs are complete.\n", e.what());
     }
+    rl::bench::check_csv_arity(csv);
+    rl::bench::check_csv_arity(csv_rounds);
+    rl::bench::check_csv_arity(csv_kw);
     std::printf("\nresults -> %s\nrounds  -> %s\nbackward error -> %s\n",
                 csv.c_str(), csv_rounds.c_str(), csv_kw.c_str());
     return 0;

@@ -93,13 +93,9 @@ template <typename T, typename GLO>
 static void compute_Q_from_R(
     GLO& A_op, T* R, int64_t ldr,
     T* Q_out, int64_t m, int64_t n) {
-    T* Eye = new T[n * n]();
-    RandLAPACK::util::eye(n, n, Eye);
-    A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-         m, n, n, (T)1.0, Eye, n, (T)0.0, Q_out, m);
+    RandLAPACK::materialize(A_op, m, n, Q_out, m);
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                Diag::NonUnit, m, n, (T)1.0, R, ldr, Q_out, m);
-    delete[] Eye;
 }
 
 // Core algorithm runner: operates on a pre-constructed SparseLinOp.

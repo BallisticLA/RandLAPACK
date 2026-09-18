@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: materialize — write the dense representation of a linear operator
+// Public API: materialize, which writes the dense representation of a linear operator
 // into a caller-provided buffer.
 //
 // Generic fallback: multiply by the identity matrix.
@@ -34,10 +34,10 @@ template <typename LinOp>
 void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, int64_t ldb) {
     using T = typename LinOp::scalar_t;
     randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
-    // Zero the output buffer.
-    for (int64_t j = 0; j < n; ++j)
-        for (int64_t i = 0; i < m; ++i)
-            buf[i + j * ldb] = (T)0.0;
+    // No zero-fill: the apply below passes beta = 0 and so overwrites every entry of buf.
+    // Filling first costs a full m x n pass for nothing, which at benchmark scale is tens of
+    // gigabytes of stores. The SparseLinOp overload below DOES need its fill, because
+    // sparse_to_dense writes only the nonzeros.
     // Build identity matrix.
     T* Eye = new T[n * n]();
     RandLAPACK::util::eye(n, n, Eye);

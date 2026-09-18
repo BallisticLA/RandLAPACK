@@ -9,6 +9,9 @@
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
+#include <map>
+#include <stdexcept>
+#include <type_traits>
 #include <iomanip>
 #include <iostream>
 #include <ostream>
@@ -74,6 +77,63 @@ inline int bench_chol_max_retries() {
         return (s != nullptr && *s != '\0') ? std::atoi(s) : -1;
     }();
     return v;
+}
+
+// Verifies that a just-written CSV's header and its first data row agree on field count.
+// The headers here are string literals and the rows are long chains of <<, so nothing
+// otherwise ties them together: a writer that gains a column on one side and not the other
+// silently shifts every later column, and every consumer then misreads the file. That has
+// happened in this suite before. One reopen of a file we just closed is far cheaper than
+// the benchmark that produced it.
+inline void check_csv_arity(const std::string& filename) {
+    std::ifstream in(filename);
+    if (!in) return;
+    auto n_fields = [](const std::string& s) {
+        return s.empty() ? 0 : (int)std::count(s.begin(), s.end(), ',') + 1;
+    };
+    std::string line, header;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;   // provenance lines
+        if (header.empty()) { header = line; continue; }
+        int h = n_fields(header), r = n_fields(line);
+        if (h != r) {
+            std::cerr << "ERROR: " << filename << ": CSV header has " << h
+                      << " fields but the first data row has " << r
+                      << ". Every column after the mismatch will be misread.\n";
+        }
+        return;   // one data row is enough; they are all written by the same code path
+    }
+}
+
+// Accounting harvested from one Q-less QR run.
+struct QRRun {
+    int  status        = 0;
+    long qr_time_us    = 0;
+    int  chol_retries  = 0;
+    long analytical_kb = -1;
+    std::vector<long> breakdown;
+};
+
+// Runs one CholQR-family driver (CholQR, CholQR2, sCholQR3, sCholQR3_basic all share
+// call(A, R, ldr)) and harvests its accounting. Both benchmarks dispatch the same
+// methods, and harvesting in one place is what keeps them from drifting: they had
+// already diverged, one recording chol_retries unconditionally and the other only on
+// success. chol_retries is meaningful whether or not the factorization succeeded, so
+// it is recorded unconditionally here.
+// The caller sets any driver knobs (block_size, nnz) before calling, and folds the
+// shift records itself, since the two benchmarks store those differently.
+template <typename QR, typename GLO, typename T, typename AnalyticalFn>
+QRRun run_cholqr_family(QR& qr, GLO& A, T* R, int64_t ldr, AnalyticalFn&& analytical_kb) {
+    QRRun out;
+    qr.max_retries   = bench_chol_max_retries();
+    out.status       = qr.call(A, R, ldr);
+    out.chol_retries = qr.n_chol_retries;
+    if (out.status == 0) {
+        out.qr_time_us    = qr.total_us();
+        out.breakdown     = qr.times;
+        out.analytical_kb = analytical_kb();
+    }
+    return out;
 }
 
 // Named exit conditions for the CSV: distinguishes "hit the LS floor honestly"
@@ -233,18 +293,26 @@ static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n
                                      int64_t cond_cap = 16384,
                                      T no_cond_sentinel = (T)-1) {
     int64_t b = (block_size > 0 && block_size < n) ? block_size : n;
-    T* Q       = new T[m * n]();
+    // No value-init on Q: the loop below writes every column block with beta = 0, so all m*n
+    // entries are overwritten. Zeroing first costs a full m*n pass for nothing, which at the
+    // large FEM2 cell (m ~ 3.0e5, n ~ 3.3e4) is about 80 GB of stores per call.
+    T* Q       = new T[m * n];
     T* E_block = new T[n * b]();   // identity column-block scratch
 
     // Materialize Q = A * R^{-1} one column block at a time:
     //   E_block = I[:, j:j+b];  Q[:, j:j+b] = A_op * E_block.
     for (int64_t j0 = 0; j0 < n; j0 += b) {
         int64_t bk = std::min(b, n - j0);
-        std::fill(E_block, E_block + n * b, (T)0.0);
+        // E_block is value-initialized to zero above, and each iteration sets only the bk
+        // entries E_block[(j0+j) + j*n]. Clearing just those after the apply keeps the block
+        // zero for the next iteration, where re-zeroing all n*b entries every time costs
+        // n^2 stores per call (about 8.7 GB at n = 33024).
         for (int64_t j = 0; j < bk; ++j)
             E_block[(j0 + j) + j * n] = (T)1.0;
         A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
              m, bk, n, (T)1.0, E_block, n, (T)0.0, Q + j0 * m, m);
+        for (int64_t j = 0; j < bk; ++j)
+            E_block[(j0 + j) + j * n] = (T)0.0;
     }
     delete[] E_block;
 
@@ -260,11 +328,19 @@ static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n
 
     T orth;
     {
-        T* GmI = new T[n * n];
-        std::copy(G, G + n * n, GmI);
-        for (int64_t j = 0; j < n; ++j) GmI[j + j * n] -= (T)1.0;
-        orth = lapack::lansy(lapack::Norm::Fro, blas::Uplo::Upper, n, GmI, n) / std::sqrt((T)n);
-        delete[] GmI;
+        // ||G - I||_F, computed by shifting G's diagonal in place rather than copying G.
+        // The copy was an n x n temporary (about 8.7 GB at n = 33024) to change n entries.
+        // Only the diagonal is saved and restored, so G is bit-identical afterwards for the
+        // syevd below: the restore writes back the saved values rather than adding 1 back,
+        // which would not round-trip exactly once a diagonal entry is far from 1.
+        T* diag_save = new T[n];
+        for (int64_t j = 0; j < n; ++j) {
+            diag_save[j] = G[j + j * n];
+            G[j + j * n] -= (T)1.0;
+        }
+        orth = lapack::lansy(lapack::Norm::Fro, blas::Uplo::Upper, n, G, n) / std::sqrt((T)n);
+        for (int64_t j = 0; j < n; ++j) G[j + j * n] = diag_save[j];
+        delete[] diag_save;
     }
 
     // cond(A R^{-1}) from the eigenvalues of the Gram we already formed above.
@@ -409,6 +485,111 @@ static std::string kw_provenance_line(const KWBackwardErrorRef<T>& ref, T b_norm
       << " reference_build_s=" << std::fixed << std::setprecision(1) << build_s << "\n";
     return h.str();
 }
+
+// ---------------------------------------------------------------------------
+// Named command-line arguments.
+//
+// These benchmarks were driven by long positional argument lists (20 slots for the
+// applications driver, 18 for the Toeplitz one). That interface lost a whole campaign: a value
+// intended for one slot landed in the slot before it, the binary parsed it, echoed it, and ran
+// seven cluster jobs that silently encoded a different experiment than the scripts meant. The
+// mitigation at the time was an external script that re-checked argument order, which concedes
+// the interface was the defect.
+//
+// Named flags remove that failure mode by construction: a value is bound to a name rather than
+// a position, an unknown or malformed flag is a hard error instead of a silent shift, and an
+// omitted flag takes a documented default. Accepted forms are --name=value and, for booleans,
+// a bare --name.
+// ---------------------------------------------------------------------------
+class BenchArgs {
+public:
+    BenchArgs(int argc, char** argv) {
+        for (int i = 1; i < argc; ++i) {
+            std::string a = argv[i];
+            if (a.rfind("--", 0) != 0) {
+                throw std::runtime_error("expected a --name=value argument, got '" + a + "'");
+            }
+            a = a.substr(2);
+            auto eq = a.find('=');
+            if (eq == std::string::npos) kv_[a] = "";           // bare flag
+            else                         kv_[a.substr(0, eq)] = a.substr(eq + 1);
+            order_.push_back(eq == std::string::npos ? a : a.substr(0, eq));
+        }
+    }
+
+    // True when the command line uses the named form at all. Lets a driver keep accepting the
+    // old positional form for existing job scripts while steering new ones to flags.
+    static bool looks_named(int argc, char** argv) {
+        for (int i = 1; i < argc; ++i)
+            if (std::string(argv[i]).rfind("--", 0) == 0) return true;
+        return false;
+    }
+
+    bool has(const std::string& k) const { return kv_.count(k) != 0; }
+
+    std::string str(const std::string& k, const std::string& dflt) const {
+        auto it = kv_.find(k);
+        return (it == kv_.end() || it->second.empty()) ? dflt : it->second;
+    }
+    std::string require_str(const std::string& k) const {
+        auto it = kv_.find(k);
+        if (it == kv_.end() || it->second.empty())
+            throw std::runtime_error("missing required argument --" + k);
+        return it->second;
+    }
+    double dbl(const std::string& k, double dflt) const {
+        auto it = kv_.find(k);
+        if (it == kv_.end() || it->second.empty()) return dflt;
+        return parse<double>(k, it->second);
+    }
+    int64_t i64(const std::string& k, int64_t dflt) const {
+        auto it = kv_.find(k);
+        if (it == kv_.end() || it->second.empty()) return dflt;
+        return (int64_t)parse<long long>(k, it->second);
+    }
+    // Bare --name, or --name=1/true/yes. Absent means false.
+    bool boolean(const std::string& k, bool dflt = false) const {
+        auto it = kv_.find(k);
+        if (it == kv_.end()) return dflt;
+        if (it->second.empty()) return true;
+        const std::string& v = it->second;
+        if (v == "1" || v == "true" || v == "yes") return true;
+        if (v == "0" || v == "false" || v == "no") return false;
+        throw std::runtime_error("--" + k + " expects a boolean, got '" + v + "'");
+    }
+
+    // A misspelled flag must not be silently ignored: that would reintroduce exactly the
+    // "ran a different experiment than the script encodes" failure the named form exists to stop.
+    void reject_unknown(std::initializer_list<const char*> known) const {
+        for (const auto& name : order_) {
+            bool ok = false;
+            for (const char* k : known) if (name == k) { ok = true; break; }
+            if (!ok) {
+                std::string msg = "unknown argument --" + name + "\nknown arguments:";
+                for (const char* k : known) msg += std::string(" --") + k;
+                throw std::runtime_error(msg);
+            }
+        }
+    }
+
+private:
+    template <typename T>
+    static T parse(const std::string& k, const std::string& v) {
+        try {
+            size_t pos = 0;
+            T out;
+            if constexpr (std::is_same_v<T, double>) out = std::stod(v, &pos);
+            else                                     out = (T)std::stoll(v, &pos);
+            if (pos != v.size())
+                throw std::invalid_argument("trailing characters");
+            return out;
+        } catch (const std::exception&) {
+            throw std::runtime_error("--" + k + " expects a number, got '" + v + "'");
+        }
+    }
+    std::map<std::string, std::string> kv_;
+    std::vector<std::string> order_;
+};
 
 } // namespace bench
 } // namespace RandLAPACK
