@@ -1,43 +1,20 @@
 #pragma once
 
-// Blas2ThreadGuard: caps the thread count of small dense LEVEL-2 BLAS calls
-// (the triangular solves against an n x n preconditioner) for the duration of a
-// scope, restoring the caller's setting on exit.
+// Blas2ThreadGuard: caps the thread count of small dense level-2 BLAS calls (the
+// triangular solves against an n x n preconditioner) for the duration of a scope,
+// restoring the caller's setting on exit.
 //
-// WHY THIS EXISTS.
+// A single-right-hand-side triangular solve is memory-bound with a sequential dependency
+// chain, so threading it pays a barrier per column while the work between barriers stays
+// flat. Left unguarded it taxes only the preconditioned solvers, which apply the
+// preconditioner every inner iteration, and can therefore invert the wall-clock ranking
+// against the unpreconditioned baseline.
 //
-// A triangular solve with a single right-hand side is O(n^2) work on O(n^2) data:
-// memory-bound, and with a sequential dependency chain. Threaded implementations
-// pay a barrier per column (or per block), so barrier cost grows linearly in n
-// while the useful work between barriers stays flat. Measured on a dense n = 2000
-// upper-triangular factor:
+// Wrap only the level-2 solves: the operator applies around them (FFTs, sparse solves,
+// GEMMs) are level-3-like and want every thread.
 //
-//     threads                1          4         16
-//     MKL dtrsv          0.448 ms   0.162 ms   31.3 ms
-//
-// This is not specific to triangularity (a plain dgemv of the same size degrades
-// the same way) and does not improve with problem size (there is no crossover to
-// wait for), so it is a fixed cost of threading a memory-bound, sequentially
-// dependent kernel, not something blocking or a larger problem can fix.
-//
-// CONSEQUENCE IF LEFT UNGUARDED. The preconditioned least-squares solvers apply the
-// preconditioner every inner iteration; the unpreconditioned baseline does not. The
-// overhead therefore taxes exactly the methods that converge in few iterations, and
-// can invert the wall-clock ranking against the unpreconditioned baseline by two
-// orders of magnitude.
-//
-// SCOPE. Wrap ONLY the level-2 solves. The operator applies around them (FFTs,
-// sparse solves, GEMMs) are level-3-like and genuinely want every thread, so a guard
-// spanning a whole apply would trade one pathology for another.
-//
-// PORTABILITY. MKL is the only BLAS we can cap through a documented per-thread API,
-// so the guard compiles to a no-op elsewhere. That is deliberate: other vendors are
-// not known to thread trsv this way, and a global fallback (omp_set_num_threads)
-// would leak the cap into concurrently running regions.
-//
-// TUNING. The cap defaults to kDefaultBlas2Threads and is overridable at runtime via
-// the RANDLAPACK_BLAS2_THREADS environment variable (read once), so a new machine can
-// be calibrated without a rebuild. A value <= 0 disables the guard entirely.
+// MKL only. Other backends compile to a no-op deliberately, because the alternative
+// (omp_set_num_threads) is global and would leak the cap into concurrent regions.
 
 #include <cstdlib>
 
@@ -54,23 +31,10 @@
 namespace RandLAPACK {
 
 
-/// Size-dependent cap, calibrated on the benchmark hardware (Xeon Gold 6430, 64
-/// cores; dtrsv, milliseconds):
-///
-///     threads          1        4        8       16       32       64
-///     n =  2000     0.562    0.408   *0.392*   0.774    0.909    0.887
-///     n =  8256    18.147    6.232    4.915  * 4.735*   5.828    7.130
-///     n = 20000   108.209   45.121   27.110  *19.276*  19.564   24.354
-///
-/// Threading genuinely helps up to 8-16 threads and degrades past that, so the
-/// cap is a peak-seeker, not a "run it serially" switch. The optimum moves with
-/// n because the parallel work per barrier grows with n while barrier cost does
-/// not, hence the two-tier rule below.
-///
-/// NOTE ON MAGNITUDE. On this hardware the penalty for leaving it unguarded (64
-/// threads) is a moderate 1.5-2.3x. A 16-thread WSL2 desktop showed a 100x
-/// collapse instead, because 16 OpenMP threads there oversubscribe 8 physical
-/// cores; do not quote desktop numbers as if they were cluster numbers.
+/// Size-dependent cap. Threading helps up to 8-16 threads and degrades past that, so this
+/// seeks the peak rather than forcing serial execution; the optimum grows with n because
+/// work per barrier does while barrier cost does not. Values come from a dtrsv sweep on the
+/// benchmark node, recorded in the dev log rather than here since they are hardware-specific.
 constexpr int kBlas2ThreadsSmall = 8;    ///< n <= kBlas2SmallDim
 constexpr int kBlas2ThreadsLarge = 16;   ///< n >  kBlas2SmallDim
 constexpr int64_t kBlas2SmallDim = 4000;
@@ -89,32 +53,17 @@ inline int blas2_thread_cap(int64_t n) {
 }
 
 
-/// Cap for MKL's threaded FFT (DFTI). Measured on the benchmark node (Xeon Gold
-/// 6430, 64 cores) for one forward+backward apply of the Toeplitz operator,
-/// milliseconds:
+/// Cap for MKL's threaded FFT (DFTI). A single small transform stops improving past about 16
+/// threads and becomes intermittently unstable above that (occasional transforms cost ~100x
+/// their typical time), which a solver converging in a handful of iterations cannot average
+/// out. Batching via DFTI_NUMBER_OF_TRANSFORMS is the remedy for the multi-column build path;
+/// the CG loop produces one right-hand side at a time and keeps this cap, narrowed further by
+/// SolveWidthScope while a solver runs. Sweep data is in the dev log, not here.
 ///
-///     threads          1      8     16     32     64
-///     L =  32768    0.274  0.355  0.267  0.297  0.319
-///     L = 131072    3.29   1.24   1.00   0.93   0.97
-///     L = 524288   15.52   4.95   3.66   3.05   3.13
-///
-/// The mean barely improves past 16 threads, and at 64 the call becomes
-/// INTERMITTENTLY unstable (individual transforms occasionally take 100x
-/// their typical cost), which a solver that converges in a handful of
-/// iterations cannot average out. Capping the transform is the
-/// vendor-recommended remedy for single small transforms (Intel advises
-/// reducing the thread count rather than expecting a lone FFT to scale).
-/// Batching via DFTI_NUMBER_OF_TRANSFORMS is the remedy for the multi-column
-/// build path (sketch and Gram applies); the CG loop still produces one
-/// right-hand side at a time and keeps this cap, further narrowed by
-/// SolveWidthScope while a solver is running.
-///
-/// MKL decides an FFT descriptor's threading at commit time in general, but a
-/// cap applied only around DftiComputeForward/Backward (via Blas2ThreadGuard
-/// below) was measured to still bind FFT width on this hardware even for a
-/// descriptor committed at ambient width. ext_toeplitz_linop.hh also sets
-/// DFTI_THREAD_LIMIT at commit time; the two caps compose, and the narrower
-/// compute-time cap wins.
+/// ext_toeplitz_linop.hh also sets DFTI_THREAD_LIMIT at commit time and the two compose, but
+/// do not rely on either alone to make a run reproducible: with the compute-time cap above the
+/// ambient width, FFT width has been observed to vary between otherwise identical runs. Pin
+/// RANDLAPACK_FFT_THREADS explicitly for bit-comparable results.
 constexpr int kDefaultFFTThreads = 16;
 
 
@@ -198,11 +147,17 @@ class Blas2ThreadGuard {
         Blas2ThreadGuard(int cap, int /*tag*/) {
         #if defined(RandBLAS_HAS_MKL)
             if (cap > 0) {
-                // mkl_set_num_threads_local returns the PREVIOUS thread-local value,
-                // where 0 means "no local setting, follow the global one". Restoring
-                // that value in the destructor therefore also restores the
-                // follow-the-global state, rather than pinning the global count.
-                prev_ = mkl_set_num_threads_local(cap);
+                // Never widen: mkl_set_num_threads_local sets the thread-local count
+                // outright, so passing the calibrated cap when the caller has fewer threads
+                // available RAISES the width instead of capping it. That oversubscribes a
+                // restricted allocation and makes OMP_NUM_THREADS=1 not mean 1, which breaks
+                // reproducibility runs. Taking the minimum keeps this a cap in both directions.
+                const int avail = mkl_get_max_threads();
+                const int want  = (avail > 0 && avail < cap) ? avail : cap;
+                // Returns the PREVIOUS thread-local value, where 0 means "no local setting,
+                // follow the global one"; restoring it also restores that follow-global state
+                // rather than pinning the global count.
+                prev_ = mkl_set_num_threads_local(want);
                 active_ = true;
             }
         #endif
