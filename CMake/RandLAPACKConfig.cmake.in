@@ -25,4 +25,12 @@ if (NOT lapackpp_DIR)
 endif()
 find_dependency(lapackpp)
 
+# Runtime-DLL staging for downstream Windows executables: include the helper
+# and seed the DLL directories recorded when RandLAPACK was configured, so a
+# consumer can simply call randlapack_stage_runtime_dlls(<their_target>).
+if (NOT DEFINED RANDLAPACK_RUNTIME_DLL_DIRS OR RANDLAPACK_RUNTIME_DLL_DIRS STREQUAL "")
+    set(RANDLAPACK_RUNTIME_DLL_DIRS "@RandLAPACK_configured_runtime_dll_dirs@")
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/rl_runtime_dlls.cmake")
+
 include("${CMAKE_CURRENT_LIST_DIR}/RandLAPACKTargets.cmake")

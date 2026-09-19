@@ -61,7 +61,7 @@ T power_error_est(
 
         // Compute w = (A * g / ||g|| - V * diag(eigvals) * V' * g / ||g||)
         // Result is stored in the 4th column of vector_buf
-        blas::axpy(m, -1.0, &vector_buf[2 * m], 1, &vector_buf[3 * m], 1);
+        blas::axpy(m, (T) -1.0, &vector_buf[2 * m], 1, &vector_buf[3 * m], 1);
         // Compute (g / ||g||)' * w - this is our measure for the error
         err = blas::dot(m, vector_buf, 1, &vector_buf[3 * m], 1);	
         // v_0 <- v
@@ -187,11 +187,11 @@ class REVD2 {
                 // We further need R = chol(Omega' Y)
                 // Solve this as R = chol(Omega' Y + v Omega'Omega)
                 // Compute v Omega' Omega; syrk only computes the lower triangular part. Need full.
-                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega_dat, m, 0.0, R_dat, k);
+                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega_dat, m, (T) 0.0, R_dat, k);
                 for(int i = 1; i < k; ++i)
                     blas::copy(k - i, &R_dat[i + ((i-1) * k)], 1, &R_dat[(i - 1) + (i * k)], k);
                 // Compute Omega' Y + v Omega' Omega
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega_dat, m, Y_dat, m, 1.0, R_dat, k);
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, (T) 1.0, Omega_dat, m, Y_dat, m, (T) 1.0, R_dat, k);
 
                 // Compute R = chol(Omega' Y + v Omega' Omega)
                 // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
@@ -200,7 +200,7 @@ class REVD2 {
                 RandLAPACK::util::get_U(k, k, R_dat, k);
 
                 // B = Y(R')^-1 - need to transpose R
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_dat, k, Y_dat, m);
 
                 //[V, S, ~] = SVD(B)
                 // Although we don't need the right singular vectors, we need to give space for those.

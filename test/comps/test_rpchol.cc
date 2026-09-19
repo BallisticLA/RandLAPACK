@@ -46,7 +46,7 @@ class TestRPCholesky : public ::testing::Test {
         vector<T> Arecovered(F);
         full_gram(n, Arecovered, blas::Op::NoTrans, k);
         RandBLAS::testing::matrices_approx_equal(
-            blas::Layout::ColMajor, blas::Op::NoTrans, n, n, Abuff, n, Arecovered.data(), n, __PRETTY_FUNCTION__, __FILE__, __LINE__,
+            blas::Layout::ColMajor, blas::Op::NoTrans, n, n, Abuff, n, Arecovered.data(), n, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
         // Check that the pivots are reasonable and nontrivial (i.e., not the sequence from 0 to n-1).

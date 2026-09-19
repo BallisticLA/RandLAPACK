@@ -1,8 +1,5 @@
 
 
-#if defined(__APPLE__)
-int main() {return 0;}
-#else
 
 // Making sure that HQRRP's performance instability is specific to HQRRP and not related to the flaws in behcnmarking logic
 // by comparing HQRRP and GEMM side-by-side.
@@ -179,4 +176,3 @@ int main(int argc, char *argv[]) {
     file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
     file.flush();   
 }
-#endif

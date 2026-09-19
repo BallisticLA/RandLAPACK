@@ -139,7 +139,7 @@ int RS<T, RNG>::call(
         state = RandBLAS::fill_dense(D, Omega_1, state);
 
         // multiply A' by Omega results in n by k omega
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, Omega_1, m, 0.0, Omega, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, (T) 1.0, A, m, Omega_1, m, (T) 0.0, Omega, n);
 
         ++ p_done;
         if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega))) {
@@ -150,7 +150,7 @@ int RS<T, RNG>::call(
 
     while (p - p_done > 0) {
         // Omega = A * Omega
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Omega, n, 0.0, Omega_1, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, (T) 1.0, A, m, Omega, n, (T) 0.0, Omega_1, m);
         ++ p_done;
 
         if(this->cond_check)
@@ -162,7 +162,7 @@ int RS<T, RNG>::call(
         }
 
         // Omega = A' * Omega
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, Omega_1, m, 0.0, Omega, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, (T) 1.0, A, m, Omega_1, m, (T) 0.0, Omega, n);
         ++ p_done;
 
         if (this->cond_check)

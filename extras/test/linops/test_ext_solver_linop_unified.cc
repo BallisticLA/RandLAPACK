@@ -289,7 +289,7 @@ protected:
         T rtol = 100 * std::numeric_limits<T>::epsilon();
         RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, n, C_solver.data(), m,
-            C_reference.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
+            C_reference.data(), m, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
 
@@ -351,7 +351,7 @@ protected:
         T rtol = 100 * std::numeric_limits<T>::epsilon();
         RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, n, C_halfsv.data(), m,
-            C_reference.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
+            C_reference.data(), m, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
 
@@ -408,7 +408,7 @@ protected:
         T rtol = 100 * std::numeric_limits<T>::epsilon();
         RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, n, C_halfsv.data(), m,
-            C_reference.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
+            C_reference.data(), m, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
 

@@ -47,7 +47,7 @@ void pcg_saddle(
 
     //  b1 = A'b - c
     blas::copy(n, c, 1, b1, 1);
-    blas::gemv(Layout::ColMajor, Op::Trans, m, n, 1.0, A, lda, b, 1, -1.0, b1, 1);
+    blas::gemv(Layout::ColMajor, Op::Trans, m, n, (T) 1.0, A, lda, b, 1, (T) -1.0, b1, 1);
 
     // r = b1 - (A'(A x0) + delta x0)
     //		out_a1 = A x0
@@ -55,14 +55,14 @@ void pcg_saddle(
     //		out_at1 += delta x0
     //		r -= out_at1
     blas::copy(n, b1, 1, r, 1);
-    blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, 1.0, A, lda, x0, 1, delta, out_a1, 1);
-    blas::gemv(Layout::ColMajor, Op::Trans, m, n, 1.0, A, lda, out_a1, 1, 0.0, out_at1, 1);
+    blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, (T) 1.0, A, lda, x0, 1, delta, out_a1, 1);
+    blas::gemv(Layout::ColMajor, Op::Trans, m, n, (T) 1.0, A, lda, out_a1, 1, (T) 0.0, out_at1, 1);
     blas::axpy(n, delta, x0, 1, out_at1, 1);
-    blas::axpy(n, -1.0, out_at1, 1, r, 1);
+    blas::axpy(n, (T) -1.0, out_at1, 1, r, 1);
 
     // d = M (M' r);
-    blas::gemv(Layout::ColMajor, Op::Trans, n, k, 1.0, M, ldm, r, 1, 0.0, out_mt1, 1);
-    blas::gemv(Layout::ColMajor, Op::NoTrans, n, k, 1.0, M, ldm, out_mt1, 1, 0.0, d, 1);
+    blas::gemv(Layout::ColMajor, Op::Trans, n, k, (T) 1.0, M, ldm, r, 1, (T) 0.0, out_mt1, 1);
+    blas::gemv(Layout::ColMajor, Op::NoTrans, n, k, (T) 1.0, M, ldm, out_mt1, 1, (T) 0.0, d, 1);
 
     bool reg = delta > 0;
     blas::copy(n, x0, 1, x, 1);
@@ -78,8 +78,8 @@ void pcg_saddle(
 
         // q = A'(A d) + delta d
         //		q = out_at1
-        blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, 1.0,  A, lda, d, 1, 0.0, out_a1, 1);
-        blas::gemv(Layout::ColMajor, Op::Trans, m, n, 1.0, A, lda, out_a1, 1, 0.0, out_at1, 1);
+        blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, (T) 1.0,  A, lda, d, 1, (T) 0.0, out_a1, 1);
+        blas::gemv(Layout::ColMajor, Op::Trans, m, n, (T) 1.0, A, lda, out_a1, 1, (T) 0.0, out_at1, 1);
         if (reg) blas::axpy(n, delta,  d, 1, out_at1, 1);
 
         // alpha = delta1_new / (d' q)
@@ -96,10 +96,10 @@ void pcg_saddle(
             //		r = b1
             //		r -= out_at1
             //		r -= delta x
-            blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, 1.0,  A, lda, x, 1, 0.0, out_a1, 1);
-            blas::gemv(Layout::ColMajor, Op::Trans, m, n, 1.0, A, lda, out_a1, 1, 0.0, out_at1, 1);
+            blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, (T) 1.0,  A, lda, x, 1, (T) 0.0, out_a1, 1);
+            blas::gemv(Layout::ColMajor, Op::Trans, m, n, (T) 1.0, A, lda, out_a1, 1, (T) 0.0, out_at1, 1);
             blas::copy(n, b1, 1, r, 1);
-            blas::axpy(n, -1.0, out_at1, 1, r, 1 );
+            blas::axpy(n, (T) -1.0, out_at1, 1, r, 1 );
             if (reg) blas::axpy(n, -delta, x, 1, r, 1);
         } else {
             // r -= alpha q
@@ -110,8 +110,8 @@ void pcg_saddle(
         //		out_mt1 = M' r
         //		out_m1 = M out_mt1
         //		s = out_m1
-        blas::gemv(Layout::ColMajor, Op::Trans, n, k, 1.0, M, ldm, r, 1, 0.0, out_mt1, 1);
-        blas::gemv(Layout::ColMajor, Op::NoTrans, n, k, 1.0, M, ldm, out_mt1, 1, 0.0, out_m1, 1);
+        blas::gemv(Layout::ColMajor, Op::Trans, n, k, (T) 1.0, M, ldm, r, 1, (T) 0.0, out_mt1, 1);
+        blas::gemv(Layout::ColMajor, Op::NoTrans, n, k, (T) 1.0, M, ldm, out_mt1, 1, (T) 0.0, out_m1, 1);
 
         // scalars and update d
         delta1_old = delta1_new;
@@ -128,7 +128,7 @@ void pcg_saddle(
 
     // recover y = b - Ax
     blas::copy(m, b, 1, y, 1);
-    blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, -1.0, A, lda, x, 1, 1.0, y, 1);
+    blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, (T) -1.0, A, lda, x, 1, (T) 1.0, y, 1);
     delete [] allwork;
     return;
 }
@@ -409,11 +409,11 @@ void pcg(
 
     G(layout, s, 1.0, X, n, 0.0, GP, n
     ); // GP <- G X
-    blas::axpy(ns, -1.0, GP, 1, R, 1
+    blas::axpy(ns, (T) -1.0, GP, 1, R, 1
     ); // R <- R - GP
     N(layout, s, 1.0, R, n, 0.0, P, n
     ); // P <- N R
-    blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, R, n, P, n, 0.0, RNR, s
+    blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, (T) 1.0, R, n, P, n, (T) 0.0, RNR, s
     ); // RNR <- R^T P = R^T N R
     if (treat_as_separable) zero_off_diagonal(RNR, s);
 
@@ -435,7 +435,7 @@ void pcg(
 
         G(layout, s, (T) 1.0, P, n, (T) 0.0, GP, n
         ); // ^ GP <- G P
-        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, P, n, GP, n, 0.0, ableft, s
+        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, (T) 1.0, P, n, GP, n, (T) 0.0, ableft, s
         ); // ableft <- P^T G P
         if (treat_as_separable) zero_off_diagonal(ableft, s);
         int64_t subspace_incr = posm_square(s, ableft, alpha, scratch
@@ -447,9 +447,9 @@ void pcg(
             break;
         subspace_dim = subspace_dim + subspace_incr;
 
-        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, 1.0, P, n, alpha, s, 1.0, X, n
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, (T) 1.0, P, n, alpha, s, (T) 1.0, X, n
         ); // X <- X + P alpha
-        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, -1.0, GP, n, alpha, s, 1.0, R, n
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, (T) -1.0, GP, n, alpha, s, (T) 1.0, R, n
         ); // R <- R - GP alpha
 
         //
@@ -471,7 +471,7 @@ void pcg(
         //
         std::copy(RNR, RNR + ss, ableft
         ); // ableft <- RNR
-        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, R, n, NR, n, 0.0, RNR, s
+        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, (T) 1.0, R, n, NR, n, (T) 0.0, RNR, s
         ); // RNR <- R^T NR
         if (treat_as_separable) zero_off_diagonal(RNR, s);
         std::copy(RNR, RNR + ss, alpha
@@ -482,7 +482,7 @@ void pcg(
         ); // beta <- (ableft)^-1 beta
         if (err < - ((int64_t) s))
             break;
-        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, 1.0, P, n, beta, s, 1.0, NR, n
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, (T) 1.0, P, n, beta, s, (T) 1.0, NR, n
         ); // NR <- P beta
         std::copy(NR, NR + ns, P
         ); // P <- NR

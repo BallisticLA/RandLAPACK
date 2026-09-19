@@ -98,17 +98,11 @@ void _LAPACK_lafrb(
         LAPACK_dlarfb( & side_, & trans_, & direction_, & storev_,  
                     & m_, & n_, & k_, (double *) buff_U, & ldim_U, (double *) buff_T, & ldim_T, 
                     (double *) buff_B, & ldim_B, (double *) buff_W, & ldim_W
-                    #ifdef LAPACK_FORTRAN_STRLEN_END
-                    //, 1, 1, 1, 1
-                    #endif
                     );
     } else if (typeid(T) == typeid(float)) {
         LAPACK_slarfb( & side_, & trans_, & direction_, & storev_,  
                     & m_, & n_, & k_, (float *) buff_U, & ldim_U, (float *) buff_T, & ldim_T, 
                     (float *) buff_B, & ldim_B, (float *) buff_W, & ldim_W
-                    #ifdef LAPACK_FORTRAN_STRLEN_END
-                    //, 1, 1, 1, 1
-                    #endif
                     );
     } else {
         // Unsupported type
@@ -136,9 +130,6 @@ void _LAPACK_larf(
             (double *) tau,
             (double *) C, & ldc_,
             (double *) work
-            #ifdef LAPACK_FORTRAN_STRLEN_END
-            //, 1
-            #endif
             );
     } else if (typeid(T) == typeid(float)) {
         LAPACK_slarf( & side_, & m_, & n_, 
@@ -146,9 +137,6 @@ void _LAPACK_larf(
             (float *) tau,
             (float *) C, & ldc_,
             (float *) work
-            #ifdef LAPACK_FORTRAN_STRLEN_END
-            //, 1
-            #endif
             );
     } else {
         // Unsupported type
@@ -387,9 +375,6 @@ static int64_t NoFLA_QRP_downdate_partial_norms(
     // Some initializations.
     char dlmach_param = 'E';
     tol3z = sqrt( LAPACK_dlamch( & dlmach_param
-    #ifdef LAPACK_FORTRAN_STRLEN_END
-    //, 1
-    #endif
     ) );
     ptr_d  = buff_d;
     ptr_e  = buff_e;
@@ -527,26 +512,20 @@ static int64_t CHOLQR_mod_WY(
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
-    #if defined(__APPLE__)
-    UNUSED(num_stages); UNUSED(m_A); UNUSED(n_A); UNUSED(buff_A); UNUSED(ldim_A);
-    UNUSED(buff_t); UNUSED(buff_T); UNUSED(ldim_T); UNUSED(buff_R); UNUSED(ldim_R);
-    UNUSED(buff_D);
-    throw std::runtime_error("Unsupported on macOS.");
-    #else
 
     // Some initializations.
     if( num_stages < 0 )
         num_stages = std::min( m_A, n_A );
 
     // Find R = A^TA.
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, 1.0, buff_A, ldim_A, 0.0, buff_R, ldim_R);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, (T) 1.0, buff_A, ldim_A, (T) 0.0, buff_R, ldim_R);
 
     // Perform Cholesky factorization on A.
     if (lapack::potrf(Uplo::Upper, n_A, buff_R, ldim_R))
         return 1;
     // Find Q = A * inv(R)
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, (T) 1.0, buff_R, ldim_R, buff_A, ldim_A);
 
     // Perform Householder reconstruction
     lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
@@ -563,7 +542,6 @@ static int64_t CHOLQR_mod_WY(
     // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
-    #endif
     return 0;
 }
 

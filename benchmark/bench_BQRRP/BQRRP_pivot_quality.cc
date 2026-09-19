@@ -1,6 +1,3 @@
-#if defined(__APPLE__)
-int main() {return 0;}
-#else
 /*
 Performs computations in order to assess the pivot quality of BQRRP.
 The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.
@@ -78,9 +75,6 @@ void _LAPACK_gejsv(
         work, lwork_,
         iwork_,
         info_
-        #ifdef LAPACK_FORTRAN_STRLEN_END
-        //, 1, 1, 1, 1, 1, 1
-        #endif
         );
 
     return;
@@ -238,7 +232,7 @@ static void sv_ratio(
     double* buff_workspace  = new double[8 * m * n]();
     int64_t lwork[1]; 
     lwork[0] = 8 * m * n;
-    int64_t iwork[8 * std::min(m,n)];
+    int64_t* iwork = new int64_t[8 * std::min(m, n)]();
     int64_t info[1];
     
     _LAPACK_gejsv(
@@ -288,6 +282,7 @@ static void sv_ratio(
     data_regen(m_info, all_data, state_gen);
 
     delete[] buff_workspace;
+    delete[] iwork;
 }
 
 int main(int argc, char *argv[]) {
@@ -328,4 +323,3 @@ int main(int argc, char *argv[]) {
     sv_ratio(m_info, b_sz, all_data, state_constant2, path);
     std::cout << "Pivot quality metric 2 done\n\n";
 }
-#endif

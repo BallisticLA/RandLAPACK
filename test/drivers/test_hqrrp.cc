@@ -95,7 +95,7 @@ class TestHQRRP : public ::testing::Test
                 max_idx = i;
             }
         }
-        T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
+        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(14) << norm_AQR / norm_A << "\n";
@@ -134,15 +134,14 @@ class TestHQRRP : public ::testing::Test
         // I don't think hqrrp actually returns anything.
         //std::cout << "RANK AS RETURNED BY HQRRP " << std::setw(4) << all_data.rank << "\n";
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
 
         error_check(norm_A, all_data);
              
     }
 };
 
-#if !defined(__APPLE__)
 // This test uses orhr_col
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
@@ -167,4 +166,3 @@ TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_HQRRP_general(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
 }
-#endif

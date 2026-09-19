@@ -1,6 +1,3 @@
-#if defined(__APPLE__)
-int main() {return 0;}
-#else
 /*
 BQRRP speed comparison benchmark - runs:
     1. BQRRP_CQR and BQRRP_HQR
@@ -275,4 +272,3 @@ int main(int argc, char *argv[]) {
     file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
     file.flush();   
 }
-#endif

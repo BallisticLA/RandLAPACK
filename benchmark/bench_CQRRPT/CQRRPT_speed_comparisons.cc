@@ -176,7 +176,6 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
 
         // Testing GEQR + GEQPT
-#if !defined(__APPLE__)
         auto start_geqpt = steady_clock::now();
         auto start_geqr  = steady_clock::now();
         // GEQR(A) part
@@ -198,7 +197,6 @@ static void call_all_algs(
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen);
-#endif
 
         std::ofstream file(output_filename, std::ios::app);
         file << dur_cqrrpt_default << ",  " << dur_cqrrpt_hqrrp << ",  " << dur_cqrrpt_bqrrp << ",  " << dur_geqpt <<  ",  " 

@@ -14,7 +14,7 @@
 #include <chrono>
 #include <numeric>
 
-#include "RandLAPACK/drivers/rl_bqrrp_gpu.hh"
+// The GPU drivers and kernels come in with RandLAPACK.hh, under its __CUDACC__ guard.
 
 using GPUSubroutines = RandLAPACK::BQRRPGPUSubroutines;
 using namespace std::chrono;

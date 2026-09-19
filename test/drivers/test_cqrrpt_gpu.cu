@@ -11,9 +11,7 @@
 #include <gtest/gtest.h>
 #include <cusolverDn.h>
 
-#ifndef USE_CUDA
-#define USE_CUDA
-#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
+// The GPU drivers and kernels come in with RandLAPACK.hh, under its __CUDACC__ guard.
 
 class TestCQRRPT : public ::testing::Test
 {
@@ -97,7 +95,7 @@ class TestCQRRPT : public ::testing::Test
                 max_idx = i;
             }
         }
-        T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
+        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(15) << norm_AQR / norm_A << "\n";
@@ -128,8 +126,8 @@ class TestCQRRPT : public ::testing::Test
         all_data.rank = CQRRPT_GPU.rank;
         std::cout << "RANK AS RETURNED BY CQRRPT " << all_data.rank << "\n";
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
 
         error_check(norm_A, all_data); 
     }
@@ -160,4 +158,50 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp) {
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
 }
-#endif
+
+// GPU counterpart of CQRRPT_dirty_J_rank_deficient in test_cqrrpt.cc (the QRCP
+// itself runs on the host): dirty J buffers must not influence pivoting.
+TEST_F(TestCQRRPT, CQRRPT_GPU_dirty_J_rank_deficient) {
+    int64_t m = 2000;
+    int64_t n = 50;
+    int64_t k = 40;
+    double d_factor = 2.0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    // Generate the rank-deficient input once.
+    auto gen_state = RandBLAS::RNGState();
+    std::vector<double> A_orig(m * n, 0.0);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_orig.data(), gen_state);
+
+    int64_t rank_ref = -1;
+    for (int trial = 0; trial < 3; ++trial) {
+        CQRRPTTestData<double> all_data(m, n, k);
+        lapack::lacpy(MatrixType::General, m, n, A_orig.data(), m, all_data.A.data(), m);
+
+        // Trial 0 keeps the zero-initialized J; trials 1 and 2 dirty it with
+        // different nonzero garbage.
+        if (trial > 0) {
+            for (int64_t i = 0; i < n; ++i)
+                all_data.J[i] = 1 + ((7919 * trial + 31 * i) % n);
+        }
+
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.num_threads = 4;
+        CQRRPT_GPU.no_hqrrp = 1;
+
+        double norm_A = 0;
+        norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+        // Same RNG state in every trial, so any difference is due to J alone.
+        auto state = RandBLAS::RNGState();
+        test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
+
+        if (trial == 0)
+            rank_ref = all_data.rank;
+        ASSERT_EQ(all_data.rank, rank_ref);
+    }
+}

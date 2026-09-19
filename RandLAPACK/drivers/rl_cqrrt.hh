@@ -223,10 +223,10 @@ int CQRRT<T, RNG>::call(
         delete[] A_hat; delete[] tau; return 1;
     }
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
-               m, n, 1.0, R_sk, ldr, A, lda);
+               m, n, (T) 1.0, R_sk, ldr, A, lda);
     if(this -> timing) { precond_t_stop = steady_clock::now(); gram_t_start = steady_clock::now(); }
 
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, A, lda, (T) 0.0, R_sk, ldr);
     if(this -> timing) { gram_t_stop = steady_clock::now(); potrf_t_start = steady_clock::now(); }
 
     // Adaptive-shift retry (same policy as cholqr_primitive's Step 3, parity with
@@ -280,14 +280,14 @@ int CQRRT<T, RNG>::call(
     if (this->compute_Q) {
         if(this -> timing) q_t_start = steady_clock::now();
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
-                   m, n, 1.0, R_sk, ldr, A, lda);
+                   m, n, (T) 1.0, R_sk, ldr, A, lda);
         if(this -> timing) q_t_stop = steady_clock::now();
     }
 
     if(this -> timing) finalize_t_start = steady_clock::now();
     if (!this->orthogonalization) {
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
-                   n, n, 1.0, A_hat, d, R_sk, ldr);
+                   n, n, (T) 1.0, A_hat, d, R_sk, ldr);
     }
     if(this -> timing) finalize_t_stop = steady_clock::now();
 

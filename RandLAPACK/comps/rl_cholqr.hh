@@ -381,17 +381,6 @@ int cholqr_primitive(
             }
             case PCholQRPrecondMethod::GEQP3:
             case PCholQRPrecondMethod::BQRRP: {
-            #if defined(__APPLE__)
-                // The whole QRCP-based preconditioner path (GEQP3/BQRRP, then ungqr +
-                // lapmr to form Pi R_tri^{-1} Q^T) pulls in LAPACK / BQRRP routines that
-                // are unsupported under Apple Accelerate; the sibling rl_cqrrpt.hh /
-                // rl_hqrrp.hh guard the whole QRCP path the same way. The standard
-                // CholQR / CholQR2 / sCholQR3 methods use TRSM_IDENTITY and never reach
-                // here, so only the stabilized QRCP preconditioner is disabled on macOS.
-                (void)bqrrp_block_ratio; (void)state;
-                std::fprintf(stderr, "[cholqr_primitive] FAIL: GEQP3/BQRRP preconditioning is unsupported on Apple Accelerate.\n");
-                return 1;
-            #else
                 // Invert P stably via column-pivoted QR. Column pivoting gives
                 //     P Pi = Q R_tri   (Pi the pivot permutation),
                 // so  P^{-1} = Pi R_tri^{-1} Q^T. We build that below from the QRCP
@@ -444,7 +433,6 @@ int cholqr_primitive(
                 delete[] jpiv;
                 delete[] tau_qr;
                 break;
-            #endif
             }
         }
     }

@@ -1,6 +1,3 @@
-#if defined(__APPLE__)
-int main() {return 0;}
-#else
 /*
 Performs computations in order to assess the pivot quality of BQRRP.
 The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.
@@ -167,8 +164,8 @@ static void BQRRP_benchmark_run(
         // Extracting an explicit Q-factor 
         lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A.data(), m, all_data.tau.data());
         // Permuting the columns of the copies of the original matrix A
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
         
         error_check<T>(all_data, atol, error_output);
     }
@@ -256,4 +253,3 @@ int main(int argc, char *argv[]) {
         j = 0;
     }
 }
-#endif

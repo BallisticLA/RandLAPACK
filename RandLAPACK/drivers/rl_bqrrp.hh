@@ -162,10 +162,6 @@ int BQRRP<T, RNG>::call(
     int64_t* J,
     RandBLAS::RNGState<RNG> &state
 ){
-    #ifdef __APPLE__
-    UNUSED(m); UNUSED(n); UNUSED(A); UNUSED(lda); UNUSED(d_factor); UNUSED(tau); UNUSED(J); UNUSED(state);
-    throw std::runtime_error("BQRRP is not supported when BLAS is linked against Apple Accelerate.");
-    #else
     // Input parameter validation. Bad inputs would otherwise lead to a
     // downstream BLAS/LAPACK failure or, worse, a segfault -- both fatal
     // when BQRRP is called through a binding layer (e.g. MEX/MATLAB).
@@ -261,9 +257,8 @@ int BQRRP<T, RNG>::call(
 
     // J_buffer serves as a buffer for the pivots found at every iteration, of size n.
     // At every iteration, it would only hold "cols" entries.
-    // Cannot really fully switch this to pointers bc we do not want data to be modified in "col_swap."
-    std::vector<int64_t> J_buf (n, 0);
-    int64_t* J_buffer = J_buf.data();
+    // col_swap uses it as scratch internally but always restores it on exit.
+    int64_t* J_buffer = new int64_t[n]();
     // Special pivoting buffer for LU factorization, capturing the swaps on A_sk'.
     // Needs to be converted in a proper format of length rows(A_sk')
     int64_t* J_buffer_lu = new int64_t[std::min(d, n)]();
@@ -310,7 +305,7 @@ int BQRRP<T, RNG>::call(
     T* S = new T[d * m]();
     RandBLAS::DenseDist D(d, m);
     state = RandBLAS::fill_dense(D, S, state);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T) 1.0, S, d, A, m, (T) 0.0, A_sk, d);
     delete[] S;
 
     if(this -> timing) {
@@ -324,7 +319,8 @@ int BQRRP<T, RNG>::call(
         internal_nb = std::min(internal_nb, b_sz);
         block_rank = b_sz;
 
-        // Zero-out data - may not be necessary
+        // Zero-out data. The J_buffer fill is required: geqp3 reads jpvt on
+        // entry and treats any nonzero entry as a fixed column.
         std::fill(&J_buffer[0], &J_buffer[n], 0);
         std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
         std::fill(&Work2[0], &Work2[n], (T) 0.0);
@@ -352,7 +348,7 @@ int BQRRP<T, RNG>::call(
                 J_buffer[i] = tmp;
             }
             // Apply pivots to A_sk
-            util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
+            util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buffer);
             // Perform an unpivoted QR on A_sk
             lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
         }
@@ -367,7 +363,7 @@ int BQRRP<T, RNG>::call(
         // Remember that the R-factor is stored the upper-triangular portion of A.
         // Pivoting the trailing R and the ``current'' A.      
         // The copy of A operation is done on a separete stream. If it was not, it would have been done here.  
-        util::col_swap(m, cols, cols, &A[lda * curr_sz], lda, J_buf);
+        util::col_swap(m, cols, cols, &A[lda * curr_sz], lda, J_buffer);
 
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
@@ -386,10 +382,11 @@ int BQRRP<T, RNG>::call(
             if(iter == 0) {
                 blas::copy(cols, J_buffer, 1, J, 1);
             } else {
-                RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
+                RandLAPACK::util::col_swap(cols, cols, &J[curr_sz], J_buffer);
             }
 
             delete[] J_buffer_lu;
+            delete[] J_buffer;
             delete[] A_sk_const;
             delete[] A_sk_trans;
             delete[] R_tall_qr;
@@ -402,7 +399,7 @@ int BQRRP<T, RNG>::call(
         if(iter == 0) {
             blas::copy(cols, J_buffer, 1, J, 1);
         } else {
-            RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
+            RandLAPACK::util::col_swap(cols, cols, &J[curr_sz], J_buffer);
         }
 
         // Defining the new "working subportion" of matrix A.
@@ -607,6 +604,7 @@ int BQRRP<T, RNG>::call(
                 std::cout << "/-------------BQRRP TIMING RESULTS END-------------/\n\n";
             }
             delete[] J_buffer_lu;
+            delete[] J_buffer;
             delete[] A_sk_const;
             delete[] A_sk_trans;
             delete[] R_tall_qr;
@@ -658,7 +656,7 @@ int BQRRP<T, RNG>::call(
         rows -= b_sz;
         cols -= b_sz;
     }
-    #endif
+    delete[] J_buffer;
     return 0;
 }
 

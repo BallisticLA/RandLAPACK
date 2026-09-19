@@ -1,3 +1,10 @@
+// The umbrella header: RandLAPACK's single public entry point, installed to
+// <prefix>/include. RandLAPACK is header only (an INTERFACE CMake target), so there is
+// nothing to link and this is what tests, benchmarks and downstream projects include.
+// Sections below follow the source tree in dependency order. The testing utilities are
+// public on purpose: the benchmark project consumes them like the tests do. HQRRP is
+// not listed; it arrives transitively through rl_cqrrpt.hh and rl_bqrrp.hh.
+
 #ifndef RANDLAPACK_HH
 #define RANDLAPACK_HH
 
@@ -47,11 +54,14 @@
 #include "RandLAPACK/drivers/rl_abrik.hh"
 #include "RandLAPACK/drivers/rl_krill.hh"
 
-// Cuda functions - issues with linking/visibility when present if the below is uncommented.
-// A temporary fix is to add the below directly in the test/benchmark files.
-// Ideally, we would like below to be uncommented so that we could simply include RandLAPACK.hh everywhere.
-//#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
-//#include "RandLAPACK/drivers/rl_cqrrp_gpu.hh"
-//#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
+// GPU layer. __CUDACC__ is set only while a CUDA compiler is processing this file, so
+// .cu translation units get the GPU drivers and host .cc files build with no CUDA
+// toolkit on the include path. rl_cuda_kernels.cuh must come first: it decides whether
+// the kernels exist, and #pragma once means the first inclusion is the one that counts.
+#if defined(__CUDACC__)
+#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
+#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
+#include "RandLAPACK/drivers/rl_bqrrp_gpu.hh"
+#endif
 
 #endif

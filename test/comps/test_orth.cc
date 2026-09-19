@@ -99,6 +99,39 @@ class TestOrth : public ::testing::Test
     }
 };
 
+// PLUL is a range-stabilization option inside the rangefinder/QB pipeline,
+// where the sketches it receives can legitimately be numerically rank
+// deficient. GETRF then reports a singular U through a positive exit code,
+// but PLUL discards the U-factor and keeps only the (still valid)
+// row-permuted unit-lower L, so treating that exit code as a failure would
+// abort perfectly recoverable runs. PLUL used to do exactly that; this test
+// pins the corrected contract so the failure branch does not come back.
+TEST_F(TestOrth, Test_PLUL_singular_input_is_not_an_error)
+{
+    int64_t m = 8;
+    int64_t n = 4;
+    std::vector<double> A(m * n);
+    RandBLAS::RNGState state;
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::fill_dense(D, A.data(), state);
+    // Column 2 := 0 exactly, so GETRF hits an exactly-zero pivot and
+    // returns info = 3 (duplicating a column is not enough: the update
+    // x - (x/y)*y leaves a tiny nonzero rounding residual as the pivot).
+    std::fill(&A[2 * m], &A[3 * m], 0.0);
+
+    RandLAPACK::PLUL<double> Stab(false, false);
+    int ret = Stab.call(m, n, A.data());
+    EXPECT_EQ(ret, 0);
+
+    // The output (a row-permuted unit-lower-triangular L from partial
+    // pivoting) must be fully populated with finite entries of magnitude
+    // at most 1.
+    for (int64_t i = 0; i < m * n; ++i) {
+        ASSERT_TRUE(std::isfinite(A[i]));
+        ASSERT_LE(std::abs(A[i]), 1.0 + std::numeric_limits<double>::epsilon());
+    }
+}
+
 TEST_F(TestOrth, Test_CholQRQ)
 {
     int64_t m = 1000;

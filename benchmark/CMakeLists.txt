@@ -10,7 +10,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(GNUInstallDirs)
 
 message(STATUS "Checking for OpenMP ... ")
+# Same MSVC OpenMP-flavor guard as CMake/rl_build_options.cmake: classic
+# /openmp (OpenMP 2.0) ignores the collapse clause; /openmp:llvm is the
+# mode RandLAPACK's loops need.
+if (MSVC AND NOT DEFINED OpenMP_CXX_FLAGS)
+    set(OpenMP_CXX_FLAGS "/openmp:llvm" CACHE STRING
+        "OpenMP compiler flags for C++")
+endif()
+if (MSVC)
+    set(benchmark_OpenMP_MSVC_FLAGS "${OpenMP_CXX_FLAGS}")
+endif()
 find_package(OpenMP COMPONENTS CXX)
+if (MSVC AND OpenMP_CXX_FOUND AND TARGET OpenMP::OpenMP_CXX)
+    set_property(TARGET OpenMP::OpenMP_CXX PROPERTY
+        INTERFACE_COMPILE_OPTIONS "${benchmark_OpenMP_MSVC_FLAGS}")
+    set(OpenMP_CXX_FLAGS "${benchmark_OpenMP_MSVC_FLAGS}")
+endif()
 set(tmp FALSE)
 if (OpenMP_CXX_FOUND)
     set(tmp TRUE)
@@ -52,9 +67,14 @@ function(add_benchmark)
     set(MVO CXX_SOURCES LINK_LIBS)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CXX_SOURCES})
-    target_compile_options(${TGT_NAME} PRIVATE "-g")
+    target_compile_options(${TGT_NAME} PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>:-g>)
     # Include directories come from target_link_libraries, no need to set manually
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
+    # On Windows the RandLAPACK package config provides DLL staging so the
+    # benchmark runs without PATH preparation.
+    if (COMMAND randlapack_stage_runtime_dlls)
+        randlapack_stage_runtime_dlls(${TGT_NAME})
+    endif()
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
 endfunction()
 
@@ -65,7 +85,7 @@ function(add_benchmark_gpu)
     set(MVO CU_SOURCES LINK_LIBS)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CU_SOURCES})
-    target_compile_options(${TGT_NAME} PRIVATE "-g")
+    target_compile_options(${TGT_NAME} PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>:-g>)
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     message(STATUS "RandLAPACK: added ${TGT_NAME} GPU benchmark")
 endfunction()

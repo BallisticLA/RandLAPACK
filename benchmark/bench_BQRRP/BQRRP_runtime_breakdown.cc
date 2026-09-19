@@ -1,6 +1,3 @@
-#if defined(__APPLE__)
-int main() {return 0;}
-#else
 /*
 IBQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of IBQRRP.
 There are 10 things that we time:
@@ -178,4 +175,3 @@ int main(int argc, char *argv[]) {
     file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
     file.flush();   
 }
-#endif
