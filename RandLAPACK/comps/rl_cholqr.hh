@@ -321,7 +321,7 @@ int cholqr_primitive(
 
     // Basic input validation, shared by every driver that reaches this
     // primitive: cholqr_iterate (CholQR/CholQR2/sCholQR3, via either overload
-    // below) and CQRRT_linops (which calls this overload directly, bypassing
+    // below) and CQRRTO_linops (which calls this overload directly, bypassing
     // cholqr_iterate). Caller bugs, so throw rather than return a sentinel.
     randlapack_require(m >= n) << "cholqr_primitive: operator must be tall (m=" << m << " < n=" << n << ")";
     randlapack_require(ldr >= n) << "cholqr_primitive: ldr=" << ldr << " < n=" << n;

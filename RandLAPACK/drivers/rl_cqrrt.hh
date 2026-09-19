@@ -24,11 +24,13 @@ namespace RandLAPACK {
 
 /// Backwards-compatible alias for the precond-method enum, which now lives in
 /// comps/rl_cholqr.hh as PCholQRPrecondMethod (shared across CholQR/sCholQR3/CQRRT).
-using CQRRTLinopPrecond = PCholQRPrecondMethod;
+using CQRRTOLinopPrecond = PCholQRPrecondMethod;
 
 
 // ============================================================================
-// CQRRT: dense Q-less Cholesky QR with sketch preconditioning.
+// CQRRT: dense Cholesky QR with sketch preconditioning (RandLAPACK's existing driver).
+// CQRRTO_linops, further down, is the operator-based Q-less variant and the method the paper
+// calls CQRRT; it was called CQRRT_linops until 2026-09-18 (deprecated alias at end of file).
 // ============================================================================
 //
 // Operates on a dense column-major A (m × n).  Modifies A in place via TRSM
@@ -67,7 +69,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
             orthogonalization = false;
             compute_Q = true;
             nnz = 4;              // SASO nonzeros per column; paper uses 4 or 8 (2 causes sporadic spikes)
-            max_retries  = -1;    // unbounded retries (no ceiling), as CQRRT_linops
+            max_retries  = -1;    // unbounded retries (no ceiling), as CQRRTO_linops
             shift_growth = T(10);
         }
 
@@ -86,7 +88,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
         ///         same sentinel cholqr_primitive uses for its own invalid-shift
         ///         inputs. Dense CQRRT has no caller-exposed shift_factor to validate
         ///         separately: the first attempt always starts unshifted, same as
-        ///         CQRRT_linops, so shift_growth is the only invalid-shift input here.
+        ///         CQRRTO_linops, so shift_growth is the only invalid-shift input here.
         int call(
             int64_t m,
             int64_t n,
@@ -103,7 +105,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
         T eps;
 
         // 10 entries: saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total.
-        // NOT index-compatible with CQRRT_linops's 11-entry layout (that one starts
+        // NOT index-compatible with CQRRTO_linops's 11-entry layout (that one starts
         // with an alloc slot); a plotter must dispatch on the layout, not assume the
         // indices line up.
         std::vector<long> times;
@@ -117,7 +119,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
         bool compute_Q;   // skip Q materialization when false (R-only mode)
 
         // Adaptive-shift safety net on the preconditioned Gram's Cholesky, matching
-        // CQRRT_linops: the first attempt is always unshifted; only on potrf
+        // CQRRTO_linops: the first attempt is always unshifted; only on potrf
         // breakdown does the retry seed the shift at eps*trace(G) and grow it
         // x shift_growth. max_retries < 0 = unbounded (retry until PD). The clean
         // (unshifted, first-attempt-succeeds) path is unaffected.
@@ -166,7 +168,7 @@ int CQRRT<T, RNG>::call(
     // shrinking shift instead of escalating toward diagonal dominance). No
     // separate shift_factor check is needed here: unlike cholqr_primitive,
     // dense CQRRT does not expose a caller-supplied starting shift_factor
-    // (the first attempt is always unshifted, matching CQRRT_linops), so
+    // (the first attempt is always unshifted, matching CQRRTO_linops), so
     // there is nothing else to validate before the retry loop below.
     if (this->shift_growth <= T(1)) {
         std::fprintf(stderr,
@@ -191,7 +193,7 @@ int CQRRT<T, RNG>::call(
     if(this -> timing) total_t_start = steady_clock::now();
 
     int64_t d = (int64_t) (d_factor * (T) n);
-    if (d < n) d = n;   // same clamp as CQRRT_linops: truncation must not undershoot n
+    if (d < n) d = n;   // same clamp as CQRRTO_linops: truncation must not undershoot n
     T* A_hat = new T[d * n]();
     T* tau   = new T[n]();
 
@@ -228,7 +230,7 @@ int CQRRT<T, RNG>::call(
     if(this -> timing) { gram_t_stop = steady_clock::now(); potrf_t_start = steady_clock::now(); }
 
     // Adaptive-shift retry (same policy as cholqr_primitive's Step 3, parity with
-    // CQRRT_linops): the clean path (unshifted potrf succeeds first try) is still
+    // CQRRTO_linops): the clean path (unshifted potrf succeeds first try) is still
     // bit-identical to before, but is NOT free of extra work. With the default
     // max_retries = -1 (unbounded), gram_backup below is allocated and filled via
     // lacpy on every call, clean or not; that O(n^2) alloc+copy is timed into the
@@ -316,7 +318,7 @@ int CQRRT<T, RNG>::call(
 
 
 // ============================================================================
-// CQRRT_linops: sketch-preconditioned Q-less Cholesky QR for abstract operators
+// CQRRTO_linops: sketch-preconditioned Q-less Cholesky QR for abstract operators
 // ============================================================================
 //
 // Algorithm 4 from the collaborator's spec.  Cannot modify the operator in place,
@@ -324,7 +326,7 @@ int CQRRT<T, RNG>::call(
 // the precondition-inversion strategy via PCholQRPrecondMethod).
 //
 template <typename T, typename RNG = RandBLAS::DefaultRNG>
-class CQRRT_linops {
+class CQRRTO_linops {
     public:
 
         bool timing;
@@ -345,7 +347,7 @@ class CQRRT_linops {
         long total_us() const { return times.empty() ? -1L : times.back(); }
 
         int64_t nnz;
-        CQRRTLinopPrecond precond_method;
+        CQRRTOLinopPrecond precond_method;
         T bqrrp_block_ratio;
         int64_t block_size;
 
@@ -353,7 +355,7 @@ class CQRRT_linops {
         // Gram Cholesky's first attempt is always unshifted; only if potrf breaks
         // down does the primitive seed the shift at eps*trace(G) and grow it x
         // shift_growth. max_retries < 0 = unbounded, retry until PD. This lets
-        // CQRRT survive an ill-conditioned (e.g. single-precision) Gram instead
+        // CQRRTO survive an ill-conditioned (e.g. single-precision) Gram instead
         // of failing outright, matching the CholQR family.
         int max_retries;
         T   shift_growth;
@@ -363,7 +365,7 @@ class CQRRT_linops {
         T chol_applied_shifts[1] = {T(0)};
         T chol_gram_traces[1]    = {T(0)};
 
-        CQRRT_linops(
+        CQRRTO_linops(
             bool time_subroutines,
             T ep,
             bool enable_test_mode = false
@@ -382,7 +384,7 @@ class CQRRT_linops {
             Q_cols = 0;
         }
 
-        ~CQRRT_linops() {
+        ~CQRRTO_linops() {
             if (Q != nullptr) {
                 delete[] Q;
             }
@@ -407,11 +409,11 @@ class CQRRT_linops {
             int64_t n = A.n_cols;
             // Input validation: d_factor < 1 gives d < n, which reads out of bounds
             // in the lacpy of the upper n x n block below.
-            randlapack_require(m >= n) << "CQRRT_linops: operator must be tall (m=" << m << " < n=" << n << ")";
-            randlapack_require(n >= 1) << "CQRRT_linops: n must be >= 1";
-            randlapack_require(d_factor >= (T)1.0) << "CQRRT_linops: d_factor=" << d_factor << " must be >= 1.0";
-            randlapack_require(ldr >= n) << "CQRRT_linops: ldr=" << ldr << " < n=" << n;
-            randlapack_require(R != nullptr) << "CQRRT_linops: R buffer is null";
+            randlapack_require(m >= n) << "CQRRTO_linops: operator must be tall (m=" << m << " < n=" << n << ")";
+            randlapack_require(n >= 1) << "CQRRTO_linops: n must be >= 1";
+            randlapack_require(d_factor >= (T)1.0) << "CQRRTO_linops: d_factor=" << d_factor << " must be >= 1.0";
+            randlapack_require(ldr >= n) << "CQRRTO_linops: ldr=" << ldr << " < n=" << n;
+            randlapack_require(R != nullptr) << "CQRRTO_linops: R buffer is null";
             int64_t d = (int64_t)(d_factor * (T)n);
             if (d < n) d = n;
             int64_t b_eff = (this->block_size > 0 && this->block_size < n)
@@ -424,7 +426,7 @@ class CQRRT_linops {
             // max(d*n + n + n^2, 3n^2 + (m+n)*b_eff + n): sketch moment is
             // A_hat(d*n) + tau(n) + P(n*n); Gram moment is P + R_pre + G (3*n*n)
             // + A_temp(m*b_eff) + Z_buf(n*b_eff) + cholqr_primitive's O(n)
-            // diag_backup. See cqrrt_linops_analytical_kb in rl_memory_tracker.hh,
+            // diag_backup. See cqrrto_linops_analytical_kb in rl_memory_tracker.hh,
             // the source of truth this comment must agree with.
             if (this->timing) t0 = steady_clock::now();
             T* A_hat  = new T[d * n];
@@ -453,7 +455,7 @@ class CQRRT_linops {
             if (this->timing) t0 = steady_clock::now();
             lapack::geqrf(d, n, A_hat, d, tau);
             lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, P, n);   // R^sk = upper(A_hat); P's lower stays 0
-            // The sketch and its Householder scalars are dead here: CQRRT never forms
+            // The sketch and its Householder scalars are dead here: CQRRTO never forms
             // or applies the sketch Q, only R^sk, which now lives in P. Release them
             // BEFORE the Gram-phase buffers exist.
             delete[] A_hat; A_hat = nullptr;
@@ -529,5 +531,10 @@ class CQRRT_linops {
             return 0;
         }
 };
+
+
+// Compatibility alias for the pre-rename identifier. Deprecated; remove after one release.
+template <typename T, typename RNG = RandBLAS::DefaultRNG>
+using CQRRT_linops [[deprecated("renamed CQRRTO_linops")]] = CQRRTO_linops<T, RNG>;
 
 } // end namespace RandLAPACK

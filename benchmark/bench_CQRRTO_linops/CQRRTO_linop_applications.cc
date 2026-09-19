@@ -7,7 +7,7 @@
 //   3. Build J = L^{-1} K V as a doubly-nested CompositeOperator
 //      J = CompositeOperator(L_inv_op, CompositeOperator(K_op, V_op)).
 //   4. Run Q-less QR on the augmented operator [J; mu*I] via one of 5 variants
-//      (CQRRT_linop, CholQR, sCholQR3, sCholQR3_basic, CholQR2), selected by the mask,
+//      (CQRRTO_linop, CholQR, sCholQR3, sCholQR3_basic, CholQR2), selected by the mask,
 //      giving R = chol(J^T J + mu^2 I).
 //   5. Solve with IterRefineLSQ from x_0 = 0, preconditioned by that R. The Blendenpik
 //      family rows (mask bits 32/64) instead solve on the base operator with their own
@@ -18,7 +18,7 @@
 // `sparse` and `rspec` modes were retired along with their dead code).
 //
 // method_mask = bitmask of methods (default 0b11111 = 31)
-//                 bit 0 (  1): CQRRT_linop (TRSM_IDENTITY)
+//                 bit 0 (  1): CQRRTO_linop (TRSM_IDENTITY)
 //                 bit 1 (  2): CholQR
 //                 bit 2 (  4): sCholQR3
 //                 bit 3 (  8): sCholQR3_basic
@@ -103,7 +103,7 @@
 #include "../../extras/misc/ext_sparse_axpy.hh"
 #include "../../extras/linops/ext_cholsolver_linop.hh"
 #include "RandLAPACK/testing/rl_test_utils.hh"
-#include "cqrrt_bench_common.hh"
+#include "cqrrto_bench_common.hh"
 
 // Linops algorithms
 #include "rl_cholqr_linops.hh"
@@ -116,7 +116,7 @@ using std::chrono::steady_clock;
 using std::chrono::duration_cast;
 using std::chrono::microseconds;
 
-// Helper families shared with bench_toeplitz_ls (cqrrt_bench_common.hh):
+// Helper families shared with bench_toeplitz_ls (cqrrto_bench_common.hh):
 // stop-reason maps, env provenance, the rounds-CSV schema/row writer, the
 // chol-shift fold, and the power-2-norm and blocked-orth-error estimators.
 using RandLAPACK::bench::pcg_stop_reason;
@@ -207,7 +207,7 @@ struct bench_result {
     T orth_error;
 
     // Solution vector, kept only until the post-pass backward-error evaluation
-    // (build_kw_reference in cqrrt_bench_common.hh); cleared afterwards.
+    // (build_kw_reference in cqrrto_bench_common.hh); cleared afterwards.
     std::vector<T> x_hat;
 
     // IR-LSQ-mode fields
@@ -291,7 +291,7 @@ struct bench_result {
 };
 
 // Fold a driver's per-pass shift record into the result row (shared fold in
-// cqrrt_bench_common.hh; see record note there).
+// cqrrto_bench_common.hh; see record note there).
 template <typename T, typename TR, size_t N>
 static void record_chol_shift(bench_result<TR>& res, const T (&shifts)[N], const T (&traces)[N]) {
     fold_chol_shift(res.chol_shift_abs, res.chol_shift_rel, shifts, traces);
@@ -357,11 +357,11 @@ static int ir_outer_stag_window() {
 // Full argv, space-joined and double-quoted, set once in run_benchmark() from
 // argc/argv; echoed in every results CSV header so a CSV can be
 // traced back to the exact invocation that produced it without a side log.
-// quote_join_argv itself is shared (cqrrt_bench_common.hh).
+// quote_join_argv itself is shared (cqrrto_bench_common.hh).
 static std::string g_argv_line;
 
 // Environment provenance for every results CSV: the shared env line
-// (cqrrt_bench_common.hh) plus this file's own IR-knob echo.
+// (cqrrto_bench_common.hh) plus this file's own IR-knob echo.
 static void write_env_provenance(std::ofstream& out) {
     write_host_line(out);
     write_env_line(out);
@@ -476,7 +476,7 @@ static void record_ir_outputs(const RandLAPACK::IterRefineLSQ<T>& ir, bench_resu
 // 0-4 only). with_blendenpik = false (rspec) warns on 32/64 instead.
 static std::vector<std::string> decode_method_mask(int64_t method_mask, bool with_blendenpik) {
     std::vector<std::string> algs;
-    if (method_mask & 1)   algs.push_back("CQRRT_linop");
+    if (method_mask & 1)   algs.push_back("CQRRTO_linop");
     if (method_mask & 2)   algs.push_back("CholQR");
     if (method_mask & 4)   algs.push_back("sCholQR3");
     if (method_mask & 8)   algs.push_back("sCholQR3_basic");
@@ -641,7 +641,7 @@ static void write_rounds_csv(const std::string& filename,
 }
 
 // estimate_op_2norm and compute_orth_error_explicit are shared with
-// bench_toeplitz_ls; see cqrrt_bench_common.hh (using-declared above).
+// bench_toeplitz_ls; see cqrrto_bench_common.hh (using-declared above).
 
 // Write one breakdown row: pads/truncates the phase vector to exactly 18
 // columns (t0..t17: sCholQR3's 18 slots and sCholQR3_basic's 15 are not cut to
@@ -667,7 +667,7 @@ static void write_irlsq_breakdown(
     std::ofstream out(filename);
     out << "# " << mode_label << " Benchmark runtime breakdown (microseconds)\n"
         << "# QR breakdown layout depends on algorithm:\n"
-        << "#   CQRRT_linop   (t0-t10):  alloc,saso,qr,precond_inv,fwd,adj,gemm,chol,finalize,rest,total\n"
+        << "#   CQRRTO_linop   (t0-t10):  alloc,saso,qr,precond_inv,fwd,adj,gemm,chol,finalize,rest,total\n"
         << "#   CholQR        (t0-t5):   alloc,fwd,adj,chol,rest,total                      (t6-t17 = 0)\n"
         << "#   CholQR2       (t0-t10):  alloc,fwd1,adj1,chol1,upd1,fwd2,adj2,gemm2,chol2,upd2,total (t11-t17 = 0)\n"
         << "#   sCholQR3_basic(t0-t14):  alloc,fwd1,adj1,chol1,trsm1=0,fwd_q=0,syrk2,chol2,upd2,\n"
@@ -949,19 +949,19 @@ static int run_irlsq_reg(
     const P_precond mu_P = (P_precond)(mu_factor * (double)unit_roundoff<P_precond>());
     rl::ScaledIdentityOp<P_precond> reg_op(n, mu_P);
     rl::VStackOp<decltype(J_Pp), rl::ScaledIdentityOp<P_precond>> A_hat_Pp(J_Pp, reg_op);
-    A_hat_Pp.block_size = block_size;   // caps the blocked-sketch slice width (CQRRT)
+    A_hat_Pp.block_size = block_size;   // caps the blocked-sketch slice width (CQRRTO)
     std::cout << "Augmented operator A_hat = [J; mu*I], mu=" << (double)mu_P
               << " (= " << mu_factor << " * u(" << precond_prec_str << "))\n\n";
 
     const P_precond tol_P = std::pow(std::numeric_limits<P_precond>::epsilon(), (P_precond)0.85);
     const T_solve   tol_T = std::pow(std::numeric_limits<T_solve>::epsilon(), (T_solve)0.85);
 
-    // Per-run RNG states (CQRRT only).
+    // Per-run RNG states (CQRRTO only).
     RandBLAS::RNGState<RNG> main_state(123);
     std::vector<RandBLAS::RNGState<RNG>> run_states(num_runs);
     for (int64_t r = 0; r < num_runs; ++r) { run_states[r] = main_state; if (r > 0) run_states[r].key.incr(r); }
 
-    // Warmup the precond-chain CQRRT on A_hat (warms the L^{-1} K V chain, the
+    // Warmup the precond-chain CQRRTO on A_hat (warms the L^{-1} K V chain, the
     // augmented Gram, and the blocked sketch overload), then the SOLVE chain:
     // the timed IR-LSQ runs LSQR on J_Ts with a TRSM preconditioner, and its
     // thread pools / first-touch pages otherwise land inside the FIRST
@@ -971,7 +971,7 @@ static int run_irlsq_reg(
     // warmup, distinct from Blendenpik's x0 warm start.
     // The factorization half of the warmup only warms the precond chain (augmented Gram,
     // blocked sketch overload), which nothing uses unless a Q-less method is selected: mask
-    // bits 0-4. For a Blendenpik-only or unpreconditioned-only run it is a full extra CQRRT
+    // bits 0-4. For a Blendenpik-only or unpreconditioned-only run it is a full extra CQRRTO
     // factorization whose result is discarded, and at the large FEM2 cell that is minutes of
     // node time. The LSQR half warms the shared solve chain and runs either way.
     const bool need_precond_warmup = (method_mask & 31) != 0;
@@ -983,7 +983,7 @@ static int run_irlsq_reg(
       int warm_status = 1;
       if (need_precond_warmup) {
           Rw = new P_precond[n * n]();
-          RandLAPACK::CQRRT_linops<P_precond, RNG> warm(false, tol_P);
+          RandLAPACK::CQRRTO_linops<P_precond, RNG> warm(false, tol_P);
           warm.nnz = sketch_nnz; warm.block_size = block_size;
           warm_status = warm.call(A_hat_Pp, Rw, n, (P_precond)d_factor, ws);
           Rw_T = new T_solve[n * n];
@@ -1073,17 +1073,17 @@ static int run_irlsq_reg(
                 harvest(RandLAPACK::bench::run_cholqr_family(qr, A_hat_Pp, R_P, n, [&]{
                     return RandLAPACK::cholqr2_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }), qr);
             } else {
-                // CQRRT: sketch + Gram the augmented A_hat (via VStack's blocked sketch
+                // CQRRTO: sketch + Gram the augmented A_hat (via VStack's blocked sketch
                 // overload), uniformly with the other 4 methods. R = chol(A^T A + mu^2 I).
-                RandLAPACK::CQRRT_linops<P_precond, RNG> qr(true, tol_P);
+                RandLAPACK::CQRRTO_linops<P_precond, RNG> qr(true, tol_P);
                 qr.max_retries = bench_chol_max_retries();
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
-                qr.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
+                qr.precond_method = RandLAPACK::CQRRTOLinopPrecond::TRSM_IDENTITY;
                 res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.chol_retries = qr.n_chol_retries;
                 record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
                     res.qr_breakdown = qr.times;   // whole vector, not truncated to a fixed slot count
-                    res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, (P_precond)d_factor, block_size); }
+                    res.analytical_kb = RandLAPACK::cqrrto_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, (P_precond)d_factor, block_size); }
             }
 
             if (res.qr_status != 0) {
@@ -1444,7 +1444,7 @@ int run_benchmark(int argc, char* argv[]) {
     // because the CSV still reports it.
     const double kappa_target = 1.0;
 
-    std::cout << "=== CQRRT linop benchmark ===\n";
+    std::cout << "=== CQRRTO linop benchmark ===\n";
     std::cout << "  Input mode: FEM composite (J = L^{-1} K V with L = chol(M))\n"
               << "  K file: " << K_file << "\n"
               << "  M file: " << M_file << "\n"

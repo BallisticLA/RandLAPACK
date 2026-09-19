@@ -1,7 +1,7 @@
 // Tests for linop-based orthogonalization algorithms: CholQR_linops,
-// CQRRT_linops, sCholQR3_linops, sCholQR3_linops_basic.
+// CQRRTO_linops, sCholQR3_linops, sCholQR3_linops_basic.
 //
-// Ported from demos/test/drivers/test_dm_{cholqr,cqrrt,scholqr3}_linops.cc.
+// Ported from demos/test/drivers/test_dm_{cholqr,cqrrto,scholqr3}_linops.cc.
 // CholSolverLinOp-based composite tests are replaced with DenseLinOp * SparseLinOp
 // composites to avoid Eigen dependency. CholSolverLinOp tests are in
 // extras/test/linops/test_ext_solver_linop_unified.cc.
@@ -165,16 +165,16 @@ TEST_F(TestCholQRLinops, blocked) {
 }
 
 // ============================================================================
-// CQRRT_linops
+// CQRRTO_linops
 // ============================================================================
 
-class TestCQRRTLinops : public ::testing::Test {
+class TestCQRRTOLinops : public ::testing::Test {
 protected:
     virtual void SetUp() {}
     virtual void TearDown() {}
 };
 
-TEST_F(TestCQRRTLinops, dense_matrix) {
+TEST_F(TestCQRRTOLinops, dense_matrix) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
 
@@ -187,14 +187,14 @@ TEST_F(TestCQRRTLinops, dense_matrix) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    RandLAPACK::CQRRTO_linops<double> algo(false, default_tol<double>(), true);
     state = RandBLAS::RNGState<>(1);
     ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
 
     assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
-TEST_F(TestCQRRTLinops, dense_matrix_float) {
+TEST_F(TestCQRRTOLinops, dense_matrix_float) {
     int64_t m = 100, n = 50;
     float d_factor = 2.0f;
 
@@ -207,14 +207,14 @@ TEST_F(TestCQRRTLinops, dense_matrix_float) {
     RandLAPACK::linops::DenseLinOp<float> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<float> R(n * n, 0.0f);
-    RandLAPACK::CQRRT_linops<float> algo(false, default_tol<float>(), true);
+    RandLAPACK::CQRRTO_linops<float> algo(false, default_tol<float>(), true);
     state = RandBLAS::RNGState<>(1);
     ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
 
     assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
-TEST_F(TestCQRRTLinops, composite_dense_sparse) {
+TEST_F(TestCQRRTOLinops, composite_dense_sparse) {
     int64_t m = 100, k = 50, n = 20;
     double d_factor = 2.0;
     RandBLAS::RNGState<> state(0);
@@ -237,7 +237,7 @@ TEST_F(TestCQRRTLinops, composite_dense_sparse) {
                1.0, L_data.data(), m, R_dense.data(), k, 0.0, A_dense.data(), m);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    RandLAPACK::CQRRTO_linops<double> algo(false, default_tol<double>(), true);
     algo.nnz = 2;
     ASSERT_EQ(algo.call(A_comp, R.data(), n, d_factor, state), 0);
 
@@ -246,7 +246,7 @@ TEST_F(TestCQRRTLinops, composite_dense_sparse) {
 
 // --- Block processing tests ---
 
-TEST_F(TestCQRRTLinops, block_processing_even_division) {
+TEST_F(TestCQRRTOLinops, block_processing_even_division) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
 
@@ -258,7 +258,7 @@ TEST_F(TestCQRRTLinops, block_processing_even_division) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), false);
+    RandLAPACK::CQRRTO_linops<double> algo(false, default_tol<double>(), false);
     algo.block_size = 10;
     state = RandBLAS::RNGState<>(1);
     ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
@@ -266,7 +266,7 @@ TEST_F(TestCQRRTLinops, block_processing_even_division) {
     assert_R_ok(A_data.data(), m, n, R.data(), n);
 }
 
-TEST_F(TestCQRRTLinops, block_processing_with_remainder) {
+TEST_F(TestCQRRTOLinops, block_processing_with_remainder) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
 
@@ -278,7 +278,7 @@ TEST_F(TestCQRRTLinops, block_processing_with_remainder) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), false);
+    RandLAPACK::CQRRTO_linops<double> algo(false, default_tol<double>(), false);
     algo.block_size = 12;  // 50 / 12 = 4 blocks of 12, remainder of 2
     state = RandBLAS::RNGState<>(1);
     ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
@@ -286,7 +286,7 @@ TEST_F(TestCQRRTLinops, block_processing_with_remainder) {
     assert_R_ok(A_data.data(), m, n, R.data(), n);
 }
 
-TEST_F(TestCQRRTLinops, block_processing_single_column) {
+TEST_F(TestCQRRTOLinops, block_processing_single_column) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
 
@@ -298,7 +298,7 @@ TEST_F(TestCQRRTLinops, block_processing_single_column) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), false);
+    RandLAPACK::CQRRTO_linops<double> algo(false, default_tol<double>(), false);
     algo.block_size = 1;
     state = RandBLAS::RNGState<>(1);
     ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
@@ -306,7 +306,7 @@ TEST_F(TestCQRRTLinops, block_processing_single_column) {
     assert_R_ok(A_data.data(), m, n, R.data(), n);
 }
 
-TEST_F(TestCQRRTLinops, block_vs_full_agreement) {
+TEST_F(TestCQRRTOLinops, block_vs_full_agreement) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
 
@@ -319,13 +319,13 @@ TEST_F(TestCQRRTLinops, block_vs_full_agreement) {
 
     // Full path
     std::vector<double> R_full(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> alg_full(false, default_tol<double>(), false);
+    RandLAPACK::CQRRTO_linops<double> alg_full(false, default_tol<double>(), false);
     state = RandBLAS::RNGState<>(1);
     ASSERT_EQ(alg_full.call(A_linop, R_full.data(), n, d_factor, state), 0);
 
     // Block path
     std::vector<double> R_block(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> alg_block(false, default_tol<double>(), false);
+    RandLAPACK::CQRRTO_linops<double> alg_block(false, default_tol<double>(), false);
     alg_block.block_size = 10;
     state = RandBLAS::RNGState<>(1);  // same seed
     ASSERT_EQ(alg_block.call(A_linop, R_block.data(), n, d_factor, state), 0);
@@ -342,9 +342,9 @@ TEST_F(TestCQRRTLinops, block_vs_full_agreement) {
 
 // --- Precond-method coverage: TRTRI / GEQP3 / BQRRP all should produce a
 //     valid Q-less QR (Q = A * R^{-1} has orthonormal columns). Exercises
-//     the dispatch in cholqr_primitive via the CQRRT_linops wrapper.
+//     the dispatch in cholqr_primitive via the CQRRTO_linops wrapper.
 
-TEST_F(TestCQRRTLinops, precond_method_TRTRI) {
+TEST_F(TestCQRRTOLinops, precond_method_TRTRI) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
 
@@ -357,7 +357,7 @@ TEST_F(TestCQRRTLinops, precond_method_TRTRI) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    RandLAPACK::CQRRTO_linops<double> algo(false, default_tol<double>(), true);
     algo.precond_method = RandLAPACK::PCholQRPrecondMethod::TRTRI;
     state = RandBLAS::RNGState<>(11);
     ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
@@ -365,7 +365,7 @@ TEST_F(TestCQRRTLinops, precond_method_TRTRI) {
     assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
-TEST_F(TestCQRRTLinops, precond_method_GEQP3) {
+TEST_F(TestCQRRTOLinops, precond_method_GEQP3) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
 
@@ -378,7 +378,7 @@ TEST_F(TestCQRRTLinops, precond_method_GEQP3) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    RandLAPACK::CQRRTO_linops<double> algo(false, default_tol<double>(), true);
     algo.precond_method = RandLAPACK::PCholQRPrecondMethod::GEQP3;
     state = RandBLAS::RNGState<>(11);
     ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
@@ -390,7 +390,7 @@ TEST_F(TestCQRRTLinops, precond_method_GEQP3) {
 // routines), so the BQRRP preconditioner path is unavailable there. Skip this
 // case on Apple: same guard the dedicated BQRRP/CQRRPT/HQRRP tests use.
 #if !defined(__APPLE__)
-TEST_F(TestCQRRTLinops, precond_method_BQRRP) {
+TEST_F(TestCQRRTOLinops, precond_method_BQRRP) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
 
@@ -403,7 +403,7 @@ TEST_F(TestCQRRTLinops, precond_method_BQRRP) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    RandLAPACK::CQRRTO_linops<double> algo(false, default_tol<double>(), true);
     algo.precond_method = RandLAPACK::PCholQRPrecondMethod::BQRRP;
     state = RandBLAS::RNGState<>(11);
     ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);

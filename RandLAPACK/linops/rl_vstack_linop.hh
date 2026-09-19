@@ -37,7 +37,7 @@ namespace RandLAPACK::linops {
 //
 // The dense path (Side::Left, trans_B == NoTrans) covers the Cholesky-QR Gram,
 // IterRefineLSQ, and the orthogonality check. A sketching overload (Side::Right)
-// is also provided so sketch-based drivers (CQRRT) can be handed A_hat directly:
+// is also provided so sketch-based drivers (CQRRTO) can be handed A_hat directly:
 // it is BLOCKED: for each output column block it forms W = A_hat * I_block (an
 // (n_rows x b) slice, via this operator's own NoTrans) and sketches that small
 // block with the full S, so no (n_rows x d) intermediate is ever materialized and
@@ -127,7 +127,7 @@ struct VStackOp {
     // this operator). For each output column block we form W = [Top;Bot] * I_block
     // (an n_rows x b slice, via this operator's own NoTrans) and sketch it with the
     // full S, so the only buffers are O(n_rows x b), no n_rows x d intermediate,
-    // and S is never partitioned. This is how CQRRT can be handed A_hat directly.
+    // and S is never partitioned. This is how CQRRTO can be handed A_hat directly.
     template <RandBLAS::SketchingOperator SkOp>
     void operator()(
         Side side, Layout layout,

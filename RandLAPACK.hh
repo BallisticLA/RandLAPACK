@@ -32,7 +32,7 @@
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"
-#include "RandLAPACK/drivers/rl_cqrrt.hh"     // holds both dense CQRRT and CQRRT_linops
+#include "RandLAPACK/drivers/rl_cqrrt.hh"      // dense CQRRT and the operator-based CQRRTO_linops
 #include "RandLAPACK/drivers/rl_cholqr_linops.hh"
 #include "RandLAPACK/drivers/rl_iter_refine_lsq.hh"
 // Both of these declare themselves "Public API" in their headers but were reachable

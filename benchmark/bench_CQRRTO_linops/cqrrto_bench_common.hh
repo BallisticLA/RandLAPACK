@@ -1,4 +1,4 @@
-// cqrrt_bench_common.hh: shared utilities for CQRRT linop benchmarks
+// cqrrto_bench_common.hh: shared utilities for CQRRTO linop benchmarks
 #pragma once
 
 #include "RandLAPACK.hh"
@@ -36,7 +36,7 @@ static RandBLAS::sparse_data::csr::CSRMatrix<T> load_csr(
 }
 
 // Load a sparse matrix and emit the standard "Loading <label> from <path>... done (m x n, nnz=N)"
-// progress messages used across all CQRRT benchmarks.
+// progress messages used across all CQRRTO benchmarks.
 template <typename T>
 static RandBLAS::sparse_data::csr::CSRMatrix<T> load_csr_verbose(
     const std::string& label, const std::string& path,
@@ -59,7 +59,7 @@ inline std::string make_run_timestamp() {
 
 // ============================================================================
 // Helpers shared by every least-squares benchmark in this suite
-// (bench_CQRRT_linops and bench_toeplitz_ls). Consolidated here so a fix lands
+// (bench_CQRRTO_linops and bench_toeplitz_ls). Consolidated here so a fix lands
 // once instead of drifting into per-file copies (duplicated dispatch/helper
 // blocks are this suite's standing failure mode, see refined_blendenpik.hh).
 // ============================================================================

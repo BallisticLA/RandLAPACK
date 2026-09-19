@@ -149,15 +149,15 @@ add_benchmark(NAME BQRRP_subroutines_speed            CXX_SOURCES bench_BQRRP/BQ
 add_benchmark(NAME BQRRP_error_analysis               CXX_SOURCES bench_BQRRP/BQRRP_error_analysis.cc               LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME HQRRP_sanity_check                 CXX_SOURCES bench_BQRRP/HQRRP_sanity_check.cc                 LINK_LIBS ${Benchmark_libs})
 
-# CQRRT linops benchmarks (require Eigen + fast_matrix_market + extras headers)
+# CQRRTO linops benchmarks (require Eigen + fast_matrix_market + extras headers)
 set(
-    Benchmark_libs_cqrrt_linops
+    Benchmark_libs_cqrrto_linops
     RandLAPACK::RandLAPACK
     Eigen3::Eigen
     fast_matrix_market
 )
-add_benchmark(NAME CQRRT_linop_applications           CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_applications.cc           LINK_LIBS ${Benchmark_libs_cqrrt_linops})
-add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME CQRRTO_linop_applications           CXX_SOURCES bench_CQRRTO_linops/CQRRTO_linop_applications.cc           LINK_LIBS ${Benchmark_libs_cqrrto_linops})
+add_benchmark(NAME CQRRTO_linop_basic                  CXX_SOURCES bench_CQRRTO_linops/CQRRTO_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrto_linops})
 
 # Toeplitz LS benchmark (autoregression/system-id experiment). The matrix-free
 # prolate-Toeplitz operator (extras/linops/ext_toeplitz_linop.hh) uses MKL's FFT (DFTI),
@@ -192,7 +192,7 @@ if(NOT MKL_DFTI_INCLUDE_DIR)
                     "-DMKL_DFTI_INCLUDE_DIR=<MKL>/include or export MKLROOT to build it.")
 else()
     message(STATUS "Toeplitz benchmark: mkl_dfti.h in ${MKL_DFTI_INCLUDE_DIR}")
-    add_benchmark(NAME toeplitz_ls_benchmark              CXX_SOURCES bench_toeplitz_ls/toeplitz_ls_benchmark.cc              LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+    add_benchmark(NAME toeplitz_ls_benchmark              CXX_SOURCES bench_toeplitz_ls/toeplitz_ls_benchmark.cc              LINK_LIBS ${Benchmark_libs_cqrrto_linops})
     target_include_directories(toeplitz_ls_benchmark PRIVATE ${MKL_DFTI_INCLUDE_DIR})
 
     # Derive MKL_ILP64 from the BLAS interface blaspp was actually built against,

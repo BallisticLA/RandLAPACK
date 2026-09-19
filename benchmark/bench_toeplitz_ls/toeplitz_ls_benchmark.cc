@@ -5,7 +5,7 @@
 // with A = [T; sqrt(lambda) I], rhs = [b; 0], T an m x n prolate-kernel Toeplitz matrix.
 // T is matrix-free (FFT circulant embedding, ext_toeplitz_linop.hh). Q-less QR right
 // preconditioners (unpreconditioned / CholQR / CholQR2 / sCholQR3 / sCholQR3_basic /
-// CQRRT / Blendenpik) build R; the solve is matrix-free restarted PCG-NE (default)
+// CQRRTO / Blendenpik) build R; the solve is matrix-free restarted PCG-NE (default)
 // or LSQR on A with right preconditioner R.
 //
 // Double precision only. Records accuracy + speed (build/solve time) + storage
@@ -27,7 +27,7 @@
 // CLI: <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> <tol> <maxit>
 //      <d_factor> <sketch_nnz> [seed] [num_runs] [solver] [pcg_restart_maxit]
 //      [pcg_max_restarts] [pcg_restart_drop] [inner_abs_tol]
-//   method_mask bits: 1 CQRRT, 2 CholQR, 4 sCholQR3, 8 sCholQR3_basic, 16 CholQR2,
+//   method_mask bits: 1 CQRRTO, 2 CholQR, 4 sCholQR3, 8 sCholQR3_basic, 16 CholQR2,
 //                     32 Blendenpik (published; warm and cold rows),
 //                     64 unpreconditioned,
 //                     128 Blendenpik refined by the shared engine (warm and cold
@@ -70,7 +70,7 @@
 #include "RandLAPACK/testing/rl_test_utils.hh"
 #include "../../extras/linops/ext_toeplitz_linop.hh"
 #include "../refined_blendenpik.hh"
-#include "../bench_CQRRT_linops/cqrrt_bench_common.hh"
+#include "../bench_CQRRTO_linops/cqrrto_bench_common.hh"
 
 #include <RandBLAS.hh>
 #include <blas.hh>
@@ -101,11 +101,11 @@ static double prolate(int64_t k, double omega) {
 }
 
 // Power iteration for lambda_max(T'T) (RandLAPACK::bench::power_lambda_max)
-// and the blocked orth/cond estimator below are shared with bench_CQRRT_linops;
-// see cqrrt_bench_common.hh.
+// and the blocked orth/cond estimator below are shared with bench_CQRRTO_linops;
+// see cqrrto_bench_common.hh.
 
 // Preconditioner quality of R via Q = A R^{-1}: thin wrapper over the shared
-// compute_orth_error_explicit (cqrrt_bench_common.hh), which materializes Q
+// compute_orth_error_explicit (cqrrto_bench_common.hh), which materializes Q
 // one column-block at a time and reads both metrics from the same Gram.
 // cond sentinel is -1 (suite convention: MATLAB readers treat NaN and -1
 // differently, and -1 is what every other unavailable metric in this file uses).
@@ -337,7 +337,7 @@ int main(int argc, char** argv) {
                          rhs.data(), x_wu.data(), tol, tol, 5, it_wu, lt_wu, &rr_wu);
         // Sketch + geqrf warmup at the campaign dimensions: CholQR exercises
         // neither the RandBLAS sparse-sketch fill/apply nor
-        // MKL's first geqrf, and CQRRT is always the FIRST timed row, so at
+        // MKL's first geqrf, and CQRRTO is always the FIRST timed row, so at
         // num_runs=1 those one-time initializations landed inside its build bar.
         {
             auto wu_state = RandBLAS::RNGState<RNG>((uint32_t)seed);
@@ -355,7 +355,7 @@ int main(int argc, char** argv) {
 
     // 4. Method list from the mask.
     std::vector<std::string> algs;
-    if (method_mask & 1)  algs.push_back("CQRRT_linop");
+    if (method_mask & 1)  algs.push_back("CQRRTO_linop");
     if (method_mask & 2)  algs.push_back("CholQR");
     if (method_mask & 4)  algs.push_back("sCholQR3");
     if (method_mask & 8)  algs.push_back("sCholQR3_basic");
@@ -389,7 +389,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (algs.empty()) {
-        std::fprintf(stderr, "method_mask 0x%llx selects no methods (valid bits: 1 CQRRT, "
+        std::fprintf(stderr, "method_mask 0x%llx selects no methods (valid bits: 1 CQRRTO, "
                              "2 CholQR, 4 sCholQR3, 8 sCholQR3_basic, 16 CholQR2, "
                              "32 Blendenpik, 64 unpreconditioned, 128 Blendenpik_refine)\n",
                              (unsigned long long)method_mask);
@@ -422,7 +422,7 @@ int main(int argc, char** argv) {
     out << "# tolerance: every row family in this file (published and refine/pcg_ne"
         << " alike) targets the single CLI tol=" << tol << " echoed above; rows in"
         << " this file are mutually tolerance-matched.\n";
-    out << "# the FEM2 benchmark (bench_CQRRT_linops) differs internally: its published"
+    out << "# the FEM2 benchmark (bench_CQRRTO_linops) differs internally: its published"
         << " rows target tol=eps^0.85 while its refine/IR rows drive the true LS relres"
         << " to 10*eps, so iteration/time comparisons against FEM2, or across FEM2's own"
         << " published vs refine/IR rows, are not tolerance-matched.\n";
@@ -463,7 +463,7 @@ int main(int argc, char** argv) {
     // (algorithm, run, round) for every pcg_ne solve, from PCGRoundHistory.
     std::string csv_rounds = outdir + "/" + tstamp + "_toeplitz_ls_rounds.csv";
     // Solutions of the successful rows, kept for the post-pass backward error
-    // (sketched Karlson-Walden, see cqrrt_bench_common.hh). With the oracle off
+    // (sketched Karlson-Walden, see cqrrto_bench_common.hh). With the oracle off
     // the reference is built after the last timed row so no row's timing or RSS
     // window sees it; with the oracle on it already exists (built before the loop).
     struct KWPending { std::string alg; int run_idx; std::vector<double> x; };
@@ -473,7 +473,7 @@ int main(int argc, char** argv) {
                << "# be_kw: sketched Karlson-Walden backward error after the round, relative to ||A||_F; -1 when the oracle was off.\n"
                << rl::bench::kRoundsCsvHeader;
 
-    // stop_reason mapping (shared with bench_CQRRT_linops; cqrrt_bench_common.hh):
+    // stop_reason mapping (shared with bench_CQRRTO_linops; cqrrto_bench_common.hh):
     // names the exit condition so the CSV can distinguish "hit the LS floor
     // honestly" from "ran out of budget", which shared a flag value before.
     auto pcg_reason = [](int st) -> const char* { return rl::bench::pcg_stop_reason(st); };
@@ -523,7 +523,7 @@ int main(int argc, char** argv) {
         std::fill(R.begin(), R.end(), 0.0);
         std::fill(x.begin(), x.end(), 0.0);
         // Same base seed, per-run key bump: independent sketches per run,
-        // matching the CQRRT_linop_applications run_states convention.
+        // matching the CQRRTO_linop_applications run_states convention.
         auto state = RandBLAS::RNGState<RNG>((uint32_t)seed);
         if (run_idx > 0) state.key.incr(run_idx);
         // flag (solver_flag column) starts at -1: "no solver ran" until a solve
@@ -701,14 +701,14 @@ int main(int argc, char** argv) {
                 rl::sCholQR3_linops_basic<double> qr(true, tol);
                 harvest(rl::bench::run_cholqr_family(qr, A_hat, R.data(), n, [&]{
                     return rl::scholqr3_linops_basic_analytical_kb<double>(mtot, n); }), qr, 3);
-            } else { // CQRRT_linop
-                rl::CQRRT_linops<double, RNG> qr(true, tol);
+            } else { // CQRRTO_linop
+                rl::CQRRTO_linops<double, RNG> qr(true, tol);
                 qr.max_retries = rl::bench::bench_chol_max_retries();
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
-                qr.precond_method = rl::CQRRTLinopPrecond::TRSM_IDENTITY;
+                qr.precond_method = rl::CQRRTOLinopPrecond::TRSM_IDENTITY;
                 qr_status = qr.call(A_hat, R.data(), n, d_factor, state);
                 if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries; fold_chol_shift(qr, 1);
-                    analytical_kb = rl::cqrrt_linops_analytical_kb<double>(mtot, n, d_factor, block_size); }
+                    analytical_kb = rl::cqrrto_linops_analytical_kb<double>(mtot, n, d_factor, block_size); }
             }
             if (qr_status == 0) {
                 have_R = true;

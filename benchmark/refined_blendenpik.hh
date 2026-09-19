@@ -2,7 +2,7 @@
 
 // Shared dispatch for the Blendenpik_refine / Blendenpik_cold_refine benchmark
 // rows, used by BOTH least-squares benchmarks (bench_toeplitz_ls and
-// bench_CQRRT_linops). Extracted after the three previous per-benchmark
+// bench_CQRRTO_linops). Extracted after the three previous per-benchmark
 // implementations of these rows drifted into three DIFFERENT wrong
 // accountings (phase-1 solve time missing from all columns in the Toeplitz
 // benchmark; refinement time missing and the warm row silently cold in the

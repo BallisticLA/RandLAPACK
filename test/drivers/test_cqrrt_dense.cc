@@ -1,4 +1,4 @@
-// Tests for dense CQRRT (rl_cqrrt.hh, the CQRRT<T,RNG> class, not CQRRT_linops).
+// Tests for dense CQRRT (rl_cqrrt.hh, the CQRRT<T,RNG> class, not CQRRTO_linops).
 //
 // Pins the R-strict-lower laset before the finalize trmm, and the adaptive-shift
 // retry / shift-record out-params.
@@ -118,7 +118,7 @@ TEST_F(TestCQRRTDense, CQRRT_dense_garbage_R_lower_unaffected) {
 // of a zero column is exactly zero, so the small QR's own diagonal is zero
 // too) rather than at the preconditioned-Gram potrf the retry covers, so a
 // rank-deficient trigger for CQRRT's retry is not this simply constructed
-// (matches CQRRT_linops, which has no such test either). This case instead
+// (matches CQRRTO_linops, which has no such test either). This case instead
 // pins that a normal, well-conditioned run reports a clean (unshifted)
 // record, exercising the same member-forwarding wiring as (c) requires.
 TEST_F(TestCQRRTDense, CQRRT_dense_shift_record_clean_path) {

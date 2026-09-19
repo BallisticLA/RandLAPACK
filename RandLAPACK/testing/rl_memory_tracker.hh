@@ -134,7 +134,7 @@ private:
 // `d` matches the drivers' truncating cast, not ceil.
 // ---------------------------------------------------------------------------
 
-// CQRRT_linops (TRSM_IDENTITY / GEQP3), PHASED allocation.
+// CQRRTO_linops (TRSM_IDENTITY / GEQP3), PHASED allocation.
 // The sketch phase and the Gram/Cholesky phase have disjoint working sets, and the
 // driver now allocates each only while it is needed, so the peak is the MAX of the
 // two moments rather than their sum:
@@ -145,12 +145,12 @@ private:
 // cholqr_primitive's shift-retry no longer keeps a full n x n Gram backup: a failed
 // potrf attempt is undone from the Gram's own untouched strict lower triangle plus
 // an O(n) diagonal snapshot (see rl_cholqr.hh), so the retry scratch is +n, not +n*n.
-// For any d <= 3n the Gram moment dominates, which puts CQRRT at exactly the
+// For any d <= 3n the Gram moment dominates, which puts CQRRTO at exactly the
 // CholQR2 / sCholQR3 peak. Phasing (splitting the sketch and Gram allocations so
 // they don't coexist) is still a real cut versus their sum, d*n + n + 3*n*n +
 // (m+n)*b_eff + n, for any d > n.
 template <typename T>
-static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
+static inline long cqrrto_linops_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
     int64_t d = static_cast<int64_t>(d_factor * n); if (d < n) d = n;   // matches the drivers
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
     long sketch_moment = static_cast<long>(sizeof(T)) * ((long)d * n + n + (long)n * n);
@@ -258,7 +258,7 @@ static inline long blendenpik_linops_analytical_kb(int64_t m, int64_t n, double 
 // gram_backup is allocated whenever rl_cqrrt's max_retries != 0 (the driver
 // default is -1, unbounded retries, so it is live in the common case);
 // retries_enabled defaults to true to match that default and the current
-// CQRRT_linop_basic.cc caller, which never overrides max_retries.
+// CQRRTO_linop_basic.cc caller, which never overrides max_retries.
 template <typename T>
 static inline long dense_cqrrt_analytical_kb(int64_t m, int64_t n, double d_factor,
                                              bool retries_enabled = true) {

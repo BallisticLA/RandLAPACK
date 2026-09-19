@@ -4,7 +4,7 @@
 //                             least-squares solver.
 //
 // Solves min_x ||b - J x||_2 for a tall LinearOperator J using a precomputed
-// triangular preconditioner R (e.g., the R-factor from CQRRT_linops on J or on
+// triangular preconditioner R (e.g., the R-factor from CQRRTO_linops on J or on
 // a sketch SJ). R is treated as a right preconditioner on the normal equations.
 //
 // This class is a thin adapter over the shared restarted engine

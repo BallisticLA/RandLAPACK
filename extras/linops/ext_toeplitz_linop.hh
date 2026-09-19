@@ -5,7 +5,7 @@
 //
 // This is an "extras" linear operator because it depends on MKL's FFT (mkl_dfti.h);
 // core RandLAPACK is BLAS++/LAPACK++-only. It satisfies the RandLAPACK LinearOperator
-// concept (n_rows, n_cols, operator()), so it drops into VStackOp / CholQR / CQRRT /
+// concept (n_rows, n_cols, operator()), so it drops into VStackOp / CholQR / CQRRTO /
 // Blendenpik / lsqr exactly like a DenseLinOp, but never materializes T.
 //
 // Circulant embedding (mirrors the reference MATLAB toeplitz FFT operator):

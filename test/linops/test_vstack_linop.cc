@@ -184,10 +184,10 @@ TEST_F(TestVStackOp, augmented_gram_is_regularized) {
     ASSERT_LE(rel_err(RtR.data(), G.data(), n * n), 1e-10);
 }
 
-// CQRRT handed the augmented operator A_hat = [A; mu*I] directly: it sketches
+// CQRRTO handed the augmented operator A_hat = [A; mu*I] directly: it sketches
 // A_hat via VStack's blocked-sketch overload and Grams A_hat, so R^T R = A^T A +
-// mu^2 I, with no CQRRT source changes. (block_size < n exercises the blocking.)
-TEST_F(TestVStackOp, cqrrt_augmented_gram) {
+// mu^2 I, with no CQRRTO source changes. (block_size < n exercises the blocking.)
+TEST_F(TestVStackOp, cqrrto_augmented_gram) {
     int64_t m = 90, n = 20;
     double mu = 1e-2;
     vector<double> A(m * n);
@@ -200,7 +200,7 @@ TEST_F(TestVStackOp, cqrrt_augmented_gram) {
     A_hat.block_size = 8;
 
     vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> qr(/*timing=*/false,
+    RandLAPACK::CQRRTO_linops<double> qr(/*timing=*/false,
                                         std::pow(std::numeric_limits<double>::epsilon(), 0.85));
     qr.nnz = 4;
     int status = qr.call(A_hat, R.data(), n, /*d_factor=*/2.0, state);
