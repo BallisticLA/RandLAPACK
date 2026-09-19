@@ -1,0 +1,329 @@
+#pragma once
+
+// Public API: ToeplitzLinOp: matrix-free rectangular Toeplitz operator T = toeplitz(c, r)
+//             applied via circulant-embedding FFTs (Intel MKL DFTI).
+//
+// This is an "extras" linear operator because it depends on MKL's FFT (mkl_dfti.h);
+// core RandLAPACK is BLAS++/LAPACK++-only. It satisfies the RandLAPACK LinearOperator
+// concept (n_rows, n_cols, operator()), so it drops into VStackOp / CholQR / CQRRTO /
+// Blendenpik / lsqr exactly like a DenseLinOp, but never materializes T.
+//
+// Circulant embedding (mirrors the reference MATLAB toeplitz FFT operator):
+//   T is m x n with first column c (length m) and first row r (length n), c(1)==r(1).
+//   L = 2^ceil(log2(m+n-1)).
+//   Forward embedding   emb  = [c; zeros(L-(m+n-1)); flipud(r(2:n))],   Femb  = fft(emb).
+//   T*x  = real( ifft( Femb  .* fft([x; 0...]) ) )(1:m).
+//   Transpose T' = toeplitz(r, c): embT = [r; zeros(L-(m+n-1)); flipud(c(2:m))], FembT=fft(embT).
+//   T'*y = real( ifft( FembT .* fft([y; 0...]) ) )(1:n).
+//
+// Only Side::Left, ColMajor, trans_B == NoTrans are used (VStackOp's sketch overload
+// builds W = A_hat * I_block via NoTrans and sketches W itself, so callers only ever
+// ask this operator for T*B (NoTrans) or T'*B (Trans)).
+//
+// THREAD SAFETY. operator() is NOT safe to call concurrently on the same instance:
+// work, work_b, and desc_b are shared, mutable state reused across calls (desc_b is
+// even freed and recommitted in place when the batch width changes), so concurrent
+// calls race on all three.
+
+#include "rl_blaspp.hh"
+#include "rl_exceptions.hh"
+#include "rl_blas2_threads.hh"
+
+#include <mkl_dfti.h>
+#include <algorithm>
+#include <complex>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+#include <type_traits>
+
+namespace RandLAPACK_extras::linops {
+
+using blas::Layout;
+using blas::Op;
+using blas::Side;
+
+// Checks a DftiCreateDescriptor/DftiSetValue/DftiCommitDescriptor return status per
+// MKL convention: a nonzero status is only a real failure if it does not belong to
+// the DFTI_NO_ERROR error class (DftiErrorClass distinguishes benign/informational
+// nonzero statuses from actual errors).
+inline void dfti_check(MKL_LONG status, const char* what) {
+    randlapack_require(status == DFTI_NO_ERROR || DftiErrorClass(status, DFTI_NO_ERROR))
+        << "ToeplitzLinOp: " << what << " failed: " << DftiErrorMessage(status);
+}
+
+template <typename T>
+struct ToeplitzLinOp {
+
+    using scalar_t = T;     // required by the RandLAPACK LinearOperator concept
+
+    const int64_t n_rows;   // = m (rows of T)
+    const int64_t n_cols;   // = n (cols of T)
+
+    int64_t L;                       // circulant length, power of two >= m+n-1
+    std::complex<T>* Femb  = nullptr; // fft of forward embedding (length L)
+    std::complex<T>* FembT = nullptr; // fft of transpose embedding (length L)
+    std::complex<T>* work  = nullptr; // scratch (length L), reused per column
+    DFTI_DESCRIPTOR_HANDLE desc = nullptr;
+
+    // Batched-apply state. Multi-column applies (the sketch and Gram
+    // build paths hand this operator up to block_size columns per call) go through
+    // a DFTI_NUMBER_OF_TRANSFORMS descriptor in batches of kFFTBatch columns,
+    // rather than one serial FFT pair per column. Memory: kFFTBatch * L complex
+    // (at L = 2^19 double that is ~8 MB per batch column, 128 MB at 16).
+    // The single-RHS path (the CG loop) is untouched. The batched descriptor is
+    // (re)committed only when the batch width changes.
+    static constexpr int64_t kFFTBatch = 16;
+    std::complex<T>* work_b = nullptr;   // lazily allocated, kFFTBatch * L
+    DFTI_DESCRIPTOR_HANDLE desc_b = nullptr;
+    int64_t batch_committed = 0;
+
+    // Real-to-complex state for the single-right-hand-side path (the CG/LSQR inner loop,
+    // which issues by far the most applies). Both the embedding and every right-hand side
+    // are real and the output is taken as the real part, so a complex-to-complex transform
+    // computes a conjugate-symmetric spectrum and then discards half of it. An r2c/c2r pair
+    // computes L/2+1 bins instead of L: about half the flops, half the pointwise multiply,
+    // and no imaginary parts to store or zero.
+    //
+    // The spectra Femb/FembT stay full length and are still built by the complex descriptor:
+    // for a real signal F[k] = conj(F[L-k]), so their first L/2+1 entries ARE the half
+    // spectrum this path needs. That keeps one source of truth for the embedding and leaves
+    // the batched path below untouched.
+    int64_t Lh = 0;                   // L/2 + 1, the conjugate-even bin count
+    T* work_r = nullptr;              // real scratch, length L
+    std::complex<T>* work_c = nullptr;// half spectrum, length Lh
+    DFTI_DESCRIPTOR_HANDLE desc_r = nullptr;
+
+    /// @param c  first column of T (length m).
+    /// @param r  first row of T (length n).  Requires c[0] == r[0].
+    /// (There is no trailing block_size parameter: multi-RHS blocking is
+    /// handled internally via kFFTBatch.)
+    ToeplitzLinOp(const T* c, int64_t m, const T* r, int64_t n)
+        : n_rows(m), n_cols(n)
+    {
+        randlapack_require(m >= 1 && n >= 1) << "ToeplitzLinOp: m,n must be >= 1";
+        randlapack_require(std::abs((double)c[0] - (double)r[0])
+                           < 1e2 * std::numeric_limits<double>::epsilon() * std::max(1.0, std::abs((double)c[0])))
+            << "ToeplitzLinOp: c[0] must equal r[0]";
+
+        int64_t span = m + n - 1;
+        L = 1; while (L < span) L <<= 1;   // next power of two >= m+n-1
+
+        Femb  = new std::complex<T>[L];
+        FembT = new std::complex<T>[L];
+        work  = new std::complex<T>[L];
+
+        // Length-L complex FFT descriptor; DftiComputeBackward is unnormalized, so scale by 1/L.
+        constexpr DFTI_CONFIG_VALUE prec = std::is_same_v<T, double> ? DFTI_DOUBLE : DFTI_SINGLE;
+        dfti_check(DftiCreateDescriptor(&desc, prec, DFTI_COMPLEX, 1, (MKL_LONG)L), "DftiCreateDescriptor(desc)");
+        dfti_check(DftiSetValue(desc, DFTI_PLACEMENT, DFTI_INPLACE), "DftiSetValue(desc, DFTI_PLACEMENT)");
+        dfti_check(DftiSetValue(desc, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L)),
+                   "DftiSetValue(desc, DFTI_BACKWARD_SCALE)");
+        // Cap threading at COMMIT time, not just compute time: MKL decides an FFT
+        // descriptor's threading when it is committed, and commit time is MKL's
+        // documented threading control point, so a compute-time-only cap
+        // (Blas2ThreadGuard around DftiComputeForward/Backward below) is not
+        // guaranteed to bind on every MKL build even though it was measured to
+        // bind FFT width for descriptors committed at ambient width here.
+        // Use the static configured cap here, not the solve-context-narrowed one:
+        // this commit happens once (construction), while the solve context varies
+        // per call, and the compute-time guard still narrows further below this
+        // when a SolveWidthScope is active (measured: a descriptor committed with
+        // a wide DFTI_THREAD_LIMIT still narrows correctly under a tighter
+        // compute-time thread-local cap).
+        // NOTE: pinning DFTI_THREAD_LIMIT at commit time can select a different
+        // internal FFT plan than an uncapped commit, so results may differ from
+        // an uncapped descriptor at the ULP level; this is expected and harmless
+        // for the tolerances this operator is used at.
+        {
+            int commit_cap = RandLAPACK::fft_thread_cap();
+            if (commit_cap > 0) {
+                dfti_check(DftiSetValue(desc, DFTI_THREAD_LIMIT, (MKL_LONG)commit_cap),
+                           "DftiSetValue(desc, DFTI_THREAD_LIMIT)");
+            }
+        }
+        dfti_check(DftiCommitDescriptor(desc), "DftiCommitDescriptor(desc)");
+
+        // Real-to-complex pair for the single-RHS path. Out-of-place, because an in-place
+        // real transform needs the input padded to 2*(L/2+1) reals and the extra bookkeeping
+        // buys nothing here. CONJUGATE_EVEN_STORAGE must be set explicitly: the legacy
+        // default packs the spectrum in CCS format, which is not an array of std::complex.
+        Lh     = L / 2 + 1;
+        work_r = new T[L];
+        work_c = new std::complex<T>[Lh];
+        dfti_check(DftiCreateDescriptor(&desc_r, prec, DFTI_REAL, 1, (MKL_LONG)L),
+                   "DftiCreateDescriptor(desc_r)");
+        dfti_check(DftiSetValue(desc_r, DFTI_PLACEMENT, DFTI_NOT_INPLACE),
+                   "DftiSetValue(desc_r, DFTI_PLACEMENT)");
+        dfti_check(DftiSetValue(desc_r, DFTI_CONJUGATE_EVEN_STORAGE, DFTI_COMPLEX_COMPLEX),
+                   "DftiSetValue(desc_r, DFTI_CONJUGATE_EVEN_STORAGE)");
+        dfti_check(DftiSetValue(desc_r, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L)),
+                   "DftiSetValue(desc_r, DFTI_BACKWARD_SCALE)");
+        {
+            int commit_cap = RandLAPACK::fft_thread_cap();
+            if (commit_cap > 0)
+                dfti_check(DftiSetValue(desc_r, DFTI_THREAD_LIMIT, (MKL_LONG)commit_cap),
+                           "DftiSetValue(desc_r, DFTI_THREAD_LIMIT)");
+        }
+        dfti_check(DftiCommitDescriptor(desc_r), "DftiCommitDescriptor(desc_r)");
+
+        // Forward embedding: [c(0..m-1); zeros; flipud(r(1..n-1))]  -> Femb = fft(emb).
+        build_embedding(c, m, r, n, Femb);
+        // Transpose embedding (T' = toeplitz(r,c)): [r(0..n-1); zeros; flipud(c(1..m-1))].
+        build_embedding(r, n, c, m, FembT);
+    }
+
+    ~ToeplitzLinOp() {
+        if (desc)   DftiFreeDescriptor(&desc);
+        if (desc_b) DftiFreeDescriptor(&desc_b);
+        if (desc_r) DftiFreeDescriptor(&desc_r);
+        delete[] Femb; delete[] FembT; delete[] work; delete[] work_b;
+        delete[] work_r; delete[] work_c;
+    }
+
+    ToeplitzLinOp(const ToeplitzLinOp&) = delete;
+    ToeplitzLinOp& operator=(const ToeplitzLinOp&) = delete;
+
+    // Convenience form (Side::Left implied), matching the LinearOperator concept.
+    void operator()(Layout layout, Op trans_self, Op trans_B,
+                    int64_t m, int64_t n, int64_t k,
+                    T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc)
+    {
+        (*this)(Side::Left, layout, trans_self, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
+    }
+
+    // C := alpha * op(T) * B + beta * C.  op(T)=T (NoTrans) or T^T (Trans); trans_B must be NoTrans.
+    void operator()(Side side, Layout layout, Op trans_self, Op trans_B,
+                    int64_t m, int64_t n, int64_t k,
+                    T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc)
+    {
+        randlapack_require(side == Side::Left)       << "ToeplitzLinOp supports Side::Left only";
+        randlapack_require(layout == Layout::ColMajor) << "ToeplitzLinOp supports ColMajor only";
+        randlapack_require(trans_B == Op::NoTrans)   << "ToeplitzLinOp supports trans_B == NoTrans only";
+
+        const int64_t nrhs = n;                 // number of right-hand-side columns
+        const bool notrans = (trans_self == Op::NoTrans);
+        const int64_t out_rows = notrans ? n_rows : n_cols;  // rows of C
+        const int64_t in_rows  = notrans ? n_cols : n_rows;  // rows of B
+        const std::complex<T>* Fuse = notrans ? Femb : FembT;
+
+        randlapack_require(m == out_rows) << "ToeplitzLinOp: output row dim mismatch";
+        randlapack_require(k == in_rows)  << "ToeplitzLinOp: inner dim mismatch";
+
+        // Effective FFT width: the configured cap, further narrowed by an active
+        // solve-width context (SolveWidthScope). Inside a solver the
+        // trsv runs at a narrow ACTUAL width, and alternating team widths cost
+        // the wide region ~300 us per re-formation on the benchmark node, so the
+        // solve loop runs at ONE width. Build-phase applies see no context.
+        int fft_cap = RandLAPACK::fft_thread_cap();
+        {
+            int ctx = RandLAPACK::solve_context_width();
+            if (ctx > 0 && (fft_cap <= 0 || ctx < fft_cap)) fft_cap = ctx;
+        }
+
+        if (nrhs == 1) {
+            // Single right-hand side (the CG/LSQR loops): real-to-complex, so the transform
+            // works on L/2+1 bins instead of L. Fuse's leading Lh entries are the half
+            // spectrum, since the embedding is real and its transform conjugate-symmetric.
+            const T* bj = B;
+            T*       cj = C;
+            for (int64_t i = 0; i < in_rows; ++i) work_r[i] = bj[i];
+            for (int64_t i = in_rows; i < L; ++i) work_r[i] = (T)0;
+            {   // Cap the transform's threads: MKL's threaded FFT intermittently
+                // stalls 16-32 ms per call at full width on this class of machine,
+                // which a solver converging in a few applies cannot average out.
+                // See rl_blas2_threads.hh for the measurements.
+                RandLAPACK::Blas2ThreadGuard fftg(fft_cap, 0);
+                DftiComputeForward(desc_r, work_r, work_c);
+                for (int64_t i = 0; i < Lh; ++i) work_c[i] *= Fuse[i];
+                DftiComputeBackward(desc_r, work_c, work_r);   // scaled by 1/L
+            }
+            // beta == 0 must NOT read C: BLAS semantics say C is write-only in that
+            // case, and callers rely on it: CompositeOperator hands this operator a
+            // freshly allocated scratch with beta = 0. Reading it would multiply
+            // indeterminate memory by zero, which is 0 for normal values but NaN for a
+            // trap representation. Branch on beta rather than trusting the buffer.
+            if (beta == (T)0) {
+                for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * work_r[i];
+            } else {
+                for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * work_r[i] + beta * cj[i];
+            }
+            return;
+        }
+
+        // Multi-column path (sketch / Gram builds): batched transforms, kFFTBatch
+        // columns per DFTI call rather than one serial FFT pair per column
+        // (~66k serial transforms per method at ISAAC-large scale otherwise).
+        if (work_b == nullptr) work_b = new std::complex<T>[kFFTBatch * L];
+        for (int64_t j0 = 0; j0 < nrhs; j0 += kFFTBatch) {
+            const int64_t bs = std::min<int64_t>(kFFTBatch, nrhs - j0);
+            if (bs != batch_committed) {
+                if (desc_b) DftiFreeDescriptor(&desc_b);
+                constexpr DFTI_CONFIG_VALUE prec = std::is_same_v<T, double> ? DFTI_DOUBLE : DFTI_SINGLE;
+                dfti_check(DftiCreateDescriptor(&desc_b, prec, DFTI_COMPLEX, 1, (MKL_LONG)L),
+                           "DftiCreateDescriptor(desc_b)");
+                dfti_check(DftiSetValue(desc_b, DFTI_PLACEMENT, DFTI_INPLACE),
+                           "DftiSetValue(desc_b, DFTI_PLACEMENT)");
+                dfti_check(DftiSetValue(desc_b, DFTI_BACKWARD_SCALE, (double)(1.0 / (double)L)),
+                           "DftiSetValue(desc_b, DFTI_BACKWARD_SCALE)");
+                dfti_check(DftiSetValue(desc_b, DFTI_NUMBER_OF_TRANSFORMS, (MKL_LONG)bs),
+                           "DftiSetValue(desc_b, DFTI_NUMBER_OF_TRANSFORMS)");
+                dfti_check(DftiSetValue(desc_b, DFTI_INPUT_DISTANCE,  (MKL_LONG)L),
+                           "DftiSetValue(desc_b, DFTI_INPUT_DISTANCE)");
+                dfti_check(DftiSetValue(desc_b, DFTI_OUTPUT_DISTANCE, (MKL_LONG)L),
+                           "DftiSetValue(desc_b, DFTI_OUTPUT_DISTANCE)");
+                // Same commit-time cap as desc above (static configured width; the
+                // recommit here is triggered only by a batch-width change, not by
+                // solve-context width, so tying this to the dynamic per-call cap
+                // would add a second recommit trigger this class does not have).
+                {
+                    int commit_cap = RandLAPACK::fft_thread_cap();
+                    if (commit_cap > 0) {
+                        dfti_check(DftiSetValue(desc_b, DFTI_THREAD_LIMIT, (MKL_LONG)commit_cap),
+                                   "DftiSetValue(desc_b, DFTI_THREAD_LIMIT)");
+                    }
+                }
+                dfti_check(DftiCommitDescriptor(desc_b), "DftiCommitDescriptor(desc_b)");
+                batch_committed = bs;
+            }
+            for (int64_t j = 0; j < bs; ++j) {
+                const T* bj = B + (j0 + j) * ldb;
+                std::complex<T>* wj = work_b + j * L;
+                for (int64_t i = 0; i < in_rows; ++i) wj[i] = std::complex<T>(bj[i], (T)0);
+                for (int64_t i = in_rows; i < L; ++i) wj[i] = std::complex<T>((T)0, (T)0);
+            }
+            {   RandLAPACK::Blas2ThreadGuard fftg(fft_cap, 0);
+                DftiComputeForward(desc_b, work_b);
+                for (int64_t j = 0; j < bs; ++j) {
+                    std::complex<T>* wj = work_b + j * L;
+                    for (int64_t i = 0; i < L; ++i) wj[i] *= Fuse[i];
+                }
+                DftiComputeBackward(desc_b, work_b);   // scaled by 1/L
+            }
+            for (int64_t j = 0; j < bs; ++j) {
+                T* cj = C + (j0 + j) * ldc;
+                const std::complex<T>* wj = work_b + j * L;
+                if (beta == (T)0) {
+                    for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * wj[i].real();
+                } else {
+                    for (int64_t i = 0; i < out_rows; ++i) cj[i] = alpha * wj[i].real() + beta * cj[i];
+                }
+            }
+        }
+    }
+
+private:
+    // Femb_out = fft( [col(0..mc-1); zeros(L-(mc+nr-1)); flipud(row(1..nr-1))] ).
+    void build_embedding(const T* col, int64_t mc, const T* row, int64_t nr, std::complex<T>* Femb_out)
+    {
+        for (int64_t i = 0; i < L; ++i) Femb_out[i] = std::complex<T>((T)0, (T)0);
+        for (int64_t i = 0; i < mc; ++i) Femb_out[i] = std::complex<T>(col[i], (T)0);
+        // flipud(row(2:end)) placed at the END: positions L-(nr-1) .. L-1 hold row(nr-1) .. row(1).
+        for (int64_t k = 1; k < nr; ++k)
+            Femb_out[L - k] = std::complex<T>(row[k], (T)0);
+        {   RandLAPACK::Blas2ThreadGuard fftg(RandLAPACK::fft_thread_cap(), 0);
+            DftiComputeForward(desc, Femb_out); }
+    }
+};
+
+} // namespace RandLAPACK_extras::linops

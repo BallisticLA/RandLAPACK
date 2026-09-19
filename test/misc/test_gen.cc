@@ -130,3 +130,28 @@ TEST_F(TestGeneratorsMutateState, random_dense_mutates_state)              { tes
 TEST_F(TestGeneratorsMutateState, sparse_coo_mutates_state)                { test_gen_sparse_coo_mutates_state<double>(); }
 TEST_F(TestGeneratorsMutateState, spd_from_eigvals_mutates_state)          { test_gen_spd_from_eigvals_mutates_state<double>(); }
 TEST_F(TestGeneratorsMutateState, spd_mat_mutates_state)                   { test_gen_spd_mat_mutates_state<double>(); }
+
+// Pins the spectral contract of gen_bad_cholqr_singvals (RandLAPACK/testing/rl_gen.hh):
+// it is otherwise unexercised outside of gen_bad_cholqr_mat, which never checks
+// the spectrum it is handed.
+TEST(TestGenBadCholQRSingvals, spectral_contract) {
+    int64_t k = 10;
+    double cond = 1e10;
+    auto s = RandLAPACK::gen::gen_bad_cholqr_singvals<double>(k, cond);
+    ASSERT_EQ((int64_t)s.size(), k);
+
+    EXPECT_DOUBLE_EQ(s[0], 1.0) << "leading singular value must be exactly 1";
+    EXPECT_DOUBLE_EQ(s[k - 1], 1.0 / cond) << "trailing singular value must be exactly 1/cond";
+
+    for (int64_t i = 1; i < k; ++i)
+        EXPECT_LE(s[i], s[i - 1]) << "spectrum must be non-increasing at index " << i;
+
+    // The k/2 cliff: the leading block of ones ends at k/2 - 1, and the
+    // trailing decaying block starts at k/2 with the 1e-8 floor.
+    int64_t offset = k / 2;
+    EXPECT_DOUBLE_EQ(s[offset - 1], 1.0) << "last element of the leading block must still be 1";
+    EXPECT_DOUBLE_EQ(s[offset], 1e-8) << "first element of the trailing block must be the 1e-8 cliff floor";
+
+    EXPECT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<double>(k, 1e6), RandLAPACK::Error)
+        << "cond < 1e8 must throw rather than silently return a non-monotone spectrum";
+}

@@ -44,8 +44,6 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
 include(compiler_flags)
 
 # Configure the build
-enable_testing()
-
 include(rl_build_options)
 include(rl_version)
 include(rl_runtime_dlls)
@@ -125,6 +123,7 @@ endif()
 # Compile sources
 add_subdirectory(RandLAPACK)
 if (RandLAPACK_BUILD_TESTS)
+    enable_testing()
     add_subdirectory(test)
 endif()
 

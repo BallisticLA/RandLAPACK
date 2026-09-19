@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: materialize — write the dense representation of a linear operator
+// Public API: materialize, which writes the dense representation of a linear operator
 // into a caller-provided buffer.
 //
 // Generic fallback: multiply by the identity matrix.

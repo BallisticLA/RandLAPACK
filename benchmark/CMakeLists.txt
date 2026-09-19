@@ -169,15 +169,95 @@ add_benchmark(NAME BQRRP_subroutines_speed            CXX_SOURCES bench_BQRRP/BQ
 add_benchmark(NAME BQRRP_error_analysis               CXX_SOURCES bench_BQRRP/BQRRP_error_analysis.cc               LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME HQRRP_sanity_check                 CXX_SOURCES bench_BQRRP/HQRRP_sanity_check.cc                 LINK_LIBS ${Benchmark_libs})
 
-# CQRRT linops benchmarks (require Eigen + fast_matrix_market + extras headers)
+# CQRRTO linops benchmarks (require Eigen + fast_matrix_market + extras headers)
 set(
-    Benchmark_libs_cqrrt_linops
+    Benchmark_libs_cqrrto_linops
     RandLAPACK::RandLAPACK
     Eigen3::Eigen
     fast_matrix_market
 )
-add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_composite_applications.cc LINK_LIBS ${Benchmark_libs_cqrrt_linops})
-add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME CQRRTO_linop_applications           CXX_SOURCES bench_CQRRTO_linops/CQRRTO_linop_applications.cc           LINK_LIBS ${Benchmark_libs_cqrrto_linops})
+add_benchmark(NAME CQRRTO_linop_basic                  CXX_SOURCES bench_CQRRTO_linops/CQRRTO_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrto_linops})
+
+# Toeplitz LS benchmark (autoregression/system-id experiment). The matrix-free
+# prolate-Toeplitz operator (extras/linops/ext_toeplitz_linop.hh) uses MKL's FFT (DFTI),
+# so this target additionally needs the MKL include dir + the ILP64 define (the MKL libs
+# themselves are already linked transitively via RandLAPACK -> blaspp -> MKL). RandLAPACK
+# also supports OpenBLAS, so on a non-MKL machine mkl_dfti.h will not exist; skip only
+# this target with a warning rather than aborting the whole benchmark configure.
+# Locate mkl_dfti.h. MKLROOT is the usual signal, but batch builds (e.g. ISAAC's
+# fresh-clone install job) may not export it, so also probe the other oneAPI env
+# vars and common install roots. As a last resort, derive it from a BLAS/LAPACK
+# library dir that CMake already resolved (MKL's lib and include are siblings).
+find_path(MKL_DFTI_INCLUDE_DIR mkl_dfti.h
+    HINTS
+        $ENV{MKLROOT}/include
+        $ENV{MKL_ROOT}/include
+        $ENV{ONEAPI_ROOT}/mkl/latest/include
+        $ENV{CMPLR_ROOT}/../mkl/latest/include
+        /opt/intel/oneapi/mkl/latest/include
+        /opt/intel/oneapi/mkl/2026.0/include
+    PATH_SUFFIXES include)
+if(NOT MKL_DFTI_INCLUDE_DIR)
+    # Derive from a resolved MKL/LAPACK library path (…/mkl/<ver>/lib -> …/include).
+    foreach(_lib ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} ${blaspp_libraries})
+        if(_lib MATCHES "mkl")
+            get_filename_component(_libdir "${_lib}" DIRECTORY)
+            find_path(MKL_DFTI_INCLUDE_DIR mkl_dfti.h HINTS "${_libdir}/../include" "${_libdir}/../../include")
+        endif()
+    endforeach()
+endif()
+if(NOT MKL_DFTI_INCLUDE_DIR)
+    message(WARNING "mkl_dfti.h not found; skipping toeplitz_ls_benchmark target. Pass "
+                    "-DMKL_DFTI_INCLUDE_DIR=<MKL>/include or export MKLROOT to build it.")
+else()
+    message(STATUS "Toeplitz benchmark: mkl_dfti.h in ${MKL_DFTI_INCLUDE_DIR}")
+    add_benchmark(NAME toeplitz_ls_benchmark              CXX_SOURCES bench_toeplitz_ls/toeplitz_ls_benchmark.cc              LINK_LIBS ${Benchmark_libs_cqrrto_linops})
+    target_include_directories(toeplitz_ls_benchmark PRIVATE ${MKL_DFTI_INCLUDE_DIR})
+
+    # Derive MKL_ILP64 from the BLAS interface blaspp was actually built against,
+    # instead of assuming ILP64 (an LP64 MKL build would otherwise silently mismatch
+    # the DFTI header's ABI). blaspp's installed config records this in
+    # blas/defines.h (BLAS_ILP64 defined iff the ILP64 interface was linked);
+    # blaspp_DIR locates that install tree. Fall back to matching ilp64/lp64 in the
+    # resolved library names if that header cannot be found.
+    set(_toeplitz_ilp64 "")
+    if(blaspp_DIR)
+        get_filename_component(_blaspp_prefix "${blaspp_DIR}/../../.." ABSOLUTE)
+        set(_blaspp_defines_h "${_blaspp_prefix}/include/blas/defines.h")
+        if(EXISTS "${_blaspp_defines_h}")
+            file(READ "${_blaspp_defines_h}" _blaspp_defines_contents)
+            if(_blaspp_defines_contents MATCHES "#define[ \t]+BLAS_ILP64")
+                set(_toeplitz_ilp64 TRUE)
+            else()
+                set(_toeplitz_ilp64 FALSE)
+            endif()
+            message(STATUS "Toeplitz benchmark: BLAS interface from ${_blaspp_defines_h}: "
+                            "ILP64=${_toeplitz_ilp64}")
+        endif()
+    endif()
+    if(_toeplitz_ilp64 STREQUAL "")
+        foreach(_lib ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} ${blaspp_libraries})
+            if(_lib MATCHES "ilp64")
+                set(_toeplitz_ilp64 TRUE)
+            elseif(_lib MATCHES "lp64")
+                set(_toeplitz_ilp64 FALSE)
+            endif()
+        endforeach()
+        if(NOT _toeplitz_ilp64 STREQUAL "")
+            message(STATUS "Toeplitz benchmark: BLAS interface from linked library names: "
+                            "ILP64=${_toeplitz_ilp64}")
+        endif()
+    endif()
+    if(_toeplitz_ilp64 STREQUAL "")
+        message(WARNING "Toeplitz benchmark: could not determine whether the resolved "
+                        "BLAS/MKL interface is ILP64 or LP64; defaulting to MKL_ILP64.")
+        set(_toeplitz_ilp64 TRUE)
+    endif()
+    if(_toeplitz_ilp64)
+        target_compile_definitions(toeplitz_ls_benchmark PRIVATE MKL_ILP64)
+    endif()
+endif()
 
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
