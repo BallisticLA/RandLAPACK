@@ -454,6 +454,37 @@ TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
     test_binary_rank_search_zero_mat(m, n, A);
 }
 
+TEST_F(TestUtil, test_rank_check_full_rank) {
+    int64_t m = 100;
+    int64_t n = 20;
+    std::vector<double> A(m * n, 0.0);
+    // Full column rank: every diagonal entry well above 5 * eps * s[0].
+    for (int64_t i = 0; i < n; ++i)
+        A[i + i * m] = 1.0 / (double) (i + 1);
+
+    ASSERT_EQ(RandLAPACK::util::rank_check(m, n, A.data()), n);
+}
+
+TEST_F(TestUtil, test_rank_check_exact_rank) {
+    int64_t m = 100;
+    int64_t n = 20;
+    int64_t r = 7;
+    std::vector<double> A(m * n, 0.0);
+    // Exactly r nonzero singular values; the trailing n - r columns are identically zero.
+    for (int64_t i = 0; i < r; ++i)
+        A[i + i * m] = 1.0 / (double) (i + 1);
+
+    ASSERT_EQ(RandLAPACK::util::rank_check(m, n, A.data()), r);
+}
+
+TEST_F(TestUtil, test_rank_check_zero_matrix) {
+    int64_t m = 100;
+    int64_t n = 20;
+    std::vector<double> A(m * n, 0.0);
+
+    ASSERT_EQ(RandLAPACK::util::rank_check(m, n, A.data()), (int64_t) 0);
+}
+
 class Test_Inplace_Square_Transpose : public ::testing::Test
 {
     protected:
