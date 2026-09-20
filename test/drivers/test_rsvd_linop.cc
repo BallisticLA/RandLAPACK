@@ -132,3 +132,30 @@ TEST(TestRSVDLinearOperator, RejectsInvalidInputsBeforeAllocating) {
     EXPECT_EQ(s,nullptr);
     EXPECT_EQ(v,nullptr);
 }
+
+TEST(TestRSVDLinearOperator, PreservesOutputPointersOnNonfiniteInputFailure) {
+    double a[] = {std::numeric_limits<double>::quiet_NaN(), 0, 0, 1};
+    RandLAPACK::linops::DenseLinOp<double> op(2,2,a,2,Layout::ColMajor);
+    RandLAPACK::HQRQ<double> orth(false,false);
+    RandLAPACK::RS<double,RNG> rs(orth,0,1,false,false);
+    RandLAPACK::RF<double,RNG> rf(rs,orth,false,false);
+    RandLAPACK::QB<double,RNG> qb(rf,orth,false,false);
+    RandLAPACK::RSVD<double,RNG> rsvd(qb,1);
+    auto state = RandBLAS::RNGState<RNG>();
+    int64_t k = 1;
+    double *u = nullptr, *s = nullptr, *v = nullptr;
+    // LAPACK backends can signal invalid input through info or an exception.
+    // Either failure path must leave the caller's output pointers unchanged.
+    bool failed = false;
+    try {
+        failed = rsvd.call(op,1.0,k,1e-8,u,s,v,state) != 0;
+    } catch (const lapack::Error&) {
+        failed = true;
+    }
+    EXPECT_TRUE(failed);
+    EXPECT_EQ(u,nullptr);
+    EXPECT_EQ(s,nullptr);
+    EXPECT_EQ(v,nullptr);
+    // Release any outputs published by a faulty implementation before failure.
+    std::free(u); std::free(s); std::free(v);
+}

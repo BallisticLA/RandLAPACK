@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace RandLAPACK::linops {
@@ -27,8 +28,10 @@ public:
         randlapack_require(n_rows >= 0 && n_cols >= 0);
         if (max_rank < 0)
             throw Error("maximum downdate rank must be nonnegative");
-        Q_data.resize(n_rows * max_rank);
-        BT_data.resize(n_cols * max_rank);
+        const auto q_size = checked_buffer_size(n_rows, max_rank);
+        const auto bt_size = checked_buffer_size(n_cols, max_rank);
+        Q_data.resize(q_size);
+        BT_data.resize(bt_size);
     }
 
     /// Append b_sz columns. Exceeding the capacity is rejected before any copy.
@@ -59,13 +62,15 @@ public:
         randlapack_require(m == (transpose ? n_cols : n_rows));
         randlapack_require(k == (transpose ? n_rows : n_cols));
 
+        // Validate and allocate scratch before the base operator can touch output.
+        if (curr_rank != 0 && n != 0 && alpha != T(0))
+            scratch.resize(checked_buffer_size(curr_rank, n));
         base_op(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
         if (curr_rank == 0 || n == 0 || alpha == T(0)) return;
 
         // Factors remain column-major irrespective of the RHS/output layout.
         const T* left = transpose ? BT_data.data() : Q_data.data();
         const T* right = transpose ? Q_data.data() : BT_data.data();
-        scratch.resize(curr_rank * n);
         const Op rhs_op = layout == Layout::ColMajor ? trans_B
             : (trans_B == Op::NoTrans ? Op::Trans : Op::NoTrans);
         blas::gemm(Layout::ColMajor, Op::Trans, rhs_op, curr_rank, n, k,
@@ -78,6 +83,16 @@ public:
     }
 
 private:
+    static std::size_t checked_buffer_size(int64_t rows, int64_t cols) {
+        // Keep both signed indexing products and the vector allocation valid.
+        const auto max_size = std::min<uint64_t>(
+            std::numeric_limits<int64_t>::max(), std::vector<T>().max_size());
+        if (rows < 0 || cols < 0 || (rows != 0 &&
+            static_cast<uint64_t>(cols) > max_size / static_cast<uint64_t>(rows)))
+            throw Error("downdate buffer dimensions exceed the supported size");
+        return static_cast<std::size_t>(rows) * static_cast<std::size_t>(cols);
+    }
+
     BaseLinOp& base_op;
     int64_t curr_rank = 0;
     const int64_t max_rank;

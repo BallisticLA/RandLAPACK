@@ -9,6 +9,7 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace RandLAPACK {
@@ -110,8 +111,9 @@ class RSVD : public RSVDalg<T, RNG> {
         /// Requires a QB object with RF/RS components and an operator supporting
         /// column-major applications. Other algorithm objects throw Error.
         /// The base operator is never modified (deflation is implicit).
-        /// Returns 0 after factorization, or a QB failure code (4, 5, or 6).
-        /// On QB failure, output pointers are left unchanged.
+        /// Returns 0 after factorization, a QB failure code (4, 5, or 6),
+        /// or 7 if the SVD fails to converge. LAPACK exceptions propagate.
+        /// Output pointers are left unchanged on failure or exception.
         template <linops::LinearOperator LinOp>
         int call(
             LinOp& A_op,
@@ -202,25 +204,32 @@ int RSVD<T, RNG>::call(
         free(BT);
         throw;
     }
+    using Buffer = std::unique_ptr<T, decltype(&std::free)>;
+    Buffer Q_owner(Q, &std::free);
+    Buffer BT_owner(BT, &std::free);
     if (status >= 4 || k == 0) {
-        free(Q);
-        free(BT);
         return status;
     }
 
-    T* UT_buf = ( T * ) calloc(k * k, sizeof( T ));
-    U = ( T * ) calloc(A_op.n_rows * k, sizeof( T ));
-    S = ( T * ) calloc(k, sizeof( T ));
-    V = ( T * ) calloc(A_op.n_cols * k, sizeof( T ));
+    std::vector<T> UT_buf(k * k);
+    Buffer U_buffer(static_cast<T*>(calloc(A_op.n_rows * k, sizeof(T))), &std::free);
+    Buffer S_buffer(static_cast<T*>(calloc(k, sizeof(T))), &std::free);
+    Buffer V_buffer(static_cast<T*>(calloc(A_op.n_cols * k, sizeof(T))), &std::free);
+    if (!U_buffer || !S_buffer || !V_buffer)
+        throw std::bad_alloc();
 
     // SVD of B
-    lapack::gesdd(Job::SomeVec, A_op.n_cols, k, BT, A_op.n_cols, S, V, A_op.n_cols, UT_buf, k);
+    const int64_t info = lapack::gesdd(Job::SomeVec, A_op.n_cols, k, BT, A_op.n_cols,
+                                      S_buffer.get(), V_buffer.get(), A_op.n_cols,
+                                      UT_buf.data(), k);
+    if (info != 0) return 7;
     // U = Q * UT_buf^T
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, A_op.n_rows, k, k, 1.0, Q, A_op.n_rows, UT_buf, k, 0.0, U, A_op.n_rows);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, A_op.n_rows, k, k, T(1),
+               Q, A_op.n_rows, UT_buf.data(), k, T(0), U_buffer.get(), A_op.n_rows);
 
-    free(Q);
-    free(BT);
-    free(UT_buf);
+    U = U_buffer.release();
+    S = S_buffer.release();
+    V = V_buffer.release();
     return 0;
 }
 

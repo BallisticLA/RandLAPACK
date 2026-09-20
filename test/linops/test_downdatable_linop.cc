@@ -75,3 +75,23 @@ TEST(TestDowndatableLinOp, RejectsRankOverflowBeforeUpdating) {
     EXPECT_DOUBLE_EQ(output[0], 0);
     EXPECT_DOUBLE_EQ(output[1], 0);
 }
+
+TEST(TestDowndatableLinOp, RejectsBufferSizeOverflow) {
+    double a[16] = {};
+    RandLAPACK::linops::DenseLinOp<double> base(4, 4, a, 4, Layout::ColMajor);
+    using Residual = RandLAPACK::linops::DowndatableLinOp<double, decltype(base)>;
+    // Four times this rank wraps to zero in a signed 64-bit product.
+    EXPECT_THROW(Residual(base, int64_t(1) << 62), RandLAPACK::Error);
+}
+
+TEST(TestDowndatableLinOp, RejectsScratchOverflowBeforeApplyingBase) {
+    double a[16] = {}, q[8] = {}, output = 17;
+    RandLAPACK::linops::DenseLinOp<double> base(4, 4, a, 4, Layout::ColMajor);
+    RandLAPACK::linops::DowndatableLinOp<double, decltype(base)> residual(base, 2);
+    residual.update(2, q, q);
+    // Reject before forwarding this oversized RHS to BLAS with the small buffers.
+    EXPECT_THROW(residual(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                         4, int64_t(1) << 62, 4, 1.0, q, 4, 0.0, &output, 4),
+                 RandLAPACK::Error);
+    EXPECT_DOUBLE_EQ(output, 17);
+}
