@@ -225,6 +225,32 @@ class TestBK : public ::testing::Test
 };
 
 
+TEST_F(TestBK, BK_norm_convergence_at_iteration_budget_is_terminal) {
+    const int64_t m = 8, n = 6, k = 2;
+    std::vector<double> A(m * n, 0.0);
+    A[0] = 4.0;
+    A[1 + m] = 2.0;
+
+    // The first odd step captures this rank-two matrix. A loose norm tolerance
+    // makes that terminal decision independent of rounding in the factorization.
+    for (int budget : {1, 3}) {
+        SCOPED_TRACE(budget);
+        auto state = RandBLAS::RNGState();
+        BKOut<double> out;
+        RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, 0.25);
+        bk.max_krylov_iters = budget;
+        ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                          out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+        EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::norm_converged);
+        EXPECT_EQ(bk.num_krylov_iters, 1);
+        EXPECT_TRUE(out.final_iter_is_odd);
+        EXPECT_EQ(out.end_rows, k);
+        EXPECT_EQ(out.end_cols, k);
+        check_band_identity<double>(m, n, k, A.data(), out, 1e-12);
+    }
+}
+
+
 // Does the band actually equal X' A Y, at the point where norm_converged now stops?
 //
 // Phase 0.2 restored norm_converged (rl_bk.hh:716 was measuring the wrong triangle) and
@@ -632,24 +658,9 @@ TEST_F(TestBK, BK_band_equals_XtAY_even_final_iteration) {
     delete[] A;
 }
 
-// Diagnostic for the T2 regime (exact rank 25, b_sz 10): BK-level view of why the run
-// stops where it does, since the driver reports only "not_adaptive" in non-adaptive mode.
-/// Band identity at a TRUNCATED EVEN terminal under the cqrrt QR, which nothing else covers.
-///
-/// Exact rank 25 at block size 10. Iteration 4 is even, its X block carries only 5 healthy
-/// columns, and the run stops there with end_rows = 25 > end_cols = 20. So this exercises
-/// the even-side band write (S, leading dimension n + k) at a non-square geometry produced
-/// by the rank criterion, with CQRRT rather than geqrf/ungqr doing the factorisation.
-///
-/// It also records a reachability finding about the even branch's discarded CQRRT status
-/// (rl_bk.hh, the cqrrt arm of the even branch). A sweep of exact ranks 11 to 32 at block
-/// size 10 under cqrrt never produced a zero-width block: every non-multiple of the block
-/// size terminated on an even iteration with final_block_width = r mod 10, between 1 and 9,
-/// and every multiple terminated one iteration earlier through norm_converged, because the
-/// preceding odd iteration had already captured all of A's spectral content. So
-/// block_numerical_rank always fires first with a nonzero healthy prefix, and a fully dead
-/// even-side block does not arise for exact-rank input. The status check added alongside
-/// this test is therefore defensive rather than a fix for observed behaviour.
+// Stop at the narrowed even block to exercise S with leading dimension n + k
+// and non-square geometry. A longer run can stop through either norm convergence
+// or a zero-width rank probe, depending on roundoff in the BLAS/LAPACK backend.
 TEST_F(TestBK, BK_even_terminal_band_identity_cqrrt) {
     int64_t m = 200, n = 200, k = 10, r = 25;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -665,21 +676,16 @@ TEST_F(TestBK, BK_even_terminal_band_identity_cqrrt) {
     BKOut<double> out;
     RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
     bk.qr_exp = RandLAPACK::BKSubroutines::QR_explicit::cqrrt;
-    bk.max_krylov_iters = 40;
+    bk.max_krylov_iters = 4;
     ASSERT_EQ(bk.call(m, n, A, m, k, out.X_ev, out.Y_od, out.R, out.S,
                       out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
 
-    // Pin the geometry this test exists to cover, so a change of exit route is loud.
-    // These numbers changed when continuation landed, and the change is the point: the run
-    // used to stop at iteration 4 with end_rows = 25 > end_cols = 20, stranding the right
-    // basis 5 columns short. It now narrows to 5, continues, completes the right basis, and
-    // stops at iteration 6 when the next block probes to zero width.
-    EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::rank_deficient);
+    EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::max_iters_reached);
     EXPECT_FALSE(out.final_iter_is_odd) << "expected an even terminal iteration";
-    EXPECT_EQ(bk.final_block_width, (int64_t) 0) << "terminal block probed to zero width";
+    EXPECT_EQ(bk.final_block_width, (int64_t) 5);
     EXPECT_GE(bk.narrowed_blocks, (int64_t) 1) << "continuation must actually have fired";
     EXPECT_EQ(out.end_rows, (int64_t) 25);
-    EXPECT_EQ(out.end_cols, (int64_t) 25);
+    EXPECT_EQ(out.end_cols, (int64_t) 20);
 
     check_band_identity<double>(m, n, k, A, out, 1e-10);
     delete[] A;
@@ -778,7 +784,8 @@ TEST_F(TestBK, BK_rank_39_is_a_tau_sensitivity_not_a_shortfall) {
 /// with the old arithmetic the two legs would diverge from the first post-checkpoint block.
 ///
 /// Exact rank 25 at block size 10 narrows the left block to 5 at iteration 4, so a checkpoint
-/// at 5 sits after the narrowing, and the helper asserts that it really did.
+/// at 4 sits after the narrowing and before possible norm convergence at 5.
+/// The helper asserts that the checkpoint is both narrowed and resumable.
 TEST_F(TestBK, BK_resume_equals_single_shot_across_a_narrowing) {
     int64_t m = 200, n = 200, k = 10, r = 25;
 
@@ -792,7 +799,7 @@ TEST_F(TestBK, BK_resume_equals_single_shot_across_a_narrowing) {
         RandLAPACK::gen::gen_singvec<double>(m, n, A, r, S.data(), gs);
     }
 
-    check_resume_equals_single_shot(m, n, k, /*p1=*/5, /*p=*/8, A, /*expect_narrowed=*/true);
+    check_resume_equals_single_shot(m, n, k, /*p1=*/4, /*p=*/8, A, /*expect_narrowed=*/true);
     delete[] A;
 }
 

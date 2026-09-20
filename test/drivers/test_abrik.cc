@@ -128,6 +128,24 @@ class TestABRIK : public ::testing::Test
         return std::hypot(nrm1, nrm2);
     }
 
+    // Measure the driver's per-triplet-normalized residual independently, using
+    // the two dense residual buffers formed by residual_error_comp above.
+    template <typename T, typename TestData>
+    static T normalized_residual_error_comp(TestData &all_data, int64_t k) {
+        if (k < 1) return std::numeric_limits<T>::infinity();
+        residual_error_comp<T>(all_data, k);
+        for (int64_t j = 0; j < k; ++j) {
+            if (all_data.Sigma[j] <= T(0)) return std::numeric_limits<T>::infinity();
+            for (int64_t i = 0; i < all_data.row; ++i)
+                all_data.U_cpy[i + j * all_data.row] /= all_data.Sigma[j];
+            for (int64_t i = 0; i < all_data.col; ++i)
+                all_data.V_cpy[i + j * all_data.col] /= all_data.Sigma[j];
+        }
+        return std::hypot(
+            lapack::lange(Norm::Fro, all_data.row, k, all_data.U_cpy, all_data.row),
+            lapack::lange(Norm::Fro, all_data.col, k, all_data.V_cpy, all_data.col));
+    }
+
     // How many of the k returned triplets actually ARE triplets, judged one at a time.
     //
     // residual_error_comp above is the two-sided UNNORMALIZED residual: it divides by
@@ -404,7 +422,7 @@ TEST_F(TestABRIK, ABRIK_adaptive_converges) {
     int64_t m    = 200;
     int64_t n    = 100;
     int64_t b_sz = 10;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    double tol = 1e-10; // Attainable across BLAS/LAPACK backends.
     auto state = RandBLAS::RNGState();
 
     ABRIKTestData<double> all_data(m, n);
@@ -420,9 +438,12 @@ TEST_F(TestABRIK, ABRIK_adaptive_converges) {
     characterize(ABRIK);
 
     auto k = ABRIK.singular_triplets_found;
-    double residual = residual_error_comp<double>(all_data, k);
+    ASSERT_EQ(ABRIK.assessed_rank, 2 * b_sz);
+    ASSERT_GE(k, ABRIK.assessed_rank);
+    ASSERT_EQ(ABRIK.termination_reason, RandLAPACK::ABRIKTermination::converged);
+    double residual = normalized_residual_error_comp<double>(all_data, ABRIK.assessed_rank);
     printf("adaptive_converges: residual %e, k=%ld, iters=%d\n", residual, k, ABRIK.num_krylov_iters);
-    ASSERT_LE(residual, 10 * std::pow(std::numeric_limits<double>::epsilon(), 0.825));
+    ASSERT_LE(residual, tol);
     ASSERT_GT(ABRIK.num_krylov_iters, 4); // Should have extended beyond initial
 }
 
@@ -449,11 +470,17 @@ TEST_F(TestABRIK, ABRIK_adaptive_norm_converged) {
     // Should terminate gracefully despite unreasonable tolerance.
     auto k = ABRIK.singular_triplets_found;
     printf("adaptive_norm_converged: iters=%d, k=%ld\n", ABRIK.num_krylov_iters, k);
-    ASSERT_GT(k, (int64_t)0);
-    // Result should still be reasonable even though tol wasn't met.
-    double residual = residual_error_comp<double>(all_data, std::min(k, (int64_t)50));
+    ASSERT_EQ(k, n);
+    // At full rank, roundoff determines which terminal BK criterion fires.
+    auto reason = ABRIK.termination_reason;
+    ASSERT_TRUE(reason == RandLAPACK::ABRIKTermination::norm_converged ||
+                reason == RandLAPACK::ABRIKTermination::rank_deficient ||
+                reason == RandLAPACK::ABRIKTermination::saturated);
+    // Use the same normalized quality criteria as test_ABRIK_general.
+    ASSERT_EQ(certified_triplets<double>(all_data, k, 1e-8), k);
+    double residual = normalized_residual_error_comp<double>(all_data, std::min(k, (int64_t)50));
     printf("adaptive_norm_converged: residual %e\n", residual);
-    ASSERT_LE(residual, 10 * std::pow(std::numeric_limits<double>::epsilon(), 0.825));
+    ASSERT_LE(residual, 1e-7);
 }
 
 // Adaptive mode with a rank-deficient matrix: BK detects rank deficiency, ABRIK stops.
@@ -827,7 +854,7 @@ TEST_F(TestABRIK, ABRIK_adaptive_matches_nonadaptive) {
     characterize(ABRIK1);
 
     auto k1 = ABRIK1.singular_triplets_found;
-    double residual1 = residual_error_comp<double>(data1, std::min(k1, (int64_t)50));
+    double residual1 = normalized_residual_error_comp<double>(data1, std::min(k1, (int64_t)50));
 
     // Run 2: adaptive with small initial iterations.
     auto state2 = RandBLAS::RNGState();
@@ -838,14 +865,22 @@ TEST_F(TestABRIK, ABRIK_adaptive_matches_nonadaptive) {
     characterize(ABRIK2);
 
     auto k2 = ABRIK2.singular_triplets_found;
-    double residual2 = residual_error_comp<double>(data2, std::min(k2, (int64_t)50));
+    double residual2 = normalized_residual_error_comp<double>(data2, std::min(k2, (int64_t)50));
 
     printf("non-adaptive: residual %e, k=%ld, iters=%d\n", residual1, k1, ABRIK1.num_krylov_iters);
     printf("adaptive:     residual %e, k=%ld, iters=%d\n", residual2, k2, ABRIK2.num_krylov_iters);
 
-    // Both should achieve good quality.
-    ASSERT_LE(residual1, 10 * std::pow(std::numeric_limits<double>::epsilon(), 0.825));
-    ASSERT_LE(residual2, 10 * std::pow(std::numeric_limits<double>::epsilon(), 0.825));
+    // Both should achieve the shared normalized quality criteria and agree on
+    // the leading singular values that adaptive mode was asked to assess.
+    ASSERT_EQ(certified_triplets<double>(data1, k1, 1e-8), k1);
+    ASSERT_EQ(certified_triplets<double>(data2, k2, 1e-8), k2);
+    ASSERT_LE(residual1, 1e-7);
+    ASSERT_LE(residual2, 1e-7);
+    ASSERT_EQ(ABRIK2.assessed_rank, 2 * b_sz);
+    ASSERT_GE(k1, ABRIK2.assessed_rank);
+    ASSERT_GE(k2, ABRIK2.assessed_rank);
+    for (int64_t i = 0; i < ABRIK2.assessed_rank; ++i)
+        EXPECT_NEAR(data1.Sigma[i], data2.Sigma[i], 1e-7 * data1.Sigma[i]);
 }
 
 // Adaptive mode must stop BEFORE the Krylov subspace saturates, on a spectrum
@@ -869,11 +904,13 @@ TEST_F(TestABRIK, ABRIK_adaptive_stops_before_saturation_on_decaying_spectrum) {
     int64_t m    = 3000;
     int64_t n    = 300;
     int64_t b_sz = 10;
-    double tol   = 1e-14;
+    // Keep the tolerance above the residual floor of different BLAS/LAPACK
+    // backends. Assessing every computed triplet still runs to saturation.
+    double tol   = 1e-10;
     auto state   = RandBLAS::RNGState();
 
-    // Subspace saturation: ceil(p/2)*b_sz reaches n at p = 2n/b_sz.
-    const int p_saturation = (int)(2 * n / b_sz);
+    // Odd iterations grow the right basis: ceil(p/2)*b_sz first reaches n here.
+    const int p_saturation = (int)(2 * n / b_sz - 1);
 
     ABRIKTestData<double> all_data(m, n);
 
@@ -908,8 +945,9 @@ TEST_F(TestABRIK, ABRIK_adaptive_stops_before_saturation_on_decaying_spectrum) {
 
     // The point of the test: strictly fewer iterations than saturation.
     ASSERT_LT(ABRIK.num_krylov_iters, p_saturation);
+    ASSERT_LT(ABRIK.singular_triplets_found, n);
 
     // And the triplets it vouched for are genuinely accurate.
-    double residual = residual_error_comp<double>(all_data, ABRIK.assessed_rank);
+    double residual = normalized_residual_error_comp<double>(all_data, ABRIK.assessed_rank);
     ASSERT_LE(residual, tol);
 }

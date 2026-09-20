@@ -1029,17 +1029,14 @@ class BK {
                         main_loop_t_dur   += duration_cast<microseconds>(main_loop_t_stop - main_loop_t_start).count();
                     }
 
-                    if (iter >= max_iters) {
-                        this->termination_reason = BKTermination::max_iters_reached;
-                        break;
-                    }
-
+                    // Report terminal conditions before an exhausted budget so callers
+                    // cannot resume an already finished factorization.
                     // Frobenius-content convergence (criterion 1 above): ||R||_F exceeding
                     // sqrt(1 - tol^2)||M||_F means ||M - hat(M)||_F <= tol * ||M||_F.
                     //
                     // This check must come BEFORE ++iter. `iter` is the count of COMPLETED
                     // iterations, and end_cols = ((iter + 1) / 2) * k below reads it that
-                    // way; the max_iters_reached exit above likewise breaks before the
+                    // way; the max_iters_reached exit below likewise breaks before the
                     // increment. Breaking after it left iter one too high, so end_cols
                     // claimed a block that was never built and gesdd read uninitialized
                     // columns of Y_od/X_ev. That was latent until the Uplo fix above: with
@@ -1090,6 +1087,10 @@ class BK {
                     // even writes S_ii at rows [x_cols, x_cols + w) with ld n + k.
                     if ((iter % 2 == 0) && (x_cols > n)) {
                         this->termination_reason = BKTermination::saturated;
+                        break;
+                    }
+                    if (iter >= max_iters) {
+                        this->termination_reason = BKTermination::max_iters_reached;
                         break;
                     }
                     ++iter;
