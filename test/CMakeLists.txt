@@ -16,6 +16,7 @@ if (GTest_FOUND)
         comps/test_bk.cc
         drivers/test_krill.cc
         drivers/test_rsvd.cc
+        drivers/test_rsvd_linop.cc
         drivers/test_cqrrpt.cc
         drivers/test_cqrrt.cc
         drivers/test_bqrrp.cc
@@ -28,6 +29,7 @@ if (GTest_FOUND)
         misc/test_pdkernels.cc
         linops/test_svd_residual.cc
         linops/test_linops.cc
+        linops/test_downdatable_linop.cc
         linops/test_linop_unified.cc
         misc/test_gen.cc
         misc/test_matrix_io.cc

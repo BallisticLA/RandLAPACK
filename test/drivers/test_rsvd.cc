@@ -8,6 +8,10 @@
 #include <iomanip>
 #include <gtest/gtest.h>
 
+namespace {
+using RNG = RandBLAS::DefaultRNG;
+}
+
 
 class TestRSVD : public ::testing::Test
 {
@@ -182,7 +186,7 @@ TEST_F(TestRSVD, SimpleTest)
     bool orth_check = true;
 
     auto all_data = new RSVDTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration, block_sz);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration, block_sz);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -220,19 +224,20 @@ TEST_F(TestRSVD, LinOpDense) {
     double* A_saved = new double[m * n];
     lapack::lacpy(MatrixType::General, m, n, A, m, A_saved, m);
 
-    // Copy for raw-pointer path (which modifies A)
+    // Copy for raw-pointer path; both interfaces preserve the input.
     double* A_copy = new double[m * n];
     lapack::lacpy(MatrixType::General, m, n, A, m, A_copy, m);
 
     // Run 1: Raw-pointer RSVD
     auto state1 = RandBLAS::RNGState();
-    auto all_algs1 = new algorithm_objects<double, r123::Philox4x32>(false, false, false, p, passes_per_iteration, block_sz);
+    auto all_algs1 = new algorithm_objects<double, RNG>(false, false, false, p, passes_per_iteration, block_sz);
     int64_t k1 = k;
     double* U1 = nullptr; double* S1 = nullptr; double* V1 = nullptr;
     all_algs1->RSVD.call(m, n, A_copy, k1, tol, U1, S1, V1, state1);
 
     // Compute ||A - U1*S1*V1^T||_F
-    // A_copy was modified by QB, reload it
+    EXPECT_TRUE(std::equal(A_copy, A_copy + m*n, A_saved));
+    // Reload the reference before forming the reconstruction error.
     lapack::lacpy(MatrixType::General, m, n, A, m, A_copy, m);
     // U1_S = U1 * diag(S1)
     double* U1_S = new double[m * k1]();
@@ -243,11 +248,12 @@ TEST_F(TestRSVD, LinOpDense) {
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k1, -1.0, U1_S, m, V1, n, 1.0, A_copy, m);
     double err_raw = lapack::lange(Norm::Fro, m, n, A_copy, m);
     double norm_A = lapack::lange(Norm::Fro, m, n, A, m);
-    printf("Raw-pointer RSVD: ||A - USV^T||_F / ||A||_F = %e, k=%ld\n", err_raw / norm_A, k1);
+    printf("Raw-pointer RSVD: ||A - USV^T||_F / ||A||_F = %e, k=%lld\n",
+           err_raw / norm_A, static_cast<long long>(k1));
 
     // Run 2: LinOp RSVD
     auto state2 = RandBLAS::RNGState();
-    auto all_algs2 = new algorithm_objects<double, r123::Philox4x32>(false, false, false, p, passes_per_iteration, block_sz);
+    auto all_algs2 = new algorithm_objects<double, RNG>(false, false, false, p, passes_per_iteration, block_sz);
     int64_t k2 = k;
     double* U2 = nullptr; double* S2 = nullptr; double* V2 = nullptr;
 
@@ -263,7 +269,8 @@ TEST_F(TestRSVD, LinOpDense) {
         blas::scal(m, S2[i], &U2_S[m * i], 1);
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k2, -1.0, U2_S, m, V2, n, 1.0, A_check, m);
     double err_linop = lapack::lange(Norm::Fro, m, n, A_check, m);
-    printf("LinOp RSVD:       ||A - USV^T||_F / ||A||_F = %e, k=%ld\n", err_linop / norm_A, k2);
+    printf("LinOp RSVD:       ||A - USV^T||_F / ||A||_F = %e, k=%lld\n",
+           err_linop / norm_A, static_cast<long long>(k2));
 
     // Both should achieve good quality
     ASSERT_LE(err_raw / norm_A, 1e-10);
@@ -314,12 +321,12 @@ TEST_F(TestRSVD, LinOpSparse) {
 
     // Run LinOp RSVD with sparse operator
     auto state2 = RandBLAS::RNGState();
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(false, false, false, p, passes_per_iteration, block_sz);
+    auto all_algs = new algorithm_objects<double, RNG>(false, false, false, p, passes_per_iteration, block_sz);
     int64_t k2 = k;
     double* U = nullptr; double* S = nullptr; double* V = nullptr;
 
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::CSCMatrix<double>> A_linop(m, n, A_csc);
-    all_algs->RSVD.call(A_linop, norm_A, k2, tol, U, S, V, state2);
+    ASSERT_EQ(all_algs->RSVD.call(A_linop, norm_A, k2, tol, U, S, V, state2), 0);
 
     // Compute ||A - USV^T||_F using dense A
     double* A_check = new double[m * n];
@@ -328,7 +335,8 @@ TEST_F(TestRSVD, LinOpSparse) {
         blas::scal(m, S[i], &U[m * i], 1);  // U *= diag(S)
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k2, -1.0, U, m, V, n, 1.0, A_check, m);
     double err = lapack::lange(Norm::Fro, m, n, A_check, m);
-    printf("Sparse LinOp RSVD: ||A - USV^T||_F / ||A||_F = %e, k=%ld\n", err / norm_A, k2);
+    printf("Sparse LinOp RSVD: ||A - USV^T||_F / ||A||_F = %e, k=%lld\n",
+           err / norm_A, static_cast<long long>(k2));
 
     ASSERT_LE(err / norm_A, 1.0);  // Random sparse matrix has slow spectral decay; just verify it runs
 

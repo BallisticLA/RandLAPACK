@@ -4,6 +4,8 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_concepts.hh"
+#include "rl_exceptions.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -180,7 +182,9 @@ int RS<T, RNG>::call(
 // -----------------------------------------------------------------------------
 // LinOp-templated RS: mirrors RS::call, but drives an abstract linear operator
 // via A_op(...) instead of an explicit blas::gemm on a dense A. It is a
-// non-virtual free function (cannot add a template virtual method to the class).
+// free function for concrete RS objects. C++ forbids virtual member templates,
+// but a nonvirtual templated RS::call overload would also be valid. The dense
+// RowSketcher interface cannot dispatch on an arbitrary operator type.
 // KEEP IN SYNC with RS::call: any algorithmic or numerical change to one path
 // must be mirrored in the other.
 template <typename T, typename RNG, linops::LinearOperator LinOp>
@@ -193,11 +197,16 @@ int rs_linop(
 ){
     int64_t m = A_op.n_rows;
     int64_t n = A_op.n_cols;
-    int64_t p = rs_obj.passes_over_data;
-    int64_t q = rs_obj.passes_per_stab;
+    const int64_t p = rs_obj.passes_over_data;
+    const int64_t q = rs_obj.passes_per_stab;
     int64_t p_done = 0;
 
-    T* Omega_1 = new T[m * k]();
+    randlapack_require(k > 0 && k <= std::min(m, n)) << "sketch rank must be in [1, min(m,n)]";
+    if (p < 0 || q <= 0)
+        throw Error("RS requires nonnegative passes and positive stabilization interval");
+    randlapack_require(Omega != nullptr);
+    std::vector<T> buffer(m * k);
+    T* Omega_1 = buffer.data();
 
     if (p % 2 == 0) {
         RandBLAS::DenseDist D(n, k);
@@ -211,7 +220,6 @@ int rs_linop(
 
         ++p_done;
         if ((p_done % q == 0) && (rs_obj.Stab_Obj.call(n, k, Omega))) {
-            delete[] Omega_1;
             return 1;
         }
     }
@@ -225,7 +233,6 @@ int rs_linop(
             rs_obj.cond_nums.push_back(util::cond_num_check(m, k, Omega_1, rs_obj.verbose));
 
         if ((p_done % q == 0) && (rs_obj.Stab_Obj.call(m, k, Omega_1))) {
-            delete[] Omega_1;
             return 1;
         }
 
@@ -237,12 +244,10 @@ int rs_linop(
             rs_obj.cond_nums.push_back(util::cond_num_check(n, k, Omega, rs_obj.verbose));
 
         if ((p_done % q == 0) && (rs_obj.Stab_Obj.call(n, k, Omega))) {
-            delete[] Omega_1;
             return 1;
         }
     }
 
-    delete[] Omega_1;
     return 0;
 }
 

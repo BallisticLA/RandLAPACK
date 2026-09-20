@@ -8,6 +8,10 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+namespace {
+using RNG = RandBLAS::DefaultRNG;
+}
+
 class TestQB : public ::testing::Test
 {
     protected:
@@ -112,6 +116,7 @@ class TestQB : public ::testing::Test
         auto n = all_data.col;
         auto k = all_data.rank;
 
+        T* A_dat = all_data.A.data();
         T* A_hat_dat = all_data.A_hat.data();
         T* A_k_dat = all_data.A_k.data();
 
@@ -120,14 +125,10 @@ class TestQB : public ::testing::Test
         T* S_dat = all_data.S.data();
         T* VT_dat = all_data.VT.data();
 
-        // Save a copy of A before QB call (QB now modifies A in-place via deflation).
-        T* A_dat = new T[m * n];
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, A_dat, m);
-
         T* Q  = nullptr;
         T* BT = nullptr;
 
-        // Regular QB2 call. NOTE: this modifies all_data.A in-place.
+        // Regular QB2 call
         all_algs.QB.call(m, n,  all_data.A.data(), k, block_sz, tol, Q, BT, state);
 
         // Reassing pointers because Q, B have been resized
@@ -173,7 +174,6 @@ class TestQB : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         std::cout << "FRO NORM OF A_k - QB:  " << std::scientific << norm_test_4 << "\n";
         ASSERT_NEAR(norm_test_4, 0, test_tol);
-        delete[] A_dat;
         free(Q);
         free(BT);
     }
@@ -195,18 +195,15 @@ class TestQB : public ::testing::Test
 
         int64_t k_est = std::min(m, n);
 
+        T* A_dat = all_data.A.data();
         T* Q_dat = all_data.Q.data();
         T* BT_dat = all_data.BT.data();
         T* A_hat_dat = all_data.A_hat.data();
 
-        // Save a copy of A before QB call (QB now modifies A in-place via deflation).
-        T* A_dat = new T[m * n];
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, A_dat, m);
-
         T* Q = nullptr;
         T* BT = nullptr;
 
-        // Regular QB2 call. NOTE: this modifies all_data.A in-place.
+        // Regular QB2 call
         all_algs.QB.call(m, n, all_data.A.data(), k_est, block_sz, tol, Q, BT, state);
 
         // Reassing pointers because Q, B have been resized
@@ -233,7 +230,6 @@ class TestQB : public ::testing::Test
             std::cout << "FRO NORM OF A:         " << std::scientific << norm_A << "\n";
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
-        delete[] A_dat;
         free(Q);
         free(BT);
     }
@@ -256,7 +252,7 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -289,7 +285,7 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 6.7;
@@ -321,7 +317,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
   
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -353,7 +349,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
