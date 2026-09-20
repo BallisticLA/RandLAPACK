@@ -8,6 +8,10 @@
 #include <iomanip>
 #include <gtest/gtest.h>
 
+namespace {
+using RNG = RandBLAS::DefaultRNG;
+}
+
 
 class TestRSVD : public ::testing::Test
 {
@@ -182,7 +186,7 @@ TEST_F(TestRSVD, SimpleTest)
     bool orth_check = true;
 
     auto all_data = new RSVDTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration, block_sz);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration, block_sz);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -226,7 +230,7 @@ TEST_F(TestRSVD, LinOpDense) {
 
     // Run 1: Raw-pointer RSVD
     auto state1 = RandBLAS::RNGState();
-    auto all_algs1 = new algorithm_objects<double, r123::Philox4x32>(false, false, false, p, passes_per_iteration, block_sz);
+    auto all_algs1 = new algorithm_objects<double, RNG>(false, false, false, p, passes_per_iteration, block_sz);
     int64_t k1 = k;
     double* U1 = nullptr; double* S1 = nullptr; double* V1 = nullptr;
     all_algs1->RSVD.call(m, n, A_copy, k1, tol, U1, S1, V1, state1);
@@ -249,7 +253,7 @@ TEST_F(TestRSVD, LinOpDense) {
 
     // Run 2: LinOp RSVD
     auto state2 = RandBLAS::RNGState();
-    auto all_algs2 = new algorithm_objects<double, r123::Philox4x32>(false, false, false, p, passes_per_iteration, block_sz);
+    auto all_algs2 = new algorithm_objects<double, RNG>(false, false, false, p, passes_per_iteration, block_sz);
     int64_t k2 = k;
     double* U2 = nullptr; double* S2 = nullptr; double* V2 = nullptr;
 

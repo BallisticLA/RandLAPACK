@@ -140,9 +140,10 @@ int RF<T, RNG>::call(
 // LinOp-templated RF: mirrors RF::call above, but drives an abstract linear
 // operator via A_op(...) instead of an explicit blas::gemm on a dense A.
 // KEEP IN SYNC with RF::call: any algorithmic or numerical change to one path
-// must be mirrored in the other. The two paths are deliberately not merged
-// because the dense QB::call deflates a private copy, whereas the LinOp path
-// applies accumulated deflation implicitly.
+// must currently be mirrored in the other. This duplication preserves the
+// dense virtual RowSketcher interface; it is not required by QB deflation.
+// Sharing one kernel requires a common operator interface or retaining concrete
+// strategy types through the RS/RF/QB composition.
 template <typename T, typename RNG, linops::LinearOperator LinOp>
 int rf_linop(
     RF<T, RNG>& rf_obj,

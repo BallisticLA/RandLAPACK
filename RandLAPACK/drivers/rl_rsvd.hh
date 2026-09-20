@@ -9,7 +9,9 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
+#include <new>
 #include <vector>
 
 namespace RandLAPACK {
@@ -36,6 +38,15 @@ class RSVDalg {
 template <typename T, typename RNG>
 class RSVD : public RSVDalg<T, RNG> {
     public:
+
+        /// Return codes for the LinearOperator overload; the int API is retained.
+        enum Status {
+            Success = 0,
+            BlockOrthogonalityFailure = 4,
+            BasisOrthogonalityFailure = 5,
+            QBSubroutineFailure = 6,
+            SVDNonconvergence = 7
+        };
 
         // Constructor
         RSVD(
@@ -106,14 +117,35 @@ class RSVD : public RSVDalg<T, RNG> {
             RandBLAS::RNGState<RNG> &state
         ) override;
 
-        /// LinOp-based RSVD: accepts any LinearOperator.
-        /// norm_A must be the positive Frobenius norm, supplied by the caller.
-        /// Requires a QB object with RF/RS components and an operator supporting
-        /// column-major applications. Other algorithm objects throw Error.
+        /// Compute a rank-k approximate SVD of a LinearOperator.
+        /// Requires 1 <= k <= min(A_op.n_rows, A_op.n_cols), a positive block_sz,
+        /// finite nonnegative tol, and the positive finite Frobenius norm norm_A
+        /// supplied by the caller. Requires a QB object with RF/RS components,
+        /// nonnegative RS passes, a positive RS stabilization interval, and an
+        /// operator supporting column-major applications.
         /// The base operator is never modified (deflation is implicit).
-        /// Returns 0 after factorization, a QB failure code (4, 5, or 6),
-        /// or 7 if the SVD fails to converge. LAPACK exceptions propagate.
-        /// Output pointers are left unchanged on failure or exception.
+        ///
+        /// On Success, k is the achieved rank and U, S, V receive new allocations:
+        /// column-major m-by-k U, k singular values, and column-major n-by-k V.
+        /// The caller must free these allocations with std::free. Incoming output
+        /// buffers are not freed or reused. QB termination at the tolerance (0),
+        /// an increasing error estimate (2), or the requested rank (3) all produce
+        /// a usable approximation and return Success; meeting tol is not guaranteed.
+        ///
+        /// Numerical failures return BlockOrthogonalityFailure (4) for a new QB
+        /// block, BasisOrthogonalityFailure (5) for the accumulated QB basis,
+        /// QBSubroutineFailure (6) when sketching or stabilization returns nonzero,
+        /// or SVDNonconvergence (7) for positive gesdd info. On QB failure, k is the
+        /// number of previously accepted columns; on SVD failure it is the QB rank.
+        ///
+        /// Invalid parameter values or incompatible algorithm components throw Error.
+        /// LAPACK++ throws lapack::Error for negative info (an argument rejected
+        /// by the backend, which can include nonfinite data); this is not SVD
+        /// nonconvergence. Allocation failures throw std::bad_alloc. Exceptions
+        /// from operators, components, BLAS/LAPACK, or standard containers propagate
+        /// unchanged. On any failure or exception, U, S, V and their existing data
+        /// remain unchanged, and RSVD's temporary factor buffers are released. k and the
+        /// RNG state may have changed; neither is rolled back after computation.
         template <linops::LinearOperator LinOp>
         int call(
             LinOp& A_op,
@@ -207,7 +239,8 @@ int RSVD<T, RNG>::call(
     using Buffer = std::unique_ptr<T, decltype(&std::free)>;
     Buffer Q_owner(Q, &std::free);
     Buffer BT_owner(BT, &std::free);
-    if (status >= 4 || k == 0) {
+    if (status == BlockOrthogonalityFailure || status == BasisOrthogonalityFailure
+        || status == QBSubroutineFailure) {
         return status;
     }
 
@@ -222,7 +255,9 @@ int RSVD<T, RNG>::call(
     const int64_t info = lapack::gesdd(Job::SomeVec, A_op.n_cols, k, BT, A_op.n_cols,
                                       S_buffer.get(), V_buffer.get(), A_op.n_cols,
                                       UT_buf.data(), k);
-    if (info != 0) return 7;
+    // LAPACK++ throws lapack::Error for negative info; positive info means that
+    // the bidiagonal divide-and-conquer iteration did not converge.
+    if (info > 0) return SVDNonconvergence;
     // U = Q * UT_buf^T
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, A_op.n_rows, k, k, T(1),
                Q, A_op.n_rows, UT_buf.data(), k, T(0), U_buffer.get(), A_op.n_rows);
@@ -230,7 +265,7 @@ int RSVD<T, RNG>::call(
     U = U_buffer.release();
     S = S_buffer.release();
     V = V_buffer.release();
-    return 0;
+    return Success;
 }
 
 } // end namespace RandLAPACK

@@ -8,6 +8,10 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+namespace {
+using RNG = RandBLAS::DefaultRNG;
+}
+
 class TestQB : public ::testing::Test
 {
     protected:
@@ -250,7 +254,7 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -283,7 +287,7 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 6.7;
@@ -315,7 +319,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
   
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -347,7 +351,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;

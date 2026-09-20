@@ -12,8 +12,9 @@
 
 namespace RandLAPACK::linops {
 
-/// Represents A - Q * BT^T without changing the base operator. Each update
+/// Represents A - E * F^T without changing the base operator. Each update
 /// appends column-major factors; operator applications accept either layout.
+/// E has n_rows rows and F has n_cols rows; neither needs orthogonal columns.
 /// The base operator must outlive this object and support the requested layout.
 template <typename T, LinearOperator BaseLinOp>
 class DowndatableLinOp {
@@ -28,26 +29,26 @@ public:
         randlapack_require(n_rows >= 0 && n_cols >= 0);
         if (max_rank < 0)
             throw Error("maximum downdate rank must be nonnegative");
-        const auto q_size = checked_buffer_size(n_rows, max_rank);
-        const auto bt_size = checked_buffer_size(n_cols, max_rank);
-        Q_data.resize(q_size);
-        BT_data.resize(bt_size);
+        const auto e_size = checked_buffer_size(n_rows, max_rank);
+        const auto f_size = checked_buffer_size(n_cols, max_rank);
+        E_data.resize(e_size);
+        F_data.resize(f_size);
     }
 
     /// Append b_sz columns. Exceeding the capacity is rejected before any copy.
-    void update(int64_t b_sz, const T* Q_new, const T* BT_new) {
+    void update(int64_t b_sz, const T* E_new, const T* F_new) {
         randlapack_require(b_sz >= 0 && b_sz <= max_rank - curr_rank)
             << "downdate columns exceed the remaining rank capacity";
         if (b_sz == 0) return;
-        randlapack_require(Q_new != nullptr && BT_new != nullptr);
-        lapack::lacpy(MatrixType::General, n_rows, b_sz, Q_new, n_rows,
-                      Q_data.data() + n_rows * curr_rank, n_rows);
-        lapack::lacpy(MatrixType::General, n_cols, b_sz, BT_new, n_cols,
-                      BT_data.data() + n_cols * curr_rank, n_cols);
+        randlapack_require(E_new != nullptr && F_new != nullptr);
+        lapack::lacpy(MatrixType::General, n_rows, b_sz, E_new, n_rows,
+                      E_data.data() + n_rows * curr_rank, n_rows);
+        lapack::lacpy(MatrixType::General, n_cols, b_sz, F_new, n_cols,
+                      F_data.data() + n_cols * curr_rank, n_cols);
         curr_rank += b_sz;
     }
 
-    /// C := alpha * op(A - Q*BT^T) * op(B) + beta * C.
+    /// C := alpha * op(A - E*F^T) * op(B) + beta * C.
     void operator()(
         Layout layout, Op trans_A, Op trans_B,
         int64_t m, const int64_t n, int64_t k, T alpha,
@@ -69,8 +70,8 @@ public:
         if (curr_rank == 0 || n == 0 || alpha == T(0)) return;
 
         // Factors remain column-major irrespective of the RHS/output layout.
-        const T* left = transpose ? BT_data.data() : Q_data.data();
-        const T* right = transpose ? Q_data.data() : BT_data.data();
+        const T* left = transpose ? F_data.data() : E_data.data();
+        const T* right = transpose ? E_data.data() : F_data.data();
         const Op rhs_op = layout == Layout::ColMajor ? trans_B
             : (trans_B == Op::NoTrans ? Op::Trans : Op::NoTrans);
         blas::gemm(Layout::ColMajor, Op::Trans, rhs_op, curr_rank, n, k,
@@ -96,8 +97,8 @@ private:
     BaseLinOp& base_op;
     int64_t curr_rank = 0;
     const int64_t max_rank;
-    std::vector<T> Q_data;
-    std::vector<T> BT_data;
+    std::vector<T> E_data;
+    std::vector<T> F_data;
     std::vector<T> scratch;
 };
 

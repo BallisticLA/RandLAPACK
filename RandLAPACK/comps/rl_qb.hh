@@ -10,7 +10,9 @@
 #include <RandBLAS.hh>
 #include <math.h>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
+#include <new>
 #include <vector>
 
 namespace RandLAPACK {
@@ -336,8 +338,12 @@ int QB<T, RNG>::call(
 
     if(Q) free(Q);
     if(BT) free(BT);
+    Q = nullptr;
+    BT = nullptr;
     Q  = ( T * ) calloc(m * b_sz, sizeof( T ) );
+    if (!Q) throw std::bad_alloc();
     BT = ( T * ) calloc(n * b_sz, sizeof( T ) );
+    if (!BT) throw std::bad_alloc();
     std::vector<T> QtQi(b_sz * b_sz);
     T* Q_i;
     T* BT_i;
@@ -347,8 +353,14 @@ int QB<T, RNG>::call(
         next_sz = curr_sz + b_sz;
 
         if (curr_sz != 0) {
-            Q    = ( T * ) realloc(Q,    next_sz * m * sizeof( T ));
-            BT   = ( T * ) realloc(BT,   next_sz * n * sizeof( T ));
+            // Retain ownership of the old allocation if realloc fails, so the
+            // caller can release it while propagating the allocation exception.
+            T* resized = ( T * ) realloc(Q, next_sz * m * sizeof( T ));
+            if (!resized) throw std::bad_alloc();
+            Q = resized;
+            resized = ( T * ) realloc(BT, next_sz * n * sizeof( T ));
+            if (!resized) throw std::bad_alloc();
+            BT = resized;
             QtQi.resize(next_sz * b_sz);
         }
 
