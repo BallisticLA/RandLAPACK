@@ -6,6 +6,9 @@
 #include <RandBLAS.hh>
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
+
 class TestGeneratorsMutateState : public ::testing::Test
 {
     protected:
@@ -149,9 +152,11 @@ class TestGenSpectra : public ::testing::Test
     template <typename T>
     static void test_bad_cholqr_singvals_is_monotone() {
         int64_t k = 1000;
-        for (T cond : {(T) 1e8, (T) 1e10, (T) 1e12}) {
+        T min_cond = T(1) / std::sqrt(std::numeric_limits<T>::epsilon());
+        for (T cond : {min_cond, T(100) * min_cond, T(10000) * min_cond}) {
             auto s = RandLAPACK::gen::gen_bad_cholqr_singvals<T>(k, (T) 0.1, cond);
             ASSERT_EQ((int64_t) s.size(), k);
+            ASSERT_GT(s.back(), T(0));
             for (int64_t i = 1; i < k; ++i)
                 ASSERT_LE(s[i], s[i - 1]) << "not monotone at i=" << i << " for cond=" << cond;
         }
@@ -162,12 +167,14 @@ class TestGenSpectra : public ::testing::Test
     template <typename T>
     static void test_bad_cholqr_singvals_realises_cond() {
         int64_t k = 1000;
-        for (T cond : {(T) 1e8, (T) 1e10, (T) 1e12}) {
+        T eps = std::numeric_limits<T>::epsilon();
+        T min_cond = T(1) / std::sqrt(eps);
+        for (T cond : {min_cond, T(100) * min_cond, T(10000) * min_cond}) {
             auto s = RandLAPACK::gen::gen_bad_cholqr_singvals<T>(k, (T) 0.1, cond);
             ASSERT_EQ(s.front(), (T) 1.0);
             T realised = s.front() / s.back();
-            // A few ulps of slack: the trailing endpoint comes out of std::pow.
-            ASSERT_NEAR(realised / cond, (T) 1.0, (T) 1e-12)
+            // Allow a few ulps for constructing the endpoint and taking its reciprocal.
+            ASSERT_NEAR(realised / cond, T(1), T(8) * eps)
                 << "requested cond=" << cond << " but realised " << realised;
         }
     }
@@ -178,36 +185,80 @@ class TestGenSpectra : public ::testing::Test
     static void test_bad_cholqr_singvals_block_sizes() {
         int64_t k = 1000;
         T frac = (T) 0.1;
+        T eps = std::numeric_limits<T>::epsilon();
+        T cliff = std::sqrt(eps);
         auto s = RandLAPACK::gen::gen_bad_cholqr_singvals<T>(k, frac, (T) 1e10);
         int64_t offset = (int64_t) std::floor((double) k * (double) frac);
 
         for (int64_t i = 0; i < offset; ++i)
             ASSERT_EQ(s[i], (T) 1.0) << "leading block not all ones at i=" << i;
         ASSERT_LT(s[offset], (T) 1.0) << "trailing block did not drop";
-        // The cliff is 1 -> 1e-8 by construction.
-        ASSERT_NEAR(s[offset - 1] / s[offset], (T) 1e8, (T) 1e8 * (T) 1e-12);
+        ASSERT_NEAR(s[offset] / cliff, T(1), T(4) * eps);
+    }
+
+    template <typename T>
+    static void test_bad_cholqr_singvals_rejects_cond_below_bound() {
+        T min_cond = T(1) / std::sqrt(std::numeric_limits<T>::epsilon());
+        T below_bound = std::nextafter(min_cond, T(0));
+        EXPECT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(10, T(0.5), below_bound),
+                     RandLAPACK::Error);
     }
 
     /// Degenerate shapes throw rather than returning a silently wrong spectrum, which is
     /// how the original fault went unnoticed.
     template <typename T>
     static void test_bad_cholqr_singvals_rejects_degenerate_shapes() {
-        // cond below 1e8: the trailing block would rise rather than decay.
-        ASSERT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(1000, (T) 0.1, (T) 1e4),
-                     RandLAPACK::Error);
+        for (int64_t k : {0, 1, 2}) {
+            EXPECT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(k, T(0.5), T(1e10)),
+                         RandLAPACK::Error);
+        }
         // frac too small: no leading block of ones.
         ASSERT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(5, (T) 0.1, (T) 1e10),
                      RandLAPACK::Error);
         // frac too large: fewer than two decaying values.
-        ASSERT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(10, (T) 1.0, (T) 1e10),
+        ASSERT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(8, T(0.875), T(1e10)),
                      RandLAPACK::Error);
+        ASSERT_THROW(RandLAPACK::gen::gen_bad_cholqr_singvals<T>(10, T(1), T(1e10)),
+                     RandLAPACK::Error);
+    }
+
+    template <typename T>
+    static void test_bad_cholqr_mat_random_vectors_preserve_spectrum() {
+        int64_t m = 6, n = 5;
+        T eps = std::numeric_limits<T>::epsilon();
+        T cliff = std::sqrt(eps);
+        RandLAPACK::gen::mat_gen_info<T> info(m, n, RandLAPACK::gen::bad_cholqr);
+        info.rank = 3;
+        info.frac_spectrum_one = T(0.5);
+        info.cond_num = T(16) / cliff;
+        std::vector<T> A(m * n, T(-7));
+        RandBLAS::RNGState<> state(7);
+        auto state_before = state;
+        RandLAPACK::gen::mat_gen(info, A.data(), state);
+        EXPECT_NE(state.counter, state_before.counter);
+
+        std::vector<T> s(n);
+        ASSERT_EQ(lapack::gesvd(lapack::Job::NoVec, lapack::Job::NoVec,
+            m, n, A.data(), m, s.data(), nullptr, 1, nullptr, 1), 0);
+        const std::vector<T> expected = {T(1), cliff, cliff / T(16), T(0), T(0)};
+        // SVD error is absolute at the scale of the largest singular value (one).
+        for (int64_t i = 0; i < n; ++i)
+            EXPECT_NEAR(s[i], expected[i], T(32) * eps) << "i=" << i;
     }
 };
 
 TEST_F(TestGenSpectra, bad_cholqr_singvals_is_monotone)                  { test_bad_cholqr_singvals_is_monotone<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_is_monotone_float)            { test_bad_cholqr_singvals_is_monotone<float>(); }
 TEST_F(TestGenSpectra, bad_cholqr_singvals_realises_cond)                { test_bad_cholqr_singvals_realises_cond<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_realises_cond_float)          { test_bad_cholqr_singvals_realises_cond<float>(); }
 TEST_F(TestGenSpectra, bad_cholqr_singvals_block_sizes)                  { test_bad_cholqr_singvals_block_sizes<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_block_sizes_float)            { test_bad_cholqr_singvals_block_sizes<float>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_rejects_cond_below_bound)      { test_bad_cholqr_singvals_rejects_cond_below_bound<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_rejects_cond_below_bound_float) { test_bad_cholqr_singvals_rejects_cond_below_bound<float>(); }
 TEST_F(TestGenSpectra, bad_cholqr_singvals_rejects_degenerate_shapes)    { test_bad_cholqr_singvals_rejects_degenerate_shapes<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_singvals_rejects_degenerate_shapes_float) { test_bad_cholqr_singvals_rejects_degenerate_shapes<float>(); }
+TEST_F(TestGenSpectra, bad_cholqr_mat_random_vectors_preserve_spectrum) { test_bad_cholqr_mat_random_vectors_preserve_spectrum<double>(); }
+TEST_F(TestGenSpectra, bad_cholqr_mat_random_vectors_preserve_spectrum_float) { test_bad_cholqr_mat_random_vectors_preserve_spectrum<float>(); }
 
 TEST_F(TestGenSpectra, bad_cholqr_singvals_rejects_nonfinite_parameters) {
     double inf = std::numeric_limits<double>::infinity();
@@ -224,6 +275,7 @@ TEST_F(TestGenSpectra, bad_cholqr_singvals_rejects_nonfinite_parameters) {
 
 TEST_F(TestGenSpectra, bad_cholqr_mat_gen_uses_requested_spectrum) {
     int64_t m = 6, n = 5;
+    double cliff = std::sqrt(std::numeric_limits<double>::epsilon());
     RandLAPACK::gen::mat_gen_info<double> info(m, n, RandLAPACK::gen::bad_cholqr);
     info.rank = n;
     info.frac_spectrum_one = 0.4;
@@ -232,13 +284,33 @@ TEST_F(TestGenSpectra, bad_cholqr_mat_gen_uses_requested_spectrum) {
     std::vector<double> A(m * n, -7.0);
     RandBLAS::RNGState<> state(7);
     RandLAPACK::gen::mat_gen(info, A.data(), state);
-    auto expected = RandLAPACK::gen::gen_bad_cholqr_singvals<double>(n, 0.4, 1e10);
+    const std::vector<double> expected = {1.0, 1.0, cliff, std::sqrt(cliff * 1e-10), 1e-10};
     for (int64_t j = 0; j < n; ++j) {
         for (int64_t i = 0; i < m; ++i)
             EXPECT_DOUBLE_EQ(A[i + j * m], i == j ? expected[i] : 0.0);
     }
     EXPECT_DOUBLE_EQ(A[0], 1.0);
     EXPECT_NEAR(A[n - 1 + (n - 1) * m], 1e-10, 1e-25);
+}
+
+TEST_F(TestGenSpectra, bad_cholqr_diagonal_rank_deficient_rectangles) {
+    double cliff = std::sqrt(std::numeric_limits<double>::epsilon());
+    const std::vector<double> expected = {1.0, cliff, cliff / 16.0, 0.0, 0.0};
+    for (int64_t m : {5, 6}) {
+        int64_t n = 11 - m;
+        RandLAPACK::gen::mat_gen_info<double> info(m, n, RandLAPACK::gen::bad_cholqr);
+        info.rank = 3;
+        info.frac_spectrum_one = 0.5;
+        info.cond_num = 16.0 / cliff;
+        info.diag = true;
+        std::vector<double> A(m * n, -7.0);
+        RandBLAS::RNGState<> state(7);
+        RandLAPACK::gen::mat_gen(info, A.data(), state);
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i < m; ++i)
+                EXPECT_DOUBLE_EQ(A[i + j * m], i == j ? expected[i] : 0.0);
+        }
+    }
 }
 
 TEST_F(TestGenSpectra, bad_cholqr_legacy_call_signatures) {
