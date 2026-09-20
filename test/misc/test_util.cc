@@ -454,6 +454,47 @@ TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
     test_binary_rank_search_zero_mat(m, n, A);
 }
 
+/// util::rank_check returns the numerical rank. These three pin its contract at the
+/// boundaries, which is where it was wrong: it used to return one less than the rank, and
+/// -1 for an all-zero matrix, and it leaked both of its scratch buffers on that path.
+///
+/// Deliberately deterministic. The construction is a diagonal block with a decaying
+/// spectrum, so the expected answer is exact rather than threshold-dependent, and the tests
+/// are about the counting and the edge cases rather than about spectral subtlety.
+TEST_F(TestUtil, test_rank_check_full_rank) {
+    int64_t m = 100;
+    int64_t n = 20;
+    std::vector<double> A(m * n, 0.0);
+    // Full column rank: every diagonal entry well above 5 * eps * s[0].
+    for (int64_t i = 0; i < n; ++i)
+        A[i + i * m] = 1.0 / (double) (i + 1);
+
+    ASSERT_EQ(RandLAPACK::util::rank_check(m, n, A.data()), n);
+}
+
+TEST_F(TestUtil, test_rank_check_exact_rank) {
+    int64_t m = 100;
+    int64_t n = 20;
+    int64_t r = 7;
+    std::vector<double> A(m * n, 0.0);
+    // Exactly r nonzero singular values; the trailing n - r columns are identically zero.
+    for (int64_t i = 0; i < r; ++i)
+        A[i + i * m] = 1.0 / (double) (i + 1);
+
+    // Before the fix this returned r - 1.
+    ASSERT_EQ(RandLAPACK::util::rank_check(m, n, A.data()), r);
+}
+
+TEST_F(TestUtil, test_rank_check_zero_matrix) {
+    int64_t m = 100;
+    int64_t n = 20;
+    std::vector<double> A(m * n, 0.0);
+
+    // Before the fix this returned -1: s[0] is 0, so the very first index tripped the
+    // threshold and the function reported i - 1 with i == 0.
+    ASSERT_EQ(RandLAPACK::util::rank_check(m, n, A.data()), (int64_t) 0);
+}
+
 class Test_Inplace_Square_Transpose : public ::testing::Test
 {
     protected:
