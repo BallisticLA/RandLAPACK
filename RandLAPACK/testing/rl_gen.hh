@@ -434,8 +434,9 @@ void gen_kahan_mat(
     delete[] C;
 }
 
-/// Compatibility wrapper for read_txt_matrix. A successful dimension query
-/// resets workspace_query_mod to zero, preparing the next call to read data.
+/// Read text input into compact column-major storage (lda = m).
+/// This wrapper for read_txt_matrix resets workspace_query_mod to zero after
+/// a successful dimension query, preparing the next call to read data.
 template <typename T>
 void process_input_mat(
     int64_t &m,
@@ -445,9 +446,10 @@ void process_input_mat(
     int& workspace_query_mod
 ) {
     const bool query = workspace_query_mod != 0;
-    read_txt_matrix(m, n, A, filename, query);
+    read_txt_matrix(Layout::ColMajor, m, n, A, m, filename, query);
     if (query)
         workspace_query_mod = 0;
+    return;
 }
 
 /// Generate a random dense matrix with specified layout.

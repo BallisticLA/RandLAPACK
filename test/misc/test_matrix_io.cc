@@ -52,37 +52,132 @@ protected:
     }
 
     template <typename T>
-    void check_text() {
-        write_text(" 1\t-2.5 3e1\r\n4 5.25 +6");
-        int64_t m = 99, n = 99;
-        RandLAPACK::gen::read_txt_matrix<T>(m, n, nullptr, filename.c_str(), true);
-        ASSERT_EQ(m, 2);
-        ASSERT_EQ(n, 3);
-        RandLAPACK::gen::read_txt_matrix<T>(m, n, nullptr, filename.c_str(), true);
-        ASSERT_EQ(m, 2);
-        ASSERT_EQ(n, 3);
-        std::vector<T> values(6);
-        RandLAPACK::gen::read_txt_matrix<T>(m, n, values.data(), filename.c_str(), false);
-        EXPECT_EQ(values, (std::vector<T>{1, 4, -2.5, 5.25, 30, 6}));
+    void read_matrix(bool binary, Layout layout, int64_t& m, int64_t& n,
+                     T* values, int64_t lda, bool query) {
+        if (binary)
+            RandLAPACK::gen::read_bin_matrix<T>(
+                layout, m, n, values, lda, filename.c_str(), query);
+        else
+            RandLAPACK::gen::read_txt_matrix<T>(
+                layout, m, n, values, lda, filename.c_str(), query);
     }
 
     template <typename T>
-    void check_binary() {
-        write_binary(2, 3, {1, -2.5, 30, 4, 5.25, 6});
-        int64_t m = 0, n = 0;
-        RandLAPACK::gen::read_bin_matrix<T>(m, n, nullptr, filename.c_str(), true);
-        ASSERT_EQ(m, 2);
-        ASSERT_EQ(n, 3);
-        std::vector<T> values(6);
-        RandLAPACK::gen::read_bin_matrix<T>(m, n, values.data(), filename.c_str(), false);
-        EXPECT_EQ(values, (std::vector<T>{1, 4, -2.5, 5.25, 30, 6}));
+    void check_layouts(bool binary) {
+        if (binary)
+            write_binary(2, 3, {1, -2.5, 30, 4, 5.25, 6});
+        else
+            write_text(" 1\t-2.5 3e1\r\n4 5.25 +6");
+        for (Layout layout : {Layout::ColMajor, Layout::RowMajor}) {
+            for (bool padded : {false, true}) {
+                SCOPED_TRACE(::testing::Message() << "column-major=" <<
+                             (layout == Layout::ColMajor) << ", padded=" << padded);
+                int64_t m = 99, n = 99;
+                read_matrix<T>(binary, layout, m, n, nullptr, 0, true);
+                ASSERT_EQ(m, 2);
+                ASSERT_EQ(n, 3);
+                const int64_t lda = (layout == Layout::ColMajor ? m : n) +
+                                    (padded ? 2 : 0);
+                const std::vector<T> expected = layout == Layout::ColMajor ?
+                    (padded ? std::vector<T>{-123, 1, 4, -123, -123,
+                        -2.5, 5.25, -123, -123, 30, 6, -123, -123, -123} :
+                        std::vector<T>{-123, 1, 4, -2.5, 5.25, 30, 6, -123}) :
+                    (padded ? std::vector<T>{-123, 1, -2.5, 30, -123, -123,
+                        4, 5.25, 6, -123, -123, -123} :
+                        std::vector<T>{-123, 1, -2.5, 30, 4, 5.25, 6, -123});
+                std::vector<T> values(expected.size(), -123);
+                read_matrix(binary, layout, m, n, values.data() + 1, lda, false);
+                EXPECT_EQ(values, expected);
+            }
+        }
     }
 };
 
-TEST_F(TestMatrixIO, TextFloatColumnMajor) { check_text<float>(); }
-TEST_F(TestMatrixIO, TextDoubleColumnMajor) { check_text<double>(); }
-TEST_F(TestMatrixIO, BinaryFloatColumnMajor) { check_binary<float>(); }
-TEST_F(TestMatrixIO, BinaryDoubleColumnMajor) { check_binary<double>(); }
+TEST_F(TestMatrixIO, TextFloatLayoutsAndStrides) { check_layouts<float>(false); }
+TEST_F(TestMatrixIO, TextDoubleLayoutsAndStrides) { check_layouts<double>(false); }
+TEST_F(TestMatrixIO, BinaryFloatLayoutsAndStrides) { check_layouts<float>(true); }
+TEST_F(TestMatrixIO, BinaryDoubleLayoutsAndStrides) { check_layouts<double>(true); }
+
+TEST_F(TestMatrixIO, AllowsUnusedLargeStride) {
+    for (bool binary : {false, true}) {
+        for (Layout layout : {Layout::ColMajor, Layout::RowMajor}) {
+            int64_t m = layout == Layout::ColMajor ? 3 : 1;
+            int64_t n = layout == Layout::ColMajor ? 1 : 3;
+            if (binary)
+                write_binary(m, n, {1, 2, 3});
+            else
+                write_text(layout == Layout::ColMajor ? "1\n2\n3\n" : "1 2 3\n");
+            std::vector<double> values(5, -123);
+            read_matrix(binary, layout, m, n, values.data() + 1,
+                        std::numeric_limits<int64_t>::max(), false);
+            EXPECT_EQ(values, (std::vector<double>{-123, 1, 2, 3, -123}));
+        }
+    }
+}
+
+TEST_F(TestMatrixIO, QueriesIgnoreOutputBufferAndStride) {
+    for (bool binary : {false, true}) {
+        if (binary)
+            write_binary(2, 3, {1, 2, 3, 4, 5, 6});
+        else
+            write_text("1 2 3\n4 5 6\n");
+        for (Layout layout : {Layout::ColMajor, Layout::RowMajor}) {
+            for (int64_t lda : {int64_t(-1), int64_t(0),
+                                std::numeric_limits<int64_t>::max()}) {
+                int64_t m = -1, n = -1;
+                read_matrix<double>(binary, layout, m, n, nullptr, lda, true);
+                EXPECT_EQ(m, 2);
+                EXPECT_EQ(n, 3);
+                read_matrix<double>(binary, layout, m, n, nullptr, lda, true);
+                EXPECT_EQ(m, 2);
+                EXPECT_EQ(n, 3);
+            }
+        }
+    }
+}
+
+TEST_F(TestMatrixIO, RejectsInvalidLayoutBeforeWriting) {
+    for (bool binary : {false, true}) {
+        if (binary)
+            write_binary(2, 3, {1, 2, 3, 4, 5, 6});
+        else
+            write_text("1 2 3\n4 5 6\n");
+        for (bool query : {false, true}) {
+            int64_t m = 2, n = 3;
+            std::vector<double> values(6, -123);
+            EXPECT_THROW(read_matrix(binary, static_cast<Layout>(0), m, n,
+                         values.data(), 3, query), RandLAPACK::Error);
+            EXPECT_EQ(m, 2);
+            EXPECT_EQ(n, 3);
+            EXPECT_EQ(values, std::vector<double>(6, -123));
+        }
+    }
+}
+
+TEST_F(TestMatrixIO, RejectsInvalidStrideBeforeWriting) {
+    for (bool binary : {false, true}) {
+        if (binary)
+            write_binary(2, 3, {1, 2, 3, 4, 5, 6});
+        else
+            write_text("1 2 3\n4 5 6\n");
+        for (Layout layout : {Layout::ColMajor, Layout::RowMajor}) {
+            const int64_t minimum = layout == Layout::ColMajor ? 2 : 3;
+            for (int64_t lda : {int64_t(-1), int64_t(0), minimum - 1,
+                                std::numeric_limits<int64_t>::max(),
+                                std::numeric_limits<int64_t>::max() /
+                                    static_cast<int64_t>(sizeof(double))}) {
+                SCOPED_TRACE(::testing::Message() << "binary=" << binary <<
+                             ", column-major=" << (layout == Layout::ColMajor) <<
+                             ", lda=" << lda);
+                int64_t m = 2, n = 3;
+                std::vector<double> values(6, -123);
+                EXPECT_THROW(read_matrix(binary, layout, m, n, values.data(),
+                             lda, false), RandLAPACK::Error);
+                EXPECT_EQ(values, std::vector<double>(6, -123));
+            }
+        }
+    }
+}
 
 TEST_F(TestMatrixIO, RejectsMalformedText) {
     for (const auto& contents : {"", "\n", "1 2\n\n", "1 2\n3", "1 2\n3 4 5",
@@ -91,24 +186,25 @@ TEST_F(TestMatrixIO, RejectsMalformedText) {
         write_text(contents);
         int64_t m = 2, n = 2;
         EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-            m, n, nullptr, filename.c_str(), true), std::runtime_error);
+            Layout::ColMajor, m, n, nullptr, 0, filename.c_str(), true), RandLAPACK::Error);
         EXPECT_EQ(m, 2);
         EXPECT_EQ(n, 2);
         std::vector<double> values(4);
         EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-            m, n, values.data(), filename.c_str(), false), std::runtime_error);
+            Layout::ColMajor, m, n, values.data(), m, filename.c_str(), false), RandLAPACK::Error);
     }
 }
 
 TEST_F(TestMatrixIO, TextRejectsChangedShapeWithinBufferBounds) {
     write_text("1 2\n3 4\n");
     int64_t m = 0, n = 0;
-    RandLAPACK::gen::read_txt_matrix<double>(m, n, nullptr, filename.c_str(), true);
+    RandLAPACK::gen::read_txt_matrix<double>(
+        Layout::ColMajor, m, n, nullptr, 0, filename.c_str(), true);
     for (const auto& contents : {"1 2 3\n4 5 6\n", "1 2\n3 4\n5 6\n", "1 2\n"}) {
         write_text(contents);
         std::vector<double> values(6, -123);
         EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-            m, n, values.data() + 1, filename.c_str(), false), std::runtime_error);
+            Layout::ColMajor, m, n, values.data() + 1, m, filename.c_str(), false), RandLAPACK::Error);
         EXPECT_EQ(m, 2);
         EXPECT_EQ(n, 2);
         EXPECT_EQ(values.front(), -123);
@@ -123,20 +219,21 @@ TEST_F(TestMatrixIO, RejectsEmbeddedControlBytes) {
         int64_t m = 2, n = 2;
         std::vector<double> values(4);
         EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-            m, n, nullptr, filename.c_str(), true), std::runtime_error);
+            Layout::ColMajor, m, n, nullptr, 0, filename.c_str(), true), RandLAPACK::Error);
         EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-            m, n, values.data(), filename.c_str(), false), std::runtime_error);
+            Layout::ColMajor, m, n, values.data(), m, filename.c_str(), false), RandLAPACK::Error);
     }
 }
 
 TEST_F(TestMatrixIO, BinaryRejectsChangedShapeBeforeWriting) {
     write_binary(2, 2, {1, 2, 3, 4});
     int64_t m = 0, n = 0;
-    RandLAPACK::gen::read_bin_matrix<double>(m, n, nullptr, filename.c_str(), true);
+    RandLAPACK::gen::read_bin_matrix<double>(
+        Layout::ColMajor, m, n, nullptr, 0, filename.c_str(), true);
     write_binary(2, 3, {1, 2, 3, 4, 5, 6});
     std::vector<double> values(4, -123);
     EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-        m, n, values.data(), filename.c_str(), false), std::runtime_error);
+        Layout::ColMajor, m, n, values.data(), m, filename.c_str(), false), RandLAPACK::Error);
     EXPECT_EQ(m, 2);
     EXPECT_EQ(n, 2);
     EXPECT_EQ(values, std::vector<double>(4, -123));
@@ -147,15 +244,15 @@ TEST_F(TestMatrixIO, RejectsTruncatedBinary) {
         write_text(contents);
         int64_t m = 2, n = 2;
         EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-            m, n, nullptr, filename.c_str(), true), std::runtime_error);
+            Layout::ColMajor, m, n, nullptr, 0, filename.c_str(), true), RandLAPACK::Error);
     }
     write_binary(2, 2, {1, 2, 3});
     int64_t m = 2, n = 2;
     std::vector<double> values(4);
     EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-        m, n, nullptr, filename.c_str(), true), std::runtime_error);
+        Layout::ColMajor, m, n, nullptr, 0, filename.c_str(), true), RandLAPACK::Error);
     EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-        m, n, values.data(), filename.c_str(), false), std::runtime_error);
+        Layout::ColMajor, m, n, values.data(), m, filename.c_str(), false), RandLAPACK::Error);
 }
 
 TEST_F(TestMatrixIO, RejectsExcessBinaryPayload) {
@@ -163,9 +260,9 @@ TEST_F(TestMatrixIO, RejectsExcessBinaryPayload) {
     int64_t m = 2, n = 2;
     std::vector<double> values(4);
     EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-        m, n, nullptr, filename.c_str(), true), std::runtime_error);
+        Layout::ColMajor, m, n, nullptr, 0, filename.c_str(), true), RandLAPACK::Error);
     EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-        m, n, values.data(), filename.c_str(), false), std::runtime_error);
+        Layout::ColMajor, m, n, values.data(), m, filename.c_str(), false), RandLAPACK::Error);
 }
 
 TEST_F(TestMatrixIO, RejectsInvalidBinaryDimensions) {
@@ -177,7 +274,7 @@ TEST_F(TestMatrixIO, RejectsInvalidBinaryDimensions) {
         write_binary(dims[0], dims[1], {});
         int64_t m = 2, n = 2;
         EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-            m, n, nullptr, filename.c_str(), true), std::runtime_error);
+            Layout::ColMajor, m, n, nullptr, 0, filename.c_str(), true), RandLAPACK::Error);
         EXPECT_EQ(m, 2);
         EXPECT_EQ(n, 2);
     }
@@ -189,21 +286,21 @@ TEST_F(TestMatrixIO, RejectsInvalidOutputArguments) {
     for (int64_t invalid : {int64_t(0), int64_t(-1), std::numeric_limits<int64_t>::max()}) {
         int64_t m = invalid, n = 2;
         EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-            m, n, values.data(), filename.c_str(), false), std::runtime_error);
+            Layout::ColMajor, m, n, values.data(), m, filename.c_str(), false), RandLAPACK::Error);
     }
     int64_t m = 2, n = 2;
     EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-        m, n, nullptr, filename.c_str(), false), std::runtime_error);
+        Layout::ColMajor, m, n, nullptr, m, filename.c_str(), false), RandLAPACK::Error);
     write_binary(2, 2, {1, 2, 3, 4});
     EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-        m, n, nullptr, filename.c_str(), false), std::runtime_error);
+        Layout::ColMajor, m, n, nullptr, m, filename.c_str(), false), RandLAPACK::Error);
     m = 0;
     EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-        m, n, values.data(), filename.c_str(), false), std::runtime_error);
+        Layout::ColMajor, m, n, values.data(), m, filename.c_str(), false), RandLAPACK::Error);
     EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-        m, n, nullptr, nullptr, true), std::runtime_error);
+        Layout::ColMajor, m, n, nullptr, 0, nullptr, true), RandLAPACK::Error);
     EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-        m, n, nullptr, nullptr, true), std::runtime_error);
+        Layout::ColMajor, m, n, nullptr, 0, nullptr, true), RandLAPACK::Error);
 }
 
 TEST_F(TestMatrixIO, RejectsMissingFiles) {
@@ -211,9 +308,9 @@ TEST_F(TestMatrixIO, RejectsMissingFiles) {
     std::vector<double> values(4);
     for (bool query : {false, true}) {
         EXPECT_THROW(RandLAPACK::gen::read_txt_matrix<double>(
-            m, n, values.data(), filename.c_str(), query), std::runtime_error);
+            Layout::ColMajor, m, n, values.data(), m, filename.c_str(), query), RandLAPACK::Error);
         EXPECT_THROW(RandLAPACK::gen::read_bin_matrix<double>(
-            m, n, values.data(), filename.c_str(), query), std::runtime_error);
+            Layout::ColMajor, m, n, values.data(), m, filename.c_str(), query), RandLAPACK::Error);
     }
 }
 
@@ -235,7 +332,7 @@ TEST_F(TestMatrixIO, LegacyReaderPreservesQueryProtocol) {
     write_text("1 2 3\n4 broken 6\n");
     query = 1;
     EXPECT_THROW(RandLAPACK::gen::process_input_mat<double>(
-        m, n, nullptr, filename.data(), query), std::runtime_error);
+        m, n, nullptr, filename.data(), query), RandLAPACK::Error);
     EXPECT_EQ(query, 1);
 }
 
@@ -256,7 +353,7 @@ TEST_F(TestMatrixIO, CustomInputGeneratorUsesReader) {
     EXPECT_EQ(values, (std::vector<double>{1, 4, 2, 5, 3, 6}));
     EXPECT_EQ(state.counter, counter_before);
     write_text("1 2 3\n4 broken 6\n");
-    EXPECT_THROW(RandLAPACK::gen::mat_gen(info, values.data(), state), std::runtime_error);
+    EXPECT_THROW(RandLAPACK::gen::mat_gen(info, values.data(), state), RandLAPACK::Error);
 }
 
 } // namespace
