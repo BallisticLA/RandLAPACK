@@ -38,13 +38,15 @@ T svd_residual(GLO& A, T* U, T* V, T* Sigma, int64_t k) {
     auto V_cpy = std::make_unique<T[]>(n * k);
 
     // U_cpy = A V - U diag(Sigma), then column i scaled by 1/sigma_i, giving
-    // A V diag(Sigma)^{-1} - U. LASCL avoids an overflowing reciprocal.
+    // A V diag(Sigma)^{-1} - U. Divide entries directly: MKL's LASCL can
+    // overflow internally when scaling by the reciprocal of a subnormal sigma.
     lapack::lacpy(MatrixType::General, m, k, U, m, U_cpy.get(), m);
     for (int64_t i = 0; i < k; ++i)
         blas::scal(m, Sigma[i], &U_cpy[m * i], 1);
     A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, (T)1.0, V, n, (T)-1.0, U_cpy.get(), m);
     for (int64_t i = 0; i < k; ++i)
-        lapack::lascl(MatrixType::General, 0, 0, Sigma[i], T(1), m, 1, &U_cpy[m * i], m);
+        for (int64_t row = 0; row < m; ++row)
+            U_cpy[m * i + row] /= Sigma[i];
 
     // V_cpy = A' U - V diag(Sigma), then column i scaled by 1/sigma_i, giving
     // A' U diag(Sigma)^{-1} - V.
@@ -53,7 +55,8 @@ T svd_residual(GLO& A, T* U, T* V, T* Sigma, int64_t k) {
         blas::scal(n, Sigma[i], &V_cpy[n * i], 1);
     A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, (T)1.0, U, m, (T)-1.0, V_cpy.get(), n);
     for (int64_t i = 0; i < k; ++i)
-        lapack::lascl(MatrixType::General, 0, 0, Sigma[i], T(1), n, 1, &V_cpy[n * i], n);
+        for (int64_t row = 0; row < n; ++row)
+            V_cpy[n * i + row] /= Sigma[i];
 
     T nrm1 = lapack::lange(Norm::Fro, m, k, U_cpy.get(), m);
     T nrm2 = lapack::lange(Norm::Fro, n, k, V_cpy.get(), n);
@@ -108,10 +111,12 @@ SvdResidualTriple<T> svd_residual_all(GLO& A, T* U, T* V, T* Sigma, int64_t k) {
     T abs1 = lapack::lange(Norm::Fro, m, k, U_cpy.get(), m);
     T abs2 = lapack::lange(Norm::Fro, n, k, V_cpy.get(), n);
 
-    // LASCL avoids forming 1/sigma_i, which can overflow for subnormal values.
+    // Direct division avoids reciprocal overflow, including inside MKL's LASCL.
     for (int64_t i = 0; i < k; ++i) {
-        lapack::lascl(MatrixType::General, 0, 0, Sigma[i], T(1), m, 1, &U_cpy[m * i], m);
-        lapack::lascl(MatrixType::General, 0, 0, Sigma[i], T(1), n, 1, &V_cpy[n * i], n);
+        for (int64_t row = 0; row < m; ++row)
+            U_cpy[m * i + row] /= Sigma[i];
+        for (int64_t row = 0; row < n; ++row)
+            V_cpy[n * i + row] /= Sigma[i];
     }
     T nrm1 = lapack::lange(Norm::Fro, m, k, U_cpy.get(), m);
     T nrm2 = lapack::lange(Norm::Fro, n, k, V_cpy.get(), n);

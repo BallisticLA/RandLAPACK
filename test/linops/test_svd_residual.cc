@@ -147,6 +147,31 @@ TYPED_TEST(SvdResidualTest, PositiveSubnormalSingularValue) {
     EXPECT_NEAR(per_triplet, std::sqrt(T(2)), this->tolerance);
 }
 
+TYPED_TEST(SvdResidualTest, MixedNormalAndSubnormalSingularValues) {
+    using T = TypeParam;
+    // Keep two ordinary triplets and perturb the subnormal one in a rectangular
+    // matrix. Its residual columns contain both zero and nonzero entries.
+    const T small = std::numeric_limits<T>::min() / T(16);
+    ASSERT_GT(small, T(0));
+    this->matrix[10] = small;
+    this->sigma[2] = small;
+    this->v[8] = T(2);
+    auto a = this->dense();
+    auto u = this->u.data(), v = this->v.data(), sigma = this->sigma.data();
+    EXPECT_NEAR(svd_residual<T>(a, u, v, sigma, this->k), std::sqrt(T(2)), this->tolerance);
+    auto all = svd_residual_all<T>(a, u, v, sigma, this->k);
+    EXPECT_NEAR(all.two_sided_normalized, std::sqrt(T(2)), this->tolerance);
+    EXPECT_NEAR(all.one_sided_normalized, T(1), this->tolerance);
+    // Compare on a unit scale so an absolute tolerance cannot hide underflow.
+    EXPECT_NEAR(all.two_sided_absolute / small, std::sqrt(T(2)), this->tolerance);
+    std::array<T, SvdResidualTest<T>::k> per_triplet;
+    svd_residual_per_triplet<T>(a, u, v, sigma, this->k, per_triplet.data());
+    EXPECT_EQ(per_triplet[0], T(0));
+    EXPECT_EQ(per_triplet[1], T(0));
+    EXPECT_NEAR(per_triplet[2], std::sqrt(T(2)), this->tolerance);
+    EXPECT_EQ(svd_triplets_certified<T>(a, u, v, sigma, this->k, T(1)), 2);
+}
+
 TYPED_TEST(SvdResidualTest, LargeSingularValueNormalizedResidual) {
     using T = TypeParam;
     T sigma = std::numeric_limits<T>::max() * T(0.75);
