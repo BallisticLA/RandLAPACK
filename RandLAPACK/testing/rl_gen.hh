@@ -383,17 +383,18 @@ void gen_oleg_adversarial_mat(
 ///         s[k-1] = 1/cond.
 template <typename T>
 std::vector<T> gen_bad_cholqr_singvals(int64_t k, T frac_spectrum_one, T cond) {
-    randlapack_require(k >= 3) << "k must allow one leading and two decaying values";
+    if (k < 3)
+        throw Error("k must allow one leading and two decaying values");
     randlapack_require(std::isfinite(frac_spectrum_one) && frac_spectrum_one > T(0)
         && frac_spectrum_one < T(1)) << "frac_spectrum_one must be finite and in (0, 1)";
     randlapack_require(std::isfinite(cond)) << "cond must be finite";
     int64_t offset = static_cast<int64_t>(std::floor(
         static_cast<long double>(k) * static_cast<long double>(frac_spectrum_one)));
     int64_t n_decay = k - offset;
-    randlapack_require(offset >= 1) << "frac_spectrum_one=" << frac_spectrum_one << " with k=" << k
-        << " leaves no leading block of ones";
-    randlapack_require(n_decay >= 2) << "frac_spectrum_one=" << frac_spectrum_one << " with k=" << k
-        << " leaves fewer than two decaying values";
+    if (offset < 1)
+        throw Error("frac_spectrum_one leaves no leading block of ones");
+    if (n_decay < 2)
+        throw Error("frac_spectrum_one leaves fewer than two decaying values");
     randlapack_require(cond >= T(1e8)) << "cond=" << cond << " must be >= 1e8; below that the trailing block is not monotone";
 
     std::vector<T> s(k, 1.0);
