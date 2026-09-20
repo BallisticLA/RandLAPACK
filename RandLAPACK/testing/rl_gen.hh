@@ -358,22 +358,53 @@ void gen_oleg_adversarial_mat(
 }
 
 /// Generate singular values for the "bad CholQR" matrix.
-/// The first k values are 1, then values start at 10^-8 and decrease
-/// exponentially, controlled by cond and n.
 ///
-/// @param[in] k     Number of singular values (= sketching dimension)
-/// @param[in] n     Number of columns in the target matrix
-/// @param[in] cond  Condition number
+/// The leading floor(k * frac_spectrum_one) values are one. The remaining values
+/// drop to 1e-8 and then decay geometrically to 1/cond, so the returned spectrum
+/// has condition number exactly cond. The cliff between the two blocks is the
+/// point of this input: it is what drives the Gram matrix numerically indefinite,
+/// and so exposes the failure mode of an unshifted CholeskyQR.
 ///
-/// @return Vector of k singular values
+/// Requires cond >= 1e8. Below that threshold the trailing block would rise from
+/// 1e-8 toward 1/cond rather than decay, leaving a non-monotone spectrum whose
+/// condition number is 1e8 rather than the requested value. That threshold is
+/// also where the failure being modeled begins, since an unshifted CholeskyQR
+/// loses orthogonality once cond exceeds eps^(-1/2), about 1.5e8 in double.
+///
+/// The previous version of this routine took an unused second dimension argument
+/// and computed an empty loop, returning all ones (condition number 1) for every
+/// requested cond. It had no callers other than gen_bad_cholqr_mat below.
+///
+/// @param[in] k                  Number of singular values to generate.
+/// @param[in] frac_spectrum_one  Fraction of the spectrum held at 1.0, as in
+///                               gen_poly_singvals. Must leave a leading block of
+///                               at least one entry and a trailing block of at
+///                               least two.
+/// @param[in] cond               Target condition number. Must be >= 1e8.
+///
+/// @return Vector of k singular values, non-increasing, with s[0] = 1 and
+///         s[k-1] = 1/cond.
 template <typename T>
-std::vector<T> gen_bad_cholqr_singvals(int64_t k, int64_t n, T cond) {
+std::vector<T> gen_bad_cholqr_singvals(int64_t k, T frac_spectrum_one, T cond) {
+    randlapack_require(k >= 3) << "k must allow one leading and two decaying values";
+    randlapack_require(std::isfinite(frac_spectrum_one) && frac_spectrum_one > T(0)
+        && frac_spectrum_one < T(1)) << "frac_spectrum_one must be finite and in (0, 1)";
+    randlapack_require(std::isfinite(cond)) << "cond must be finite";
+    int64_t offset = static_cast<int64_t>(std::floor(
+        static_cast<long double>(k) * static_cast<long double>(frac_spectrum_one)));
+    int64_t n_decay = k - offset;
+    randlapack_require(offset >= 1) << "frac_spectrum_one=" << frac_spectrum_one << " with k=" << k
+        << " leaves no leading block of ones";
+    randlapack_require(n_decay >= 2) << "frac_spectrum_one=" << frac_spectrum_one << " with k=" << k
+        << " leaves fewer than two decaying values";
+    randlapack_require(cond >= T(1e8)) << "cond=" << cond << " must be >= 1e8; below that the trailing block is not monotone";
+
     std::vector<T> s(k, 1.0);
-    int offset = k;
-    T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
-    T cnt = 0.0;
-    for (int i = offset; i < k; ++i) {
-        s[i] = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
+
+    // Geometric interpolation from 1e-8 down to 1/cond across the trailing block.
+    for (int64_t i = 0; i < n_decay; ++i) {
+        T frac = T(i) / T(n_decay - 1);   // n_decay >= 2 is enforced above
+        s[offset + i] = T(1e-8) * std::pow(cond * T(1e-8), -frac);
     }
     return s;
 }
@@ -386,17 +417,19 @@ void gen_bad_cholqr_mat(
     int64_t &n,
     T* A,
     int64_t k,
+    T frac_spectrum_one,
     T cond,
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-    auto s = gen_bad_cholqr_singvals(k, n, cond);
+    auto s = gen_bad_cholqr_singvals<T>(k, frac_spectrum_one, cond);
+    randlapack_require(k <= std::min(m, n)) << "rank exceeds the matrix dimensions";
 
     T* S = new T[k * k]();
     RandLAPACK::util::diag(k, k, s.data(), k, S);
 
     if (diagon) {
-        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
+        lapack::lacpy(MatrixType::General, k, k, S, k, A, m);
     } else {
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
@@ -753,7 +786,7 @@ void mat_gen(
             break;
         case bad_cholqr: {
                 // Per Oleg's suggestion, this is supposed to make QB fail with CholQR for orth/stab
-                RandLAPACK::gen::gen_bad_cholqr_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
+                RandLAPACK::gen::gen_bad_cholqr_mat(info.rows, info.cols, A, info.rank, info.frac_spectrum_one, info.cond_num, info.diag, state);
             }
             break;
         case kahan: {
