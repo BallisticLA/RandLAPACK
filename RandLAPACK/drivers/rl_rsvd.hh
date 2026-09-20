@@ -5,6 +5,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -104,6 +105,25 @@ class RSVD : public RSVDalg<T, RNG> {
             RandBLAS::RNGState<RNG> &state
         ) override;
 
+        /// LinOp-based RSVD: accepts any LinearOperator.
+        /// norm_A must be the positive Frobenius norm, supplied by the caller.
+        /// Requires a QB object with RF/RS components and an operator supporting
+        /// column-major applications. Other algorithm objects throw Error.
+        /// The base operator is never modified (deflation is implicit).
+        /// Returns 0 after factorization, or a QB failure code (4, 5, or 6).
+        /// On QB failure, output pointers are left unchanged.
+        template <linops::LinearOperator LinOp>
+        int call(
+            LinOp& A_op,
+            T norm_A,
+            int64_t &k,
+            T tol,
+            T* &U,
+            T* &S,
+            T* &V,
+            RandBLAS::RNGState<RNG> &state
+        );
+
     public:
         RandLAPACK::QBalg<T, RNG> &QB_Obj;
         int64_t block_sz;
@@ -146,6 +166,57 @@ int RSVD<T, RNG>::call(
     lapack::gesdd(Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);
     // Adjusting U
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, k, k, (T) 1.0, Q, m, UT_buf, k, (T) 0.0, U, m);
+
+    free(Q);
+    free(BT);
+    free(UT_buf);
+    return 0;
+}
+
+// -----------------------------------------------------------------------------
+// LinOp-templated RSVD: accepts any LinearOperator.
+// The base operator is never modified: deflation is handled implicitly
+// by DowndatableLinOp inside QB.
+template <typename T, typename RNG>
+template <linops::LinearOperator LinOp>
+int RSVD<T, RNG>::call(
+    LinOp& A_op,
+    T norm_A,
+    int64_t &k,
+    T tol,
+    T* &U,
+    T* &S,
+    T* &V,
+    RandBLAS::RNGState<RNG> &state
+){
+    T* Q = nullptr;
+    T* BT = nullptr;
+
+    auto* qb_concrete = dynamic_cast<QB<T, RNG>*>(&this->QB_Obj);
+    randlapack_require(qb_concrete != nullptr) << "operator RSVD requires a QB factorization object";
+    int status;
+    try {
+        status = qb_concrete->call(A_op, k, this->block_sz, tol, norm_A, Q, BT, state);
+    } catch (...) {
+        free(Q);
+        free(BT);
+        throw;
+    }
+    if (status >= 4 || k == 0) {
+        free(Q);
+        free(BT);
+        return status;
+    }
+
+    T* UT_buf = ( T * ) calloc(k * k, sizeof( T ));
+    U = ( T * ) calloc(A_op.n_rows * k, sizeof( T ));
+    S = ( T * ) calloc(k, sizeof( T ));
+    V = ( T * ) calloc(A_op.n_cols * k, sizeof( T ));
+
+    // SVD of B
+    lapack::gesdd(Job::SomeVec, A_op.n_cols, k, BT, A_op.n_cols, S, V, A_op.n_cols, UT_buf, k);
+    // U = Q * UT_buf^T
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, A_op.n_rows, k, k, 1.0, Q, A_op.n_rows, UT_buf, k, 0.0, U, A_op.n_rows);
 
     free(Q);
     free(BT);

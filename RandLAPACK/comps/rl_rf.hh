@@ -136,4 +136,45 @@ int RF<T, RNG>::call(
     return 0;
 }
 
+// -----------------------------------------------------------------------------
+// LinOp-templated RF: mirrors RF::call above, but drives an abstract linear
+// operator via A_op(...) instead of an explicit blas::gemm on a dense A.
+// KEEP IN SYNC with RF::call: any algorithmic or numerical change to one path
+// must be mirrored in the other. The two paths are deliberately not merged
+// because the dense QB::call deflates a private copy, whereas the LinOp path
+// applies accumulated deflation implicitly.
+template <typename T, typename RNG, linops::LinearOperator LinOp>
+int rf_linop(
+    RF<T, RNG>& rf_obj,
+    LinOp& A_op,
+    int64_t k,
+    T* Q,
+    RandBLAS::RNGState<RNG> &state
+){
+    int64_t m = A_op.n_rows;
+    int64_t n = A_op.n_cols;
+
+    auto* rs_concrete = dynamic_cast<RS<T, RNG>*>(&rf_obj.rs);
+    randlapack_require(rs_concrete != nullptr) << "operator RF requires an RS row sketcher";
+    randlapack_require(k > 0 && k <= std::min(m, n)) << "range-finder rank must be in [1, min(m,n)]";
+    randlapack_require(Q != nullptr);
+    std::vector<T> buffer(n * k);
+    T* Omega = buffer.data();
+    if (rs_linop(*rs_concrete, A_op, k, Omega, state)) {
+        return 1;
+    }
+
+    // Q = orth(A * Omega)
+    A_op(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Omega, n, 0.0, Q, m);
+
+    if (rf_obj.cond_check)
+        rf_obj.cond_nums.push_back(util::cond_num_check(m, k, Q, rf_obj.verbose));
+
+    if (rf_obj.orth.call(m, k, Q)) {
+        return 2;
+    }
+
+    return 0;
+}
+
 } // end namespace RandLAPACK
