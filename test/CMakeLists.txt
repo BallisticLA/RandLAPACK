@@ -26,10 +26,12 @@ if (GTest_FOUND)
         misc/test_config.cc
         misc/test_util.cc
         misc/test_pdkernels.cc
+        linops/test_svd_residual.cc
         linops/test_linops.cc
         linops/test_downdatable_linop.cc
         linops/test_linop_unified.cc
         misc/test_gen.cc
+        misc/test_matrix_io.cc
         misc/test_memory_tracker.cc
         linops/test_linop_block_views.cc
     )

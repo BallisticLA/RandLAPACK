@@ -436,15 +436,20 @@ int64_t rank_check(
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
-    for(int i = 0; i < n; ++i) {
-        if (s[i] <= 5 * std::numeric_limits<T>::epsilon() * s[0])
-            return i - 1;
+    // s is non-increasing, so the first index at or below the threshold is the rank:
+    // s[0..i-1] are the i retained values.
+    int64_t rank = n;
+    for (int64_t i = 0; i < n; ++i) {
+        if (s[i] <= 5 * std::numeric_limits<T>::epsilon() * s[0]) {
+            rank = i;
+            break;
+        }
     }
 
     delete[] A_cpy;
     delete[] s;
 
-    return n;
+    return rank;
 }
 
 /// Checks whether matrix A has orthonormal columns.

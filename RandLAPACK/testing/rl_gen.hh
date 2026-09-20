@@ -3,10 +3,13 @@
 #include "rl_exceptions.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_matrix_io.hh"
 
 #include <RandBLAS.hh>
+#include <concepts>
 #include <iostream>
 #include <cmath>
+#include <limits>
 #include <algorithm>
 #include <vector>
 #include <cstdint>
@@ -358,50 +361,95 @@ void gen_oleg_adversarial_mat(
 }
 
 /// Generate singular values for the "bad CholQR" matrix.
-/// The first k values are 1, then values start at 10^-8 and decrease
-/// exponentially, controlled by cond and n.
 ///
-/// @param[in] k     Number of singular values (= sketching dimension)
-/// @param[in] n     Number of columns in the target matrix
-/// @param[in] cond  Condition number
+/// The leading floor(k * frac_spectrum_one) values are one. The remaining values
+/// drop to sqrt(eps<T>) and then decay geometrically to 1/cond, giving condition
+/// number cond up to rounding. Here eps<T> is std::numeric_limits<T>::epsilon().
+/// The cliff between the blocks can make the computed Gram matrix indefinite,
+/// exposing a failure mode of unshifted CholeskyQR.
 ///
-/// @return Vector of k singular values
+/// Requires cond >= 1/sqrt(eps<T>), the scale at which unshifted CholeskyQR can
+/// lose orthogonality. Below this bound the trailing block would rise rather
+/// than decay, and the spectrum would not have the requested condition number.
+///
+/// @param[in] k                  Number of singular values to generate.
+/// @param[in] frac_spectrum_one  Fraction of the spectrum held at 1.0, as in
+///                               gen_poly_singvals. Must leave a leading block of
+///                               at least one entry and a trailing block of at
+///                               least two.
+/// @param[in] cond               Finite target condition number, >= 1/sqrt(eps<T>).
+///
+/// @return Vector of k singular values, non-increasing, with s[0] = 1 and
+///         s[k-1] = 1/cond up to rounding.
 template <typename T>
-std::vector<T> gen_bad_cholqr_singvals(int64_t k, int64_t n, T cond) {
+std::vector<T> gen_bad_cholqr_singvals(int64_t k, T frac_spectrum_one, T cond) {
+    if (k < 3)
+        throw RandLAPACK::Error("k must allow one leading and two decaying values");
+    randlapack_require(std::isfinite(frac_spectrum_one) && frac_spectrum_one > T(0)
+        && frac_spectrum_one < T(1)) << "frac_spectrum_one must be finite and in (0, 1)";
+    randlapack_require(std::isfinite(cond)) << "cond must be finite";
+    int64_t offset = static_cast<int64_t>(std::floor(
+        static_cast<long double>(k) * static_cast<long double>(frac_spectrum_one)));
+    int64_t n_decay = k - offset;
+    if (offset < 1)
+        throw RandLAPACK::Error("frac_spectrum_one leaves no leading block of ones");
+    if (n_decay < 2)
+        throw RandLAPACK::Error("frac_spectrum_one leaves fewer than two decaying values");
+    const T min_cond = T(1) / std::sqrt(std::numeric_limits<T>::epsilon());
+    randlapack_require(cond >= min_cond)
+        << "cond=" << cond << " must be >= 1/sqrt(eps<T>)=" << min_cond;
+
     std::vector<T> s(k, 1.0);
-    int offset = k;
-    T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
-    T cnt = 0.0;
-    for (int i = offset; i < k; ++i) {
-        s[i] = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
+
+    // Using cond/min_cond makes the ratio exactly one at the lower bound,
+    // so rounding cannot turn the constant trailing block into an increasing one.
+    for (int64_t i = 0; i < n_decay; ++i) {
+        T frac = T(i) / T(n_decay - 1);   // n_decay >= 2 is enforced above
+        s[offset + i] = std::pow(cond / min_cond, -frac) / min_cond;
     }
     return s;
 }
 
+/// Compatibility overload for the former (k, n, cond) signature. The second
+/// dimension was unused; use mat_gen_info's default leading fraction of 0.1.
+template <typename T, std::integral Index>
+std::vector<T> gen_bad_cholqr_singvals(int64_t k, Index, T cond) {
+    return gen_bad_cholqr_singvals<T>(k, T(0.1), cond);
+}
+
 /// Per Oleg Balabanov's suggestion, this matrix is supposed to break QB with Cholesky QR.
-/// Output matrix is m by n, full-rank.
+/// Output matrix is m by n with k nonzero singular values.
 template <typename T, typename RNG>
 void gen_bad_cholqr_mat(
     int64_t &m,
     int64_t &n,
     T* A,
     int64_t k,
+    T frac_spectrum_one,
     T cond,
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-    auto s = gen_bad_cholqr_singvals(k, n, cond);
-
-    T* S = new T[k * k]();
-    RandLAPACK::util::diag(k, k, s.data(), k, S);
+    auto s = gen_bad_cholqr_singvals<T>(k, frac_spectrum_one, cond);
+    randlapack_require(k <= std::min(m, n)) << "rank exceeds the matrix dimensions";
 
     if (diagon) {
-        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
+        lapack::laset(MatrixType::General, m, n, T(0), T(0), A, m);
+        RandLAPACK::util::diag(m, n, s.data(), k, A);
     } else {
-        RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
+        std::vector<T> S(k * k, T(0));
+        RandLAPACK::util::diag(k, k, s.data(), k, S.data());
+        RandLAPACK::gen::gen_singvec(m, n, A, k, S.data(), state);
     }
+}
 
-    delete[] S;
+/// Compatibility overload using mat_gen_info's default leading fraction of 0.1.
+template <typename T, typename RNG>
+void gen_bad_cholqr_mat(
+    int64_t &m, int64_t &n, T* A, int64_t k, T cond, bool diagon,
+    RandBLAS::RNGState<RNG> &state
+) {
+    gen_bad_cholqr_mat(m, n, A, k, T(0.1), cond, diagon, state);
 }
 
 /// Generates Kahan matrix
@@ -433,7 +481,9 @@ void gen_kahan_mat(
     delete[] C;
 }
 
-/// Reads a matrix from a file
+/// Read text input into compact column-major storage (lda = m).
+/// This wrapper for read_txt_matrix resets workspace_query_mod to zero after
+/// a successful dimension query, preparing the next call to read data.
 template <typename T>
 void process_input_mat(
     int64_t &m,
@@ -442,43 +492,11 @@ void process_input_mat(
     char* filename,
     int& workspace_query_mod
 ) {
-    // We only check the size of the input data.
-    if (workspace_query_mod) {
-        std::string line;
-        std::string line_entry;
-
-        // Read input file
-        std::ifstream inputMat(filename);
-
-        // Count numcols.
-        std::getline(inputMat, line);
-        std::istringstream lineStream(line);
-        while (lineStream >> line_entry)
-            ++n;
-
-        // Count numrows - already got through row 1.
-        ++m;
-        while (std::getline(inputMat, line))
-            ++m;
-
-        // Exit querying mod.
+    const bool query = workspace_query_mod != 0;
+    read_txt_matrix(Layout::ColMajor, m, n, A, m, filename, query);
+    if (query)
         workspace_query_mod = 0;
-    } else {
-        double value;
-        int i, j;
-        // Read input file
-        std::ifstream inputMat(filename);
-
-        // Place the contents of a file into the matrix space.
-        // Matrix is input in a row-major order, we process data in column-major.
-        // Reads here are, unfortunately, sequential;
-        for(j = 0; j < m; ++j) {
-            for(i = 0; i < n; ++i) {
-                inputMat >> value;
-                A[m * i + j] = value;
-            }
-        }
-    }
+    return;
 }
 
 /// Generate a random dense matrix with specified layout.
@@ -753,7 +771,7 @@ void mat_gen(
             break;
         case bad_cholqr: {
                 // Per Oleg's suggestion, this is supposed to make QB fail with CholQR for orth/stab
-                RandLAPACK::gen::gen_bad_cholqr_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
+                RandLAPACK::gen::gen_bad_cholqr_mat(info.rows, info.cols, A, info.rank, info.frac_spectrum_one, info.cond_num, info.diag, state);
             }
             break;
         case kahan: {
@@ -762,7 +780,7 @@ void mat_gen(
             }
             break;
         case custom_input: {
-                // Generates Kahan Matrix
+                // The compatibility wrapper preserves the two-phase query protocol.
                 RandLAPACK::gen::process_input_mat(info.rows, info.cols, A, info.filename, info.workspace_query_mod);
             }
             break;
