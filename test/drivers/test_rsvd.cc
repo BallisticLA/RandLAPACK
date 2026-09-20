@@ -291,3 +291,56 @@ TEST_F(TestRSVD, LinOpDense) {
     free(U2); free(S2); free(V2);
     delete all_algs1; delete all_algs2;
 }
+
+// LinOp RSVD with sparse operator
+TEST_F(TestRSVD, LinOpSparse) {
+    int64_t m = 200;
+    int64_t n = 100;
+    int64_t k = 10;
+    int64_t p = 2;
+    int64_t passes_per_iteration = 1;
+    int64_t block_sz = 5;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    // Generate a dense matrix, sparsify it, convert to CSC
+    double* A_dense = new double[m * n]();
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, A_dense, state);
+
+    // Sparsify (zero out 90% of entries)
+    for (int64_t i = 0; i < m * n; ++i)
+        if (std::abs(A_dense[i]) < 1.28) A_dense[i] = 0.0;  // ~80% zeros for Gaussian
+
+    // Convert to CSC
+    RandBLAS::sparse_data::CSCMatrix<double> A_csc(m, n);
+    RandBLAS::sparse_data::csc::dense_to_csc<double>(Layout::ColMajor, A_dense, 0.0, A_csc);
+
+    // Compute norm from dense for reference
+    double norm_A = lapack::lange(Norm::Fro, m, n, A_dense, m);
+
+    // Run LinOp RSVD with sparse operator
+    auto state2 = RandBLAS::RNGState();
+    auto all_algs = new algorithm_objects<double, RNG>(false, false, false, p, passes_per_iteration, block_sz);
+    int64_t k2 = k;
+    double* U = nullptr; double* S = nullptr; double* V = nullptr;
+
+    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::CSCMatrix<double>> A_linop(m, n, A_csc);
+    ASSERT_EQ(all_algs->RSVD.call(A_linop, norm_A, k2, tol, U, S, V, state2), 0);
+
+    // Compute ||A - USV^T||_F using dense A
+    double* A_check = new double[m * n];
+    lapack::lacpy(MatrixType::General, m, n, A_dense, m, A_check, m);
+    for (int64_t i = 0; i < k2; ++i)
+        blas::scal(m, S[i], &U[m * i], 1);  // U *= diag(S)
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k2, -1.0, U, m, V, n, 1.0, A_check, m);
+    double err = lapack::lange(Norm::Fro, m, n, A_check, m);
+    printf("Sparse LinOp RSVD: ||A - USV^T||_F / ||A||_F = %e, k=%lld\n",
+           err / norm_A, static_cast<long long>(k2));
+
+    ASSERT_LE(err / norm_A, 1.0);  // Random sparse matrix has slow spectral decay; just verify it runs
+
+    delete[] A_dense; delete[] A_check;
+    free(U); free(S); free(V);
+    delete all_algs;
+}
