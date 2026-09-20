@@ -88,12 +88,10 @@ class TestQB : public ::testing::Test
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_2.data(), 1);
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_3.data(), 1);
 
-        // Get low-rank SVD
-        lapack::gesdd(Job::SomeVec, m, n, all_data.A_cpy.data(), m, all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
-        std::cout << "singular values:" << std::endl;
-        for (int64_t i = 0; i < static_cast<int64_t>(std::min(m, n)); ++i) {
-            std::cout << "\t" << all_data.s[i] << std::endl;
-        }
+        // Use the QR-based reference SVD to avoid version-dependent failures in
+        // divide-and-conquer SVD on Apple Silicon BLAS/LAPACK backends.
+        lapack::gesvd(Job::SomeVec, Job::SomeVec, m, n, all_data.A_cpy.data(), m,
+                      all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
     }
 
     /// General test for QB:
