@@ -5,6 +5,7 @@
 #include "rl_lapackpp.hh"
 
 #include <RandBLAS.hh>
+#include <concepts>
 #include <iostream>
 #include <cmath>
 #include <algorithm>
@@ -371,10 +372,6 @@ void gen_oleg_adversarial_mat(
 /// also where the failure being modeled begins, since an unshifted CholeskyQR
 /// loses orthogonality once cond exceeds eps^(-1/2), about 1.5e8 in double.
 ///
-/// The previous version of this routine took an unused second dimension argument
-/// and computed an empty loop, returning all ones (condition number 1) for every
-/// requested cond. It had no callers other than gen_bad_cholqr_mat below.
-///
 /// @param[in] k                  Number of singular values to generate.
 /// @param[in] frac_spectrum_one  Fraction of the spectrum held at 1.0, as in
 ///                               gen_poly_singvals. Must leave a leading block of
@@ -409,6 +406,13 @@ std::vector<T> gen_bad_cholqr_singvals(int64_t k, T frac_spectrum_one, T cond) {
     return s;
 }
 
+/// Compatibility overload for the former (k, n, cond) signature. The second
+/// dimension was unused; use mat_gen_info's default leading fraction of 0.1.
+template <typename T, std::integral Index>
+std::vector<T> gen_bad_cholqr_singvals(int64_t k, Index, T cond) {
+    return gen_bad_cholqr_singvals<T>(k, T(0.1), cond);
+}
+
 /// Per Oleg Balabanov's suggestion, this matrix is supposed to break QB with Cholesky QR.
 /// Output matrix is m by n, full-rank.
 template <typename T, typename RNG>
@@ -429,12 +433,22 @@ void gen_bad_cholqr_mat(
     RandLAPACK::util::diag(k, k, s.data(), k, S);
 
     if (diagon) {
+        lapack::laset(MatrixType::General, m, n, T(0), T(0), A, m);
         lapack::lacpy(MatrixType::General, k, k, S, k, A, m);
     } else {
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
     delete[] S;
+}
+
+/// Compatibility overload using mat_gen_info's default leading fraction of 0.1.
+template <typename T, typename RNG>
+void gen_bad_cholqr_mat(
+    int64_t &m, int64_t &n, T* A, int64_t k, T cond, bool diagon,
+    RandBLAS::RNGState<RNG> &state
+) {
+    gen_bad_cholqr_mat(m, n, A, k, T(0.1), cond, diagon, state);
 }
 
 /// Generates Kahan matrix

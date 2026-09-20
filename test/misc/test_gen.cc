@@ -229,7 +229,7 @@ TEST_F(TestGenSpectra, bad_cholqr_mat_gen_uses_requested_spectrum) {
     info.frac_spectrum_one = 0.4;
     info.cond_num = 1e10;
     info.diag = true;
-    std::vector<double> A(m * n, 0.0);
+    std::vector<double> A(m * n, -7.0);
     RandBLAS::RNGState<> state(7);
     RandLAPACK::gen::mat_gen(info, A.data(), state);
     auto expected = RandLAPACK::gen::gen_bad_cholqr_singvals<double>(n, 0.4, 1e10);
@@ -239,4 +239,18 @@ TEST_F(TestGenSpectra, bad_cholqr_mat_gen_uses_requested_spectrum) {
     }
     EXPECT_DOUBLE_EQ(A[0], 1.0);
     EXPECT_NEAR(A[n - 1 + (n - 1) * m], 1e-10, 1e-25);
+}
+
+TEST_F(TestGenSpectra, bad_cholqr_legacy_call_signatures) {
+    int64_t m = 24, n = 20;
+    auto expected = RandLAPACK::gen::gen_bad_cholqr_singvals<double>(n, 0.1, 1e10);
+    EXPECT_EQ(RandLAPACK::gen::gen_bad_cholqr_singvals(n, n, 1e10), expected);
+    EXPECT_EQ(RandLAPACK::gen::gen_bad_cholqr_singvals<double>(n, 20, 1e10), expected);
+    std::vector<double> A(m * n, -7.0);
+    RandBLAS::RNGState<> state(9);
+    RandLAPACK::gen::gen_bad_cholqr_mat(m, n, A.data(), n, 1e10, true, state);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < m; ++i)
+            EXPECT_DOUBLE_EQ(A[i + j * m], i == j ? expected[i] : 0.0);
+    }
 }
