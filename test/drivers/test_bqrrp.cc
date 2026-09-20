@@ -1,4 +1,3 @@
-#if !defined(__APPLE__)
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -95,7 +94,7 @@ class TestBQRRP : public ::testing::Test
                 max_idx = i;
             }
         }
-        T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
+        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
 
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(14) << norm_AQR / norm_A << "\n";
@@ -436,4 +435,3 @@ TEST_F(TestBQRRP, BQRRP_wide_aspect) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
-#endif

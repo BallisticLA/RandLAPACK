@@ -5,12 +5,14 @@
 //
 // Generic fallback: multiply by the identity matrix.
 // Overloaded specializations avoid that cost when the underlying storage is
-// directly accessible (DenseLinOp, SparseLinOp).
+// directly accessible (DenseLinOp, SparseLinOp) or reachable through the
+// operands (CompositeOperator).
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
 #include "rl_dense_linop.hh"
 #include "rl_sparse_linop.hh"
+#include "rl_composite_linop.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
@@ -19,6 +21,12 @@
 
 
 namespace RandLAPACK {
+
+/// Cap on the dimension the generic materialize fallback will accept. The
+/// fallback allocates an n by n identity (2 GiB in double at the cap) behind
+/// the caller's buffer. The type-specific overloads below form no identity
+/// and carry no cap.
+inline constexpr int64_t MATERIALIZE_IDENTITY_MAX_DIM = 16384;
 
 /// Materialize a linear operator into a dense column-major buffer.
 ///
@@ -33,6 +41,11 @@ namespace RandLAPACK {
 template <typename LinOp>
 void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, int64_t ldb) {
     using T = typename LinOp::scalar_t;
+    randlapack_require(n <= MATERIALIZE_IDENTITY_MAX_DIM) << "n=" << n
+        << " exceeds MATERIALIZE_IDENTITY_MAX_DIM=" << MATERIALIZE_IDENTITY_MAX_DIM
+        << ": the generic materialize fallback would allocate an n*n identity ("
+        << (n * n * (int64_t) sizeof(T)) / (1024 * 1024) << " MiB)."
+        << " Use a type-specific materialize overload instead";
     randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     // Zero the output buffer.
     for (int64_t j = 0; j < n; ++j)
@@ -86,6 +99,27 @@ void materialize(linops::SparseLinOp<SpMat>& A, int64_t m, int64_t n,
         lapack::lacpy(lapack::MatrixType::General, m, n, tmp, m, buf, ldb);
         delete[] tmp;
     }
+}
+
+/// Specialization for CompositeOperator: materialize each operand, then form
+/// buf = L * R with one gemm. Builds no identity, carries no cap, and never
+/// calls the composite's operator(); nested composites recurse.
+template <typename LinOp1, typename LinOp2>
+void materialize(linops::CompositeOperator<LinOp1, LinOp2>& A, int64_t m, int64_t n,
+                 typename LinOp1::scalar_t* buf, int64_t ldb) {
+    using T = typename LinOp1::scalar_t;
+    randlapack_require(m == A.n_rows) << "m=" << m << " must equal A.n_rows=" << A.n_rows << " for materialize specialization";
+    randlapack_require(n == A.n_cols) << "n=" << n << " must equal A.n_cols=" << A.n_cols << " for materialize specialization";
+    randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
+    int64_t k = A.left_op.n_cols;
+    T* L = new T[m * k]();
+    T* R = new T[k * n]();
+    materialize(A.left_op, m, k, L, m);
+    materialize(A.right_op, k, n, R, k);
+    blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, n, k, (T)1.0, L, m, R, k, (T)0.0, buf, ldb);
+    delete[] L;
+    delete[] R;
 }
 
 } // end namespace RandLAPACK

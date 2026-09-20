@@ -127,7 +127,7 @@ endif()
 
 # Compile sources
 add_subdirectory(RandLAPACK)
-if(BUILD_TESTING)
+if(BUILD_TESTING AND RandLAPACK_BUILD_TESTS)
     add_subdirectory(test)
 endif()
 

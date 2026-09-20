@@ -6,8 +6,10 @@
 #include "rl_matrix_io.hh"
 
 #include <RandBLAS.hh>
+#include <concepts>
 #include <iostream>
 #include <cmath>
+#include <limits>
 #include <algorithm>
 #include <vector>
 #include <cstdint>
@@ -361,55 +363,62 @@ void gen_oleg_adversarial_mat(
 /// Generate singular values for the "bad CholQR" matrix.
 ///
 /// The leading floor(k * frac_spectrum_one) values are one. The remaining values
-/// drop to 1e-8 and then decay geometrically to 1/cond, so the returned spectrum
-/// has condition number exactly cond. The cliff between the two blocks is the
-/// point of this input: it is what drives the Gram matrix numerically indefinite,
-/// and so exposes the failure mode of an unshifted CholeskyQR.
+/// drop to sqrt(eps<T>) and then decay geometrically to 1/cond, giving condition
+/// number cond up to rounding. Here eps<T> is std::numeric_limits<T>::epsilon().
+/// The cliff between the blocks can make the computed Gram matrix indefinite,
+/// exposing a failure mode of unshifted CholeskyQR.
 ///
-/// Requires cond >= 1e8. Below that threshold the trailing block would rise from
-/// 1e-8 toward 1/cond rather than decay, leaving a non-monotone spectrum whose
-/// condition number is 1e8 rather than the requested value. That threshold is
-/// also where the failure being modeled begins, since an unshifted CholeskyQR
-/// loses orthogonality once cond exceeds eps^(-1/2), about 1.5e8 in double.
-///
-/// The previous version of this routine took an unused second dimension argument
-/// and computed an empty loop, returning all ones (condition number 1) for every
-/// requested cond. It had no callers other than gen_bad_cholqr_mat below.
+/// Requires cond >= 1/sqrt(eps<T>), the scale at which unshifted CholeskyQR can
+/// lose orthogonality. Below this bound the trailing block would rise rather
+/// than decay, and the spectrum would not have the requested condition number.
 ///
 /// @param[in] k                  Number of singular values to generate.
 /// @param[in] frac_spectrum_one  Fraction of the spectrum held at 1.0, as in
 ///                               gen_poly_singvals. Must leave a leading block of
 ///                               at least one entry and a trailing block of at
 ///                               least two.
-/// @param[in] cond               Target condition number. Must be >= 1e8.
+/// @param[in] cond               Finite target condition number, >= 1/sqrt(eps<T>).
 ///
 /// @return Vector of k singular values, non-increasing, with s[0] = 1 and
-///         s[k-1] = 1/cond.
+///         s[k-1] = 1/cond up to rounding.
 template <typename T>
 std::vector<T> gen_bad_cholqr_singvals(int64_t k, T frac_spectrum_one, T cond) {
-    // offset follows gen_poly_singvals above rather than being hardcoded: every other
-    // generator in this file either takes the fraction as a parameter or uses 0.1, and
-    // mat_gen_info already carries frac_spectrum_one with that default.
-    int64_t offset  = (int64_t) std::floor((double) k * (double) frac_spectrum_one);
+    if (k < 3)
+        throw RandLAPACK::Error("k must allow one leading and two decaying values");
+    randlapack_require(std::isfinite(frac_spectrum_one) && frac_spectrum_one > T(0)
+        && frac_spectrum_one < T(1)) << "frac_spectrum_one must be finite and in (0, 1)";
+    randlapack_require(std::isfinite(cond)) << "cond must be finite";
+    int64_t offset = static_cast<int64_t>(std::floor(
+        static_cast<long double>(k) * static_cast<long double>(frac_spectrum_one)));
     int64_t n_decay = k - offset;
-    randlapack_require(offset >= 1) << "frac_spectrum_one=" << frac_spectrum_one << " with k=" << k
-        << " leaves no leading block of ones";
-    randlapack_require(n_decay >= 2) << "frac_spectrum_one=" << frac_spectrum_one << " with k=" << k
-        << " leaves fewer than two decaying values";
-    randlapack_require(cond >= T(1e8)) << "cond=" << cond << " must be >= 1e8; below that the trailing block is not monotone";
+    if (offset < 1)
+        throw RandLAPACK::Error("frac_spectrum_one leaves no leading block of ones");
+    if (n_decay < 2)
+        throw RandLAPACK::Error("frac_spectrum_one leaves fewer than two decaying values");
+    const T min_cond = T(1) / std::sqrt(std::numeric_limits<T>::epsilon());
+    randlapack_require(cond >= min_cond)
+        << "cond=" << cond << " must be >= 1/sqrt(eps<T>)=" << min_cond;
 
     std::vector<T> s(k, 1.0);
 
-    // Geometric interpolation from 1e-8 down to 1/cond across the trailing block.
+    // Using cond/min_cond makes the ratio exactly one at the lower bound,
+    // so rounding cannot turn the constant trailing block into an increasing one.
     for (int64_t i = 0; i < n_decay; ++i) {
         T frac = T(i) / T(n_decay - 1);   // n_decay >= 2 is enforced above
-        s[offset + i] = T(1e-8) * std::pow(cond * T(1e-8), -frac);
+        s[offset + i] = std::pow(cond / min_cond, -frac) / min_cond;
     }
     return s;
 }
 
+/// Compatibility overload for the former (k, n, cond) signature. The second
+/// dimension was unused; use mat_gen_info's default leading fraction of 0.1.
+template <typename T, std::integral Index>
+std::vector<T> gen_bad_cholqr_singvals(int64_t k, Index, T cond) {
+    return gen_bad_cholqr_singvals<T>(k, T(0.1), cond);
+}
+
 /// Per Oleg Balabanov's suggestion, this matrix is supposed to break QB with Cholesky QR.
-/// Output matrix is m by n, full-rank.
+/// Output matrix is m by n with k nonzero singular values.
 template <typename T, typename RNG>
 void gen_bad_cholqr_mat(
     int64_t &m,
@@ -422,17 +431,25 @@ void gen_bad_cholqr_mat(
     RandBLAS::RNGState<RNG> &state
 ) {
     auto s = gen_bad_cholqr_singvals<T>(k, frac_spectrum_one, cond);
-
-    T* S = new T[k * k]();
-    RandLAPACK::util::diag(k, k, s.data(), k, S);
+    randlapack_require(k <= std::min(m, n)) << "rank exceeds the matrix dimensions";
 
     if (diagon) {
-        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
+        lapack::laset(MatrixType::General, m, n, T(0), T(0), A, m);
+        RandLAPACK::util::diag(m, n, s.data(), k, A);
     } else {
-        RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
+        std::vector<T> S(k * k, T(0));
+        RandLAPACK::util::diag(k, k, s.data(), k, S.data());
+        RandLAPACK::gen::gen_singvec(m, n, A, k, S.data(), state);
     }
+}
 
-    delete[] S;
+/// Compatibility overload using mat_gen_info's default leading fraction of 0.1.
+template <typename T, typename RNG>
+void gen_bad_cholqr_mat(
+    int64_t &m, int64_t &n, T* A, int64_t k, T cond, bool diagon,
+    RandBLAS::RNGState<RNG> &state
+) {
+    gen_bad_cholqr_mat(m, n, A, k, T(0.1), cond, diagon, state);
 }
 
 /// Generates Kahan matrix
@@ -464,8 +481,23 @@ void gen_kahan_mat(
     delete[] C;
 }
 
-// process_input_mat has been removed. Use RandLAPACK::gen::read_txt_matrix
-// from rl_matrix_io.hh directly.
+/// Read text input into compact column-major storage (lda = m).
+/// This wrapper for read_txt_matrix resets workspace_query_mod to zero after
+/// a successful dimension query, preparing the next call to read data.
+template <typename T>
+void process_input_mat(
+    int64_t &m,
+    int64_t &n,
+    T* A,
+    char* filename,
+    int& workspace_query_mod
+) {
+    const bool query = workspace_query_mod != 0;
+    read_txt_matrix(Layout::ColMajor, m, n, A, m, filename, query);
+    if (query)
+        workspace_query_mod = 0;
+    return;
+}
 
 /// Generate a random dense matrix with specified layout.
 /// For simple random matrices without spectral structure.
@@ -748,9 +780,8 @@ void mat_gen(
             }
             break;
         case custom_input: {
-                bool query = (info.workspace_query_mod != 0);
-                RandLAPACK::gen::read_txt_matrix(info.rows, info.cols, A, info.filename, query);
-                if (query) info.workspace_query_mod = 0;
+                // The compatibility wrapper preserves the two-phase query protocol.
+                RandLAPACK::gen::process_input_mat(info.rows, info.cols, A, info.filename, info.workspace_query_mod);
             }
             break;
         default:

@@ -1,9 +1,11 @@
 #pragma once
-#include "../RandBLAS/RandBLAS/config.h.in"
+
+// CMake's configure_file turns this template into rl_config.hh at configure time, and
+// the generated copy is installed with the headers so downstream projects can query the
+// version. RandBLAS's own config.h arrives through RandBLAS.hh, so it is not repeated
+// here. test/misc/test_config.cc exists to keep this header compiled.
 
 #define RandLAPACK_VERSION "@RandLAPACK_VERSION@"
 #define RandLAPACK_VERSION_MAJOR @RandLAPACK_VERSION_MAJOR@
 #define RandLAPACK_VERSION_MINOR @RandLAPACK_VERSION_MINOR@
 #define RandLAPACK_VERSION_PATCH @RandLAPACK_VERSION_PATCH@
-
-#endif

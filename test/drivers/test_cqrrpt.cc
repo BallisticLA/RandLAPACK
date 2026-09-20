@@ -9,6 +9,103 @@
 
 using Subroutines = RandLAPACK::CQRRPTSubroutines;
 
+namespace {
+
+constexpr int64_t bad_cholqr_rows = 64;
+constexpr int64_t bad_cholqr_cols = 16;
+constexpr int64_t bad_cholqr_rank = 4;
+
+void make_bad_cholqr_matrix_with_duplicate_columns(std::vector<double>& A) {
+    int64_t m = bad_cholqr_rows, n = bad_cholqr_cols, k = bad_cholqr_rank;
+    double cliff = std::sqrt(std::numeric_limits<double>::epsilon());
+    std::vector<double> diagonal(m * n, 0.0);
+    auto state = RandBLAS::RNGState();
+    RandLAPACK::gen::gen_bad_cholqr_mat(
+        m, n, diagonal.data(), k, 0.5, 4.0 / cliff, true, state);
+    const double expected[] = {1.0, 1.0, cliff, cliff / 4.0};
+    for (int64_t ell = 0; ell < k; ++ell)
+        ASSERT_EQ(diagonal[ell + ell * m], expected[ell]);
+
+    // H64[:, 0:4]/8 and H4/2 preserve the spectrum {1, 1, 2^-26, 2^-28}.
+    // Mixing this small core gives exact binary64 entries despite the sqrt(eps)
+    // cliff. Copying each dense column doubles its multiplicity: rank and condition
+    // number stay fixed, and every nonzero singular value grows by sqrt(2).
+    static constexpr int H4[4][4] = {
+        {1,  1,  1,  1},
+        {1, -1,  1, -1},
+        {1,  1, -1, -1},
+        {1, -1, -1,  1}
+    };
+    A.assign(m * n, 0.0);
+    for (int64_t j = 0; j < k; ++j) {
+        int64_t active_col = 4 * j + 3;
+        for (int64_t i = 0; i < m; ++i) {
+            for (int64_t ell = 0; ell < k; ++ell)
+                A[i + active_col * m] += H4[i % 4][ell] * diagonal[ell + ell * m]
+                    * H4[j][ell] / 16.0;
+            A[i + (active_col - 1) * m] = A[i + active_col * m];
+        }
+    }
+}
+
+void check_bad_cholqr_pivots(const std::vector<int64_t>& J) {
+    std::vector<bool> seen(bad_cholqr_cols, false);
+    bool seen_group[bad_cholqr_rank] = {};
+    for (int64_t j = 0; j < bad_cholqr_cols; ++j) {
+        ASSERT_GE(J[j], 1);
+        ASSERT_LE(J[j], bad_cholqr_cols);
+        int64_t col = J[j] - 1;
+        ASSERT_FALSE(seen[col]);
+        seen[col] = true;
+        if (j < bad_cholqr_rank) {
+            // Either copy is valid, but all four independent directions are needed.
+            ASSERT_GE(col % 4, 2);
+            ASSERT_FALSE(seen_group[col / 4]);
+            seen_group[col / 4] = true;
+        }
+    }
+}
+
+void check_bad_cholqr_reconstruction(
+    const std::vector<double>& original, const std::vector<double>& Q,
+    const std::vector<double>& R, const std::vector<int64_t>& J, double tol
+) {
+    int64_t m = bad_cholqr_rows, n = bad_cholqr_cols, k = bad_cholqr_rank;
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < k; ++i)
+            ASSERT_TRUE(std::isfinite(R[i + j * n]));
+    }
+    // Gather AP directly; using the production column-permutation helper here
+    // could hide a permutation error shared by the algorithm and its oracle.
+    std::vector<double> residual(m * n);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < m; ++i)
+            residual[i + j * m] = original[i + (J[j] - 1) * m];
+    }
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k,
+        -1.0, Q.data(), m, R.data(), n, 1.0, residual.data(), m);
+    double norm_A = lapack::lange(Norm::Fro, m, n, original.data(), m);
+    double relative_residual = lapack::lange(Norm::Fro, m, n, residual.data(), m) / norm_A;
+    ASSERT_LE(relative_residual, tol);
+}
+
+void check_bad_cholqr_orthogonality(const std::vector<double>& Q, double tol) {
+    int64_t m = bad_cholqr_rows, k = bad_cholqr_rank;
+    for (int64_t j = 0; j < k; ++j) {
+        for (int64_t i = 0; i < m; ++i)
+            ASSERT_TRUE(std::isfinite(Q[i + j * m]));
+    }
+    std::vector<double> gram(k * k, 0.0);
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
+        1.0, Q.data(), m, Q.data(), m, 0.0, gram.data(), k);
+    for (int64_t i = 0; i < k; ++i)
+        gram[i + i * k] -= 1.0;
+    double orthogonality_error = lapack::lange(Norm::Fro, k, k, gram.data(), k) / std::sqrt(double(k));
+    ASSERT_LE(orthogonality_error, tol);
+}
+
+} // namespace
+
 class TestCQRRPT : public ::testing::Test
 {
     protected:
@@ -91,7 +188,7 @@ class TestCQRRPT : public ::testing::Test
                 max_idx = i;
             }
         }
-        T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
+        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(15) << norm_AQR / norm_A << "\n";
@@ -205,6 +302,30 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
 
+TEST_F(TestCQRRPT, CQRRPT_bad_cholqr_exact_rank_deficient) {
+    int64_t m = bad_cholqr_rows, n = bad_cholqr_cols, k = bad_cholqr_rank;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    std::vector<double> original;
+    ASSERT_NO_FATAL_FAILURE(make_bad_cholqr_matrix_with_duplicate_columns(original));
+
+    for (uint32_t seed = 0; seed < 8; ++seed) {
+        SCOPED_TRACE(seed);
+        auto Q = original;
+        std::vector<double> R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        RandBLAS::RNGState<> state(seed);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 4;
+        CQRRPT.qrcp = Subroutines::QRCP::geqp3;
+        ASSERT_EQ(CQRRPT.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        ASSERT_EQ(CQRRPT.rank, k);
+
+        ASSERT_NO_FATAL_FAILURE(check_bad_cholqr_pivots(J));
+        ASSERT_NO_FATAL_FAILURE(check_bad_cholqr_reconstruction(original, Q, R, J, tol));
+        ASSERT_NO_FATAL_FAILURE(check_bad_cholqr_orthogonality(Q, tol));
+    }
+}
+
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     int64_t m = 10000;
     int64_t n = 200;
@@ -228,7 +349,6 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
-#if !defined(__APPLE__)
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
     int64_t m = 10000;
     int64_t n = 200;
@@ -252,7 +372,55 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
-#endif
+
+// geqp3 reads jpvt on entry (nonzero marks a fixed column), so the prior
+// contents of the caller's J buffer must not influence pivoting. Run the same
+// rank-deficient factorization with a clean J and with two dirtied J buffers,
+// at the same RNG state each time; rank and factorization quality must match.
+TEST_F(TestCQRRPT, CQRRPT_dirty_J_rank_deficient) {
+    int64_t m = 2000;
+    int64_t n = 50;
+    int64_t k = 40;
+    double d_factor = 2;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    // Generate the rank-deficient input once.
+    auto gen_state = RandBLAS::RNGState();
+    std::vector<double> A_orig(m * n, 0.0);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, A_orig.data(), gen_state);
+
+    int64_t rank_ref = -1;
+    for (int trial = 0; trial < 3; ++trial) {
+        CQRRPTTestData<double> all_data(m, n, k);
+        lapack::lacpy(MatrixType::General, m, n, A_orig.data(), m, all_data.A.data(), m);
+
+        // Trial 0 keeps the zero-initialized J; trials 1 and 2 dirty it with
+        // different nonzero garbage.
+        if (trial > 0) {
+            for (int64_t i = 0; i < n; ++i)
+                all_data.J[i] = 1 + ((7919 * trial + 31 * i) % n);
+        }
+
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        CQRRPT.qrcp = Subroutines::QRCP::geqp3;
+
+        double norm_A = 0;
+        norm_and_copy_computational_helper(norm_A, all_data);
+        // Same RNG state in every trial, so any difference is due to J alone.
+        auto state = RandBLAS::RNGState();
+        test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+
+        if (trial == 0)
+            rank_ref = all_data.rank;
+        ASSERT_EQ(all_data.rank, rank_ref);
+    }
+}
+
 // Using L2 norm rank estimation here is similar to using raive estimation.
 // Fro norm underestimates rank even worse.
 TEST_F(TestCQRRPT, CQRRPT_bad_orth) {

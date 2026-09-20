@@ -133,20 +133,20 @@ LoadedMatrix<T> load_matrix(const std::string& path, double sub_ratio = 1.0) {
     } else if (ext == ".bin") {
         const char* cpath = path.c_str();
         int64_t m = 0, n = 0;
-        RandLAPACK::gen::read_bin_matrix<T>(m, n, nullptr, cpath, true);
+        RandLAPACK::gen::read_bin_matrix<T>(blas::Layout::ColMajor, m, n, nullptr, 0, cpath, true);
         result.m = m;
         result.n = n;
         result.dense_data.resize(m * n);
-        RandLAPACK::gen::read_bin_matrix<T>(m, n, result.data(), cpath, false);
+        RandLAPACK::gen::read_bin_matrix<T>(blas::Layout::ColMajor, m, n, result.data(), m, cpath, false);
         printf("Loaded %s: %ld x %ld, dense (bin)\n", cpath, result.m, result.n);
     } else {
         const char* cpath = path.c_str();
         int64_t m = 0, n = 0;
-        RandLAPACK::gen::read_txt_matrix<T>(m, n, nullptr, cpath, true);
+        RandLAPACK::gen::read_txt_matrix<T>(blas::Layout::ColMajor, m, n, nullptr, 0, cpath, true);
         result.m = m;
         result.n = n;
         result.dense_data.resize(m * n);
-        RandLAPACK::gen::read_txt_matrix<T>(m, n, result.data(), cpath, false);
+        RandLAPACK::gen::read_txt_matrix<T>(blas::Layout::ColMajor, m, n, result.data(), m, cpath, false);
         printf("Loaded %s: %ld x %ld, dense (txt)\n", cpath, result.m, result.n);
     }
 
