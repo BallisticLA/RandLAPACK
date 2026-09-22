@@ -151,6 +151,17 @@ public:
     bool    certified = false;  ///< Radau bracket closed within adaptive_rtol
     T       tr_U      = (T)0;   ///< final block Gauss trace (tr of the Gauss M)
     T       tr_L      = (T)0;   ///< final block Radau trace (== tr_U when no certificate ran)
+    /// True only when a Gauss/Gauss-Radau pair was actually computed. When false, tr_U and
+    /// tr_L are both the Gauss trace and their zero difference carries no information.
+    bool    bracket_evaluated = false;
+    // ---- Ritz clamp diagnostic (observability only; nothing branches on it) ----
+    // This class targets A >= 0 and clamps negative Ritz values to zero before applying f,
+    // because a value of -O(eps*||A||) would make sqrt or log NaN. The clamp is correct and
+    // is unchanged; what was missing is any way to tell that it fired. A run with many
+    // clamped values has lost orthogonality and its quadrature is being rescued rather than
+    // converging, which is indistinguishable from a healthy run in everything we export.
+    int64_t ritz_clamped = 0;
+
 
     /// Reused block recurrence + its buffers (K_big, R0_buf, T_blk, ...).
     BlockLanczosFA<T> fa;
@@ -340,11 +351,19 @@ public:
         // Final traces. When a certificate pair is live both were set inside
         // radau_bracket_check; otherwise report the Gauss trace on both sides.
         if (!(this->adaptive && this->stop_rule == BlockQFAStop::Radau && have_M)) {
+            // No certificate pair ran, so there is no bracket: both sides are set to the Gauss
+            // trace. tr_U == tr_L then means "never evaluated", which is indistinguishable by
+            // value from a bracket that closed to zero width, the best possible outcome. The
+            // flag below is the only thing that separates them; a reader of tr_U and tr_L alone
+            // will mistake the first for the second. Observability only: nothing branches on it.
             T tr = (T)0;
             const T* src = have_M ? this->M_scratch : out;
             for (int64_t i = 0; i < s; ++i) tr += src[i + i * s];
             this->tr_U = tr;
             this->tr_L = tr;
+            this->bracket_evaluated = false;
+        } else {
+            this->bracket_evaluated = true;
         }
         this->matvecs = s * this->d_used;
 
@@ -446,6 +465,7 @@ private:
         // pins nodes at 0 ± roundoff, so f must be finite at 0 (use the
         // shifted log(x+1), never a raw log).
         for (int64_t j = 0; j < m; ++j) {
+            if (eig_vals[j] < (T)0) this->ritz_clamped += 1;
             T fev = f(std::max(eig_vals[j], (T)0));
             const T* P_col = P + j * p_ld;
             T*       W_col = W + j * s;

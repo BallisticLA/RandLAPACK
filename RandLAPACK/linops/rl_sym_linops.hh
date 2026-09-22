@@ -112,23 +112,9 @@ struct ExplicitSymLinOp {
         }
     }
 
-    /// SkOp overload — vendored from the funnystrompp branch's
-    /// linops/rl_sym_linops.hh. Lets callers pass a RandBLAS sketching
-    /// operator (dense or sparse) directly instead of a raw buffer.
-    ///
-    /// Dense SkOp path: extract `S.buff` and dispatch through the existing
-    /// dense `blas::symm` matvec (so only one triangle of A is needed).
-    ///
-    /// Sparse SkOp path: dispatch through `RandBLAS::sparse_data::right_spmm`
-    /// directly. This is the sparse-Ω speedup path used by SYPS in the
-    /// funnystrompp PR.
-    ///
-    /// PRECONDITION (sparse path only): `A_buff` must have BOTH triangles
-    /// populated. `right_spmm` reads `A` as a generic dense matrix and does
-    /// not exploit symmetry; it will read whatever is in the strict lower
-    /// triangle. For matrices generated via `gen_sym_psd_lowrank` (which
-    /// only fills upper), the caller must symmetrize before constructing
-    /// this operator.
+    /// Apply a dense or sparse sketch. RANDLAPACK_SYMMETRIC_SKETCH enables
+    /// a triangle-aware sparse product with a supporting RandBLAS installation.
+    /// Otherwise the sparse path uses right_spmm and requires both triangles.
     template <RandBLAS::SketchingOperator SkOp>
     void operator()(
         Layout layout,
@@ -146,9 +132,15 @@ struct ExplicitSymLinOp {
             randblas_require(S.layout == layout);
             (*this)(layout, n_vecs, alpha, S.buff, ldS, beta, C, ldc);
         } else {
-            // Sparse sketch — dense × sparse via right_spmm. Requires both
-            // triangles of A populated (symmetry is NOT exploited by right_spmm).
+            // Fill once before choosing the triangle-aware or legacy product.
             if (S.nnz < 0) RandBLAS::fill_sparse(S);
+#ifdef RANDLAPACK_SYMMETRIC_SKETCH
+            auto apply_uplo = this->uplo;
+            if (layout != this->buff_layout)
+                apply_uplo = (apply_uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
+            RandBLAS::sketch_symmetric(layout, apply_uplo, dim, n_vecs,
+                alpha, this->A_buff, this->lda, S, 0, 0, beta, C, ldc);
+#else
             auto S_coo = RandBLAS::coo_view_of_skop(S);
             RandBLAS::sparse_data::right_spmm(
                 layout, blas::Op::NoTrans, blas::Op::NoTrans,
@@ -157,6 +149,7 @@ struct ExplicitSymLinOp {
                 S_coo, 0, 0,
                 beta, C, ldc
             );
+#endif
         }
     }
 };

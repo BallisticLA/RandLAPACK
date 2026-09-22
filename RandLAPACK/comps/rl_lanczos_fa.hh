@@ -91,6 +91,15 @@ void lanczos_fa_timed_call(LFA& self, SLO& A, const T* B,
 template <typename T>
 class LanczosFA {
 public:
+    // ---- Ritz clamp diagnostic (observability only; nothing branches on it) ----
+    // This class targets A >= 0 and clamps negative Ritz values to zero before applying f,
+    // because a value of -O(eps*||A||) would make sqrt or log NaN. The clamp is correct and
+    // stays exactly as it was; what was missing is any way to tell that it fired. A run with
+    // many clamped values has lost orthogonality, and its quadrature is being rescued rather
+    // than converging, which is indistinguishable from a healthy run in every number we
+    // currently export.
+    int64_t ritz_clamped = 0;
+
     /// Reorthogonalization control.
     ///  true  = full (project out all previous Krylov vectors after each step).
     ///  false = none (vanilla Lanczos, per Persson's reference implementation).
@@ -331,8 +340,10 @@ public:
             // θ clamped to ≥ 0 before f (A ⪰ 0 by assumption; a Ritz value of
             // −O(ε‖A‖) would NaN e.g. sqrt), matching LanczosQFA::quad_e1 and
             // BlockLanczosFA.
-            for (int64_t i = 0; i < d; ++i)
+            for (int64_t i = 0; i < d; ++i) {
+                if (alpha_j[i] < (T)0) this->ritz_clamped += 1;
                 c_j[i] = f(std::max(alpha_j[i], (T)0)) * Z_j[i * d + 0];
+            }
 
             // (12b) v_j = Z_j * c_j  (d×d matrix times d-vector)
             blas::gemv(Layout::ColMajor, Op::NoTrans, d, d,

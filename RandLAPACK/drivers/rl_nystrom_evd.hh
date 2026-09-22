@@ -37,6 +37,11 @@ struct NystromEVD_workspace {
     T* Sigma = nullptr; int64_t Sigma_sz = 0;   // k      (singular values of B)
     T* VT_B  = nullptr; int64_t VT_B_sz  = 0;   // k × k  (gesdd VT output; unused)
     T* tau   = nullptr; int64_t tau_sz   = 0;   // k      (geqrf reflectors; q > 1 only)
+    // Diagnostic, written by the spectral recovery, read by nobody inside the algorithm:
+    // how many of the k eigenvalues went negative when the shift was removed and were
+    // clamped to zero. Purely observational, so it carries no _sz partner and needs no
+    // allocation.
+    int64_t clamped_eigenvalues = 0;
 
     // 11-slot timing vector (microseconds), populated when `times_enabled`.
     // Slots used here: 0 alloc, 1 syrf, 2 matvec, 6 spectral-recovery, 10 total.
@@ -74,7 +79,7 @@ long measure_us(Fn&& fn) {
 /// Reference-aligned sketched Nyström spectral recovery, shifted variant.
 /// Numbered to match Algorithm 2 of the funNyström++ writeup. Every code
 /// block below is tagged [Alg. 2, line N] with the step it implements:
-///   (1)  draw sparse Ω ∈ R^{m×k}   SparseStack/SASO with `vec_nnz` nonzeros
+///   (1)  draw sparse Ω ∈ R^{m×k}   SASO with `vec_nnz` nonzeros
 ///                                  per ROW (Axis::Short with k < m: the short
 ///                                  axis is the k columns, so each of the m
 ///                                  rows scatters vec_nnz ±1 entries across
@@ -82,7 +87,8 @@ long measure_us(Fn&& fn) {
 ///                                  internally from `state` (CQRRPT-style;
 ///                                  `state` is advanced). Matches Alg. 1
 ///                                  line 1 of the writeup, which specifies a
-///                                  SparseStack sketch. vec_nnz = 0 means
+///                                  SASO sketch (not the partitioned SparseStack distribution).
+///                                  vec_nnz = 0 means
 ///                                  "auto" (resolved below to ~log(k)).
 ///        (+ q−1 subspace-iteration passes Ω ← orthonormalize(A·Ω); a
 ///         generalization of Algorithm 2, which is single-pass)
@@ -175,7 +181,7 @@ void NystromEVD(
     auto t_total_start = clk::now();
     long t_alloc = 0, t_syrf = 0, t_matvec = 0;
 
-    // [Alg. 2, line 1] Draw the SparseStack/SASO sketch Ω internally
+    // [Alg. 2, line 1] Draw the SASO sketch Ω internally
     //   (CQRRPT-style; `state` is advanced past the draw). NOT orthonormalized,
     //   per Algorithm 2 and the basis-invariance of the shifted recovery.
     RandBLAS::SparseDist DS(m, k, vnz);
@@ -326,8 +332,17 @@ void NystromEVD(
     // [Alg. 2, line 8] λ̂ ← max{0, Σ² − ν}  (remove the shift; clamp negatives to 0).
     //   Lines 9-10 (truncate to rank k) are a no-op: Ω is drawn at rank k, so B is
     //   m×k and U_out / lambda_out already have exactly k columns / entries.
-    for (int64_t i = 0; i < k; ++i)
-        lambda_out[i] = std::max(ws.Sigma[i] * ws.Sigma[i] - nu, (T)0);
+    // Count how many eigenvalues the shift removal drove negative before clamping. A large
+    // count means the shift nu dominated the tail of the spectrum, so that part of the head
+    // carries no information and the estimate leans entirely on the residual term. Today this
+    // is invisible: the clamp is silent and the caller sees only a clean nonnegative spectrum.
+    // Observability only; the clamp itself is unchanged.
+    ws.clamped_eigenvalues = 0;
+    for (int64_t i = 0; i < k; ++i) {
+        const T raw = ws.Sigma[i] * ws.Sigma[i] - nu;
+        if (raw < (T)0) ws.clamped_eigenvalues += 1;
+        lambda_out[i] = std::max(raw, (T)0);
+    }
 
     auto t_specrec_end = clk::now();
     if (t_specrec_ms_out) {

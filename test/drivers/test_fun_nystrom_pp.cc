@@ -2114,7 +2114,10 @@ TEST_F(TestFunNystromPP, BlockQFABandedVsDenseAssembledEquivalence) {
             RandLAPACK::BlockLanczosQFA<T> qfa_piv;
             qfa_piv.adaptive = true;
             qfa_piv.stop_rule = RandLAPACK::BlockQFAStop::Radau;
-            qfa_piv.adaptive_rtol = std::numeric_limits<T>::min();   // never fires before the cap
+            qfa_piv.adaptive_rtol = std::numeric_limits<T>::min();
+            // Zero rounded gap can satisfy any tolerance. Check only at the
+            // requested depth so the pivot belongs to the matrix being tested.
+            qfa_piv.check_every = kdepth;
             T *dummy = new T[cfg.s * cfg.s];
             qfa_piv.call(A_op, Bmat, n, cfg.s, fscalar, kdepth, dummy);
             ASSERT_EQ(qfa_piv.d_used, kdepth);
@@ -3660,16 +3663,8 @@ TEST_F(TestFunNystromPP, AdaptiveHardSpectrumDepthDiscovered) {
 }
 
 
-// ===== Eps-targeted adaptive tier: matvec_cap infeasibility, exact boundary =
-// The probe runs BEFORE matvec_cap is consulted (it must, to discover the
-// depth t the cap-clamping arithmetic itself needs), so probe_matvecs and t
-// are cap-independent for a fixed seed/spectrum - a baseline call with no
-// cap discovers them once, and the cap-clamp boundary
-//   cap >= probe_mv + 1 (one rank unit) + s_min*t (s_min probes at depth t)
-// is then exact, mirroring AutoInfeasibleThrows' boundary-testing approach
-// but derived from the driver's own reported (probe_mv, t) rather than a
-// closed form, since t is data-dependent here (found by the probe, not
-// computed from the budget the way the scalar auto tier's is).
+// A hard cap bounds the pilot too. Below the uncapped allocation boundary,
+// the method may return an explicitly uncertified shallower estimate.
 TEST_F(TestFunNystromPP, AdaptiveMatvecCapInfeasibleThrows) {
     using T = double;
     const int64_t n = 200;
@@ -3711,14 +3706,15 @@ TEST_F(TestFunNystromPP, AdaptiveMatvecCapInfeasibleThrows) {
         std::printf("cap=%ld (feasible boundary): k=%ld s=%ld est=%.4e\n",
                     (long)feasible_cap, (long)driver.adaptive_k, (long)driver.adaptive_s, est);
     }
-    {   // one below the boundary: must throw, message contains "infeasible".
+    {   // Below the old boundary, shortening the pilot can make a run feasible.
         const int64_t infeasible_cap = probe_mv + s_min * t;
         RandLAPACK::FunNystromPP<T> driver;
         RandBLAS::RNGState<RNG> st(41);
         T a = 0, b = 0;
         try {
             driver.call(A_op, fscalar, eps, st, a, b, infeasible_cap);
-            FAIL() << "expected std::invalid_argument at cap = " << infeasible_cap;
+            EXPECT_LE(driver.adaptive_probe_matvecs + driver.adaptive_k +
+                      driver.adaptive_oracle_matvecs, infeasible_cap);
         } catch (const std::invalid_argument &e) {
             std::string msg = e.what();
             EXPECT_NE(msg.find("infeasible"), std::string::npos) << msg;
@@ -4291,4 +4287,150 @@ TEST_F(TestFunNystromPP, AdaptiveRademacherFlagControlsProbes) {
     EXPECT_LT(std::abs(est_rad - tr) / tr, 5e-2);
     EXPECT_LT(std::abs(est_sph - tr) / tr, 5e-2);
     delete[] lam;
+}
+
+TEST_F(TestFunNystromPP, TargetAutoHardCapIncludesPilotOnEveryExit) {
+    using T = double;
+    const int64_t n = 100;
+    std::vector<T> A(n*n, 0.0);
+    for (int64_t i = 0; i < n; ++i) A[i+i*n] = std::pow(1e-6, T(i)/(n-1));
+    auto f = [](T x) { return std::sqrt(std::max(x, T(0))); };
+    for (bool scalar : {false, true}) {
+        for (int64_t cap : {1, 16, 17, 32, 100, 400}) {
+            CountingSymLinOp<T> op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+            RandLAPACK::FunNystromPP<T> driver;
+            driver.adaptive_use_scalar = scalar;
+            driver.adaptive_rademacher = false;
+            driver.adaptive_reuse_pilot = false;
+            driver.adaptive_gauss_return = true;
+            RandBLAS::RNGState<RNG> state(991);
+            T t1 = 0, t2 = 0;
+            try {
+                T est = driver.call(op, f, T(1e-3), state, t1, t2, cap);
+                EXPECT_TRUE(std::isfinite(est));
+                EXPECT_EQ(op.apply_count, driver.adaptive_probe_matvecs +
+                          driver.adaptive_k + driver.adaptive_oracle_matvecs);
+            } catch (const std::invalid_argument&) {
+                EXPECT_LT(cap, 17);
+            }
+            EXPECT_LE(op.apply_count, cap) << "scalar=" << scalar << " cap=" << cap;
+            if (cap < 17) EXPECT_EQ(op.apply_count, 0);
+        }
+    }
+}
+
+TEST_F(TestFunNystromPP, TargetAutoScalarDoesNotInheritBlockDimensionLimit) {
+    const auto scalar = RandLAPACK::detail::compute_adaptive_split(
+        (int64_t)80, 0.01, (int64_t)100, 1.0, 1.0, (int64_t)4, false);
+    const auto block = RandLAPACK::detail::compute_adaptive_split(
+        (int64_t)80, 0.01, (int64_t)100, 1.0, 1.0, (int64_t)4, true);
+    EXPECT_GE(scalar.s, 4);
+    EXPECT_EQ(block.s, 1);
+    EXPECT_EQ(scalar.k, block.k);
+}
+
+TEST_F(TestFunNystromPP, TargetAutoTinyEpsSaturatesBeforeIntegerConversion) {
+    for (bool block : {false, true}) {
+        const auto split = RandLAPACK::detail::compute_adaptive_split(
+            (int64_t)4, std::numeric_limits<double>::min(), (int64_t)100,
+            1.0, 1.0, (int64_t)4, block);
+        EXPECT_EQ(split.k, 50);
+        EXPECT_EQ(split.s, block ? 25 : 50);
+    }
+}
+
+// Independently count products when the cap forces a rank/probe tradeoff.
+TEST_F(TestFunNystromPP, TargetAutoAllocationPoliciesRespectActualCap) {
+    using T = double;
+    const int64_t n = 100;
+    T* A = new T[n*n]();
+    for (int64_t i = 0; i < n; ++i) A[i+i*n] = std::pow(1e-4, T(i)/(n-1));
+    auto f = [](T x) { return std::sqrt(std::max(x,T(0))); };
+    for (bool scalar : {false,true}) {
+        for (T fraction : {1.,.5,.25,.125}) {
+            for (T quadrature : {1.,.25}) {
+                CountingSymLinOp<T> op(n,blas::Uplo::Upper,A,n,Layout::ColMajor);
+                RandLAPACK::FunNystromPP<T> d;
+                d.adaptive_use_scalar=scalar;
+                d.adaptive_rademacher=false;
+                d.adaptive_reuse_pilot=false;
+                d.adaptive_gauss_return=true;
+                d.adaptive_cap_rank_fraction=fraction;
+                d.adaptive_quadrature_fraction=quadrature;
+                RandBLAS::RNGState<RNG> state(994);
+                T a=0,b=0;
+                const int64_t cap=180;
+                EXPECT_TRUE(std::isfinite(d.call(op,f,T(1e-3),state,a,b,cap)));
+                EXPECT_EQ(op.apply_count,d.adaptive_probe_matvecs+d.adaptive_k+d.adaptive_oracle_matvecs);
+                EXPECT_LE(op.apply_count,cap);
+                EXPECT_GE(d.adaptive_s,4);
+                if (!scalar) EXPECT_LE(d.adaptive_s*d.adaptive_t,n);
+            }
+        }
+    }
+    delete[] A;
+}
+
+TEST_F(TestFunNystromPP, TargetAutoRejectsInvalidFractionsBeforeProducts) {
+    using T = double;
+    const int64_t n=20;
+    T A[n*n]={};
+    for (int64_t i=0;i<n;++i) A[i+i*n]=T(i+1)/n;
+    for (T bad : {0.,-1.,1.01,std::numeric_limits<T>::infinity(),std::numeric_limits<T>::quiet_NaN()}) {
+        for (bool rank : {false,true}) {
+            CountingSymLinOp<T> op(n,blas::Uplo::Upper,A,n,Layout::ColMajor);
+            RandLAPACK::FunNystromPP<T> d;
+            if (rank) d.adaptive_cap_rank_fraction=bad;
+            else d.adaptive_quadrature_fraction=bad;
+            RandBLAS::RNGState<RNG> state(995);
+            T a=0,b=0;auto f=[](T x){return std::sqrt(x);};
+            EXPECT_THROW(d.call(op,f,T(1e-3),state,a,b,100),std::invalid_argument);
+            EXPECT_EQ(op.apply_count,0);
+        }
+    }
+}
+
+TEST_F(TestFunNystromPP, ScalarQFAFirstRowQLRetainsFloatSolver) {
+    using T = float;
+    const int64_t n = 128, s = 4;
+    std::vector<T> lambda(n), reference(s), candidate(s);
+    for (int64_t i = 0; i < n; ++i)
+        lambda[i] = i < 8 ? T(1) : T(1e-8);
+    linops::DiagSymLinOp<T> op(n, lambda.data());
+    T* B = randn<T>(n, s, 346001);
+    RandLAPACK::LanczosQFA<T> ref, ql;
+    ql.use_first_row_ql = true;
+    for (bool adaptive : {false, true}) {
+        ref.adaptive = ql.adaptive = adaptive;
+        auto f = [](T x) { return std::sqrt(x); };
+        ref.call(op, B, n, s, f, 64, reference.data());
+        ql.call(op, B, n, s, f, 64, candidate.data());
+        EXPECT_TRUE(ql.first_row_ql_fallback);
+        EXPECT_EQ(ref.matvecs, ql.matvecs);
+        for (int64_t j = 0; j < s; ++j) {
+            EXPECT_EQ(reference[j], candidate[j]);
+            EXPECT_EQ(ref.t_used[j], ql.t_used[j]);
+            EXPECT_EQ(ref.certified[j], ql.certified[j]);
+        }
+    }
+    delete[] B;
+}
+
+TEST_F(TestFunNystromPP, ScalarQFAPropagatesParallelEvaluationException) {
+    const int64_t n = 64, s = 4;
+    std::vector<double> lambda(n), out(s);
+    for (int64_t i = 0; i < n; ++i) lambda[i] = 1. + i;
+    linops::DiagSymLinOp<double> op(n, lambda.data());
+    double* B = randn<double>(n, s, 346002);
+    RandLAPACK::LanczosQFA<double> q;
+    for (bool adaptive : {false, true}) for (bool ql : {false, true}) {
+        q.adaptive = adaptive; q.use_first_row_ql = ql;
+        auto fails = [](double) -> double { throw std::runtime_error("fixture: failed evaluation"); };
+        EXPECT_THROW(q.call(op, B, n, s, fails, 8, out.data()), std::runtime_error);
+        EXPECT_LE(q.matvecs, s * 8);
+        auto f = [](double x) { return std::log1p(x); };
+        EXPECT_NO_THROW(q.call(op, B, n, s, f, 8, out.data()));
+        for (double x : out) EXPECT_TRUE(std::isfinite(x));
+    }
+    delete[] B;
 }

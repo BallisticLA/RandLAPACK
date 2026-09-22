@@ -48,16 +48,20 @@ struct AdaptiveSplit { int64_t k, s; };
 /// t against a small n exhausts the budget for probes); the caller decides
 /// whether that is fatal, not this function.
 template <typename T>
-AdaptiveSplit compute_adaptive_split(int64_t t, T eps, int64_t n, T k_const, T s_const, int64_t s_min) {
+AdaptiveSplit compute_adaptive_split(int64_t t, T eps, int64_t n, T k_const, T s_const, int64_t s_min,
+                                     bool block_krylov = true) {
     const int64_t k_cap = std::max((int64_t)1, n / 2);
-    int64_t k = (int64_t)std::ceil((double)k_const * std::sqrt((double)t) / (double)eps);
-    k = std::max((int64_t)1, std::min(k, k_cap));
-
-    int64_t s = (int64_t)std::ceil((double)s_const / (std::sqrt((double)t) * (double)eps));
-    s = std::max(s_min, s);
-    s = std::min(s, n - k);
     const int64_t t_safe = std::max((int64_t)1, t);   // t is always >= 1 in practice; guarded for safety
-    s = std::min(s, n / t_safe);
+    const double root_t = std::sqrt((double)t_safe);
+    // Clamp before conversion: a valid tiny eps can make the requested
+    // allocation infinite or larger than INT64_MAX.
+    const double k_req = std::ceil((double)k_const * root_t / (double)eps);
+    const int64_t k = k_req >= (double)k_cap ? k_cap : std::max((int64_t)1, (int64_t)k_req);
+    const int64_t s_cap = std::max((int64_t)0, n - k);
+    const double s_req = std::ceil((double)s_const / (root_t * (double)eps));
+    int64_t s = s_req >= (double)s_cap ? s_cap : (int64_t)s_req;
+    s = std::min(s_cap, std::max(s_min, s));
+    if (block_krylov) s = std::min(s, n / t_safe);
 
     return AdaptiveSplit{k, s};
 }
@@ -74,7 +78,7 @@ AdaptiveSplit compute_adaptive_split(int64_t t, T eps, int64_t n, T k_const, T s
 /// SYPS, no SYRF, no internal_stab plumbing - so that each algorithmic
 /// knob can be added back one at a time with verification.
 ///
-/// Phase 1 (`NystromEVD` in `rl_nystrom_evd.hh`): SparseStack/SASO
+/// Phase 1 (`NystromEVD` in `rl_nystrom_evd.hh`): SASO
 /// sketch generated inside the kernel from the caller's RNG state
 /// (vec_nnz nonzeros per ROW of the m × k sketch, nnz = vec_nnz·m;
 /// matches the writeup's Alg. 1 line 1) + q − 1 subspace-iteration
@@ -92,7 +96,7 @@ AdaptiveSplit compute_adaptive_split(int64_t t, T eps, int64_t n, T k_const, T s
 /// The driver is numbered to match Algorithm 1 of the funNyström++
 /// writeup (*Accelerating trace estimation*). Code blocks in `call()`
 /// are tagged [Alg. 1, line N] with the step they implement:
-///   (1)  draw a SparseStack Ω ∈ R^{m×k}      generated inside NystromEVD from
+///   (1)  draw a SASO Ω ∈ R^{m×k}      generated inside NystromEVD from
 ///                                            the caller's `state` (`vec_nnz`
 ///                                            nonzeros per row)
 ///   (2)  Â = U·Λ·Uᵀ ← Nyström(A^q·Ω)         NystromEVD. NB the writeup's q
@@ -206,13 +210,24 @@ public:
     // Same depth-probe-then-split idea as the auto tier, but the probe and the
     // Phase-2 oracle are both the BLOCK certified Gauss-Radau class: one joint
     // Krylov space for all probe columns instead of s independent scalar ones.
-    // That is cheaper per matvec (one block recurrence, not s scalar ones) but
-    // couples the columns into a single s*t <= n Krylov-space constraint the
-    // scalar tier does not have.
+    // Sharing a Krylov space can reduce the required depth. Its orthogonalization
+    // and projected solves cost more, and impose a joint s*t <= n constraint
+    // that the scalar tier does not have.
     BlockLanczosQFA<T> adaptive_bqfa;
+    // Shared target-and-cap allocation; only the quadrature oracle changes.
+    bool adaptive_use_scalar = false;
+    // Historical interfaces retain reuse/midpoint behavior. The canonical
+    // scalar_auto/block_auto bindings use independent pilots and Gauss output.
+    bool adaptive_reuse_pilot = true;
+    bool adaptive_gauss_return = false;
     int64_t adaptive_probe_block = 4;
     T       adaptive_k_const     = (T)1;
     T       adaptive_s_const     = (T)1;
+    // When the requested allocation exceeds the cap, limit rank to this
+    // fraction of post-pilot work. 1 retains the historical rank-first rule.
+    T       adaptive_cap_rank_fraction = (T)1;
+    // Separate quadrature tolerance from the target used to allocate k,s.
+    T       adaptive_quadrature_fraction = (T)1;
     // Probe family for the whole eps-targeted tier: true (the paper's Alg. 1)
     // forces Rademacher, false leaves probe_dist alone. Set it false when a
     // Rademacher quadratic form is exact on the test matrix, as on a diagonal
@@ -384,7 +399,8 @@ public:
     ///      probe spends at most ~auto_probe_frac of the budget (default 1/8)
     ///      and can never eat the half of it the old B/(2b) cap allowed.
     ///   2. Depth t. When the probe CERTIFIES, t is the MEDIAN of the b
-    ///      per-column certified depths (the max over columns biases depth up
+    ///      per-column certified depths, the mean of the two middle depths
+    ///      rounded up when b is even (the max over columns biases depth up
     ///      and starves the probe count; the certificate tolerance already
     ///      carries headroom). When the probe does NOT certify, the probe cap
     ///      is not promoted into t blindly: t = min(probe-reached depth,
@@ -441,56 +457,21 @@ public:
         std::optional<T> f_zero = std::nullopt
     );
 
-    /// Adaptive overload: the caller sets a target accuracy `eps` (no
-    /// upfront matvec budget); the rank k, probe count s, and oracle depth t
-    /// are chosen inside from a certified Krylov-depth PROBE, then held to
-    /// that depth by the certified Gauss-Radau stop in Phase 2. Unlike the
-    /// `auto` tier (scalar oracle, budget-first, one certified depth per
-    /// probe column), this tier uses the BLOCK certified oracle throughout:
-    /// one joint Krylov space serves all probe/Hutchinson columns at once,
-    /// which is cheaper per matvec but ties the columns to a single
-    /// s*t <= n constraint (see `detail::compute_adaptive_split`).
+    /// Target-driven overload, optionally limited by a hard matvec cap.
+    /// A pilot selects depth t; compute_adaptive_split chooses rank and probe
+    /// count from eps. The cap includes the pilot and is checked before work.
+    /// The target guides allocation; it is not a total-error certificate.
     ///
-    ///   1. Depth probe: run the adaptive BLOCK Gauss-Radau certificate
-    ///      (stop_rule = Radau, adaptive_rtol = eps, reorth = 1) on
-    ///      adaptive_probe_block Rademacher columns (sphere columns when
-    ///      adaptive_rademacher is false), capped at
-    ///      min(auto_depth_cap or n, max(1, n/b)) - the probe also respects
-    ///      the block-Krylov limit d*b <= n. The probe
-    ///      and the Phase-2 oracle below share one `adaptive_bqfa` instance;
-    ///      the probe's matvecs/certification/traces are snapshotted into
-    ///      the adaptive_probe_* members before Phase 2 overwrites them.
-    ///   2. Depth t = max(1, min(probe's d_used, n)) - the depth the probe
-    ///      actually certified (or reached) at rtol = eps, directly reused
-    ///      as the Phase-2 oracle's depth cap (no median/heuristic step: the
-    ///      block probe already ran the SAME certificate Phase 2 will use).
-    ///   3. Split: (k, s) = detail::compute_adaptive_split(t, eps, n,
-    ///      adaptive_k_const, adaptive_s_const, 4). If the block-Krylov
-    ///      guard s*t <= n leaves s < 4, throws std::invalid_argument naming
-    ///      that limit and recommending the scalar `auto` tier, which is not
-    ///      bound by a joint block Krylov space.
-    ///   4. Optional matvec_cap: if probe + q*k + s*t exceeds it, k is
-    ///      clamped first to what the remaining budget can still afford (at
-    ///      least one rank unit and 4 depth-t probes), then s absorbs the
-    ///      rest under the same n-k / block-Krylov clamps as step 3. Throws
-    ///      std::invalid_argument (message contains "infeasible") if even
-    ///      the clamped split cannot fund 4 probes.
-    ///   5. Delegate to the expert call() above with use_qfa = true, q = 1,
-    ///      and an fAfun that calls adaptive_bqfa.call(..., t, Y) directly:
-    ///      the block oracle already produces the full s x s quadratic form
-    ///      the use_qfa trace read consumes, so (unlike the scalar auto
-    ///      tier) no diagonal-only repacking is needed.
-    ///   6. Probe reuse (all-or-nothing): the block Gauss-Radau certificate
-    ///      brackets tr(M) for the WHOLE probe block, not per-column
-    ///      diagonal entries the way the scalar tier's per-column
-    ///      certified[] flags do - so there is no per-column accuracy
-    ///      statement to reuse selectively. When the probe certified (and
-    ///      k < n), ALL b probe columns fold into the Phase-2 average as
-    ///      extra zero-matvec samples; when it did not, none do.
+    /// adaptive_use_scalar selects independent scalar recurrences; otherwise
+    /// one joint block Krylov space serves each probe batch. Only the block
+    /// oracle requires s*t <= n. Both retain k <= n/2 and s <= n-k.
+    /// The final oracle can stop early by its Gauss-Radau test, at most at the
+    /// pilot depth. A truncated pilot/final oracle is reported in telemetry.
     ///
-    /// Throws std::invalid_argument for eps outside (0, 1) or
-    /// adaptive_probe_block < 1, in addition to the infeasibility cases
-    /// above.
+    /// Legacy defaults use Rademacher probes, block midpoint output, and reuse
+    /// a certified pilot. The canonical bindings select sphere probes, Gauss
+    /// output and no pilot reuse for both scalar_auto and block_auto.
+    /// Throws for invalid eps/constants or an infeasible cap/dimension.
     template <linops::SymmetricLinearOperator SLO, typename RNG, std::invocable<T> FScalar>
     T call(
         SLO &A_op,
@@ -617,7 +598,7 @@ T FunNystromPP<T>::call(
 
     // ---- Phase 1 (Algorithm 1, lines 1-3) ----
     //
-    // [Alg. 1, line 1] Ω (SparseStack/SASO, vec_nnz nonzeros per row) is
+    // [Alg. 1, line 1] Ω (SASO, vec_nnz nonzeros per row) is
     //   drawn inside NystromEVD from `state`.
     // [Alg. 1, line 2] Â = U·Λ·Uᵀ ← Nyström(A^{q−1}·Ω)  (shifted recovery;
     //   see the [Alg. 2, line N] tags inside NystromEVD).
@@ -880,8 +861,9 @@ T FunNystromPP<T>::call(
         // Certified: t is the MEDIAN of the b per-column certified depths.
         // The max over columns biases the depth up - buying per-probe accuracy
         // the O(1/sqrt(s)) stochastic term cannot use, at the cost of halving
-        // s - and the certificate tolerance already carries headroom. Upper
-        // median for even b (rounds toward the deeper middle depth).
+        // s - and the certificate tolerance already carries headroom. For even
+        // b, the mean of the two middle depths rounded up (not the larger of
+        // the two: for b = 4 and middle depths 10 and 13 this gives 12).
         std::sort(this->auto_probe_depth, this->auto_probe_depth + b);
         t = (b % 2 == 1)
             ? this->auto_probe_depth[b / 2]
@@ -1034,6 +1016,15 @@ T FunNystromPP<T>::call(
     this->adaptive_tr_U = this->adaptive_tr_L = (T)0;
     this->t_adaptive_probe_ms = 0.0;
 
+    if (!std::isfinite(this->adaptive_k_const) || this->adaptive_k_const <= (T)0 ||
+        !std::isfinite(this->adaptive_s_const) || this->adaptive_s_const <= (T)0)
+        throw std::invalid_argument("FunNystromPP::call(adaptive): split constants must be finite and positive");
+    if (!(this->adaptive_cap_rank_fraction > (T)0 && this->adaptive_cap_rank_fraction <= (T)1) ||
+        !(this->adaptive_quadrature_fraction > (T)0 && this->adaptive_quadrature_fraction <= (T)1))
+        throw std::invalid_argument("FunNystromPP::call(adaptive): rank/quadrature fractions must be in (0,1]");
+    if (matvec_cap.has_value() && *matvec_cap < 2 * (b + s_min) + 1)
+        throw std::invalid_argument("FunNystromPP::call(adaptive): infeasible matvec_cap before depth probe");
+
     // Rademacher for the WHOLE eps-targeted tier, from the depth probe
     // through the delegated Phase-2 call: the paper's Alg. 1 samples +-1
     // Hutchinson probes throughout, not just for depth discovery, so
@@ -1052,7 +1043,7 @@ T FunNystromPP<T>::call(
     if (this->adaptive_rademacher) this->probe_dist = ProbeDist::Rademacher;
     T est;
     try {
-        // ---- 1. Depth probe: adaptive BLOCK Gauss-Radau certificate on a
+        // ---- 1. Depth probe: adaptive scalar or block Gauss-Radau test on a
         //         small Rademacher probe block. The probe's OWN depth cap
         //         must respect the same d*b <= n block-Krylov limit the
         //         Phase-2 oracle does: capping at n alone let d*b exceed n
@@ -1061,8 +1052,12 @@ T FunNystromPP<T>::call(
         //         stderr NOTE routinely rather than only in genuinely
         //         degenerate configurations.
         const int64_t user_cap = (this->auto_depth_cap > 0) ? this->auto_depth_cap : n;
-        const int64_t block_krylov_probe_cap = std::max((int64_t)1, n / b);
-        const int64_t probe_cap = std::min({user_cap, n, block_krylov_probe_cap});
+        const int64_t block_krylov_probe_cap = this->adaptive_use_scalar ? n : std::max((int64_t)1, n / b);
+        int64_t probe_cap = std::min({user_cap, n, block_krylov_probe_cap});
+        // Reserve one rank unit and s_min quadrature columns BEFORE spending
+        // on the pilot, including calls that ultimately fail feasibility.
+        if (matvec_cap.has_value())
+            probe_cap = std::min(probe_cap, (*matvec_cap - 1) / (b + s_min));
 
         auto t_probe_start = clk::now();
 
@@ -1072,22 +1067,35 @@ T FunNystromPP<T>::call(
 
         this->adaptive_bqfa.adaptive      = true;
         this->adaptive_bqfa.stop_rule     = BlockQFAStop::Radau;
-        this->adaptive_bqfa.return_mode   = BlockQFAReturn::Midpoint;
-        this->adaptive_bqfa.adaptive_rtol = eps;
+        this->adaptive_bqfa.return_mode   = this->adaptive_gauss_return
+            ? BlockQFAReturn::Gauss : BlockQFAReturn::Midpoint;
+        this->adaptive_bqfa.adaptive_rtol = eps * this->adaptive_quadrature_fraction;
         this->adaptive_bqfa.reorth        = true;
-        this->adaptive_bqfa.call(A_op, this->adaptive_probe_buf, n, b, fscalar, probe_cap,
-                                 this->adaptive_M_buf);
+        this->auto_sqfa.adaptive = true;
+        this->auto_sqfa.adaptive_rtol = eps * this->adaptive_quadrature_fraction;
+        // Both paths produce an s-by-s output whose diagonal the estimator
+        // consumes. Keep the pilot output separate from the Phase-2 scratch.
+        auto run_qfa = [&](const T* X, int64_t cols, int64_t depth, T* Y) {
+            if (this->adaptive_use_scalar) {
+                util::upsize(this->auto_M_buf, this->auto_M_buf_sz, cols);
+                this->auto_sqfa.call(A_op, X, n, cols, fscalar, depth, this->auto_M_buf);
+                for (int64_t j = 0; j < cols; ++j) Y[j + j * cols] = this->auto_M_buf[j];
+            } else {
+                this->adaptive_bqfa.call(A_op, X, n, cols, fscalar, depth, Y);
+            }
+        };
+        run_qfa(this->adaptive_probe_buf, b, probe_cap, this->adaptive_M_buf);
 
         // Snapshot the probe's outputs NOW: Phase 2 reuses the same
         // adaptive_bqfa instance and overwrites matvecs / certified / d_used /
         // tr_U / tr_L.
-        const int64_t probe_matvecs   = this->adaptive_bqfa.matvecs;
-        const bool    probe_certified = this->adaptive_bqfa.certified;
-        const int64_t d_used_probe    = this->adaptive_bqfa.d_used;
+        const int64_t probe_matvecs = this->adaptive_use_scalar ? this->auto_sqfa.matvecs : this->adaptive_bqfa.matvecs;
+        const bool probe_certified = this->adaptive_use_scalar ? this->auto_sqfa.all_certified : this->adaptive_bqfa.certified;
+        const int64_t d_used_probe = this->adaptive_use_scalar ? this->auto_sqfa.d_used : this->adaptive_bqfa.d_used;
         this->adaptive_probe_matvecs   = probe_matvecs;
         this->adaptive_probe_certified = probe_certified;
-        this->adaptive_tr_U = this->adaptive_bqfa.tr_U;
-        this->adaptive_tr_L = this->adaptive_bqfa.tr_L;
+        this->adaptive_tr_U = this->adaptive_use_scalar ? std::numeric_limits<T>::quiet_NaN() : this->adaptive_bqfa.tr_U;
+        this->adaptive_tr_L = this->adaptive_use_scalar ? std::numeric_limits<T>::quiet_NaN() : this->adaptive_bqfa.tr_L;
 
         this->t_adaptive_probe_ms = std::chrono::duration<double, std::milli>(
             clk::now() - t_probe_start).count();
@@ -1108,7 +1116,7 @@ T FunNystromPP<T>::call(
 
         // ---- 3. Split ----
         detail::AdaptiveSplit split = detail::compute_adaptive_split(
-            t, eps, n, this->adaptive_k_const, this->adaptive_s_const, s_min);
+            t, eps, n, this->adaptive_k_const, this->adaptive_s_const, s_min, !this->adaptive_use_scalar);
         int64_t k = split.k, s = split.s;
 
         if (s < s_min)
@@ -1126,14 +1134,16 @@ T FunNystromPP<T>::call(
             int64_t spend = probe_matvecs + q * k + s * t;
             if (spend > cap) {
                 const int64_t avail = cap - probe_matvecs;
+                const int64_t rank_allowance = std::max((int64_t)1,
+                    (int64_t)std::floor((long double)avail * this->adaptive_cap_rank_fraction));
                 // Clamp k to what's left after reserving s_min probes at depth t
                 // (mirrors the auto tier's rank-cap-then-recompute-s pattern),
                 // then let s absorb whatever remains under the same n-k and
                 // block-Krylov clamps step 3 used.
-                k = std::max((int64_t)1, std::min(k, (avail - s_min * t) / q));
+                k = std::max((int64_t)1, std::min({k, rank_allowance, (avail - s_min * t) / q}));
                 s = (avail - q * k) / t;
                 s = std::min(s, n - k);
-                s = std::min(s, n / t);
+                if (!this->adaptive_use_scalar) s = std::min(s, n / t);
                 spend = probe_matvecs + q * k + s * t;
                 if (s < s_min || spend > cap)
                     throw std::invalid_argument(
@@ -1165,16 +1175,17 @@ T FunNystromPP<T>::call(
         // writes them, so there is nothing to re-set (same pattern as the
         // scalar auto tier's auto_sqfa, configured once before its own
         // Phase-2 lambda).
-        auto fAfun = [&](int64_t fa_n, int64_t fa_s, const T* Bblk, T* Y) {
-            this->adaptive_bqfa.call(A_op, Bblk, fa_n, fa_s, fscalar, t, Y);
-            this->adaptive_oracle_matvecs += this->adaptive_bqfa.matvecs;
+        auto fAfun = [&](int64_t /*fa_n*/, int64_t fa_s, const T* Bblk, T* Y) {
+            run_qfa(Bblk, fa_s, t, Y);
+            this->adaptive_oracle_matvecs += this->adaptive_use_scalar ? this->auto_sqfa.matvecs : this->adaptive_bqfa.matvecs;
             // Captured HERE, after the Phase-2 oracle ran: the probe's flag is
             // already saved in adaptive_probe_certified, and this call overwrites
             // adaptive_bqfa.certified / tr_U / tr_L.
             this->adaptive_phase2_certified =
-                this->adaptive_phase2_certified && this->adaptive_bqfa.certified;
-            this->adaptive_tr_U = this->adaptive_bqfa.tr_U;
-            this->adaptive_tr_L = this->adaptive_bqfa.tr_L;
+                this->adaptive_phase2_certified && (this->adaptive_use_scalar
+                    ? this->auto_sqfa.all_certified : this->adaptive_bqfa.certified);
+            this->adaptive_tr_U = this->adaptive_use_scalar ? std::numeric_limits<T>::quiet_NaN() : this->adaptive_bqfa.tr_U;
+            this->adaptive_tr_L = this->adaptive_use_scalar ? std::numeric_limits<T>::quiet_NaN() : this->adaptive_bqfa.tr_L;
         };
         this->use_qfa = true;
         est = this->call(A_op, fAfun, fscalar, k, s, q, state,
@@ -1190,7 +1201,7 @@ T FunNystromPP<T>::call(
         // src_stride = b+1 reads gᵀf(A)g off the diagonal of the b×b block
         // certificate matrix M_probe). The probe's matvecs were already
         // charged above, so the accounting is unchanged.
-        if (probe_certified && k < n) {
+        if (this->adaptive_reuse_pilot && probe_certified && k < n) {
             this->fold_probe_reuse(
                 fscalar, n, k, b, this->adaptive_probe_buf, this->adaptive_M_buf,
                 /*src_stride=*/b + 1, /*mask=*/nullptr, f_zero, t2_out, s);

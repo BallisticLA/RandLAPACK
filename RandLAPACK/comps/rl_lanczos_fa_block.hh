@@ -11,6 +11,8 @@
 #include <chrono>
 #include <cstdint>
 #include <concepts>
+#include <limits>
+#include <cmath>
 #include <algorithm>
 #include <vector>
 #include <cstring>
@@ -126,6 +128,46 @@ public:
     // recurrence did not run.
     int64_t run_d = 0;
 
+    // ---- Rank diagnostics (observability only; they change no result) ----
+    // This recurrence has no deflation: a numerically rank-deficient block QR is
+    // carried forward rather than detected, and the block Gauss/Gauss-Radau
+    // bracket built on top of it forms BOTH of its quadratures from the same
+    // T_blk, so a corrupted basis corrupts both arms alike and can still close.
+    // Depth is then certified while the basis is not. These counters make that
+    // event visible to the caller instead of silent; nothing branches on them.
+    // rank_deficient_steps counts QR factorisations whose smallest |diag(R)|
+    // fell below rank_rtol * largest |diag(R)|; min_diag_ratio is the smallest
+    // such ratio seen, so a caller can see how close a clean run came.
+    int64_t rank_deficient_steps = 0;
+    // ---- Ritz clamp diagnostic (observability only; nothing branches on it) ----
+    // This class targets A >= 0 and clamps negative Ritz values to zero before applying f,
+    // because a value of -O(eps*||A||) would make sqrt or log NaN. The clamp is correct and
+    // is unchanged; what was missing is any way to tell that it fired. A run with many
+    // clamped values has lost orthogonality and its quadrature is being rescued rather than
+    // converging, which is indistinguishable from a healthy run in everything we export.
+    int64_t ritz_clamped = 0;
+
+    T       min_diag_ratio       = std::numeric_limits<T>::infinity();
+    T       rank_rtol            = std::numeric_limits<T>::epsilon() * (T)16;
+
+    // Ratio of smallest to largest |diag(R)| of an s-by-s upper R stored with
+    // leading dimension ld, folded into the counters above. Called right after
+    // each geqrf, reading the factor geqrf already wrote; no extra work beyond
+    // s comparisons.
+    void note_qr_rank(const T* R, int64_t s_cols, int64_t ld) {
+        if (s_cols <= 0) return;
+        T lo = std::numeric_limits<T>::infinity(), hi = (T)0;
+        for (int64_t j = 0; j < s_cols; ++j) {
+            const T v = std::abs(R[j + j * ld]);
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+        }
+        if (!(hi > (T)0)) { this->rank_deficient_steps += 1; this->min_diag_ratio = (T)0; return; }
+        const T ratio = lo / hi;
+        if (ratio < this->min_diag_ratio) this->min_diag_ratio = ratio;
+        if (ratio < this->rank_rtol) this->rank_deficient_steps += 1;
+    }
+
     BlockLanczosFA()                                 = default;
     BlockLanczosFA(const BlockLanczosFA&)            = delete;
     BlockLanczosFA& operator=(const BlockLanczosFA&) = delete;
@@ -193,6 +235,13 @@ public:
         _t_reorth_us = 0;
         steps_run = 0;
         run_d = d;
+        // NOTE on accumulation, decided after the counters were wired end to end: these are NOT
+        // reset here. The object's lifetime is one MEX call, and `ritz_clamped` on this class and
+        // the three others accumulates over that whole call, so resetting only these two would
+        // make one diagnostic cumulative and the other "last run_lanczos only" in the same output
+        // struct. That is exactly the cumulative-versus-per-call confusion the telemetry audit
+        // found elsewhere. All degradation counters now mean the same thing: totals for this
+        // estimate. A caller that wants per-run figures should construct a fresh object.
         const int64_t m = d * s;   // T_k dimension / its leading dimension
 
         util::upsize(K_big,   K_big_sz,   (d + 1) * n * s);
@@ -210,6 +259,7 @@ public:
         T* Q0 = K_big;
         lapack::lacpy(lapack::MatrixType::General, n, s, B, n, Q0, n);
         lapack::geqrf(n, s, Q0, n, tau_buf);
+        this->note_qr_rank(Q0, s, n);
         lapack::laset(lapack::MatrixType::General, s, s, (T)0, (T)0, R0_buf, s);
         lapack::lacpy(lapack::MatrixType::Upper, s, s, Q0, n, R0_buf, s);
         lapack::orgqr(n, s, s, Q0, n, tau_buf);
@@ -308,6 +358,7 @@ public:
             if (step < d - 1) {
                 T* B_step = T_blk + b0 * m + (b0 + s);
                 lapack::geqrf(n, s, Y, n, tau_buf);
+                this->note_qr_rank(Y, s, n);
                 lapack::lacpy(lapack::MatrixType::Upper, s, s, Y, n, B_step, m);
                 lapack::orgqr(n, s, s, Y, n, tau_buf);
             }
@@ -375,6 +426,7 @@ public:
         // column with NaN. f must be finite at 0 (shifted log(x+1), never a
         // raw log).
         for (int64_t j = 0; j < m; ++j) {
+            if (eig_vals[j] < (T)0) this->ritz_clamped += 1;
             T fev = f(std::max(eig_vals[j], (T)0));
             const T* V_col = T_dense + j * m_full;  // col j of V (lda = m_full)
             T*       W_col = W       + j * s;       // col j of W (contiguous, length s)

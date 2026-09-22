@@ -14,6 +14,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -90,11 +91,22 @@ public:
     int64_t check_every   = 1;       ///< 1 = geometric check ladder; >1 = fixed stride (checks at t ≥ 2 either way)
     /// Opt-in: e₁ᵀ f(T_t) e₁ via implicit QL accumulating only the first eigenvector
     /// row (O(t²), O(t) scratch) instead of full-eigenvector stevd (O(t³), t×t scratch).
+    /// Single precision retains stevd; nonconverged QL evaluations retry with stevd.
     bool    use_first_row_ql = false;
+    bool first_row_ql_fallback_seen = false; ///< Any precision guard or retry during this object's lifetime.
 
     // ---- outputs of the last call ------------------------------------------
     int64_t d_used        = 0;       ///< max over columns of the depth used
     int64_t matvecs       = 0;       ///< Σⱼ t_j: actual A column-applications
+    // ---- Ritz clamp diagnostic (observability only; nothing branches on it) ----
+    // This class targets A >= 0 and clamps negative Ritz values to zero before applying f,
+    // because a value of -O(eps*||A||) would make sqrt or log NaN. The clamp is correct and
+    // is unchanged; what was missing is any way to tell that it fired. A run with many
+    // clamped values has lost orthogonality and its quadrature is being rescued rather than
+    // converging, which is indistinguishable from a healthy run in everything we export.
+    int64_t ritz_clamped = 0;
+
+    bool first_row_ql_fallback = false; ///< stevd used after precision guard or QL failure.
     bool    all_certified = false;   ///< every column certified before the cap
     /// Per-column results, indexed by the ORIGINAL column of B (length s):
     int64_t* t_used    = nullptr; int64_t t_used_sz    = 0; ///< depth per column
@@ -116,6 +128,7 @@ public:
     T*       normb       = nullptr; int64_t normb_sz       = 0;
     T*       ldl_piv     = nullptr; int64_t ldl_piv_sz     = 0;
     T*       radau_corner= nullptr; int64_t radau_corner_sz= 0;
+    uint8_t* eval_retry = nullptr; int64_t eval_retry_sz = 0;
     uint8_t* cert_ok     = nullptr; int64_t cert_ok_sz     = 0; ///< pivot chain still PD
     int64_t* col_of_slot = nullptr; int64_t col_of_slot_sz = 0;
     T*       workspace   = nullptr; int64_t workspace_sz   = 0; ///< per-slot stevd scratch
@@ -147,7 +160,7 @@ public:
         delete[] qbuf; delete[] alpha; delete[] beta; delete[] normb;
         delete[] ldl_piv; delete[] radau_corner; delete[] cert_ok; delete[] col_of_slot;
         delete[] t_used; delete[] gauss_val; delete[] radau_val;
-        delete[] certified; delete[] workspace;
+        delete[] certified; delete[] workspace; delete[] eval_retry;
         delete[] panel_par; delete[] slot_a; delete[] slot_b; delete[] slot_v;
     }
 
@@ -166,6 +179,9 @@ public:
         steady_clock::time_point t_start, mv0, mv1, c0, c1;
         long cert_us = 0;
         _t_matvec_us = 0;
+        first_row_ql_fallback = use_first_row_ql &&
+            std::numeric_limits<T>::digits < std::numeric_limits<double>::digits;
+        first_row_ql_fallback_seen = first_row_ql_fallback_seen || first_row_ql_fallback;
         if (timing) t_start = steady_clock::now();
 
         if (d < 1) throw std::invalid_argument("LanczosQFA: depth d must be >= 1.");
@@ -179,6 +195,7 @@ public:
         util::upsize(ldl_piv,     ldl_piv_sz,     s);
         util::upsize(radau_corner, radau_corner_sz, s);
         util::upsize(cert_ok,     cert_ok_sz,     s);
+        util::upsize(eval_retry, eval_retry_sz, s);
         util::upsize(col_of_slot, col_of_slot_sz, s);
         util::upsize(t_used,      t_used_sz,      s);
         util::upsize(gauss_val,   gauss_val_sz,   s);
@@ -300,22 +317,7 @@ public:
                 // (it can re-map workspace and change the uniform slot stride).
                 ensure_eval_ws(t, s);
                 if (timing) c0 = steady_clock::now();
-// dynamic: per-iteration cost is bimodal (a skipped column costs nothing, a
-// checked one costs O(t^3)), so a static split leaves threads idle behind a
-// neighbour doing full eigensolves.
-#pragma omp parallel for schedule(dynamic, 1)
-                for (int64_t j = 0; j < act; ++j) {
-                    const int64_t col = col_of_slot[j];
-                    if (!cert_ok[col]) continue;
-                    T U, L;
-                    evaluate_pair(f, col, t, d, U, L);
-                    const T hi = std::max(U, L), lo = std::min(U, L);
-                    const T scale = std::max(std::abs(hi), std::numeric_limits<T>::min());
-                    if (hi - lo <= adaptive_rtol * scale) {
-                        certified[col] = 1; t_used[col] = t;
-                        gauss_val[col] = U; radau_val[col] = L;
-                    }
-                }
+                evaluate_sweep(f, act, t, d, s, false);
                 if (timing) { c1 = steady_clock::now(); cert_us += duration_cast<microseconds>(c1 - c0).count(); }
                 // [compaction] retire certified slots; the batched matvec
                 // shrinks to the survivors. Serial: each retire is 3 column
@@ -366,7 +368,14 @@ public:
                     // Breakdown: certify with the exact depth-t value.
                     ensure_eval_ws(t, s);          // serial loop: safe to resize here
                     T U;
-                    evaluate_gauss(f, col, t, d, U);
+                    try {
+                        evaluate_gauss(f, col, t, d, U);
+                    } catch (const QLConvergenceFailure&) {
+                        first_row_ql_fallback = true;
+                        first_row_ql_fallback_seen = true;
+                        ensure_eval_ws(t, s);
+                        evaluate_gauss(f, col, t, d, U);
+                    }
                     certified[col] = 1; t_used[col] = t;
                     gauss_val[col] = U; radau_val[col] = U;
                 }
@@ -399,22 +408,7 @@ public:
             // (every evaluation below is at the same depth t).
             ensure_eval_ws(t, s);
             if (timing) c0 = steady_clock::now();
-#pragma omp parallel for schedule(static)
-            for (int64_t j = 0; j < act; ++j) {
-                const int64_t col = col_of_slot[j];
-                T U, L;
-                if (adaptive && t >= 2 && cert_ok[col]) {
-                    evaluate_pair(f, col, t, d, U, L);
-                    radau_val[col] = L;
-                    // Same criterion as the in-run certificate check.
-                    const T hi = std::max(U, L), lo = std::min(U, L);
-                    const T scale = std::max(std::abs(hi), std::numeric_limits<T>::min());
-                    if (hi - lo <= adaptive_rtol * scale) certified[col] = 1;
-                } else {
-                    evaluate_gauss(f, col, t, d, U);
-                }
-                gauss_val[col] = U; t_used[col] = t;
-            }
+            evaluate_sweep(f, act, t, d, s, true);
             if (timing) { c1 = steady_clock::now(); cert_us += duration_cast<microseconds>(c1 - c0).count(); }
         }
 
@@ -651,6 +645,59 @@ private:
         }
     }
 
+    struct QLConvergenceFailure {};
+
+    template <std::invocable<T> F>
+    void evaluate_column(F f, int64_t col, int64_t t, int64_t d, bool final) {
+        if (!final && !cert_ok[col]) return;
+        T U, L;
+        bool closed = false;
+        if (adaptive && t >= 2 && cert_ok[col]) {
+            evaluate_pair(f, col, t, d, U, L);
+            const T hi = std::max(U, L), lo = std::min(U, L);
+            const T scale = std::max(std::abs(hi), std::numeric_limits<T>::min());
+            closed = hi - lo <= adaptive_rtol * scale;
+            if (final || closed) radau_val[col] = L;
+        } else {
+            evaluate_gauss(f, col, t, d, U);
+        }
+        if (closed) certified[col] = 1;
+        if (final || closed) {
+            gauss_val[col] = U;
+            t_used[col] = t;
+        }
+    }
+
+    template <std::invocable<T> F>
+    void evaluate_sweep(F f, int64_t act, int64_t t, int64_t d, int64_t s, bool final) {
+        std::fill(eval_retry, eval_retry + s, uint8_t(0));
+        std::exception_ptr failure;
+#pragma omp parallel for schedule(dynamic, 1)
+        for (int64_t j = 0; j < act; ++j) {
+            const int64_t col = col_of_slot[j];
+            try {
+                evaluate_column(f, col, t, d, final);
+            } catch (const QLConvergenceFailure&) {
+                eval_retry[col] = 1;
+            } catch (...) {
+#pragma omp critical(rl_qfa_evaluation_failure)
+                { if (!failure) failure = std::current_exception(); }
+            }
+        }
+        if (failure) std::rethrow_exception(failure);
+        if (std::any_of(eval_retry, eval_retry + s, [](uint8_t x) { return x != 0; })) {
+            // Retry only the projected evaluation, with fresh alpha/beta copies.
+            // No operator applications repeat; resize outside the parallel region.
+            first_row_ql_fallback = true;
+            first_row_ql_fallback_seen = true;
+            ensure_eval_ws(t, s);
+            for (int64_t j = 0; j < act; ++j) {
+                const int64_t col = col_of_slot[j];
+                if (eval_retry[col]) evaluate_column(f, col, t, d, final);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------
     /// Gauss value U_t = ‖b‖²·e₁ᵀ f(T_t) e₁ for column `col` at depth t,
     /// from the stored alpha/beta history (copies; stevd destroys its input).
@@ -694,7 +741,7 @@ private:
     /// assumption; the Radau node sits at 0 ± roundoff).
     template <std::invocable<T> F>
     T quad_e1(F f, int64_t t, T* a, T* b, T* Z) {
-        if (use_first_row_ql) return quad_e1_ql(f, t, a, b, Z);
+        if (use_first_row_ql && !first_row_ql_fallback) return quad_e1_ql(f, t, a, b, Z);
         // Nonzero info means stevd did not converge and a/Z hold garbage;
         // fail loudly rather than certify against it.
         const int64_t info = lapack::stevd(lapack::Job::Vec, t, a, b, Z, t);
@@ -704,6 +751,7 @@ private:
         T acc = (T)0;
         for (int64_t i = 0; i < t; ++i) {
             const T z0 = Z[i * t + 0];
+            if (a[i] < (T)0) this->ritz_clamped += 1;
             acc += f(std::max(a[i], (T)0)) * z0 * z0;
         }
         return acc;
@@ -731,8 +779,7 @@ private:
                     }
                     if (m == l) break;   // d[l] has converged
                     if (++iter > 60)
-                        throw std::runtime_error("LanczosQFA: implicit QL failed to converge at depth "
-                            + std::to_string(t) + " (eigenvalue " + std::to_string(l) + ").");
+                        throw QLConvergenceFailure{};
                     // Wilkinson shift from the leading 2x2, then one implicit
                     // QL sweep from m-1 down to l.
                     T g = (d[l + 1] - d[l]) / ((T)2 * e[l]);
@@ -769,8 +816,10 @@ private:
             }
         }
         T acc = (T)0;
-        for (int64_t i = 0; i < t; ++i)
+        for (int64_t i = 0; i < t; ++i) {
+            if (d[i] < (T)0) this->ritz_clamped += 1;
             acc += f(std::max(d[i], (T)0)) * z[i] * z[i];
+        }
         return acc;
     }
 
@@ -806,7 +855,7 @@ private:
     /// Per-slot scratch stride: alpha copy + beta copy + either the t×t
     /// eigenvector matrix (stevd) or the first-row vector z (implicit QL).
     int64_t slot_stride() const {
-        return use_first_row_ql ? 3 * ws_depth : ws_depth * ws_depth + 2 * ws_depth;
+        return use_first_row_ql && !first_row_ql_fallback ? 3 * ws_depth : ws_depth * ws_depth + 2 * ws_depth;
     }
 
     /// Eigensolve scratch for the column `col`. Indexed by COLUMN, not thread
