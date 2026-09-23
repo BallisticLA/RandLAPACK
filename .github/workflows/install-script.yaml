@@ -141,9 +141,9 @@ jobs:
         run: |
           set -euo pipefail
           bash RandLAPACK/install.sh --yes --no-gpu | tee installer.out
-          # LP64 for now: Accelerate ILP64 is blocked on an upstream LAPACK++
-          # compile bug (icl-utk-edu/lapackpp#89; tracked in issue #173).
-          grep -qE '^  Backend  *accelerate, LP64' installer.out
+          # ILP64 through Apple's new interface, proving issue #173 is closed
+          # (needs the LAPACK++ pin at or past icl-utk-edu/lapackpp#89's fix).
+          grep -qE '^  Backend  *accelerate, ILP64' installer.out
 
       - name: test the installed library
         run: |

@@ -579,35 +579,6 @@ if ($Backend -eq "custom") {
     $backendId = "custom-$($hashHex.Substring(0, 8))"
 }
 
-function Copy-LibrariesToSpaceFreePath {
-    # BLAS++ splits library paths on spaces before probing them, so any path
-    # containing one fails as "BLAS library not found". Intel's default oneMKL
-    # location has a space, making this the common case rather than a corner
-    # one. Fixed upstream in icl-utk-edu/blaspp#137; removing this workaround
-    # is tracked in #158. Import libraries only name their DLL, still loaded
-    # at run time from $backendBin, so relocating them is safe.
-    param([string[]]$Libraries, [string]$Destination, [string]$Label)
-    if (-not ($Libraries | Where-Object { $_ -match ' ' })) { return $Libraries }
-    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    Write-Host ("Staging $Label import libraries into a space-free path " +
-        "($Destination): BLAS++ cannot probe libraries whose path contains a space.")
-    return @($Libraries | ForEach-Object {
-        $leaf = Split-Path $_ -Leaf
-        $target = Join-Path $Destination $leaf
-        Copy-Item -LiteralPath $_.Replace('/', '\') -Destination $target -Force
-        Convert-ToCMakePath $target
-    })
-}
-
-$spaceFreeLibDir = Join-Path $resolvedRoot "backend-libs"
-$backendLibraries = Copy-LibrariesToSpaceFreePath -Libraries $backendLibraries `
-    -Destination $spaceFreeLibDir -Label "BLAS"
-if ($backendLapackLibraries -ne "") {
-    $backendLapackLibraries = (Copy-LibrariesToSpaceFreePath `
-        -Libraries @($backendLapackLibraries -split ';') `
-        -Destination $spaceFreeLibDir -Label "LAPACK") -join ';'
-}
-
 if ($backendBin -ne "") { $env:PATH = "$backendBin;$env:PATH" }
 
 # ------------------------------------------------------------- GoogleTest ----
@@ -658,7 +629,10 @@ $blasppInstall = Join-Path $resolvedRoot "blaspp-$backendId-install"
 # one includes them. Declared once and used for both the clone and the reuse
 # stamp, so the two cannot drift.
 $blasppUrl = "https://github.com/icl-utk-edu/blaspp.git"
-$blasppRef = "2d8d4e937ac46fffab33d4174a4fc7659726dbda"
+# TEMPORARY PIN -- the head of icl-utk-edu/blaspp#137 (space-split fix),
+# fetchable from upstream via its pull ref. Replace with the merge commit
+# the moment #137 lands; this PR stays a draft until then.
+$blasppRef = "c3ef942a0b9c86dc6c66952b58b7151f938747ca"
 $blasppSource = "$blasppUrl@$blasppRef"
 $blasppReusable = (Test-Path $blasppInstall) -and (Get-ChildItem -Path $blasppInstall -Recurse `
     -Filter "blasppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `
@@ -698,7 +672,10 @@ $lapackppInstall = Join-Path $resolvedRoot "lapackpp-$backendId-install"
 # new-Accelerate support (PR #88, 2026-08-27), which also contains the MSVC
 # fix (PR #87); likewise not yet in a release. Declared once, as above.
 $lapackppUrl = "https://github.com/icl-utk-edu/lapackpp.git"
-$lapackppRef = "b9439cf3c26d1655d88e7f510ae8b4f82fbeb687"
+# TEMPORARY PIN -- the head of icl-utk-edu/lapackpp#90 (Accelerate-ILP64
+# aliasing fix for icl-utk-edu/lapackpp#89). Replace with the merge commit
+# the moment #90 lands; this PR stays a draft until then.
+$lapackppRef = "f891adcb8e06afa7744ac046d96d1282bbe5388a"
 $lapackppSource = "$lapackppUrl@$lapackppRef"
 $lapackppReusable = (Test-Path $lapackppInstall) -and (Get-ChildItem -Path $lapackppInstall -Recurse `
     -Filter "lapackppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `

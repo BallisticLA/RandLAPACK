@@ -344,7 +344,7 @@ well work; it is simply untested.
 | Ubuntu (latest) | gcc | OpenBLAS | LP64 | none | yes |
 | Ubuntu (latest) | gcc | oneMKL | ILP64 | none | yes |
 | Ubuntu (latest) | clang | OpenBLAS | LP64 | none | yes |
-| macOS 14/15 | Apple Clang | Accelerate (new interface) | LP64 (see 6.2) | none | no (see below) |
+| macOS 14/15 | Apple Clang | Accelerate (new interface) | ILP64 | none | no (see below) |
 | Windows | MSVC | oneMKL | ILP64 | none | yes (`/openmp:llvm`) |
 
 The installer lanes additionally cover a fresh install, an idempotent re-run,
@@ -368,7 +368,7 @@ backend can genuinely provide it:
 |---|---|---|
 | `mkl` | ILP64 | `mkl_intel_ilp64` is a separate library, so requesting it actually selects it |
 | `openblas` | LP64, with a warning | there is only `-lopenblas`, so the request selects nothing |
-| `accelerate` | LP64, for now | Apple's new interface does ship ILP64 and BLAS++ can select it (`icl-utk-edu/blaspp#134`), but LAPACK++ does not compile in that configuration yet (`icl-utk-edu/lapackpp#89`); tracked in issue #173 |
+| `accelerate` | ILP64 on macOS >= 13.3 | Apple's new interface ships ILP64 in the framework; BLAS++ selects it (`icl-utk-edu/blaspp#134`) and LAPACK++ compiles against it (`icl-utk-edu/lapackpp#89`). Older macOS falls back to LP64 with a warning |
 | `custom` | whatever you pass | you named the library, so its width is yours to state |
 
 The OpenBLAS row deserves explaining, because it is counter-intuitive. BLAS++
