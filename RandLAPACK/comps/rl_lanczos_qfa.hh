@@ -751,7 +751,10 @@ private:
         T acc = (T)0;
         for (int64_t i = 0; i < t; ++i) {
             const T z0 = Z[i * t + 0];
-            if (a[i] < (T)0) this->ritz_clamped += 1;
+            if (a[i] < (T)0) {
+#pragma omp atomic
+                this->ritz_clamped += 1;
+            }
             acc += f(std::max(a[i], (T)0)) * z0 * z0;
         }
         return acc;
@@ -817,7 +820,10 @@ private:
         }
         T acc = (T)0;
         for (int64_t i = 0; i < t; ++i) {
-            if (d[i] < (T)0) this->ritz_clamped += 1;
+            if (d[i] < (T)0) {
+#pragma omp atomic
+                this->ritz_clamped += 1;
+            }
             acc += f(std::max(d[i], (T)0)) * z[i] * z[i];
         }
         return acc;

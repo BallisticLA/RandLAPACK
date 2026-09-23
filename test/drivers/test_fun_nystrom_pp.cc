@@ -1434,6 +1434,109 @@ TEST_F(TestFunNystromPP, AdaptiveTierReuseAcrossDifferentN) {
     delete[] G0_big; delete[] A_big; delete[] G0_small; delete[] A_small;
 }
 
+// spend_cap_split: admissible; rank at least half the budget unless that would
+// leave fewer than s_min probes; leftover below one probe unless a dimension
+// clamp binds; s < s_min exactly when no admissible pair with s >= s_min exists.
+TEST_F(TestFunNystromPP, SpendCapSplitInvariants) {
+    const int64_t s_min = 4;
+    int64_t cases = 0;
+    for (int64_t n : {5, 6, 8, 30, 97, 1000})
+    for (int64_t t : {1, 3, 7, 20})
+    for (int64_t avail : {5, 6, 17, 40, 128, 333, 2000})
+    for (int64_t q : {1, 2})
+    for (bool blk : {false, true}) {
+        const auto sp = RandLAPACK::detail::spend_cap_split(avail, t, n, q, s_min, blk);
+        bool any = false;   // does any (k >= 1, s >= s_min) pair fit?
+        for (int64_t k = 1; k <= std::max((int64_t)1, n / 2) && !any; ++k) {
+            int64_t s = std::min((avail - q * k) / t, n - k);
+            if (blk) s = std::min(s, n / t);
+            any = s >= s_min;
+        }
+        if (sp.s < s_min) { EXPECT_FALSE(any) << "n=" << n << " t=" << t << " avail=" << avail; continue; }
+        EXPECT_TRUE(any);
+        EXPECT_GE(sp.k, 1);
+        EXPECT_LE(sp.k, std::max((int64_t)1, n / 2));
+        EXPECT_LE(sp.k + sp.s, n);
+        EXPECT_LE(q * sp.k + sp.s * t, avail);
+        if (blk) EXPECT_LE(sp.s * t, n);
+        const int64_t half = std::min({std::max((int64_t)1, n / 2), n - s_min, avail / (2 * q), (avail - s_min * t) / q});
+        EXPECT_GE(sp.k, std::max((int64_t)1, half));
+        const bool clamped = (sp.k == std::max((int64_t)1, n / 2)) || (sp.k + sp.s == n) || (blk && sp.s == n / t);
+        if (!clamped) EXPECT_LT(avail - q * sp.k - sp.s * t, std::max(t, q)) << "n=" << n << " t=" << t << " avail=" << avail;
+        ++cases;
+    }
+    EXPECT_GT(cases, 0);
+}
+
+// adaptive_spend_cap: spends the cap up to integer rounding, runs every Phase-2
+// probe to the probe's depth, reports Phase 2 as unchecked, and needs a cap.
+// The default path is left untouched (compared against a fresh object).
+TEST_F(TestFunNystromPP, AdaptiveSpendCapSpendsTheCap) {
+    using T = double;
+    const int64_t n = 200, cap = 512;
+    T *G0 = randn<T>(n, n, /*seed=*/701);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    auto fscalar = [](T x) { return std::log1p(std::max(x, (T)0)); };
+
+    for (bool scalar : {false, true})
+    for (T eps : {(T)1e-3, (T)0.3}) {      // 0.3: the target's request fits under the cap
+        RandLAPACK::FunNystromPP<T> shipped, full;
+        shipped.adaptive_use_scalar = full.adaptive_use_scalar = scalar;
+        shipped.adaptive_cap_rank_fraction = full.adaptive_cap_rank_fraction = (T)0.5;
+        full.adaptive_spend_cap = true;
+        T a1 = 0, a2 = 0, b1 = 0, b2 = 0;
+        RandBLAS::RNGState<RNG> st1(709), st2(709);
+        const T e1 = shipped.call(A_op, fscalar, eps, st1, a1, a2, cap);
+        const T e2 = full.call(A_op, fscalar, eps, st2, b1, b2, cap);
+        const int64_t spent_full = full.adaptive_probe_matvecs + full.adaptive_k + full.adaptive_oracle_matvecs;
+        const int64_t spent_ship = shipped.adaptive_probe_matvecs + shipped.adaptive_k + shipped.adaptive_oracle_matvecs;
+        std::printf("spend_cap scalar=%d eps=%.0e: shipped spent %ld (k=%ld s=%ld t=%ld), full spent %ld (k=%ld s=%ld t=%ld) of %ld; est %.8e vs %.8e\n",
+                    (int)scalar, (double)eps, (long)spent_ship, (long)shipped.adaptive_k, (long)shipped.adaptive_s,
+                    (long)shipped.adaptive_t, (long)spent_full, (long)full.adaptive_k, (long)full.adaptive_s,
+                    (long)full.adaptive_t, (long)cap, e1, e2);
+        EXPECT_TRUE(std::isfinite(e1)); EXPECT_TRUE(std::isfinite(e2));
+        EXPECT_EQ(full.adaptive_probe_matvecs, shipped.adaptive_probe_matvecs);   // same probe
+        EXPECT_EQ(full.adaptive_t, shipped.adaptive_t);
+        EXPECT_LE(spent_full, cap);
+        const bool dim_bound = full.adaptive_k == n / 2 || full.adaptive_k + full.adaptive_s == n ||
+                               (!scalar && full.adaptive_s == n / full.adaptive_t);
+        if (!dim_bound) EXPECT_GT(spent_full, cap - full.adaptive_t);          // leftover < one probe
+        EXPECT_GE(spent_full, spent_ship);
+        const int64_t a_post = cap - full.adaptive_probe_matvecs;
+        EXPECT_GE(full.adaptive_k, std::min({n / 2, a_post / 2, a_post - 4 * full.adaptive_t}));   // half to the rank
+        EXPECT_EQ(full.adaptive_oracle_matvecs, full.adaptive_s * full.adaptive_t);   // no early stop
+        EXPECT_FALSE(full.adaptive_phase2_checked);
+        EXPECT_FALSE(full.adaptive_phase2_certified);
+        EXPECT_TRUE(shipped.adaptive_phase2_checked);
+        EXPECT_TRUE(full.adaptive_bqfa.adaptive);        // restored after the call
+        EXPECT_TRUE(full.auto_sqfa.adaptive);
+    }
+    {
+        RandLAPACK::FunNystromPP<T> d; d.adaptive_spend_cap = true;
+        RandBLAS::RNGState<RNG> st(1); T t1 = 0, t2 = 0;
+        EXPECT_THROW(d.call(A_op, fscalar, (T)1e-3, st, t1, t2), std::invalid_argument);
+    }
+    {   // n = 6 and a small target: the target-derived split leaves fewer than four probes, which
+        // must not stop the switch, since the cap funds (k, s) = (2, 4) (it threw before)
+        const int64_t m = 6;
+        T Asm[36] = {0};
+        for (int64_t i = 0; i < m; ++i) Asm[i + i * m] = (T)(i + 1);
+        linops::ExplicitSymLinOp<T> S_op(m, blas::Uplo::Upper, Asm, m, Layout::ColMajor);
+        RandLAPACK::FunNystromPP<T> d; d.adaptive_use_scalar = true; d.adaptive_spend_cap = true;
+        d.adaptive_cap_rank_fraction = (T)0.5;
+        RandBLAS::RNGState<RNG> st(3); T t1 = 0, t2 = 0;
+        EXPECT_NO_THROW(d.call(S_op, fscalar, (T)1e-6, st, t1, t2, (int64_t)200));
+        EXPECT_GE(d.adaptive_s, 4); EXPECT_GE(d.adaptive_k, 1); EXPECT_LE(d.adaptive_k + d.adaptive_s, m);
+    }
+    delete[] G0; delete[] A;
+}
+
 // probe_dist = Rademacher must produce ONLY +-1 entries (sign of a RandBLAS
 // Uniform fill) with column norm exactly sqrt(n) by construction, and it must
 // route through the SAME fill_probe_block the auto-tier probe fill uses (no
