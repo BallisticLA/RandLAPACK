@@ -641,8 +641,8 @@ T FunNystromPP<T>::call(
     // dense ±1, which is the correct degenerate limit of a SASO. vec_nnz = 0
     // passes through unchanged: NystromEVD resolves it to the ~log(k) auto
     // policy at sketch time.
-    const int64_t vnz = (this->vec_nnz == 0)
-        ? (int64_t)0
+    const int64_t vnz = (this->vec_nnz == 0 || this->vec_nnz == -1)   // -1: dense Gaussian sketch
+        ? this->vec_nnz
         : std::max((int64_t)1, std::min(this->vec_nnz, k));
     NystromEVD<T>(A_op, k, q, vnz, state,
                   this->U, this->U_sz,

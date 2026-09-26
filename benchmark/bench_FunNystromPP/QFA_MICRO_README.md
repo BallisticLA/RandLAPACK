@@ -1,6 +1,6 @@
 # QFA micro-benchmark: block vs scalar, adaptive vs fixed (LOCAL)
 
-Plan: `agent-workspace/randnla/project-plans/2026-09-02-qfa-micro-benchmark-plan.md`
+Plan: the QFA micro-benchmark plan (internal note, 2026-09-02)
 (pass 10, FROZEN). Driver: `qfa_micro.cc`. Report/figures: `qfa_micro_report.m`.
 
 This LOCAL micro-benchmark isolates the quadratic-form-family oracle (no Nystrom

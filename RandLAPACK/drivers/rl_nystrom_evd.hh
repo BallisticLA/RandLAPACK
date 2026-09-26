@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <limits>
 #include <stdexcept>
@@ -37,6 +38,7 @@ struct NystromEVD_workspace {
     T* Sigma = nullptr; int64_t Sigma_sz = 0;   // k      (singular values of B)
     T* VT_B  = nullptr; int64_t VT_B_sz  = 0;   // k × k  (gesdd VT output; unused)
     T* tau   = nullptr; int64_t tau_sz   = 0;   // k      (geqrf reflectors; q > 1 only)
+    T* Om    = nullptr; int64_t Om_sz    = 0;   // m × k  (dense Gaussian sketch; vec_nnz = -1 only)
     // Diagnostic, written by the spectral recovery, read by nobody inside the algorithm:
     // how many of the k eigenvalues went negative when the shift was removed and were
     // clamped to zero. Purely observational, so it carries no _sz partner and needs no
@@ -59,6 +61,7 @@ struct NystromEVD_workspace {
         delete[] Sigma;
         delete[] VT_B;
         delete[] tau;
+        delete[] Om;
     }
 };
 
@@ -158,9 +161,12 @@ void NystromEVD(
     // The SASO is SparseDist(m, k, vec_nnz) with Axis::Short, so RandBLAS
     // requires vec_nnz <= min(m, k) = k (each row scatters vec_nnz entries
     // across the k columns). 0 opts in to the auto policy resolved below.
-    if (vec_nnz < 0 || vec_nnz > std::min(m, k))
+    // vec_nnz = -1 selects a dense Gaussian sketch (RandBLAS::DenseDist, as BQRRP draws its
+    // sketch) applied by ordinary matrix products: the comparison series for what sparsity buys.
+    const bool dense_sketch = (vec_nnz == -1);
+    if (!dense_sketch && (vec_nnz < 0 || vec_nnz > std::min(m, k)))
         throw std::invalid_argument(
-            "NystromEVD: vec_nnz must be 0 (auto) or in [1, min(n, k)] = [1, " +
+            "NystromEVD: vec_nnz must be -1 (dense Gaussian), 0 (auto) or in [1, min(n, k)] = [1, " +
             std::to_string(std::min(m, k)) + "]; got vec_nnz = " +
             std::to_string(vec_nnz) + " with n = " + std::to_string(m) +
             ", k = " + std::to_string(k) + ".");
@@ -173,7 +179,8 @@ void NystromEVD(
     // ~log(k) nonzeros per row keeps the empty-column probability negligible.
     // Explicit caller values pass through unchanged (the guard above already
     // enforces vec_nnz <= k).
-    const int64_t vnz = (vec_nnz == 0)
+    const int64_t vnz = dense_sketch ? (int64_t)1   // unused: the SASO is never filled on the dense path
+        : (vec_nnz == 0)
         ? std::min(std::max((int64_t)4, (int64_t)std::ceil(std::log((double)k))), k)
         : vec_nnz;
 
@@ -203,6 +210,7 @@ void NystromEVD(
         util::upsize(ws.VT_B,  ws.VT_B_sz,  k * k);
         util::upsize(U_out,      U_out_sz,      m * k);
         util::upsize(lambda_out, lambda_out_sz, k);
+        if (dense_sketch) util::upsize(ws.Om, ws.Om_sz, m * k);
         if (q > 1) {
             util::upsize(ws.Q,   ws.Q_sz,   m * k);
             util::upsize(ws.tau, ws.tau_sz, k);
@@ -218,10 +226,16 @@ void NystromEVD(
     //   ws.Y and ws.Q via pointer swaps (no m×k copies); the q-th (final)
     //   application happens in the t_matvec block below.
     t_syrf = detail::measure_us([&] {
-        RandBLAS::fill_sparse(S);
-        state = S.next_state;
+        if (dense_sketch) {
+            RandBLAS::DenseDist D(m, k);
+            state = RandBLAS::fill_dense(D, ws.Om, state);
+        } else {
+            RandBLAS::fill_sparse(S);
+            state = S.next_state;
+        }
         if (q > 1) {
-            A_op(Layout::ColMajor, k, (T)1, S, (T)0, ws.Y, m);
+            if (dense_sketch) A_op(Layout::ColMajor, k, (T)1, ws.Om, m, (T)0, ws.Y, m);
+            else              A_op(Layout::ColMajor, k, (T)1, S, (T)0, ws.Y, m);
             for (int64_t iter = 1; iter < q; ++iter) {
                 lapack::geqrf(m, k, ws.Y, m, ws.tau);
                 lapack::ungqr(m, k, k, ws.Y, m, ws.tau);
@@ -237,7 +251,9 @@ void NystromEVD(
     //   consumes: the single sparse pass at q = 1, else the q-th application
     //   A·Q on the last orthonormalized iterate).
     t_matvec = detail::measure_us([&] {
-        if (q == 1)
+        if (q == 1 && dense_sketch)
+            A_op(Layout::ColMajor, k, (T)1, ws.Om, m, (T)0, ws.Y, m);
+        else if (q == 1)
             A_op(Layout::ColMajor, k, (T)1, S, (T)0, ws.Y, m);
         else
             A_op(Layout::ColMajor, k, (T)1, ws.Q, m, (T)0, ws.Y, m);
@@ -275,7 +291,9 @@ void NystromEVD(
     //   Sparse path: ν·Ω has only m·vec_nnz stored entries (vec_nnz per row),
     //   so the update is a scatter-add over the SASO's COO triplets - no dense
     //   image of Ω needed.
-    if (q == 1) {
+    if (q == 1 && dense_sketch) {
+        blas::axpy(m * k, nu, ws.Om, 1, ws.Y, 1);
+    } else if (q == 1) {
         auto S_coo = RandBLAS::coo_view_of_skop(S);
         for (int64_t t = 0; t < S_coo.nnz; ++t)
             ws.Y[S_coo.rows[t] + S_coo.cols[t] * m] += nu * S_coo.vals[t];
@@ -296,7 +314,10 @@ void NystromEVD(
     //   the nearest symmetric matrix in ‖·‖_F, rather than whichever of two
     //   slightly different matrices the Uplo convention would select. O(k²),
     //   invisible next to the Gram product.
-    if (q == 1) {
+    if (q == 1 && dense_sketch) {
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
+                   (T)1, ws.Om, m, ws.Y, m, (T)0, ws.G, k);
+    } else if (q == 1) {
         RandBLAS::sketch_general(Layout::ColMajor, Op::Trans, Op::NoTrans,
                                  k, k, m, (T)1, S, 0, 0, ws.Y, m, (T)0, ws.G, k);
     } else {
@@ -326,8 +347,32 @@ void NystromEVD(
                m, k, (T)1, ws.G, k, ws.Y, m);
 
     // [Alg. 2, line 7] [U, Σ, ~] ← svd_econ(B). U_out ← left singular vectors (m×k).
-    lapack::gesdd(lapack::Job::SomeVec, m, k, ws.Y, m,
-                  ws.Sigma, U_out, m, ws.VT_B, k);
+    // Opt-in performance switch, off by default: RANDLAPACK_PERF_NYSEIG=1 replaces the thin SVD of the
+    // m×k B by an eigendecomposition of the k×k Gram BᵀB: its eigenvalues are Σ² (all line 8 needs) and
+    // U = B·V·Σ⁻¹. About 3.5x faster at m = 50,000, k = 7,276. Squaring loses only eigenvalues below about
+    // eps·‖B‖², under the shift that line 8 removes; a zero singular value leaves a zero column of U (λ̂ = 0).
+    // Double precision only: squaring B loses the eigenvalues below about eps*||B||^2, which is
+    // harmless in double (estimates move by at most 2.8e-14 on 72 cases) but up to 1.3e-4 in
+    // single, so single precision keeps the thin SVD whatever the switch says.
+    const char* nyseig = std::getenv("RANDLAPACK_PERF_NYSEIG");
+    if (sizeof(T) >= 8 && nyseig != nullptr && nyseig[0] == '1') {
+        T* V = ws.VT_B;   // k×k, otherwise gesdd's unused VT output
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T)1, ws.Y, m, (T)0, V, k);
+        lapack::syevd(lapack::Job::Vec, Uplo::Upper, k, V, k, ws.Sigma);   // ascending
+        for (int64_t i = 0; i < k / 2; ++i) {   // descending, as gesdd returns them
+            std::swap(ws.Sigma[i], ws.Sigma[k - 1 - i]);
+            std::swap_ranges(V + i * k, V + (i + 1) * k, V + (k - 1 - i) * k);
+        }
+        for (int64_t i = 0; i < k; ++i) {       // σ = sqrt(eigenvalue); scale V's columns by 1/σ before U = B·V
+            ws.Sigma[i] = std::sqrt(std::max(ws.Sigma[i], (T)0));
+            const T inv = (ws.Sigma[i] > (T)0) ? (T)1 / ws.Sigma[i] : (T)0;
+            blas::scal(k, inv, V + i * k, 1);
+        }
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, (T)1, ws.Y, m, V, k, (T)0, U_out, m);
+    } else {
+        lapack::gesdd(lapack::Job::SomeVec, m, k, ws.Y, m,
+                      ws.Sigma, U_out, m, ws.VT_B, k);
+    }
 
     // [Alg. 2, line 8] λ̂ ← max{0, Σ² − ν}  (remove the shift; clamp negatives to 0).
     //   Lines 9-10 (truncate to rank k) are a no-op: Ω is drawn at rank k, so B is

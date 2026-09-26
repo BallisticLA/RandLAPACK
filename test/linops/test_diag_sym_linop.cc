@@ -211,3 +211,49 @@ TEST_F(TestDiagSymLinOp, RejectsShortStrides) {
     EXPECT_THROW(op(Layout::ColMajor, 2, 1.0, B.data(), n - 1, 0.0, C.data(), n), std::exception);
     EXPECT_THROW(op(Layout::ColMajor, 2, 1.0, B.data(), n, 0.0, C.data(), n - 1), std::exception);
 }
+
+// The opt-in RANDLAPACK_PERF_GEMM switch reads the whole buffer as a general matrix. An
+// ExplicitSymLinOp that stores only one triangle (the documented default) must ignore it; only an
+// operator whose owner declares both triangles valid may take the gemm path.
+class TestExplicitSymLinOpPerfSwitch : public ::testing::Test {
+protected:
+    static constexpr int64_t n = 64, k = 8;
+    // Upper triangle holds a symmetric matrix; the strict lower triangle holds unrelated values.
+    static std::vector<double> upper_only() {
+        std::vector<double> A(n * n);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < n; ++i)
+                A[i + j * n] = (i <= j) ? 1.0 / (1.0 + i + j) : 1.0e3 + i;
+        return A;
+    }
+    static std::vector<double> apply(linops::ExplicitSymLinOp<double>& op) {
+        std::vector<double> B(n * k), C(n * k, 0.0);
+        for (int64_t i = 0; i < n * k; ++i) B[i] = std::sin(0.1 * (double)(i + 1));
+        op(Layout::ColMajor, k, 1.0, B.data(), n, 0.0, C.data(), n);
+        return C;
+    }
+    void TearDown() override { unsetenv("RANDLAPACK_PERF_GEMM"); }
+};
+
+TEST_F(TestExplicitSymLinOpPerfSwitch, GemmSwitchIgnoredForOneTriangleStorage) {
+    auto A = upper_only();
+    linops::ExplicitSymLinOp<double> op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    unsetenv("RANDLAPACK_PERF_GEMM");
+    auto ref = apply(op);
+    setenv("RANDLAPACK_PERF_GEMM", "1", 1);
+    auto got = apply(op);
+    for (int64_t i = 0; i < n * k; ++i) ASSERT_EQ(got[i], ref[i]) << "entry " << i;
+}
+
+TEST_F(TestExplicitSymLinOpPerfSwitch, GemmSwitchHonouredWhenBothTrianglesDeclared) {
+    auto A = upper_only();   // deliberately inconsistent lower triangle: the gemm path must read it
+    linops::ExplicitSymLinOp<double> op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    op.both_triangles = true;
+    unsetenv("RANDLAPACK_PERF_GEMM");
+    auto ref = apply(op);
+    setenv("RANDLAPACK_PERF_GEMM", "1", 1);
+    auto got = apply(op);
+    double diff = 0;
+    for (int64_t i = 0; i < n * k; ++i) diff = std::max(diff, std::abs(got[i] - ref[i]));
+    EXPECT_GT(diff, 1.0) << "with both_triangles set, the switch should use gemm on the full buffer";
+}

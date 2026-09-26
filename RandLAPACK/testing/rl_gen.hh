@@ -206,11 +206,11 @@ void gen_exp_mat(
     delete[] S;
 }
 
-/// Generate k geometrically-spaced singular values (Raphael's spectrum):
+/// Generate k geometrically-spaced singular values (the paper's geometric spectrum):
 ///   s_i = cond * cond^(-i/k) = cond^(1 - i/k),  i = 0..k-1.
 /// s_0 = cond, s_{k-1} = cond^(1/k); every s_i >= 1, so the PSD matrix A >= I.
 /// No plateau. The effective condition number is cond^((k-1)/k), i.e. ~= cond
-/// (exactly cond as k -> infinity); this matches Raphael's literal i/n form.
+/// (exactly cond as k -> infinity); this matches the paper's literal i/n form.
 ///
 /// @param[in] k     Number of singular values
 /// @param[in] cond  Condition number parameter (= the largest singular value)
@@ -772,7 +772,7 @@ void mat_gen(
                 RandLAPACK::gen::gen_exp_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
                 break;
         case geometric:
-                // Geometrically-spaced spectrum s_i = cond^(1 - i/k) (Raphael's spectrum, A >= I)
+                // Geometrically-spaced spectrum s_i = cond^(1 - i/k) (the paper's geometric spectrum, A >= I)
                 RandLAPACK::gen::gen_geometric_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
                 break;
         case gaussian: {

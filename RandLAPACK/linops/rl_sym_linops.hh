@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: ExplicitSymLinOp, DiagSymLinOp, RegExplicitSymLinOp, SpectralPrecond,
+// Public API: ExplicitSymLinOp, DiagSymLinOp, SparseSymLinOp, RegExplicitSymLinOp, SpectralPrecond,
 // symmetric linear operators for use with SymmetricLinearOperator-templated algorithms.
 
 #include "rl_exceptions.hh"
@@ -11,12 +11,22 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+
+// Opt-in performance switch, off by default: runtime switches read on every call, all off by default.
+//   RANDLAPACK_PERF_GEMM=1  ExplicitSymLinOp dense products with 2..256 columns use gemm on the full buffer, not symm.
+//   RANDLAPACK_PERF_SPMM=1  sparse sketches use right_spmm instead of the one-triangle sketch_symmetric.
+// Both read the WHOLE buffer, so they apply only to an ExplicitSymLinOp whose owner sets both_triangles.
+inline bool rl_perf_switch(const char* name) {
+    const char* v = std::getenv(name);
+    return v != nullptr && v[0] == '1';
+}
 
 
 namespace RandLAPACK::linops {
 
 // Symmetric linear operators for use with algorithms templated on
-// SymmetricLinearOperator. Four concrete types are provided:
+// SymmetricLinearOperator. Five concrete types are provided:
 //
 //   ExplicitSymLinOp      — wraps a dense symmetric matrix (upper or lower
 //                           triangle, any layout). Applies C := alpha*A*B + beta*C
@@ -28,6 +38,10 @@ namespace RandLAPACK::linops {
 //                           overloads as ExplicitSymLinOp (dense right operand and
 //                           RandBLAS sketching operator), so the two are
 //                           interchangeable in the templated drivers.
+//
+//   SparseSymLinOp        - wraps a RandBLAS sparse matrix holding both triangles;
+//                           dense products by RandBLAS::spmm, sparse sketches by
+//                           RandBLAS::sketch_sparse (MKL spgemm). Same two overloads.
 //
 //   RegExplicitSymLinOp   — a container that implicitly holds num_ops >= 1 symmetric
 //                           linear operators, all of which differ from one another
@@ -67,6 +81,10 @@ struct ExplicitSymLinOp {
     const T* A_buff;
     const int64_t lda;
     const Layout buff_layout;
+    /// Set true only when A_buff holds the full symmetric matrix (both triangles). The opt-in
+    /// RANDLAPACK_PERF_GEMM and RANDLAPACK_PERF_SPMM switches read the whole buffer, so they
+    /// take effect only for operators that declare this; the default honours `uplo` alone.
+    bool both_triangles = false;
 
     ExplicitSymLinOp(
         int64_t dim,
@@ -97,6 +115,14 @@ struct ExplicitSymLinOp {
             blas_call_uplo = (this->uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
         // Reading the "blas_call_uplo" triangle of "this->A_buff" in "layout" order is the same
         // as reading the "this->uplo" triangle of "this->A_buff" in "this->buff_layout" order.
+        // gemm only for 2..256 columns: at n = 50,000 MKL's gemm beats symm up to 1.7x there, but falls off a cliff
+        // above 257 columns (2.0 s against symm's 1.27 s at 269) and loses slightly at one column.
+        if (this->both_triangles && rl_perf_switch("RANDLAPACK_PERF_GEMM") && n >= 2 && n <= 256) {
+            // A is symmetric with both triangles stored, so reading it in either layout gives A.
+            blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, dim, n, dim, alpha,
+                this->A_buff, this->lda, B, ldb, beta, C, ldc);
+            return;
+        }
         blas::symm(
             layout, Side::Left, blas_call_uplo, dim, n, alpha,
             this->A_buff, this->lda, B, ldb, beta, C, ldc
@@ -135,12 +161,16 @@ struct ExplicitSymLinOp {
             // Fill once before choosing the triangle-aware or legacy product.
             if (S.nnz < 0) RandBLAS::fill_sparse(S);
 #ifdef RANDLAPACK_SYMMETRIC_SKETCH
-            auto apply_uplo = this->uplo;
-            if (layout != this->buff_layout)
-                apply_uplo = (apply_uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
-            RandBLAS::sketch_symmetric(layout, apply_uplo, dim, n_vecs,
-                alpha, this->A_buff, this->lda, S, 0, 0, beta, C, ldc);
-#else
+            if (!(this->both_triangles && rl_perf_switch("RANDLAPACK_PERF_SPMM"))) {
+                auto apply_uplo = this->uplo;
+                if (layout != this->buff_layout)
+                    apply_uplo = (apply_uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
+                RandBLAS::sketch_symmetric(layout, apply_uplo, dim, n_vecs,
+                    alpha, this->A_buff, this->lda, S, 0, 0, beta, C, ldc);
+                return;
+            }
+#endif
+            {
             auto S_coo = RandBLAS::coo_view_of_skop(S);
             RandBLAS::sparse_data::right_spmm(
                 layout, blas::Op::NoTrans, blas::Op::NoTrans,
@@ -149,7 +179,7 @@ struct ExplicitSymLinOp {
                 S_coo, 0, 0,
                 beta, C, ldc
             );
-#endif
+            }
         }
     }
 };
@@ -265,6 +295,95 @@ struct DiagSymLinOp {
                 const int64_t j = (int64_t)S_coo.cols[t];
                 C[i + j * ldc] += alpha * lambda[i] * S_coo.vals[t];
             }
+        }
+    }
+};
+
+/*********************************************************/
+/*                                                       */
+/*                   SparseSymLinOp                      */
+/*                                                       */
+/*********************************************************/
+
+/// Sparse symmetric linear operator satisfying SymmetricLinearOperator.
+///
+/// Wraps a RandBLAS sparse matrix (COO, CSR or CSC) that holds BOTH triangles of a
+/// symmetric matrix; no triangle is inferred. The dense apply is RandBLAS::spmm.
+/// A dense sketching operator goes through the dense apply; a sparse one is applied
+/// by RandBLAS::sketch_sparse (sparse times sparse, MKL spgemm), so neither the
+/// matrix nor the sketch is densified. Same two apply overloads as
+/// ExplicitSymLinOp, so the types are interchangeable in the templated drivers.
+///
+/// The caller owns the sparse matrix and keeps it alive for the operator's lifetime.
+template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
+struct SparseSymLinOp {
+
+    using scalar_t = T;
+    const int64_t m;
+    const int64_t dim;
+    const SpMat& A_sp;
+
+    SparseSymLinOp(
+        const SpMat& A_sp
+    ) : m(A_sp.n_rows), dim(A_sp.n_rows), A_sp(A_sp) {
+        randlapack_require(A_sp.n_rows == A_sp.n_cols) << "sparse operator is " << A_sp.n_rows << " x " << A_sp.n_cols << ", expected square";
+        randlapack_require(A_sp.index_base == RandBLAS::sparse_data::IndexBase::Zero) << "sparse operator must be zero-based";
+    }
+
+    // C := alpha * A * B + beta * C. Strides: ColMajor needs ldb, ldc >= dim; RowMajor needs ldb, ldc >= n.
+    void operator()(
+        Layout layout,
+        int64_t n,
+        T alpha,
+        T* const B,
+        int64_t ldb,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        const int64_t min_ld = (layout == Layout::ColMajor) ? dim : n;
+        randlapack_require(ldb >= min_ld) << "ldb=" << ldb << " < " << min_ld << " (stride must cover the operator dimension in ColMajor or n in RowMajor)";
+        randlapack_require(ldc >= min_ld) << "ldc=" << ldc << " < " << min_ld << " (stride must cover the operator dimension in ColMajor or n in RowMajor)";
+        RandBLAS::spmm(layout, blas::Op::NoTrans, blas::Op::NoTrans, dim, n, dim, alpha, A_sp, B, ldb, beta, C, ldc);
+    }
+
+    /// Element access for CSC storage with sorted row indices (binary search in column j).
+    inline T operator()(int64_t i, int64_t j) {
+        if constexpr (requires { A_sp.colptr; A_sp.rowidxs; }) {
+            const auto* first = A_sp.rowidxs + A_sp.colptr[j];
+            const auto* last  = A_sp.rowidxs + A_sp.colptr[j + 1];
+            const auto* hit = std::lower_bound(first, last, i);
+            return (hit != last && (int64_t)*hit == i) ? A_sp.vals[hit - A_sp.rowidxs] : (T)0;
+        } else {
+            throw RandLAPACK::Error("SparseSymLinOp element access requires CSC storage");
+        }
+    }
+
+    /// SkOp overload, same contract as ExplicitSymLinOp's.
+    template <RandBLAS::SketchingOperator SkOp>
+    void operator()(
+        Layout layout,
+        int64_t n_vecs,
+        T alpha,
+        SkOp& S,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        if constexpr (requires { S.buff; S.layout; S.dist; }) {
+            if (S.buff == nullptr) RandBLAS::fill_dense(S);
+            int64_t ldS = S.dist.dim_major;
+            randblas_require(S.layout == layout);
+            (*this)(layout, n_vecs, alpha, S.buff, ldS, beta, C, ldc);
+        } else {
+#if defined(RandBLAS_HAS_MKL)
+            if (S.nnz < 0) RandBLAS::fill_sparse(S);
+            RandBLAS::sketch_sparse(layout, blas::Op::NoTrans, blas::Op::NoTrans, dim, n_vecs, dim,
+                alpha, A_sp, S, 0, 0, beta, C, ldc);
+#else
+            (void)layout; (void)n_vecs; (void)alpha; (void)S; (void)beta; (void)C; (void)ldc;
+            throw RandLAPACK::Error("SparseSymLinOp with a sparse sketch needs RandBLAS built with MKL (sparse times sparse); use a dense sketch instead");
+#endif
         }
     }
 };

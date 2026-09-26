@@ -1,7 +1,7 @@
 // qfa_micro — QFA micro-benchmark: block vs scalar, adaptive vs fixed (LOCAL).
 //
 // Implements the FROZEN plan at
-//   agent-workspace/randnla/project-plans/2026-09-02-qfa-micro-benchmark-plan.md
+//   the QFA micro-benchmark plan (internal note, 2026-09-02)
 // (pass 10, 2026-09-02). Read that plan for the full rationale; this header only
 // summarizes the mechanics needed to read the code and the CSV it produces.
 //

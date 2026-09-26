@@ -1,6 +1,6 @@
 function qfa_micro_report(csv_path, out_dir)
 % qfa_micro_report - analysis + figures for the QFA micro-benchmark
-% (plan: agent-workspace/randnla/project-plans/2026-09-02-qfa-micro-benchmark-plan.md,
+% (plan: the QFA micro-benchmark plan (internal note, 2026-09-02),
 % pass 10 FROZEN). Reads qfa_micro's CSV output, prints the a-priori
 % reachability table FIRST, then the summary table, then renders exactly
 % THREE PNGs (F1, F2, F3) to out_dir. Headless: no figure window is ever

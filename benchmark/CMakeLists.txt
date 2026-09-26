@@ -183,7 +183,7 @@ add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_li
 add_benchmark(NAME FunNystromPP_benchmark CXX_SOURCES bench_FunNystromPP/FunNystromPP_benchmark.cc LINK_LIBS ${Benchmark_libs})
 
 # QFA micro-benchmark: block vs scalar, adaptive vs fixed (LOCAL) -- see
-# agent-workspace/randnla/project-plans/2026-09-02-qfa-micro-benchmark-plan.md
+# the QFA micro-benchmark plan (internal note, 2026-09-02)
 add_benchmark(NAME qfa_micro CXX_SOURCES bench_FunNystromPP/qfa_micro.cc LINK_LIBS ${Benchmark_libs})
 
 add_benchmark(NAME qfa_timing_probe CXX_SOURCES bench_FunNystromPP/qfa_timing_probe.cc LINK_LIBS ${Benchmark_libs})

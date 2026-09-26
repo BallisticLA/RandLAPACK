@@ -76,7 +76,7 @@ enum class BlockQFAScale : int {
 ///   Gauss and Radau-at-0 err on opposite sides (Golub–Meurant), so
 ///     |tr(M_U) − tr(M_L)| ≤ adaptive_rtol · tr(L_t)
 ///   is a certified relative-error stop (app-blanczos.tex, Thm adaptive-stopping;
-///   Raphael's block criterion). `stop_scale` selects the denominator:
+///   the paper's block criterion). `stop_scale` selects the denominator:
 ///   GaussSide takes the theorem literally (scale = max(|tr_U|, tiny), the Gauss
 ///   side); MaxBoth (default) additionally guards against tr_L exceeding tr_U
 ///   outside the operator-monotone regime by taking scale = max(|tr_U|, |tr_L|,
