@@ -384,6 +384,37 @@ TEST_F(TestABRIK, ABRIK_sparse_coo_cqrrt) {
 
 // ========== Adaptive mode tests ==========
 
+TEST_F(TestABRIK, ABRIK_adaptive_honors_default_initial_budget) {
+    constexpr int64_t n = 64;
+    constexpr int64_t block_size = 3;
+    constexpr double tol = 1e-12;
+    for (auto qr : {Subroutines::QR_explicit::geqrf_ungqr,
+                    Subroutines::QR_explicit::cqrrt}) {
+        for (bool explicit_budget : {false, true}) {
+            ABRIKTestData<double> data(n, n);
+            std::fill_n(data.A, n * n, 0.0);
+            for (int64_t i = 0; i < n; ++i)
+                data.A[i + n * i] = 1.0 + static_cast<double>(i) / n;
+            auto state = RandBLAS::RNGState();
+            RandLAPACK::ABRIK<double, r123::Philox4x32> solver(false, false, tol);
+            solver.adaptive = true;
+            solver.adaptive_max_retries = 0;
+            solver.qr_exp = qr;
+            if (explicit_budget)
+                solver.max_krylov_iters = solver.adaptive_default_iters;
+
+            ASSERT_EQ(solver.call(n, n, data.A, n, block_size,
+                                  data.U, data.V, data.Sigma, state), 0);
+            EXPECT_EQ(solver.max_krylov_iters, solver.adaptive_default_iters);
+            EXPECT_EQ(solver.assessed_rank, block_size);
+            // With retries disabled, the first BK call must respect the initial
+            // budget. This does not require convergence within that budget.
+            EXPECT_LE(solver.num_krylov_iters, solver.adaptive_default_iters);
+            EXPECT_LE(solver.singular_triplets_found, block_size);
+        }
+    }
+}
+
 // Adaptive mode converges from a small initial max_krylov_iters.
 /// Resurrection of ABRIK_catch_instability_bad, deleted in edab935 (2026-02-02) along with
 /// its _prelim, _good and _worse siblings. It was the original instability signal: a block

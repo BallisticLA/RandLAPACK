@@ -135,9 +135,9 @@ class BK {
         std::vector<long> times;
         T norm_R_end;
         BKTermination termination_reason;
-        /// Conditioning contract for the rank criterion: the trailing block is judged
-        /// against tau*||A||_F. Larger tau retains fewer columns and bounds their
-        /// conditioning more tightly (Balabanov Thm 5.6: cond <= 10 n^1.5 r / tau).
+        /// Relative threshold for the numerical-rank criterion: the trailing block is
+        /// judged against tau*||A||_F. This criterion does not provide the conditioning
+        /// guarantee of Balabanov Thm 5.6; see block_numerical_rank above.
         /// Mirrors CQRRPT's user-facing `eps` (rl_cqrrpt.hh:120). Zero means "derive a
         /// default from the problem size", which is done inside call_impl where n is known.
         T tau;
@@ -555,15 +555,14 @@ class BK {
                 //    recomputed only on odd iterations (where R is the current triangular factor).
                 //    Exact in exact arithmetic; holds to working precision thanks to the double
                 //    reorthogonalization in the qr_add steps.
-                // 2. Rank deficiency: stop if the trailing diagonal entry of the band just updated
-                //    (R on odd iters, S on even) falls below sqrt(eps), i.e. the Krylov subspace
-                //    can no longer grow. See the per-branch checks below.
+                // 2. Rank deficiency: stop if the numerical-rank criterion retains no
+                //    columns of the new block. A positive reduced width narrows the next
+                //    block instead. See the per-branch checks below.
                 // The bounded loop also stops at max_krylov_iters (termination_reason set per case;
                 // the ABRIK driver only resumes when that was the reason).
                 T norm_A = A.fro_nrm();
-                // tau = 0 means "derive". n*eps clears Theorem 5.6's floor of 4 n^1.5 r u
-                // and is the default until measurement says otherwise; it is user-settable
-                // for exactly that reason.
+                // tau = 0 selects the heuristic default n*eps. This default does not
+                // establish a conditioning guarantee; callers can set tau explicitly.
                 const T tau_eff = (this->tau > 0) ? this->tau
                                                   : (T)n * std::numeric_limits<T>::epsilon();
                 this->final_block_width = k;

@@ -20,12 +20,11 @@ namespace RandLAPACK {
     /// ABRIK algorithm is a method for finding truncated SVD based on block Krylov iterations.
     /// This algorithm is a version of Algorithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
     ///
-    /// The main difference is in the fact that an economy SVD is performed only once at the very end
-    /// of the algorithm run and that the termination criterion is not based on singular vector residual evaluation.
-    /// Instead, the scheme terminates if:
-    ///     1. ||R||_F > sqrt(1 - eps^2) ||A||_F, which ensures that we've exhausted all vectors and doing more
-    ///        iterations would bring no benefit or that ||A - hat(A)||_F < eps * ||A||_F.
-    ///     2. Stop if the bottom right entry of R or S is numerically close to zero (up to square root of machine eps).
+    /// In nonadaptive mode, an economy SVD is performed once after BK terminates.
+    /// BK stops on its Frobenius-content criterion, when its relative numerical-rank
+    /// criterion retains no new columns, or when the iteration budget or ambient
+    /// dimension is reached. In adaptive mode, the driver assesses singular-vector
+    /// residuals after each SVD and may resume BK with a larger iteration budget.
     ///
     /// The main cost of this algorithm comes from large GEMMs with the input matrix A.
     ///
@@ -107,7 +106,7 @@ class ABRIK {
         // this always holds the value actually used.
         int64_t assessed_rank;
         ABRIKTermination termination_reason;
-        /// Conditioning contract for BK's rank criterion; forwarded to BK::tau. Zero means
+        /// Relative threshold for BK's rank criterion; forwarded to BK::tau. Zero means
         /// derive a default. Mirrors CQRRPT's user-facing `eps`. Kept distinct from `tol`
         /// on purpose: `tol` is the Frobenius-convergence threshold and is ALSO handed to
         /// CQRRT as its eps (rl_bk.hh, CQRRT.emplace(false, tol)), so overloading it again
@@ -249,7 +248,6 @@ class ABRIK {
                 // Forward config to BK
                 bk_obj.qr_exp            = this->qr_exp;
                 bk_obj.tol               = this->tol;
-                bk_obj.max_krylov_iters  = this->max_krylov_iters;
                 bk_obj.verbose           = this->verbose;
                 bk_obj.timing            = this->timing;
                 bk_obj.tau               = this->tau;
@@ -298,6 +296,8 @@ class ABRIK {
                     this->assessed_rank = 0;
                 }
 
+                // Adaptive setup may replace the default budget before the first call.
+                bk_obj.max_krylov_iters = this->max_krylov_iters;
                 int status = bk_obj.call(A, k, X_ev, Y_od, R, S,
                                          end_rows, end_cols, final_iter_is_odd, state);
 
