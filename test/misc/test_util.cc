@@ -597,3 +597,125 @@ TEST_F(TestUtil, test_orhr_col) {
 
     test_orhr_col<double>(all_data);
 }
+
+namespace {
+    template <typename T>
+    std::vector<T> tri_block(const std::vector<T>& diag) {
+        int64_t k = (int64_t)diag.size();
+        std::vector<T> B(k * k, (T)0);
+        for (int64_t i = 0; i < k; ++i) B[i + i * k] = diag[i];
+        return B;
+    }
+}
+
+TEST_F(TestUtil, block_numerical_rank_healthy_block_keeps_every_column) {
+    std::vector<double> d(8, 1.0);
+    auto B = tri_block(d);
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(8, B.data(), 8, 1.0, 1e-12), 8);
+}
+
+TEST_F(TestUtil, block_numerical_rank_uniformly_dead_block_keeps_nothing) {
+    std::vector<double> d(8, 1e-16);
+    auto B = tri_block(d);
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(8, B.data(), 8, 1.0, 1e-12), 0);
+}
+
+TEST_F(TestUtil, block_numerical_rank_finds_the_healthy_prefix) {
+    std::vector<double> d = {1.0, 1.0, 1.0, 1e-16, 1e-16};
+    auto B = tri_block(d);
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(5, B.data(), 5, 1.0, 1e-12), 3);
+}
+
+TEST_F(TestUtil, block_numerical_rank_does_not_truncate_on_an_interior_dip) {
+    std::vector<double> d = {1.0, 1e-16, 1.0, 1.0};
+    auto B = tri_block(d);
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(4, B.data(), 4, 1.0, 1e-12), 4);
+
+    std::vector<double> tail = {1.0, 1e-16, 1e-16, 1e-16};
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(4, tri_block(tail).data(), 4, 1.0, 1e-12), 1);
+}
+
+TEST_F(TestUtil, block_numerical_rank_is_scale_invariant) {
+    std::vector<double> d = {1.0, 1.0, 1.0, 1e-16, 1e-16};
+    const double tau = 1e-12;
+    int64_t ref = RandLAPACK::util::block_numerical_rank<double>(5, tri_block(d).data(), 5, 1.0, tau);
+    for (double s : {1e-8, 1e-4, 1e+4, 1e+8}) {
+        std::vector<double> ds(d.size());
+        for (size_t i = 0; i < d.size(); ++i) ds[i] = d[i] * s;
+        auto Bs = tri_block(ds);
+        EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(5, Bs.data(), 5, s, tau), ref)
+            << "scale " << s << " changed the rank decision";
+    }
+}
+
+TEST_F(TestUtil, block_numerical_rank_brackets_the_threshold) {
+    const double norm_A = 2.0, tau = 1e-10;
+    const double thresh = tau * norm_A;
+    std::vector<double> below = {1.0, thresh * 0.5};
+    std::vector<double> above = {1.0, thresh * 2.0};
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(2, tri_block(below).data(), 2, norm_A, tau), 1);
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(2, tri_block(above).data(), 2, norm_A, tau), 2);
+}
+
+TEST_F(TestUtil, block_numerical_rank_handles_degenerate_norms) {
+    std::vector<double> d(4, 0.0);
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(4, tri_block(d).data(), 4, 0.0, 1e-12), 0);
+    std::vector<double> h(4, 1.0);
+    EXPECT_EQ(RandLAPACK::util::block_numerical_rank<double>(4, tri_block(h).data(), 4, 0.0, 1e-12), 4);
+}
+
+
+// For this decaying-diagonal fixture, a larger tolerance reduces both the retained
+// width and its diagonal ratio. This is not a general conditioning guarantee.
+TEST_F(TestUtil, block_numerical_rank_decaying_diagonal_tolerance_sweep) {
+    const int64_t k = 12;
+    const double norm_A = 1.0;
+
+    std::vector<double> Rii(k * k, 0.0);
+    for (int64_t j = 0; j < k; ++j) {
+        Rii[j + j * k] = std::pow(10.0, -2.0 * (double) j);
+        for (int64_t i = 0; i < j; ++i) Rii[i + j * k] = 1e-6 * Rii[j + j * k];
+    }
+
+    const double taus[] = {1e-20, 1e-14, 1e-10, 1e-6, 1e-2};
+    int64_t prev_r = k + 1;
+    double  prev_diagonal_ratio = std::numeric_limits<double>::infinity();
+
+    for (double tau : taus) {
+        int64_t r = RandLAPACK::util::block_numerical_rank<double>(k, Rii.data(), k, norm_A, tau);
+        ASSERT_GE(r, (int64_t) 0);
+        ASSERT_LE(r, k);
+
+        double diagonal_ratio = (r >= 1) ? (Rii[0] / Rii[(r - 1) + (r - 1) * k]) : 1.0;
+        printf("TAUCOND tau=%.1e  retained=%2ld  diagonal_ratio(retained)=%.3e\n", tau, (long)r, diagonal_ratio);
+        fflush(stdout);
+
+        EXPECT_LE(r, prev_r)       << "raising tau must not retain MORE columns";
+        EXPECT_LE(diagonal_ratio, prev_diagonal_ratio) << "raising tau must not increase the retained diagonal ratio in this fixture";
+        prev_r = r; prev_diagonal_ratio = diagonal_ratio;
+    }
+
+    int64_t r_loose  = RandLAPACK::util::block_numerical_rank<double>(k, Rii.data(), k, norm_A, 1e-20);
+    int64_t r_tight  = RandLAPACK::util::block_numerical_rank<double>(k, Rii.data(), k, norm_A, 1e-2);
+    EXPECT_GT(r_loose, r_tight) << "tau must change how much is retained, or it is not a knob";
+}
+
+TEST_F(TestUtil, block_numerical_rank_reads_off_diagonal_entries_with_padding) {
+    auto check = []<typename T>() {
+        constexpr int64_t k = 4, ld = 6;
+        for (bool upper : {false, true}) {
+            std::vector<T> block(ld * k, std::numeric_limits<T>::quiet_NaN());
+            for (int64_t j = 0; j < k; ++j)
+                for (int64_t i = 0; i < k; ++i)
+                    block[i + j * ld] = T(0);
+            block[0] = T(2);
+            // The nonzero at (2,3), or its transpose, keeps the trailing square
+            // nonnegligible until r == 3 even though all trailing diagonals vanish.
+            block[upper ? 2 + 3 * ld : 3 + 2 * ld] = T(1);
+            EXPECT_EQ(RandLAPACK::util::block_numerical_rank(k, block.data(), ld,
+                                                          T(2), T(0.125)), 3);
+        }
+    };
+    check.template operator()<float>();
+    check.template operator()<double>();
+}
