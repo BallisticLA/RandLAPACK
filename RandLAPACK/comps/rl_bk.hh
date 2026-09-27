@@ -33,86 +33,6 @@ struct BKSubroutines {
     enum QR_explicit {geqrf_ungqr, cqrrt};
 };
 
-/// How many leading columns of a k-wide block carry operator content.
-///
-/// Returns the smallest r for which the trailing (k-r)-by-(k-r) sub-block of the block's
-/// triangular factor has Frobenius norm at most tau*||A||_F; r = k means the whole block is
-/// healthy, r = 0 means none of it is.
-///
-/// Three things distinguish this from the test it replaces, which was
-///     std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(eps)
-///
-/// 1. It reads the whole trailing block, not the single trailing diagonal entry. One
-///    collapsed entry at the end said nothing about the k-1 columns before it.
-/// 2. The threshold is RELATIVE to ||A||_F. The old constant was absolute, so the same
-///    matrix scaled by 1e8 got a different answer -- measured: 50 triplets claimed on a
-///    rank-5 input instead of 10, and a different termination reason.
-/// 3. It returns a width rather than a boolean, so the caller can keep the healthy part.
-///
-/// Follows Balabanov, "Randomized Cholesky QR factorizations", arXiv:2210.09953, Alg. 7
-/// step 3, with the anchor carried across to the blocked setting: Alg. 7 measures against
-/// ||R||_2 of the factorization it is revealing, which for a whole-matrix factorization is
-/// the matrix scale. Anchoring to a *block's* own scale does not survive blocking -- a
-/// wholly dead block has no healthy reference, and a block-relative rule then flags nothing
-/// (measured: 0 of 5 seeds on an exactly-rank-40 input, residual 3.0e+00).
-///
-/// ON THEOREM 5.6, WHICH THIS DOES NOT INHERIT. Earlier revisions of this comment cited
-/// Thm 5.6 as "the contract this buys": cond(X_(1:r)) <= 10 n^1.5 r / tau. Read against the
-/// paper, that citation claims more than it can. Three reasons, none of them fatal to the
-/// criterion but all of them fatal to the claim:
-///
-/// 1. HYPOTHESIS VIOLATED BY OUR DEFAULT. Thm 5.6 requires tau >= 4 n^1.5 r u, a LOWER bound
-///    on tau. With u = eps/2 and a k = 10 block that is 1.4e-13; reading n as the ambient
-///    column count instead gives 1.3e-11 at n = 200. Our default tau_eff = n*eps is 4.4e-14
-///    at n = 200, which is below both, by 3x to 280x. The theorem simply does not apply at
-///    the tau we ship.
-/// 2. VACUOUS EVEN WHERE IT APPLIES. At tau = 1.4e-13 the bound reads cond <= 2.3e+16, and
-///    at our default it reads 7.1e+16. Double precision cannot express a condition number
-///    above 1/eps = 4.5e+15, so the bound permits more ill-conditioning than the arithmetic
-///    can represent. An assertion on it would pass on every input, including a broken one.
-/// 3. DIFFERENT ALGORITHM. Thm 5.6 is stated for Alg. 7 using STRONG rank-revealing QR on a
-///    matrix with NORMALIZED COLUMNS. This criterion pivots nothing and runs on a band block
-///    produced by geqrf or CQRRT. The shape of the rule is borrowed; the guarantee is not.
-///
-/// So the anchor and the trailing-block test are taken from Alg. 7, and that is all. What is
-/// actually asserted about conditioning is the relative, measured property in
-/// TestBK.BK_criterion_conditioning_improves_with_tau: retained conditioning falls
-/// monotonically as tau rises. That is testable and it is what the knob is for.
-///
-/// Worth noting the same conclusion arrives from the other direction. Rank 39 at block size
-/// 10 is the one rank in 20..40 that fails to certify under the default tau and behaves
-/// correctly from tau = 1e-12 upward (see BK_rank_39_is_a_tau_sensitivity_not_a_shortfall).
-/// Theory wants at least 1.4e-13; measurement wants at least 1e-12. Both say the default is
-/// small. It is deliberately left alone anyway, because the ill-conditioned regime needs a
-/// small tau not to discard genuine trailing directions, and that trade-off is the whole
-/// reason tau is user-facing.
-///
-/// Reads the full square sub-block rather than one triangle, so it is correct for both
-/// bands: R is stored lower-triangular by util::transposition, while S_ii is written upper
-/// by lacpy(MatrixType::Upper, ...). The untouched triangle is exactly zero either way.
-///
-/// Degenerate ||A||: a zero or denormal matrix gives a threshold of zero, so only an
-/// exactly-zero trailing block satisfies it and the function returns 0 rather than k. A
-/// non-finite ||A|| makes every comparison false and returns k. Neither can hang, because
-/// termination no longer depends on this function -- that is what the saturation guard is
-/// for.
-template <typename T>
-int64_t block_numerical_rank(int64_t k, const T* Rii, int64_t ldr, T norm_A, T tau) {
-    const T thresh = tau * norm_A;
-    for (int64_t r = 0; r < k; ++r) {
-        T acc = 0;
-        for (int64_t j = r; j < k; ++j) {
-            for (int64_t i = r; i < k; ++i) {
-                const T v = Rii[i + j * ldr];
-                acc += v * v;
-            }
-        }
-        if (std::sqrt(acc) <= thresh)
-            return r;
-    }
-    return k;
-}
-
 /// Reason BK terminated its main loop.
 enum class BKTermination {
     max_iters_reached, ///< Reached max_krylov_iters without convergence (resumable).
@@ -137,7 +57,7 @@ class BK {
         BKTermination termination_reason;
         /// Relative threshold for the numerical-rank criterion: the trailing block is
         /// judged against tau*||A||_F. This criterion does not provide the conditioning
-        /// guarantee of Balabanov Thm 5.6; see block_numerical_rank above.
+        /// guarantee of Balabanov Thm 5.6; see util::block_numerical_rank in rl_util.hh.
         /// Mirrors CQRRPT's user-facing `eps` (rl_cqrrpt.hh:120). Zero means "derive a
         /// default from the problem size", which is done inside call_impl where n is known.
         T tau;
@@ -779,7 +699,7 @@ class BK {
                         // Rank criterion, right basis. Relative to ||A||, reads the whole
                         // trailing block, and yields a width so the healthy prefix survives.
                         {
-                            int64_t r_blk = block_numerical_rank<T>(w, R_ii, n, norm_A, tau_eff);
+                            int64_t r_blk = util::block_numerical_rank<T>(w, R_ii, n, norm_A, tau_eff);
                             if (r_blk < w) {
                                 // Zero the REJECTED COLUMNS of the diagonal block. Their true
                                 // value is zero by the band's block-bidiagonal structure, and
@@ -958,7 +878,7 @@ class BK {
                         // is written upper-triangular by lacpy, where R is lower; the shared
                         // helper reads the full square sub-block so both are handled.
                         {
-                            int64_t r_blk = block_numerical_rank<T>(w, S_ii, n + k, norm_A, tau_eff);
+                            int64_t r_blk = util::block_numerical_rank<T>(w, S_ii, n + k, norm_A, tau_eff);
                             if (r_blk < w) {
                                 // Zero the REJECTED ROWS of the diagonal block; see the odd
                                 // branch for why the true value there is zero and why this is

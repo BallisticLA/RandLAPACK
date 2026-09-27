@@ -423,6 +423,35 @@ T cond_num_check(
     return cond_num;
 }
 
+/// Return the smallest leading width r whose trailing square block has Frobenius
+/// norm at most tau * norm_A, or k if no r < k satisfies the comparison.
+///
+/// Rii is a real k-by-k block in column-major storage, with ldr >= k. The entire
+/// trailing square is read, so triangular inputs must have their unused triangle
+/// explicitly zeroed. k must be nonnegative; k == 0 returns zero without reading Rii.
+/// norm_A and tau are caller-supplied, finite, nonnegative scale and tolerance.
+///
+/// This is a truncation criterion for a leading block, not an SVD rank estimate
+/// or a bound on the conditioning of the retained columns. Norms are accumulated
+/// as sums of squares in T without rescaling; extreme magnitudes can overflow or
+/// underflow.
+template <typename T>
+int64_t block_numerical_rank(int64_t k, const T* Rii, int64_t ldr, T norm_A, T tau) {
+    const T thresh = tau * norm_A;
+    for (int64_t r = 0; r < k; ++r) {
+        T acc = 0;
+        for (int64_t j = r; j < k; ++j) {
+            for (int64_t i = r; i < k; ++i) {
+                const T v = Rii[i + j * ldr];
+                acc += v * v;
+            }
+        }
+        if (std::sqrt(acc) <= thresh)
+            return r;
+    }
+    return k;
+}
+
 // Computes the numerical rank of a given matrix
 template <typename T>
 int64_t rank_check(
