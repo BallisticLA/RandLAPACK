@@ -698,15 +698,15 @@ TEST_F(TestABRIK, ABRIK_regime_T6_multiplicity_wider_than_block) {
     EXPECT_GT(cert, 100) << "a repeated singular value should not read as rank deficiency";
 }
 
-// T1: the identity. The Krylov space is span(Omega) and cannot grow, so b triplets is the
-// honest maximum and no criterion can conjure more. This is the case that genuinely needs
-// replacement, and the one where replacement provably cannot help either -- it is here to
-// pin honest reporting, not delivery.
+// T1: the identity. The Krylov space is span(Omega) and closes after one block, so without
+// refilling b triplets is the maximum. It is the case where refilling is the only way to get
+// more than b: every direction past the starting block comes from a refill, and at budget 40
+// all 200 must be delivered and certified.
 TEST_F(TestABRIK, ABRIK_regime_T1_identity) {
     int64_t n = 200;
     std::vector<double> s(n, 1.0);
     int64_t cert = run_regime("T1 identity", 200, n, 10, s, n, 40);
-    EXPECT_GT(cert, 0) << "must still deliver the triplets the Krylov space does support";
+    EXPECT_EQ(cert, 200) << "refilling must deliver every direction of the identity";
 }
 
 // The identity is the case where refilling is the only way past b triplets: a request of 2b

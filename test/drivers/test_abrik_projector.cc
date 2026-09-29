@@ -244,6 +244,8 @@ TEST_P(TestABRIKProjector, CompletedBudgetsReturnAccurateIndependentTriplets) {
     for (bool cqrrt : {false, true}) for (int budget : {3, 6, 12}) {
         SCOPED_TRACE(::testing::Message() << "cqrrt=" << cqrrt << ", budget=" << budget);
         RandLAPACK::ABRIK<double, RNG> solver(false, false, solver_tol);
+        // Pins prune-and-narrow; with refills on, budget 6 ends mid-cycle (see the refill test).
+        solver.refill_dead_columns = false;
         if (cqrrt) solver.qr_exp = RandLAPACK::ABRIKSubroutines::QR_explicit::cqrrt;
         solver.max_krylov_iters = budget;
         auto state = RandBLAS::RNGState<RNG>(0);
@@ -283,8 +285,8 @@ TEST_P(TestABRIKProjector, CompletedBudgetsReturnAccurateIndependentTriplets) {
 // Fails without refilling: prune-and-narrow stops at the first dead block with 6 triplets.
 TEST_P(TestABRIKProjector, RefillsReachBeyondTheStartingBlock) {
     struct Case { int budget; int64_t expected; };
-    // Derived analytically; to be verified by running once refilling exists. Budgets 5, 6, 9
-    // and 10 end mid-cycle, where the newest triplets have not converged, so they are absent.
+    // Derived analytically and confirmed by running, for both QR backends and both fixtures.
+    // Budgets 5, 6, 9 and 10 end mid-cycle, where the newest triplets have not converged.
     constexpr Case cases[] = {{4, 6}, {7, 12}, {8, 12}, {11, 18}, {12, 18}};
     for (bool cqrrt : {false, true}) for (const Case& c : cases) {
         SCOPED_TRACE(::testing::Message() << "cqrrt=" << cqrrt << ", budget=" << c.budget);

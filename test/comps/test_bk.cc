@@ -378,16 +378,22 @@ TEST_F(TestBK, NAME) {                                                          
     delete[] A;                                                                            \
 }
 
-// A zero matrix: norm_A == 0, so any threshold of the form tau*||A|| is zero and can never
-// fire. Today the absolute sqrt(eps) test catches this by accident; after Phase 2 only the
-// saturation guard will.
+// A zero matrix: norm_A == 0, so the relative threshold tau*||A|| is zero, and a block of exact
+// zeros still meets it. Iteration 1 is dead and refilled; iteration 2 finds the refills' images
+// dead, retracts them and stops rank_deficient. Measured 2 iterations (1 without refilling).
 BK_LIVENESS_BODY(BK_terminates_on_zero_matrix, /* A stays all zeros */)
 
-// The identity, padded to m x n: the Krylov space is span(Omega) and never grows.
+// The identity, padded to m x n: the Krylov space is span(Omega) and closes after one block.
+// Refilling reopens it and the run grows until the saturation guard fires. The X-side refills
+// are Gaussian in R^m, so they also carry components outside the range of A, which is how
+// end_rows reaches n + k. Measured 12 iterations, end_rows = 70, end_cols = n = 60 (2 iterations
+// without refilling).
 BK_LIVENESS_BODY(BK_terminates_on_identity,
     for (int64_t i = 0; i < std::min(m, n); ++i) A[i + i * m] = 1.0;)
 
-// Denormal scaling: ||A|| is representable but tau*||A|| underflows toward zero.
+// Denormal scaling: ||A|| is representable but tau*||A|| underflows toward zero, and so do the
+// squared entries the rank test sums, so the first block reads as dead. It is refilled, the next
+// iteration finds the refills dead too and retracts them: 2 iterations (1 without refilling).
 BK_LIVENESS_BODY(BK_terminates_on_denormal_scaled,
     RandLAPACK::gen::mat_gen_info<double> mi(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(mi, A, state);
@@ -811,10 +817,10 @@ TEST_F(TestBK, BK_matvec_count_on_early_termination) {
 // ---------------------------------------------------------------------------------------
 // Refilling dead block columns.
 //
-// When the rank test rejects columns of a new block, those slots are to be refilled with
-// random directions orthogonal to the basis, so the run continues where the Krylov space
-// closed early. The first and third tests below pin that behaviour and fail without it; the
-// second passes today and guards the implementation.
+// When the rank test rejects columns of a new block, those slots are refilled with random
+// directions orthogonal to the basis, so the run continues where the Krylov space closed early.
+// The first and third tests below pin that behaviour and fail without it; the second passed
+// before refilling existed and guards that refills never touch the operator.
 // ---------------------------------------------------------------------------------------
 
 /// The identity closes its Krylov space after one block, so every column past k must come
@@ -866,8 +872,8 @@ TEST_F(TestBK, BK_identity_refills_to_saturation) {
 }
 
 /// Refills are random draws and never touch the operator, so the padded identity must still
-/// cost one application per iteration plus the prologue. Passes today (the run stops at
-/// iteration 2) and guards the coming refill implementation.
+/// cost one application per iteration plus the prologue. Without refilling the run stops at
+/// iteration 2; with it the space is refilled and the whole budget of 8 is spent.
 TEST_F(TestBK, BK_refill_matvec_accounting) {
     int64_t m = 400, n = 200, k = 10;
     double* A = new double[m * n]();

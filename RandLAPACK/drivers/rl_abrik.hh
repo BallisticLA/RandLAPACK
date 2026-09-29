@@ -112,6 +112,14 @@ class ABRIK {
         /// CQRRT as its eps (rl_bk.hh, CQRRT.emplace(false, tol)), so overloading it again
         /// would make the rank decision move whenever convergence was retuned.
         T tau;
+        /// Forwarded to BK::refill_dead_columns: refill the rejected columns of a narrowed or
+        /// dead block with random directions, probed by the next block. Default true; false
+        /// restores prune-and-narrow, where a dead block ends the run.
+        bool refill_dead_columns;
+        /// Read back from BK after every call and resume: whether a probe has switched
+        /// refilling off, and how many blocks received refills. Diagnostics.
+        bool refills_exhausted;
+        int64_t refilled_blocks;
 
         ABRIK(
             bool verb,
@@ -130,6 +138,9 @@ class ABRIK {
             assessed_rank = 0;
             termination_reason = ABRIKTermination::not_adaptive;
             tau = 0;
+            refill_dead_columns = true;
+            refills_exhausted = false;
+            refilled_blocks = 0;
         }
 
         /// Computes an SVD of the form:
@@ -251,6 +262,7 @@ class ABRIK {
                 bk_obj.verbose           = this->verbose;
                 bk_obj.timing            = this->timing;
                 bk_obj.tau               = this->tau;
+                bk_obj.refill_dead_columns = this->refill_dead_columns;
 
                 // Call BK to build Krylov subspaces and band matrices
                 T* X_ev = nullptr;
@@ -302,8 +314,10 @@ class ABRIK {
                                          end_rows, end_cols, final_iter_is_odd, state);
 
                 // Read back BK outputs
-                this->num_krylov_iters = bk_obj.num_krylov_iters;
-                this->norm_R_end       = bk_obj.norm_R_end;
+                this->num_krylov_iters  = bk_obj.num_krylov_iters;
+                this->norm_R_end        = bk_obj.norm_R_end;
+                this->refills_exhausted = bk_obj.refills_exhausted;
+                this->refilled_blocks   = bk_obj.refilled_blocks;
 
                 if (status != 0) return status;
 
@@ -394,9 +408,11 @@ class ABRIK {
                     // convergence. The two cases look identical here but are not: the
                     // subspace may simply not have grown yet (benign, keep going), or it
                     // may be unable to grow at all, in which case the request can never be
-                    // met and reporting success would be a silent under-delivery. The
-                    // identity matrix is the extreme case: its Krylov space is span(Omega)
-                    // and never grows, so a request for any rank above b is unsatisfiable.
+                    // met and reporting success would be a silent under-delivery. A Krylov
+                    // space that merely closes early (the identity, I + P) is refilled and
+                    // keeps growing, so short of exhausting the Frobenius content, this now
+                    // arises only when a probe has switched refilling off, the basis has run
+                    // out of room, or refill_dead_columns is false.
                     bool short_of_request = (k_assess < this->assessed_rank);
                     bool cannot_grow =
                         bk_obj.termination_reason == BKTermination::norm_converged ||
@@ -475,8 +491,10 @@ class ABRIK {
                     status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
                                            end_rows, end_cols, final_iter_is_odd, state);
 
-                    this->num_krylov_iters = bk_obj.num_krylov_iters;
-                    this->norm_R_end       = bk_obj.norm_R_end;
+                    this->num_krylov_iters  = bk_obj.num_krylov_iters;
+                    this->norm_R_end        = bk_obj.norm_R_end;
+                    this->refills_exhausted = bk_obj.refills_exhausted;
+                    this->refilled_blocks   = bk_obj.refilled_blocks;
 
                     if (status != 0) {
                         // BK resume failed (realloc failure); BK already cleaned up its buffers.
