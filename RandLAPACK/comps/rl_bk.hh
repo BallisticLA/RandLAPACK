@@ -344,7 +344,8 @@ class BK {
                 int64_t iter;
                 // ACCEPTED columns of each basis, refills included. They advance only after
                 // the rank test of the block they count, never as a reservation, and fall back
-                // only when a probe retracts dead refills (the last columns of a block).
+                // only when a probe, or a failed CQRRT factorization, retracts the newest block's
+                // refills (the last columns of that block).
                 // The old curr_X_cols/curr_Y_cols were pre-advanced before the block they
                 // reserved was written, so they meant "accepted plus pending" and flipped
                 // meaning twice per iteration cycle. At exit, end_rows and end_cols are these
