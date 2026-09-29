@@ -807,3 +807,100 @@ TEST_F(TestBK, BK_matvec_count_on_early_termination) {
     check_matvec_accounting(m, n, k, 40, A, "rank25 early-exit");
     delete[] A;
 }
+
+// ---------------------------------------------------------------------------------------
+// Refilling dead block columns.
+//
+// When the rank test rejects columns of a new block, those slots are to be refilled with
+// random directions orthogonal to the basis, so the run continues where the Krylov space
+// closed early. The first and third tests below pin that behaviour and fail without it; the
+// second passes today and guards the implementation.
+// ---------------------------------------------------------------------------------------
+
+/// The identity closes its Krylov space after one block, so every column past k must come
+/// from a refill. Fails without refilling: prune-and-narrow stops at iteration 2 with 10 columns.
+TEST_F(TestBK, BK_identity_refills_to_saturation) {
+    const int64_t m = 200, n = 200, k = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+    std::vector<double> A(m * n, 0.0);
+    for (int64_t i = 0; i < n; ++i) A[i + i * m] = 1.0;
+
+    BKOut<double> out;
+    RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+    bk.max_krylov_iters = 40;
+    ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                      out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+    printf("REFILL identity iters=%d reason=%d end_rows=%ld end_cols=%ld odd=%d\n",
+           bk.num_krylov_iters, (int)bk.termination_reason,
+           (long)out.end_rows, (long)out.end_cols, (int)out.final_iter_is_odd);
+    fflush(stdout);
+
+    EXPECT_EQ(out.end_rows, (int64_t) 200);
+    EXPECT_EQ(out.end_cols, (int64_t) 200);
+    // Whether norm_R clears sqrt(1 - tol^2)||A||_F at iteration 39 is decided by rounding.
+    const auto reason = bk.termination_reason;
+    EXPECT_TRUE(reason == RandLAPACK::BKTermination::saturated ||
+                reason == RandLAPACK::BKTermination::norm_converged)
+        << "termination_reason=" << (int)reason;
+    EXPECT_TRUE(bk.num_krylov_iters == 39 || bk.num_krylov_iters == 40)
+        << "num_krylov_iters=" << bk.num_krylov_iters;
+
+    // orth_err divides by sqrt(cols); the bound here is on the unnormalized ||Q^T Q - I||_F.
+    EXPECT_LT(orth_err<double>(out.X_ev, m, out.end_rows) * std::sqrt((double)out.end_rows), 1e-13);
+    EXPECT_LT(orth_err<double>(out.Y_od, n, out.end_cols) * std::sqrt((double)out.end_cols), 1e-13);
+
+    check_band_identity<double>(m, n, k, A.data(), out, 1e-10);
+
+    // X' I Y is orthogonal when both bases span R^n, so every singular value of the band is 1.
+    const int64_t er = out.end_rows, ec = out.end_cols;
+    const double* band = out.final_iter_is_odd ? out.R : out.S;
+    const int64_t ldb = out.final_iter_is_odd ? n : (n + k);
+    std::vector<double> band_cpy(er * ec), sv(std::min(er, ec));
+    lapack::lacpy(MatrixType::General, er, ec, band, ldb, band_cpy.data(), er);
+    ASSERT_EQ(lapack::gesdd(Job::NoVec, er, ec, band_cpy.data(), er, sv.data(),
+                            static_cast<double*>(nullptr), 1,
+                            static_cast<double*>(nullptr), 1), 0);
+    for (size_t i = 0; i < sv.size(); ++i)
+        EXPECT_NEAR(sv[i], 1.0, 1e-13) << "band singular value " << i;
+}
+
+/// Refills are random draws and never touch the operator, so the padded identity must still
+/// cost one application per iteration plus the prologue. Passes today (the run stops at
+/// iteration 2) and guards the coming refill implementation.
+TEST_F(TestBK, BK_refill_matvec_accounting) {
+    int64_t m = 400, n = 200, k = 10;
+    double* A = new double[m * n]();
+    for (int64_t i = 0; i < n; ++i) A[i + i * m] = 1.0;
+    check_matvec_accounting(m, n, k, 8, A, "identity refill budget8");
+    delete[] A;
+}
+
+/// A = [I_20 0] has a 20-dimensional range, so the left basis must stop at 20 columns: the
+/// room for X-side refills is min(m, n) - x_cols, never n - x_cols. Fails without refilling,
+/// stopping at iteration 2 with 10 columns, because A A^T = I closes the space after one block.
+TEST_F(TestBK, BK_refill_room_uses_min_of_m_and_n) {
+    const int64_t m = 20, n = 40, k = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+    std::vector<double> A(m * n, 0.0);
+    for (int64_t i = 0; i < m; ++i) A[i + i * m] = 1.0;
+
+    BKOut<double> out;
+    RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+    bk.max_krylov_iters = 40;
+    ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                      out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+    printf("REFILL room iters=%d reason=%d end_rows=%ld end_cols=%ld odd=%d\n",
+           bk.num_krylov_iters, (int)bk.termination_reason,
+           (long)out.end_rows, (long)out.end_cols, (int)out.final_iter_is_odd);
+    fflush(stdout);
+
+    EXPECT_EQ(out.end_rows, (int64_t) 20);
+    EXPECT_EQ(out.end_cols, (int64_t) 20);
+    EXPECT_LT(orth_err<double>(out.X_ev, m, out.end_rows) * std::sqrt((double)out.end_rows), 1e-13);
+    const auto reason = bk.termination_reason;
+    EXPECT_TRUE(reason == RandLAPACK::BKTermination::saturated ||
+                reason == RandLAPACK::BKTermination::rank_deficient)
+        << "termination_reason=" << (int)reason;
+}

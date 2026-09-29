@@ -709,6 +709,64 @@ TEST_F(TestABRIK, ABRIK_regime_T1_identity) {
     EXPECT_GT(cert, 0) << "must still deliver the triplets the Krylov space does support";
 }
 
+// The identity is the case where refilling is the only way past b triplets: a request of 2b
+// and the full dimension must both be delivered, unit and certified. Fails without refilling:
+// adaptive reports under_delivered with 10 triplets, and non-adaptive returns 10.
+TEST_F(TestABRIK, ABRIK_identity_delivers_the_request_with_refills) {
+    const int64_t n = 200, b = 10;
+    const double tol = 1e-12;
+    for (auto qr : {Subroutines::QR_explicit::geqrf_ungqr,
+                    Subroutines::QR_explicit::cqrrt}) {
+        SCOPED_TRACE(qr == Subroutines::QR_explicit::cqrrt ? "cqrrt" : "geqrf_ungqr");
+
+        // Adaptive, budget 4: the derived request is ceil(4 / 2) * b = 20 triplets.
+        {
+            ABRIKTestData<double> data(n, n);
+            for (int64_t i = 0; i < n; ++i) data.A[i + n * i] = 1.0;
+            lapack::lacpy(MatrixType::General, n, n, data.A, n, data.A_buff, n);
+            auto state = RandBLAS::RNGState();
+            RandLAPACK::ABRIK<double, r123::Philox4x32> solver(false, false, tol);
+            solver.adaptive = true;
+            solver.qr_exp = qr;
+            solver.max_krylov_iters = 4;
+            ASSERT_EQ(solver.call(n, n, data.A, n, b, data.U, data.V, data.Sigma, state), 0);
+            characterize(solver);
+
+            const int64_t k = solver.singular_triplets_found;
+            EXPECT_EQ(solver.assessed_rank, 2 * b);
+            EXPECT_EQ(solver.termination_reason, RandLAPACK::ABRIKTermination::converged)
+                << "reason=" << termination_name(solver.termination_reason);
+            EXPECT_EQ(solver.num_krylov_iters, 4);
+            EXPECT_GE(k, 2 * b);
+            for (int64_t i = 0; i < std::min(k, 2 * b); ++i)
+                EXPECT_NEAR(data.Sigma[i], 1.0, 1e-13) << "Sigma[" << i << "]";
+            EXPECT_EQ(certified_triplets<double>(data, k, 1e-12), k);
+            // orthogonality_error divides by sqrt(k); the bound is on ||Q^T Q - I||_F itself.
+            EXPECT_LT(RandLAPACK::testing::orthogonality_error<double>(data.U, n, k)
+                      * std::sqrt((double)k), 1e-13);
+            EXPECT_LT(RandLAPACK::testing::orthogonality_error<double>(data.V, n, k)
+                      * std::sqrt((double)k), 1e-13);
+        }
+
+        // Non-adaptive, budget 40: all of R^200.
+        {
+            ABRIKTestData<double> data(n, n);
+            for (int64_t i = 0; i < n; ++i) data.A[i + n * i] = 1.0;
+            lapack::lacpy(MatrixType::General, n, n, data.A, n, data.A_buff, n);
+            auto state = RandBLAS::RNGState();
+            RandLAPACK::ABRIK<double, r123::Philox4x32> solver(false, false, tol);
+            solver.qr_exp = qr;
+            solver.max_krylov_iters = 40;
+            ASSERT_EQ(solver.call(n, n, data.A, n, b, data.U, data.V, data.Sigma, state), 0);
+            characterize(solver);
+
+            const int64_t k = solver.singular_triplets_found;
+            EXPECT_EQ(k, n);
+            EXPECT_EQ(certified_triplets<double>(data, k, 1e-12), k);
+        }
+    }
+}
+
 // How big is the T2 shortfall, and is it systematic?
 //
 // T2 is the one regime still short (20 claimed of 25 available). Before deciding whether

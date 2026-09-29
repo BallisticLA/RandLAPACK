@@ -277,6 +277,46 @@ TEST_P(TestABRIKProjector, CompletedBudgetsReturnAccurateIndependentTriplets) {
     }
 }
 
+// Each refill of a dead block restarts the process from a fresh random block, and on I + P
+// every cycle closes a new six-dimensional invariant space in four iterations. Budgets 4, 8
+// and 12 end right after a refill whose unprobed columns are excluded from the count.
+// Fails without refilling: prune-and-narrow stops at the first dead block with 6 triplets.
+TEST_P(TestABRIKProjector, RefillsReachBeyondTheStartingBlock) {
+    struct Case { int budget; int64_t expected; };
+    // Derived analytically; to be verified by running once refilling exists. Budgets 5, 6, 9
+    // and 10 end mid-cycle, where the newest triplets have not converged, so they are absent.
+    constexpr Case cases[] = {{4, 6}, {7, 12}, {8, 12}, {11, 18}, {12, 18}};
+    for (bool cqrrt : {false, true}) for (const Case& c : cases) {
+        SCOPED_TRACE(::testing::Message() << "cqrrt=" << cqrrt << ", budget=" << c.budget);
+        RandLAPACK::ABRIK<double, RNG> solver(false, false, solver_tol);
+        if (cqrrt) solver.qr_exp = RandLAPACK::ABRIKSubroutines::QR_explicit::cqrrt;
+        solver.max_krylov_iters = c.budget;
+        auto state = RandBLAS::RNGState<RNG>(0);
+        Vec input = a;
+        ABRIKOutput out;
+        ASSERT_EQ(solver.call(n, n, input.data(), n, block,
+                              out.u, out.v, out.sigma, state), 0);
+        const auto count = solver.singular_triplets_found;
+        EXPECT_EQ(count, c.expected);
+        if (c.budget >= 7) { EXPECT_GT(count, 2 * block); }
+        ASSERT_GE(count, block);
+        const int k = static_cast<int>(count);
+        ASSERT_TRUE(all_finite(out.u, n * k));
+        ASSERT_TRUE(all_finite(out.v, n * k));
+        ASSERT_TRUE(all_finite(out.sigma, k));
+        EXPECT_TRUE(std::is_sorted(out.sigma, out.sigma + k, std::greater<double>()));
+        EXPECT_LT(orthogonality_error(out.u, n, k), check_tol);
+        EXPECT_LT(orthogonality_error(out.v, n, k), check_tol);
+        const auto residuals = triplet_residuals(a, out.u, out.v, out.sigma, k);
+        for (int j = 0; j < k; ++j) {
+            SCOPED_TRACE(::testing::Message() << "triplet=" << j);
+            EXPECT_LT(residuals[j].left, check_tol);
+            EXPECT_LT(residuals[j].right, check_tol);
+        }
+        for (int j = 0; j < block; ++j) EXPECT_NEAR(out.sigma[j], 2.0, check_tol);
+    }
+}
+
 INSTANTIATE_TEST_SUITE_P(CoordinateAndHadamard, TestABRIKProjector,
                          ::testing::Bool());
 } // namespace
