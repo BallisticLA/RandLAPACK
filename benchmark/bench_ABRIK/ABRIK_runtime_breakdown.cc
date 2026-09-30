@@ -112,8 +112,8 @@ static int run_benchmark(int argc, char* argv[]) {
     if (!outfile) return 1;
 
     std::ostringstream oss_b, oss_m;
-    for (auto v : block_sizes) oss_b << v << " ";
-    for (auto v : matmul_counts) oss_m << v << " ";
+    for (auto v : block_sizes) oss_b << v << ", ";   // comma list, as the readers split it
+    for (auto v : matmul_counts) oss_m << v << ", ";
 
     outfile << "# ABRIK runtime breakdown\n"
             << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
@@ -122,7 +122,8 @@ static int run_benchmark(int argc, char* argv[]) {
             << "# Input size: " << m << " x " << n << "\n"
             << "# Format: " << (mat.is_sparse ? "sparse" : "dense") << "\n"
             << "# Block sizes: " << oss_b.str() << "\n"
-            << "# Matmul counts: " << oss_m.str() << " (max_krylov_iters; the initial block is one more application)\n"
+            << "# Matmul counts: " << oss_m.str() << "\n"
+            << "# num_matmuls is max_krylov_iters; the initial block is one more application\n"
             << "# Runs per configuration: " << num_runs << " (same sketch every run)\n"
             << "# ABRIK QR: " << (use_cqrrt ? "CQRRT" : "Householder") << "\n"
             << "# Tolerance: " << tol << "\n"

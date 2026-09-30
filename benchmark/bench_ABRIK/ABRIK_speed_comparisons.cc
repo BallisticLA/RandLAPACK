@@ -298,7 +298,7 @@ static int run_benchmark(int argc, char* argv[]) {
     outfile << std::setprecision(10);
 
     std::ostringstream oss_b;
-    for (auto v : block_sizes) oss_b << v << " ";
+    for (auto v : block_sizes) oss_b << v << ", ";   // comma list, as the readers split it
 
     outfile << "# ABRIK speed comparisons: residual against matvec cost\n"
             << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
