@@ -28,19 +28,19 @@ namespace RandLAPACK {
 ///
 /// This follows the same pattern as QB (comps) + RSVD (driver).
 ///
-/// Deficient blocks and refills. After each block's QR, the relative rank test
-/// util::block_numerical_rank decides how much of the block to keep: the shortest leading
-/// prefix such that the rest of the triangular factor has Frobenius norm at most
-/// tau*||A||_F. The rejected columns' entries in the diagonal band block are zeroed. With
-/// refill_dead_columns on (the default), the rejected slots of the new basis block are then
-/// refilled with Gaussian columns, projected twice against every accepted column on that side
-/// and the block's kept prefix, and orthonormalized by Householder QR. The run thus continues
-/// where the Krylov space closed early (the identity, a singular value repeated more than k
-/// times, I + P with P a projector) instead of stopping short. Refills never touch the
-/// operator, so each iteration still applies A exactly once. The room is n for the right
-/// basis and min(m, n) for the left. On an m > n input the left refills are Gaussian in R^m
-/// and may carry directions outside the range of A, so the left basis can pass n columns
-/// before the saturation guard ends the run; the band argument below is unaffected.
+/// Deficient blocks and refills. After each block's QR inside the loop (the prologue block is
+/// accepted as is), the relative rank test util::block_numerical_rank decides how much of the
+/// block to keep: the shortest leading prefix such that the rest of the triangular factor has
+/// Frobenius norm at most tau*||A||_F. The rejected columns' entries in the diagonal band
+/// block are zeroed. With refill_dead_columns on (the default), the rejected slots of the new
+/// basis block are then refilled with Gaussian columns, projected twice against every accepted
+/// column on that side and the block's kept prefix, and orthonormalized by Householder QR. The
+/// run thus continues where the Krylov space closed early (the identity, a singular value
+/// repeated more than k times, I + P with P a projector) instead of stopping short. Refills
+/// never touch the operator, so each iteration still applies A exactly once. The room is n for
+/// the right basis and min(m, n) for the left. On an m > n input the left refills are Gaussian
+/// in R^m and may carry directions outside the range of A, so the left basis can pass n
+/// columns before the saturation guard ends the run; the band argument below is unaffected.
 ///
 /// The probe. The next block on the other side is built from the refilled block, so it
 /// measures the refills' images: the trailing rows (odd iteration) or columns (even) of its
@@ -115,7 +115,9 @@ class BK {
         /// reconstructed from it.
         int64_t final_block_width;
         /// Number of blocks the rank criterion narrowed over the run. Lets a test assert
-        /// that the mechanism FIRED, not merely that the answer came out right.
+        /// that the mechanism FIRED, not merely that the answer came out right. With refills
+        /// on, every dead block that is refilled counts too (19 on the 200 by 200 identity at
+        /// k = 10).
         int64_t narrowed_blocks;
         /// Resume state. Everything the loop needs to pick up where it left off, saved on
         /// exit and restored by resume(). Previously the resume path reconstructed all of
@@ -1186,8 +1188,8 @@ class BK {
                     //
                     // This check must come BEFORE ++iter. At every exit `iter` is the number
                     // of the last iteration attempted, which num_krylov_iters reports and
-                    // final_iter_is_odd reads to pick the band: this exit and the
-                    // max_iters_reached exit below break before the increment, and the
+                    // final_iter_is_odd reads to pick the band: this exit and the saturation
+                    // and max_iters_reached exits below break before the increment, and the
                     // in-branch breaks above (a dead block, a failed CQRRT) break inside
                     // iteration iter, so that attempt counts; it has already written its
                     // off-diagonal strip of the band (R_i or S_i). Breaking after the

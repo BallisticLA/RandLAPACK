@@ -181,8 +181,8 @@ class ABRIK {
         ///     vectors. singular_triplets_found is bounded above by
         ///     ((num_krylov_iters + 1) / 2) * k, with equality only when every right block is
         ///     reported at full width k. Columns the rank criterion rejected, refills a probe
-        ///     retracted, and refills no iteration has probed yet are not reported. It is a
-        ///     bound, not a width.
+        ///     retracted, refills retracted by a failed CQRRT factorization, and refills no
+        ///     iteration has probed yet are not reported. It is a bound, not a width.
         ///
         /// @param[out] V
         ///     Stores an n by singular_triplets_found orthonormal matrix of right singular

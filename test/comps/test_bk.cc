@@ -920,6 +920,10 @@ TEST_F(TestBK, BK_refill_matvec_accounting) {
 /// A = [I_20 0] has a 20-dimensional range, so the left basis must stop at 20 columns: the
 /// room for X-side refills is min(m, n) - x_cols, never n - x_cols. Fails without refilling,
 /// stopping at iteration 2 with 10 columns, because A A^T = I closes the space after one block.
+/// The end counts alone do not pin the bound. With room from n, iteration 4 would refill 10
+/// junk columns, iteration 5 would probe them dead and retract them, and the run would end
+/// rank_deficient at iteration 5 with the same end_rows = end_cols = 20; saturated at
+/// iteration 4 is what separates the two.
 TEST_F(TestBK, BK_refill_room_uses_min_of_m_and_n) {
     const int64_t m = 20, n = 40, k = 10;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -940,10 +944,8 @@ TEST_F(TestBK, BK_refill_room_uses_min_of_m_and_n) {
     EXPECT_EQ(out.end_rows, (int64_t) 20);
     EXPECT_EQ(out.end_cols, (int64_t) 20);
     EXPECT_LT(orth_err<double>(out.X_ev, m, out.end_rows) * std::sqrt((double)out.end_rows), 1e-13);
-    const auto reason = bk.termination_reason;
-    EXPECT_TRUE(reason == RandLAPACK::BKTermination::saturated ||
-                reason == RandLAPACK::BKTermination::rank_deficient)
-        << "termination_reason=" << (int)reason;
+    EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::saturated);
+    EXPECT_EQ(bk.num_krylov_iters, 4);
 }
 
 /// Exact rank 2 (singular values 1 and 1e-10) at block size 10. The first odd block keeps 2
@@ -995,12 +997,45 @@ TEST_F(TestBK, BK_exact_rank_two_refills_once_then_probe_switches_off) {
     EXPECT_LT(orth_err<double>(out.Y_od, n, 2) * std::sqrt(2.0), 1e-13);
 }
 
+/// The odd-parity exit with pending refills. On the matrix above, a budget of 1 stops right
+/// after the Y block keeps 2 columns and refills 8, before any iteration has probed them. The
+/// refills stay in y_cols and in the resume state, but end_cols must report only the 2 probed
+/// columns: end_cols = y_cols - pending_refills after an odd final iteration.
+TEST_F(TestBK, BK_odd_budget_exit_does_not_report_pending_refills) {
+    const int64_t m = 200, n = 200, k = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n, 0.0);
+    build_from_spectrum(m, n, {1.0, 1e-10}, A.data());
+
+    auto state = RandBLAS::RNGState();
+    BKOut<double> out;
+    RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+    bk.max_krylov_iters = 1;
+    ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                      out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+    printf("RANK2-BUDGET1 iters=%d reason=%d refilled=%ld pending=%ld end_rows=%ld end_cols=%ld odd=%d\n",
+           bk.num_krylov_iters, (int)bk.termination_reason, (long)bk.refilled_blocks,
+           (long)bk.saved_pending_refills, (long)out.end_rows, (long)out.end_cols,
+           (int)out.final_iter_is_odd);
+    fflush(stdout);
+
+    EXPECT_EQ(bk.num_krylov_iters, 1);
+    EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::max_iters_reached);
+    EXPECT_TRUE(out.final_iter_is_odd);
+    EXPECT_EQ(bk.refilled_blocks, (int64_t) 1);
+    EXPECT_EQ(bk.saved_pending_refills, (int64_t) 8) << "the exit must be taken with refills pending";
+    EXPECT_EQ(out.end_rows, (int64_t) 10);
+    EXPECT_EQ(out.end_cols, (int64_t) 2) << "the 8 unprobed Y refills must not be reported";
+}
+
 /// Resume across a refill. The checkpoint must hold refills that no iteration has probed yet,
 /// so that resume() restores and probes them exactly as the single shot does.
 /// Rank 25 (the matrix of BK_resume_equals_single_shot_across_a_narrowing): iteration 4 keeps 5
 /// X columns and refills 5, and iteration 5 probes them dead, which exhausts refilling.
 /// The identity: every even block is entirely old and refilled in full, so the even checkpoint
 /// at 4 holds k pending refills; they are never probed dead, so refilling stays on.
+/// Exact rank 2 (the matrix of BK_exact_rank_two_refills_once_then_probe_switches_off): the odd
+/// checkpoint at 1 holds the 8 Y-side refills, which iteration 2 probes dead and retracts.
 TEST_F(TestBK, BK_resume_equals_single_shot_across_a_refill) {
     {
         SCOPED_TRACE("rank 25");
@@ -1033,6 +1068,22 @@ TEST_F(TestBK, BK_resume_equals_single_shot_across_a_refill) {
         EXPECT_GE(ck.refilled_blocks, (int64_t) 1);
         EXPECT_EQ(ck.saved_pending_refills, k) << "an even checkpoint must hold the refilled X block";
         EXPECT_FALSE(ck.refills_exhausted) << "identity refills are confirmed at full width";
+    }
+    {
+        SCOPED_TRACE("rank 2, odd checkpoint");
+        const int64_t m = 200, n = 200, k = 10;
+        std::vector<double> A(m * n, 0.0);
+        build_from_spectrum(m, n, {1.0, 1e-10}, A.data());
+        ResumeCheckpoint ck;
+        check_resume_equals_single_shot(m, n, k, /*p1=*/1, /*p=*/2, A.data(),
+                                        /*expect_narrowed=*/true, &ck);
+        if (HasFatalFailure()) return;
+        printf("RESUME-REFILL rank2 refilled=%ld pending=%ld exhausted_after=%d\n",
+               (long)ck.refilled_blocks, (long)ck.saved_pending_refills, (int)ck.refills_exhausted);
+        fflush(stdout);
+        EXPECT_EQ(ck.refilled_blocks, (int64_t) 1);
+        EXPECT_EQ(ck.saved_pending_refills, (int64_t) 8) << "an odd checkpoint must hold the Y refills";
+        EXPECT_TRUE(ck.refills_exhausted) << "iteration 2 must probe the 8 refills and find them dead";
     }
 }
 
