@@ -6,10 +6,10 @@ speed comparisons run against at each matvec checkpoint.
 Spectra runs implicitly restarted Lanczos on A'A (AA' when m <= n):
   - nev singular triplets are requested (the target rank);
   - ncv is the Krylov subspace dimension, the caller's choice (the speed comparisons use
-    min(2 nev + 1, n - 1), reduced by effective_ncv for small budgets);
+    min(2 nev + 1, min(m, n) - 1), reduced by effective_ncv for small budgets);
   - max_restarts bounds the restarts;
-  - the Lanczos iteration applies A'A about ncv + max_restarts (ncv - nev) times, and each
-    application is two matvecs with A. num_operations() reports the count actually made.
+  - the Lanczos iteration applies A'A about ncv + 1 + max_restarts (ncv - nev) times, and
+    each application is two matvecs with A. num_operations() reports the count actually made.
 */
 
 #ifndef BUDGETED_SVD_SOLVER_HH

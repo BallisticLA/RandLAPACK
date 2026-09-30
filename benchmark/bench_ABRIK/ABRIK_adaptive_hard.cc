@@ -10,8 +10,9 @@ p = 2).
 Two modes run per invocation, and they answer different questions.
 
   sweep     Drive the restarts externally: independent non-adaptive calls at increasing
-            Krylov-iteration budgets, the residual evaluated after each. This is the full
-            residual-versus-work curve and needs no cooperation from the driver.
+            Krylov-iteration budgets, the residual evaluated after each, up to the first
+            budget that certifies tol. This is the residual-versus-work curve and needs no
+            cooperation from the driver.
 
   adaptive  One call with adaptive = true, the driver growing its own budget by
             adaptive_growth until its certificate over the leading target_rank triplets

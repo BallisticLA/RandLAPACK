@@ -22,17 +22,19 @@ Output CSV (long format, one data point per row):
                            budget only when BK stopped before the checkpoint
                    Spectra twice its A'A (or AA') applications in the Lanczos iteration;
                            recovering the second set of singular vectors is not counted
-                   RSVD    metered exactly: two power passes, the range finder and B = Q'A
-                           over a sketch of budget/2 columns, about twice the budget
+                   RSVD    metered: two power passes, the range finder and B = Q'A over a
+                           sketch of min(budget/2, min(m, n)) columns, about twice the
+                           budget while that is below twice the smaller dimension
                    GESDD   0, a direct factorization
   err            = sqrt(||A V S^{-1} - U||_F^2 + ||A' U S^{-1} - V||_F^2) over the leading
                    k_res triplets
   elapsed_us     = ABRIK: cumulative BK time plus the SVD extraction at this and every
                    earlier checkpoint, residual evaluation excluded;
-                   Spectra, RSVD, GESDD: wall clock of that one call
+                   Spectra: its Lanczos iteration, forming the singular vectors excluded;
+                   RSVD, GESDD: wall clock of that one call
   k_res          = triplets the residual covers, min(target_rank, triplets available)
   status         = ABRIK: why BK stopped at the checkpoint (budget, norm_converged,
-                   rank_deficient, saturated); RSVD: done or failed; Spectra, GESDD: done
+                   rank_deficient, saturated); RSVD and GESDD: done or failed; Spectra: done
 
 Usage:
   ABRIK_speed_comparisons <precision> <output_dir> <input_file> <target_rank> <run_gesdd>
@@ -258,20 +260,22 @@ static void run_with_budget(
         // GESDD: dense input only, once; deterministic, so reported under run 0.
         if (run == 0 && gesdd_input) {
             printf("\n=== GESDD ===\n");
+            // Economy shapes: U is m x r, S has r entries, V^T is r x n, r = min(m, n).
+            int64_t r = std::min(m, n);
             T* A_svd = new T[m * n];
             lapack::lacpy(MatrixType::General, m, n, gesdd_input, m, A_svd, m);
-            T* U_g  = new T[m * n];
-            T* S_g  = new T[n];
-            T* VT_g = new T[n * n];
-            T* V_g  = new T[n * n];
+            T* U_g  = new T[m * r];
+            T* S_g  = new T[r];
+            T* VT_g = new T[r * n];
+            T* V_g  = new T[n * r];
 
             auto t0 = steady_clock::now();
-            int64_t info = lapack::gesdd(Job::SomeVec, m, n, A_svd, m, S_g, U_g, m, VT_g, n);
+            int64_t info = lapack::gesdd(Job::SomeVec, m, n, A_svd, m, S_g, U_g, m, VT_g, r);
             long dur_svd = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
             T err_SVD = std::numeric_limits<T>::infinity();
             if (info == 0) {
-                RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
+                RandLAPACK::util::transposition(r, n, VT_g, r, V_g, n, 0);
                 err_SVD = RandLAPACK::linops::svd_residual<T>(A_op, U_g, V_g, S_g, target_rank);
             } else {
                 fprintf(stderr, "GESDD failed with info %ld; err recorded as inf\n", (long) info);
@@ -319,7 +323,8 @@ static int run_benchmark(int argc, char* argv[]) {
     auto mat = BenchIO::load_matrix<T>(input_path, sub_ratio);
     int64_t m = mat.m;
     int64_t n = mat.n;
-    // Spectra needs target_rank < ncv <= min(m, n) - 1.
+    // Spectra needs target_rank < ncv <= min(m, n); this driver caps ncv at min(m, n) - 1,
+    // so target_rank + 2 <= min(m, n).
     if (target_rank + 2 > std::min(m, n)) {
         std::cerr << "Error: target_rank " << target_rank << " is too large for a "
                   << m << " x " << n << " input (needs target_rank + 2 <= min(m, n))\n";
@@ -346,11 +351,11 @@ static int run_benchmark(int argc, char* argv[]) {
             << "# Num runs: " << num_runs << " (ABRIK and RSVD seeds 0..num_runs-1; Spectra is deterministic)\n"
             << "# Block sizes: " << oss_b.str() << "\n"
             << "# ABRIK QR: " << (use_cqrrt ? "CQRRT" : "Householder") << "\n"
-            << "# RSVD: largest block size, rank budget/2, operator applications metered\n"
+            << "# RSVD: largest block size, rank min(budget/2, min(m, n)), operator applications metered\n"
             << "# Tolerance: " << tol << "\n"
             << "# total_matvecs = checkpoint budget (ABRIK: rounded down to whole blocks); actual_matvecs = ABRIK b_sz * iterations done (initial block not counted), Spectra 2 * A'A applications, RSVD metered\n"
             << "# err = sqrt(||A V S^-1 - U||_F^2 + ||A' U S^-1 - V||_F^2) over the leading k_res triplets\n"
-            << "# elapsed_us: ABRIK cumulative BK + SVD extraction (residual excluded); others wall clock of the call\n"
+            << "# elapsed_us: ABRIK cumulative BK + SVD extraction (residual excluded); Spectra its Lanczos iteration; RSVD and GESDD wall clock of the call\n"
             << "# GESDD runs once on dense input, reported under run 0\n"
             << "run, method, b_sz, total_matvecs, actual_matvecs, err, elapsed_us, k_res, status\n";
     outfile.flush();

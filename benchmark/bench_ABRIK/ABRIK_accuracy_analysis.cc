@@ -14,8 +14,11 @@ triplet (_abrik) and for GESDD's own triplet (_gesdd):
             so its level cannot be read as digits of accuracy.
   res_1s    ||A v_i - s_i u_i|| / s_i: the one-sided normalized residual of Tomas,
             Quintana-Orti and Anzt (doi:10.1177/10943420231179699, Section 4.1.1). ABRIK
-            forms u_i from A v_i, so this side is accurate by construction and the metric
-            can read machine precision on a triplet whose v_i is wrong.
+            forms one side of each triplet from the other: u_i from A v_i after an even
+            number of iterations, v_i from A' u_i after an odd number. That side's residual
+            is accurate by construction, so a one-sided metric that tests it can read
+            machine precision on a triplet whose other vector is wrong. res_1s tests the
+            left equation, the constructed side for the even budgets the campaigns use.
 
 and against GESDD's triplet:
 
@@ -26,7 +29,8 @@ and against GESDD's triplet:
             sqrt(eps) by cancellation once the vectors nearly coincide.
 
 The GESDD residual columns do not depend on the run; they are a baseline for the metrics
-themselves, of order eps * s_1 / s_i for a backward-stable SVD.
+themselves: for a backward-stable SVD, res_err_gesdd and res_1s_gesdd are of order
+eps * s_1 / s_i and res_sw_gesdd of order eps * s_1.
 
 Usage:
   ABRIK_accuracy_analysis <precision> <output_dir> <input_matrix_path> <m> <n> <b_sz>
@@ -41,8 +45,8 @@ Usage:
                 is b_sz * num_matmuls, the initial block A*Omega not counted.
   num_runs    = independent ABRIK runs, RNG seeds 0..num_runs-1
 
-ABRIK returns at most ceil(num_matmuls / 2) * b_sz triplets per run, fewer when its rank
-criterion narrows a block.
+ABRIK returns at most ceil(num_matmuls / 2) * b_sz triplets per run, fewer when BK stops
+early or its rank criterion narrows a block.
 
 Output CSV: '#' metadata lines, the column header
   run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, res_sw_abrik, res_sw_gesdd,
@@ -50,8 +54,9 @@ Output CSV: '#' metadata lines, the column header
 then one row per (run, triplet). Each run also adds a '#' line with its ABRIK time and
 triplet count.
 
-Peak memory is about 3 m n + n^2 numbers (A, GESDD's working copy, U, and V^T then V) plus
-GESDD's workspace and ABRIK's outputs: about 3.2 GB in double at m = n = 10000.
+Peak memory is about 3 m n + n^2 numbers (A, GESDD's working copy, U, and V^T then V),
+about 3.2 GB in double at m = n = 10000, plus at least as much again for GESDD's workspace,
+plus ABRIK's outputs.
 */
 
 #include "RandLAPACK.hh"
@@ -140,17 +145,18 @@ static int run_analysis(int argc, char* argv[]) {
     if (!file) return 1;
     file << std::setprecision(15);
 
-    // GESDD once, on a copy since it destroys its input. With Job::SomeVec, U_g is m x n,
-    // S_g has min(m, n) entries and VT_g is n x n.
+    // GESDD once, on a copy since it destroys its input. Economy shapes: U_g is m x r,
+    // S_g has r entries and VT_g is r x n, r = min(m, n).
     printf("Running GESDD (once; deterministic)...\n");
-    T* U_g  = new T[m * n];
-    T* S_g  = new T[std::min(m, n)];
-    T* VT_g = new T[n * n];
+    int64_t r = std::min(m, n);
+    T* U_g  = new T[m * r];
+    T* S_g  = new T[r];
+    T* VT_g = new T[r * n];
     T* A_copy = new T[m * n];
     lapack::lacpy(MatrixType::General, m, n, A, m, A_copy, m);
 
     auto t0 = steady_clock::now();
-    int64_t info = lapack::gesdd(Job::SomeVec, m, n, A_copy, m, S_g, U_g, m, VT_g, n);
+    int64_t info = lapack::gesdd(Job::SomeVec, m, n, A_copy, m, S_g, U_g, m, VT_g, r);
     long dur_gesdd = duration_cast<microseconds>(steady_clock::now() - t0).count();
     delete[] A_copy;
     if (info != 0) {
@@ -162,8 +168,8 @@ static int run_analysis(int argc, char* argv[]) {
 
     // GESDD returns V^T (column-major, right singular vectors as rows); the metrics want V
     // with one vector per column.
-    T* V_g = new T[n * n];
-    RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
+    T* V_g = new T[n * r];
+    RandLAPACK::util::transposition(r, n, VT_g, r, V_g, n, 0);
     delete[] VT_g;
 
     file << "# ABRIK per-triplet accuracy analysis\n"
@@ -205,7 +211,9 @@ static int run_analysis(int argc, char* argv[]) {
         auto t0a = steady_clock::now();
         int status = abrik.call(m, n, A, m, b_sz, U_a, V_a, S_a, state_run);
         long dur_abrik = duration_cast<microseconds>(steady_clock::now() - t0a).count();
-        int64_t k_a = (status == 0) ? abrik.singular_triplets_found : 0;
+        // ABRIK never returns more than min(m, n) triplets; the clamp only guards the
+        // reference arrays.
+        int64_t k_a = (status == 0) ? std::min(abrik.singular_triplets_found, r) : 0;
         printf("ABRIK: %ld singular triplets, %.2f s\n", (long) k_a, dur_abrik / 1e6);
         if (status != 0)
             fprintf(stderr, "ABRIK failed with status %d in run %d; no rows written\n", status, run);
