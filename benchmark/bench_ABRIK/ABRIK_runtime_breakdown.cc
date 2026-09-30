@@ -143,6 +143,11 @@ static int run_benchmark(int argc, char* argv[]) {
     }
     long total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
     printf("\nTOTAL BENCHMARK TIME: %.2f seconds\n", total_us / 1e6);
+    outfile.close();
+    if (outfile.fail()) {
+        std::cerr << "Error: writing " << out_path << " failed\n";
+        return 1;
+    }
     printf("Results: %s\n", out_path.c_str());
     return 0;
 }

@@ -22,8 +22,8 @@ Output CSV (long format, one data point per row):
                            budget only when BK stopped before the checkpoint
                    Spectra twice its A'A (or AA') applications in the Lanczos iteration;
                            recovering the second set of singular vectors is not counted
-                   RSVD    four passes over a sketch of budget/2 columns (two power passes,
-                           the range finder, and B = Q'A), so twice the budget
+                   RSVD    metered exactly: two power passes, the range finder and B = Q'A
+                           over a sketch of budget/2 columns, about twice the budget
                    GESDD   0, a direct factorization
   err            = sqrt(||A V S^{-1} - U||_F^2 + ||A' U S^{-1} - V||_F^2) over the leading
                    k_res triplets
@@ -74,10 +74,6 @@ static const char* kUsage =
     "<precision> <output_dir> <input_file> <target_rank> <run_gesdd> <budget> <num_runs>"
     " <num_block_sizes> <block_sizes...> [sub_ratio] [use_cqrrt]";
 
-// RSVD makes two power passes, then the range finder and B = Q'A: four operator
-// applications per sketch column.
-static const int64_t kRSVDPasses = 4;
-
 // The reference chain RSVD is built on, plus ABRIK.
 template <typename T, typename RNG>
 struct AlgorithmObjects {
@@ -100,6 +96,27 @@ struct AlgorithmObjects {
           RSVD(QB, rsvd_block_sz),
           ABRIK(false, false, tol)
     {}
+};
+
+// Meters the operator applications a solver makes, in columns of the block it is applied
+// to. RSVD takes its rank by reference and QB may lower it when it stops early, so an
+// analytic count of its passes can overstate what was spent; this counts them.
+template <RandLAPACK::linops::LinearOperator LinOp>
+struct CountingLinOp {
+    using scalar_t = typename LinOp::scalar_t;
+    const int64_t n_rows;
+    const int64_t n_cols;
+    LinOp& inner;
+    int64_t columns_applied = 0;
+
+    explicit CountingLinOp(LinOp& op) : n_rows(op.n_rows), n_cols(op.n_cols), inner(op) {}
+
+    void operator()(Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k,
+                    scalar_t alpha, const scalar_t* B, int64_t ldb, scalar_t beta,
+                    scalar_t* C, int64_t ldc) {
+        columns_applied += n;
+        inner(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
+    }
 };
 
 static const char* bk_reason_name(RandLAPACK::BKTermination r) {
@@ -208,16 +225,16 @@ static void run_with_budget(
         }
 
         // RSVD: one independent call per checkpoint budget, largest block size, rank
-        // budget/2. RSVD may deliver fewer triplets than asked; the residual covers the
-        // leading min(target_rank, delivered).
+        // budget/2, its operator applications metered. RSVD may deliver fewer triplets
+        // than asked; the residual covers the leading min(target_rank, delivered).
         printf("\n=== RSVD b=%ld (run %d) ===\n", (long) max_b, run);
         for (auto budget_mv : checkpoint_matvecs) {
             int64_t k_r = std::max((int64_t) 1, budget_mv / 2);
-            int64_t k_sketch = k_r;
             T *U_r = nullptr, *V_r = nullptr, *S_r = nullptr;
             auto state_rsvd = state_run;
+            CountingLinOp<LinOp> counted(A_op);
             auto t0 = steady_clock::now();
-            int status = algs.RSVD.call(A_op, norm_A, k_r, tol, U_r, S_r, V_r, state_rsvd);
+            int status = algs.RSVD.call(counted, norm_A, k_r, tol, U_r, S_r, V_r, state_rsvd);
             long dur_rsvd = duration_cast<microseconds>(steady_clock::now() - t0).count();
             int64_t k_res = (status == 0) ? std::min(target_rank, k_r) : 0;
             T err_rsvd = (status == 0)
@@ -225,11 +242,11 @@ static void run_with_budget(
                 : std::numeric_limits<T>::infinity();
             free(U_r); free(V_r); free(S_r);
             outfile << run << ", RSVD, " << max_b << ", " << budget_mv << ", "
-                    << kRSVDPasses * k_sketch << ", " << err_rsvd << ", " << dur_rsvd << ", "
+                    << counted.columns_applied << ", " << err_rsvd << ", " << dur_rsvd << ", "
                     << k_res << ", " << (status == 0 ? "done" : "failed") << "\n";
             outfile.flush();
-            printf("  mv=%ld  k_r=%ld  err=%e  t=%ld us\n", (long) budget_mv, (long) k_r,
-                   (double) err_rsvd, dur_rsvd);
+            printf("  mv_req=%ld  mv_actual=%ld  k_r=%ld  err=%e  t=%ld us\n", (long) budget_mv,
+                   (long) counted.columns_applied, (long) k_r, (double) err_rsvd, dur_rsvd);
         }
 
         // GESDD: dense input only, once; deterministic, so reported under run 0.
@@ -311,9 +328,9 @@ static int run_benchmark(int argc, char* argv[]) {
             << "# Num runs: " << num_runs << " (ABRIK and RSVD seeds 0..num_runs-1; Spectra is deterministic)\n"
             << "# Block sizes: " << oss_b.str() << "\n"
             << "# ABRIK QR: " << (use_cqrrt ? "CQRRT" : "Householder") << "\n"
-            << "# RSVD: largest block size, rank budget/2\n"
+            << "# RSVD: largest block size, rank budget/2, operator applications metered\n"
             << "# Tolerance: " << tol << "\n"
-            << "# total_matvecs = checkpoint budget (ABRIK: rounded down to whole blocks); actual_matvecs = ABRIK b_sz * iterations done (initial block not counted), Spectra 2 * A'A applications, RSVD 4 * rank\n"
+            << "# total_matvecs = checkpoint budget (ABRIK: rounded down to whole blocks); actual_matvecs = ABRIK b_sz * iterations done (initial block not counted), Spectra 2 * A'A applications, RSVD metered\n"
             << "# err = sqrt(||A V S^-1 - U||_F^2 + ||A' U S^-1 - V||_F^2) over the leading k_res triplets\n"
             << "# elapsed_us: ABRIK cumulative BK + SVD extraction (residual excluded); others wall clock of the call\n"
             << "# GESDD runs once on dense input, reported under run 0\n"
@@ -346,6 +363,11 @@ static int run_benchmark(int argc, char* argv[]) {
 
     long total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
     printf("\nTOTAL BENCHMARK TIME: %.2f seconds\n", total_us / 1e6);
+    outfile.close();
+    if (outfile.fail()) {
+        std::cerr << "Error: writing " << out_path << " failed\n";
+        return 1;
+    }
     printf("Results: %s\n", out_path.c_str());
     return 0;
 }

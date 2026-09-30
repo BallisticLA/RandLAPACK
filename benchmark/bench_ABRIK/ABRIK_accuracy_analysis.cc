@@ -133,6 +133,12 @@ static int run_analysis(int argc, char* argv[]) {
     T* A = mat.data();   // owned by mat
     printf("Matrix loaded: %ld x %ld\n", (long) m, (long) n);
 
+    // Open the output before the expensive GESDD, so a bad path fails fast.
+    std::ofstream file;
+    std::string path = abrik_open_csv(output_dir, "ABRIK_accuracy_analysis", file);
+    if (!file) return 1;
+    file << std::setprecision(15);
+
     // GESDD once, on a copy since it destroys its input. With Job::SomeVec, U_g is m x n,
     // S_g has min(m, n) entries and VT_g is n x n.
     printf("Running GESDD (once; deterministic)...\n");
@@ -153,11 +159,6 @@ static int run_analysis(int argc, char* argv[]) {
     T* V_g = new T[n * n];
     RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
     delete[] VT_g;
-
-    std::ofstream file;
-    std::string path = abrik_open_csv(output_dir, "ABRIK_accuracy_analysis", file);
-    if (!file) return 1;
-    file << std::setprecision(15);
 
     file << "# ABRIK per-triplet accuracy analysis\n"
          << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
@@ -237,7 +238,10 @@ static int run_analysis(int argc, char* argv[]) {
     }
 
     file.close();
-    printf("Results written to: %s\n", path.c_str());
+    if (file.fail())
+        std::cerr << "Error: writing " << path << " failed\n";
+    else
+        printf("Results written to: %s\n", path.c_str());
 
     delete[] U_g;
     delete[] S_g;
@@ -246,7 +250,7 @@ static int run_analysis(int argc, char* argv[]) {
     delete[] scratch_n;
     delete[] qr_buf_u;
     delete[] qr_buf_v;
-    return 0;
+    return file.fail() ? 1 : 0;
 }
 
 int main(int argc, char* argv[]) {

@@ -60,9 +60,9 @@ Usage:
   iters_start     = first sweep budget, and the initial budget of the adaptive driver;
                     ceil(iters_start / 2) * b_sz must reach target_rank
   iters_step      = increment between sweep budgets
-  iters_max       = upper bound of the sweep budgets; the adaptive retry cap is the
-                    number of growth steps from iters_start to iters_max, so the final
-                    adaptive budget can overshoot iters_max by up to one growth step
+  iters_max       = upper bound of the sweep budgets. The adaptive run is bounded by a
+                    retry count instead, the number of growth steps from iters_start to
+                    iters_max, so its last budget can exceed iters_max.
   sub_ratio       = keep the top-left fraction of rows and columns (default 1.0)
   adaptive_growth = budget multiplier per adaptive retry (default 2.0)
 */
@@ -291,6 +291,10 @@ static int run_benchmark(int argc, char* argv[]) {
     }
 
     outfile.close();
+    if (outfile.fail()) {
+        std::cerr << "Error: writing " << out_path << " failed\n";
+        return 1;
+    }
     printf("\nWrote %s\n", out_path.c_str());
     return 0;
 }
