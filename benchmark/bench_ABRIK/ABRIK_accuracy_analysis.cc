@@ -66,12 +66,19 @@ plus ABRIK's outputs.
 #include "abrik_bench_common.hh"
 
 #include <RandBLAS.hh>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <limits>
 #include <algorithm>
 #include <climits>
-#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <string>
+
+using std::chrono::steady_clock;
+using std::chrono::duration_cast;
+using std::chrono::microseconds;
 
 static const char* kUsage =
     "<precision> <output_dir> <input_matrix_path> <m> <n> <b_sz> <num_matmuls> <num_runs>";
@@ -157,7 +164,7 @@ static int run_analysis(int argc, char* argv[]) {
 
     auto t0 = steady_clock::now();
     int64_t info = lapack::gesdd(Job::SomeVec, m, n, A_copy, m, S_g, U_g, m, VT_g, r);
-    long dur_gesdd = duration_cast<microseconds>(steady_clock::now() - t0).count();
+    int64_t dur_gesdd = duration_cast<microseconds>(steady_clock::now() - t0).count();
     delete[] A_copy;
     if (info != 0) {
         std::cerr << "Error: GESDD failed with info " << info << "\n";
@@ -210,7 +217,7 @@ static int run_analysis(int argc, char* argv[]) {
 
         auto t0a = steady_clock::now();
         int status = abrik.call(m, n, A, m, b_sz, U_a, V_a, S_a, state_run);
-        long dur_abrik = duration_cast<microseconds>(steady_clock::now() - t0a).count();
+        int64_t dur_abrik = duration_cast<microseconds>(steady_clock::now() - t0a).count();
         // ABRIK never returns more than min(m, n) triplets; the clamp only guards the
         // reference arrays.
         int64_t k_a = (status == 0) ? std::min(abrik.singular_triplets_found, r) : 0;

@@ -12,6 +12,9 @@
 #include <vector>
 #include <chrono>
 #include <climits>
+#include <algorithm>
+#include <cstdlib>
+#include <limits>
 
 using namespace std::chrono;
 
@@ -735,10 +738,10 @@ class ABRIK {
 
         // The BK options every entry point forwards. Whether BK times its subroutines is
         // the entry point's choice.
-        void forward_config_to_bk(bool timing) {
+        void forward_config_to_bk(bool bk_timing) {
             bk_obj.qr_exp              = this->qr_exp;
             bk_obj.tol                 = this->tol;
-            bk_obj.timing              = timing;
+            bk_obj.timing              = bk_timing;
             bk_obj.tau                 = this->tau;
             bk_obj.refill_dead_columns = this->refill_dead_columns;
         }

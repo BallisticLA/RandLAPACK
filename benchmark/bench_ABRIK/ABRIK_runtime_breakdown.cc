@@ -30,12 +30,20 @@ Usage:
 #include "abrik_bench_common.hh"
 
 #include <RandBLAS.hh>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <limits>
 #include <algorithm>
 #include <climits>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+using std::chrono::steady_clock;
+using std::chrono::duration_cast;
+using std::chrono::microseconds;
 
 static const char* kUsage =
     "<precision> <output_dir> <input_file> <num_runs> <num_block_sizes> <num_matmul_sizes>"
@@ -149,7 +157,7 @@ static int run_benchmark(int argc, char* argv[]) {
         RandLAPACK::linops::DenseLinOp<T> A_op(m, n, mat.data(), m, Layout::ColMajor);
         run_all_configs<T>(A_op, tol, num_runs, use_cqrrt, block_sizes, matmul_counts, state, outfile);
     }
-    long total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
+    int64_t total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
     printf("\nTOTAL BENCHMARK TIME: %.2f seconds\n", total_us / 1e6);
     outfile.close();
     if (outfile.fail()) {

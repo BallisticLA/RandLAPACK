@@ -77,13 +77,20 @@ Usage:
 #include "abrik_bench_common.hh"
 
 #include <RandBLAS.hh>
-#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <limits>
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
+
+using std::chrono::steady_clock;
+using std::chrono::duration_cast;
+using std::chrono::microseconds;
 
 static const char* kUsage =
     "<precision> <output_dir> <input_file> <target_rank> <tol_exponent> <iters_start>"
@@ -137,7 +144,7 @@ static void run_instance(
         auto state_alg = state_run;
         auto t0 = steady_clock::now();
         int status = abrik.call(A_op, b_sz, U, V, Sigma, state_alg);
-        long dur = duration_cast<microseconds>(steady_clock::now() - t0).count();
+        int64_t dur = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
         int64_t triplets = (status == 0) ? abrik.singular_triplets_found : 0;
         T residual = RandLAPACK::linops::svd_residual<T>(A_op, U, V, Sigma,
@@ -153,8 +160,8 @@ static void run_instance(
                 << (iters_done * b_sz) << ", " << triplets << ", "
                 << residual << ", " << dur << ", " << st << "\n";
         outfile.flush();
-        printf("  sweep  b=%ld iters=%4d  triplets=%5ld  res=%.3e  t=%ld us  [%s]\n",
-               (long) b_sz, iters_done, (long) triplets, (double) residual, dur, st);
+        printf("  sweep  b=%ld iters=%4d  triplets=%5ld  res=%.3e  t=%lld us  [%s]\n",
+               (long) b_sz, iters_done, (long) triplets, (double) residual, (long long) dur, st);
         free_factors(U, V, Sigma);
 
         // Nothing further to learn once the certificate is met; the adaptive run reports
@@ -179,7 +186,7 @@ static void run_instance(
         auto state_alg = state_run;
         auto t0 = steady_clock::now();
         int status = abrik.call(A_op, b_sz, U, V, Sigma, state_alg);
-        long dur = duration_cast<microseconds>(steady_clock::now() - t0).count();
+        int64_t dur = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
         int64_t triplets = (status == 0) ? abrik.singular_triplets_found : 0;
         T residual = RandLAPACK::linops::svd_residual<T>(A_op, U, V, Sigma,
@@ -191,8 +198,8 @@ static void run_instance(
                 << (iters_done * b_sz) << ", " << triplets << ", "
                 << residual << ", " << dur << ", " << st << "\n";
         outfile.flush();
-        printf("  ADAPT  b=%ld iters=%4d  triplets=%5ld  res=%.3e  t=%ld us  [%s]\n",
-               (long) b_sz, iters_done, (long) triplets, (double) residual, dur, st);
+        printf("  ADAPT  b=%ld iters=%4d  triplets=%5ld  res=%.3e  t=%lld us  [%s]\n",
+               (long) b_sz, iters_done, (long) triplets, (double) residual, (long long) dur, st);
         free_factors(U, V, Sigma);
     }
 }

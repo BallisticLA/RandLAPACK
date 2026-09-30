@@ -1260,17 +1260,17 @@ TEST_F(TestABRIK, ABRIK_call_with_checkpoints_traces_a_single_run) {
         ASSERT_EQ(traced.call_with_checkpoints(A_op, b, rank, {2, 4, 40}, record, state), 0);
 
         ASSERT_FALSE(trace.empty());
-        const Checkpoint& last = trace.back();
-        EXPECT_EQ(last.iters_requested, (int64_t) 40);
-        EXPECT_LT(last.iters_done, (int64_t) 40);
-        EXPECT_NE(last.reason, RandLAPACK::BKTermination::max_iters_reached);
-        EXPECT_EQ(last.reason, traced.bk_termination_reason);
-        EXPECT_EQ(last.iters_done, (int64_t) traced.num_krylov_iters);
-        EXPECT_EQ(last.triplets, rank);
-        EXPECT_EQ(last.k_residual, rank);
-        EXPECT_LE(last.residual, 1e-8);
+        const Checkpoint& final_point = trace.back();
+        EXPECT_EQ(final_point.iters_requested, (int64_t) 40);
+        EXPECT_LT(final_point.iters_done, (int64_t) 40);
+        EXPECT_NE(final_point.reason, RandLAPACK::BKTermination::max_iters_reached);
+        EXPECT_EQ(final_point.reason, traced.bk_termination_reason);
+        EXPECT_EQ(final_point.iters_done, (int64_t) traced.num_krylov_iters);
+        EXPECT_EQ(final_point.triplets, rank);
+        EXPECT_EQ(final_point.k_residual, rank);
+        EXPECT_LE(final_point.residual, 1e-8);
         printf("CHECKPOINTS rank 25: %zu points, iters=%ld, reason=%d, final residual %.3e\n",
-               trace.size(), (long) last.iters_done, (int) last.reason, last.residual);
+               trace.size(), (long) final_point.iters_done, (int) final_point.reason, final_point.residual);
     }
 
     // A zero matrix: the first BK segment already ends with an empty space.

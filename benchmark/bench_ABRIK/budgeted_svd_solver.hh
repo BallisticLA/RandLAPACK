@@ -21,6 +21,7 @@ Spectra runs implicitly restarted Lanczos on A'A (AA' when m <= n):
 #include <Spectra/LinAlg/TridiagEigen.h>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <vector>
@@ -138,13 +139,15 @@ public:
     BudgetedPartialSVDSolver(const BudgetedPartialSVDSolver&) = delete;
     BudgetedPartialSVDSolver& operator=(const BudgetedPartialSVDSolver&) = delete;
 
-    // Runs exactly max_restarts restarts: the tolerance is far below anything reachable,
-    // so Spectra never stops early. Returns the number of formally converged values.
+    // Runs exactly max_restarts restarts: the tolerance is the smallest positive value of
+    // the scalar type, below anything reachable, so Spectra never stops early. Returns the
+    // number of formally converged values.
     Index compute(Index max_restarts)
     {
         m_ritz_vecs.resize(0, 0);
         m_eigs->init();
-        return m_eigs->compute(Spectra::SortRule::LargestAlge, max_restarts, 1e-100);
+        return m_eigs->compute(Spectra::SortRule::LargestAlge, max_restarts,
+                               std::numeric_limits<Scalar>::denorm_min());
     }
 
     // A'A (or AA') applications made by the Lanczos iteration.
@@ -156,7 +159,7 @@ public:
     // The leading nu left singular vector approximations.
     Matrix matrix_U(Index nu)
     {
-        nu = (std::min)(nu, m_nev);
+        nu = std::min(nu, m_nev);
         Matrix evecs = ritz_vectors().leftCols(nu);
         if (m_m <= m_n)
             return evecs;
@@ -166,7 +169,7 @@ public:
     // The leading nv right singular vector approximations.
     Matrix matrix_V(Index nv)
     {
-        nv = (std::min)(nv, m_nev);
+        nv = std::min(nv, m_nev);
         Matrix evecs = ritz_vectors().leftCols(nv);
         if (m_m > m_n)
             return evecs;

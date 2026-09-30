@@ -68,7 +68,8 @@ function(add_benchmark)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CXX_SOURCES})
     target_compile_options(${TGT_NAME} PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>:-g>)
-    # Include directories come from target_link_libraries, no need to set manually
+    # Include directories come from target_link_libraries, plus the extras loader path
+    # added below for the ABRIK drivers.
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     # On Windows the RandLAPACK package config provides DLL staging so the
     # benchmark runs without PATH preparation.

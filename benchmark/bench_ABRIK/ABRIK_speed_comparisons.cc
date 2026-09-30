@@ -61,6 +61,10 @@ Usage:
 #include "abrik_bench_common.hh"
 
 #include <RandBLAS.hh>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <limits>
 #include <Eigen/Dense>
 #include <algorithm>
 #include <climits>
@@ -72,6 +76,10 @@ Usage:
 
 template <typename T> using EMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>;
 template <typename T> using EVector = Eigen::Matrix<T, Eigen::Dynamic, 1>;
+
+using std::chrono::steady_clock;
+using std::chrono::duration_cast;
+using std::chrono::microseconds;
 
 static const char* kUsage =
     "<precision> <output_dir> <input_file> <target_rank> <run_gesdd> <budget> <num_runs>"
@@ -146,7 +154,7 @@ static std::vector<int64_t> make_checkpoint_matvecs(int64_t step, int64_t budget
 // matrix is taken by Eigen reference, so a dense Map is not copied.
 template <typename T, typename EigenMatType, RandLAPACK::linops::LinearOperator LinOp>
 static T run_svds(const Eigen::Ref<const EigenMatType>& A_eigen, LinOp& A_op,
-                  int64_t budget_mv, int64_t target_rank, long& dur_us, int64_t& actual_mv) {
+                  int64_t budget_mv, int64_t target_rank, int64_t& dur_us, int64_t& actual_mv) {
     int64_t nev = target_rank;
     int64_t ncv_default = std::min(2 * nev + 1, std::min(A_op.n_rows, A_op.n_cols) - 1);
     int64_t ncv = BenchmarkUtil::effective_ncv(budget_mv, nev, ncv_default);
@@ -210,8 +218,8 @@ static void run_with_budget(
                             << cp.elapsed_us << ", " << cp.k_residual << ", "
                             << bk_reason_name(cp.reason) << "\n";
                     outfile.flush();
-                    printf("  mv=%ld  err=%e  t=%ld us  [%s]\n", (long) (b_sz * cp.iters_done),
-                           (double) cp.residual, (long) cp.elapsed_us, bk_reason_name(cp.reason));
+                    printf("  mv=%ld  err=%e  t=%lld us  [%s]\n", (long) (b_sz * cp.iters_done),
+                           (double) cp.residual, (long long) cp.elapsed_us, bk_reason_name(cp.reason));
                 }, state_alg);
             if (status != 0)
                 fprintf(stderr, "ABRIK b=%ld run %d: BK failed with status %d, trace ends\n",
@@ -221,14 +229,14 @@ static void run_with_budget(
         // Spectra: one independent call per checkpoint budget.
         printf("\n=== Spectra (run %d) ===\n", run);
         for (auto budget_mv : checkpoint_matvecs) {
-            long dur_svds = 0;
+            int64_t dur_svds = 0;
             int64_t actual_mv = 0;
             T err_svds = svds_fn(budget_mv, dur_svds, actual_mv);
             outfile << run << ", Spectra, 0, " << budget_mv << ", " << actual_mv << ", "
                     << err_svds << ", " << dur_svds << ", " << target_rank << ", done\n";
             outfile.flush();
-            printf("  mv_req=%ld  mv_actual=%ld  err=%e  t=%ld us\n",
-                   (long) budget_mv, (long) actual_mv, (double) err_svds, dur_svds);
+            printf("  mv_req=%ld  mv_actual=%ld  err=%e  t=%lld us\n",
+                   (long) budget_mv, (long) actual_mv, (double) err_svds, (long long) dur_svds);
         }
 
         // RSVD: one independent call per checkpoint budget, largest block size, rank
@@ -243,7 +251,7 @@ static void run_with_budget(
             CountingLinOp<LinOp> counted(A_op);
             auto t0 = steady_clock::now();
             int status = algs.RSVD.call(counted, norm_A, k_r, tol, U_r, S_r, V_r, state_rsvd);
-            long dur_rsvd = duration_cast<microseconds>(steady_clock::now() - t0).count();
+            int64_t dur_rsvd = duration_cast<microseconds>(steady_clock::now() - t0).count();
             int64_t k_res = (status == 0) ? std::min(target_rank, k_r) : 0;
             T err_rsvd = (status == 0)
                 ? RandLAPACK::linops::svd_residual<T>(A_op, U_r, V_r, S_r, k_res)
@@ -253,8 +261,8 @@ static void run_with_budget(
                     << counted.columns_applied << ", " << err_rsvd << ", " << dur_rsvd << ", "
                     << k_res << ", " << (status == 0 ? "done" : "failed") << "\n";
             outfile.flush();
-            printf("  mv_req=%ld  mv_actual=%ld  k_r=%ld  err=%e  t=%ld us\n", (long) budget_mv,
-                   (long) counted.columns_applied, (long) k_r, (double) err_rsvd, dur_rsvd);
+            printf("  mv_req=%ld  mv_actual=%ld  k_r=%ld  err=%e  t=%lld us\n", (long) budget_mv,
+                   (long) counted.columns_applied, (long) k_r, (double) err_rsvd, (long long) dur_rsvd);
         }
 
         // GESDD: dense input only, once; deterministic, so reported under run 0.
@@ -271,7 +279,7 @@ static void run_with_budget(
 
             auto t0 = steady_clock::now();
             int64_t info = lapack::gesdd(Job::SomeVec, m, n, A_svd, m, S_g, U_g, m, VT_g, r);
-            long dur_svd = duration_cast<microseconds>(steady_clock::now() - t0).count();
+            int64_t dur_svd = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
             T err_SVD = std::numeric_limits<T>::infinity();
             if (info == 0) {
@@ -280,7 +288,7 @@ static void run_with_budget(
             } else {
                 fprintf(stderr, "GESDD failed with info %ld; err recorded as inf\n", (long) info);
             }
-            printf("  err=%e  t=%ld us\n", (double) err_SVD, dur_svd);
+            printf("  err=%e  t=%lld us\n", (double) err_SVD, (long long) dur_svd);
             outfile << "0, GESDD, 0, 0, 0, " << err_SVD << ", " << dur_svd << ", "
                     << target_rank << ", " << (info == 0 ? "done" : "failed") << "\n";
             outfile.flush();
@@ -365,7 +373,7 @@ static int run_benchmark(int argc, char* argv[]) {
     if (mat.is_sparse) {
         RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::CSCMatrix<T>> A_op(m, n, *mat.csc);
         T norm_A = A_op.fro_nrm();
-        auto svds_fn = [&](int64_t budget_mv, long& dur, int64_t& actual_mv) -> T {
+        auto svds_fn = [&](int64_t budget_mv, int64_t& dur, int64_t& actual_mv) -> T {
             return run_svds<T, Eigen::SparseMatrix<T>>(*mat.eigen_sparse, A_op, budget_mv,
                                                        target_rank, dur, actual_mv);
         };
@@ -376,7 +384,7 @@ static int run_benchmark(int argc, char* argv[]) {
         RandLAPACK::linops::DenseLinOp<T> A_op(m, n, A_dense, m, Layout::ColMajor);
         T norm_A = A_op.fro_nrm();
         Eigen::Map<const EMatrix<T>> A_eigen(A_dense, m, n);
-        auto svds_fn = [&](int64_t budget_mv, long& dur, int64_t& actual_mv) -> T {
+        auto svds_fn = [&](int64_t budget_mv, int64_t& dur, int64_t& actual_mv) -> T {
             return run_svds<T, EMatrix<T>>(A_eigen, A_op, budget_mv, target_rank, dur, actual_mv);
         };
         run_with_budget<T>(A_op, svds_fn, norm_A, tol, target_rank, use_cqrrt,
@@ -384,7 +392,7 @@ static int run_benchmark(int argc, char* argv[]) {
                            block_sizes, budget, num_runs, algs, outfile);
     }
 
-    long total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
+    int64_t total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
     printf("\nTOTAL BENCHMARK TIME: %.2f seconds\n", total_us / 1e6);
     outfile.close();
     if (outfile.fail()) {

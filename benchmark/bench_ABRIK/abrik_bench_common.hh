@@ -28,8 +28,14 @@ inline std::string abrik_build_commit() {
 inline std::string abrik_open_csv(const std::string& output_dir, const std::string& name,
                                   std::ofstream& out) {
     std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
     char prefix[20];
-    std::strftime(prefix, sizeof(prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
+    std::strftime(prefix, sizeof(prefix), "%Y%m%d_%H%M%S_", &local);
     std::string filename = std::string(prefix) + name + ".csv";
     std::string path = (output_dir != ".") ? output_dir + "/" + filename : filename;
     out.open(path);
