@@ -51,8 +51,8 @@ early or its rank criterion narrows a block.
 Output CSV: '#' metadata lines, the column header
   run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, res_sw_abrik, res_sw_gesdd,
   res_1s_abrik, res_1s_gesdd
-then one row per (run, triplet). Each run also adds a '#' line with its ABRIK time and
-triplet count.
+then one row per (run, triplet). The GESDD time and each run's ABRIK time and triplet
+count are '#' lines after the column header.
 
 Peak memory is about 3 m n + n^2 numbers (A, GESDD's working copy, U, and V^T then V),
 about 3.2 GB in double at m = n = 10000, plus at least as much again for GESDD's workspace,
@@ -146,11 +146,28 @@ static int run_analysis(int argc, char* argv[]) {
     T* A = mat.data();   // owned by mat
     printf("Matrix loaded: %ld x %ld\n", (long) m, (long) n);
 
-    // Open the output before the expensive GESDD, so a bad path fails fast.
+    // Open and head the output before the expensive GESDD, so a bad path fails fast and
+    // a kill during GESDD leaves a readable file.
     std::ofstream file;
     std::string path = abrik_open_csv(output_dir, "ABRIK_accuracy_analysis", file);
     if (!file) return 1;
     file << std::setprecision(15);
+    file << "# ABRIK per-triplet accuracy analysis\n"
+         << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
+         << "# Precision: " << argv[1] << "\n"
+         << "# Input matrix: " << input_path << "\n"
+         << "# Input size: " << m << " x " << n << "\n"
+         << "# b_sz: " << b_sz << "\n"
+         << "# num_matmuls: " << num_matmuls << "\n"
+         << "# Total matvecs per run: " << b_sz * num_matmuls << " (initial block A*Omega not counted)\n"
+         << "# Num runs: " << num_runs << " (distinct RNG seeds 0..num_runs-1)\n"
+         << "# res_err = sqrt(||Av-su||^2 + ||A'u-sv||^2) / s (two-sided, normalized per triplet)\n"
+         << "# res_sw = sqrt(||Av-su||^2 + ||A'u-sv||^2) (two-sided absolute, Tropp and Webber eq. 6.1)\n"
+         << "# res_1s = ||Av-su|| / s (one-sided normalized, Tomas, Quintana-Orti and Anzt Sec. 4.1.1)\n"
+         << "# sval_diff = |s_abrik - s_gesdd| / s_gesdd; svec_diff = sqrt((sin^2 u-angle + sin^2 v-angle) / 2), sines via Householder QR\n"
+         << "run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, "
+            "res_sw_abrik, res_sw_gesdd, res_1s_abrik, res_1s_gesdd\n";
+    file.flush();
 
     // GESDD once, on a copy since it destroys its input. Economy shapes: U_g is m x r,
     // S_g has r entries and VT_g is r x n, r = min(m, n).
@@ -172,30 +189,14 @@ static int run_analysis(int argc, char* argv[]) {
         return 1;
     }
     printf("GESDD: %.2f s\n", dur_gesdd / 1e6);
+    file << "# GESDD time (us): " << dur_gesdd << " (run once, reused across runs)\n";
+    file.flush();
 
     // GESDD returns V^T (column-major, right singular vectors as rows); the metrics want V
     // with one vector per column.
     T* V_g = new T[n * r];
     RandLAPACK::util::transposition(r, n, VT_g, r, V_g, n, 0);
     delete[] VT_g;
-
-    file << "# ABRIK per-triplet accuracy analysis\n"
-         << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
-         << "# Precision: " << argv[1] << "\n"
-         << "# Input matrix: " << input_path << "\n"
-         << "# Input size: " << m << " x " << n << "\n"
-         << "# b_sz: " << b_sz << "\n"
-         << "# num_matmuls: " << num_matmuls << "\n"
-         << "# Total matvecs per run: " << b_sz * num_matmuls << " (initial block A*Omega not counted)\n"
-         << "# Num runs: " << num_runs << " (distinct RNG seeds 0..num_runs-1)\n"
-         << "# GESDD time (us): " << dur_gesdd << " (run once, reused across runs)\n"
-         << "# res_err = sqrt(||Av-su||^2 + ||A'u-sv||^2) / s (two-sided, normalized per triplet)\n"
-         << "# res_sw = sqrt(||Av-su||^2 + ||A'u-sv||^2) (two-sided absolute, Tropp and Webber eq. 6.1)\n"
-         << "# res_1s = ||Av-su|| / s (one-sided normalized, Tomas, Quintana-Orti and Anzt Sec. 4.1.1)\n"
-         << "# sval_diff = |s_abrik - s_gesdd| / s_gesdd; svec_diff = sqrt((sin^2 u-angle + sin^2 v-angle) / 2), sines via Householder QR\n"
-         << "run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, "
-            "res_sw_abrik, res_sw_gesdd, res_1s_abrik, res_1s_gesdd\n";
-    file.flush();
 
     // Work buffers reused across runs.
     T* scratch_m = new T[m];

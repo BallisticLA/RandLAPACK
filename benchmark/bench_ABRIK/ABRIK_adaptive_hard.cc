@@ -281,7 +281,8 @@ static int run_benchmark(int argc, char* argv[]) {
             << "# sweep = independent non-adaptive calls at increasing budgets; adaptive = one call with the driver growing its own budget, assessed_rank = target_rank\n"
             << "# matvecs = krylov_iters * b_sz, initial block not counted; residual over the leading min(target_rank, triplets)\n"
             << "# elapsed_us excludes the benchmark's residual evaluation; adaptive rows include the driver's own checks\n"
-            << "# status max_retries = the driver declined to certify tol, a valid outcome\n"
+            << "# status max_retries = the driver declined to certify tol, a valid outcome; failed = the call returned an error\n"
+            << "# residual = inf when the call failed or no triplet exists\n"
             << "run, mode, b_sz, krylov_iters, matvecs, triplets, residual, elapsed_us, status\n";
     outfile.flush();
     outfile << std::scientific << std::setprecision(8);   // data rows only
