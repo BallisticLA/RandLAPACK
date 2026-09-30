@@ -467,14 +467,15 @@ TEST_F(TestBK, BK_rejects_block_size_exceeding_min_dimension) {
 // ---------------------------------------------------------------------------------------
 // Determinism and resume equivalence.
 //
-// Recorded now, deliberately, BEFORE Phase 3 adds replacement draws and an operator probe.
-// Both consume RNG, which shifts every downstream stream; once that lands there is no
-// baseline left to record and no way to tell an intended change from an accidental one.
+// Added before refills existed, deliberately: refills consume RNG, which shifts every
+// downstream stream, so both properties had to be pinned first for an intended change to be
+// told apart from an accidental one. BK_refills_are_bitwise_deterministic and
+// BK_resume_equals_single_shot_across_a_refill extend them to runs that draw refills.
 //
-// Resume equivalence is also the assertion that will fail loudly if a narrowed block ever
-// reaches resume(): the resume path reconstructs its state as pure k-arithmetic
-// (curr_X_cols = (1+iter_ev)*k, curr_Y_cols = iter_od*k), which is silently wrong once a
-// block is not exactly k wide.
+// Resume equivalence was also the guard for a narrowed block reaching resume(): the resume
+// path once reconstructed its state as pure k-arithmetic (curr_X_cols = (1+iter_ev)*k,
+// curr_Y_cols = iter_od*k), which is silently wrong once a block is not exactly k wide. It now
+// restores saved counters; BK_resume_equals_single_shot_across_a_narrowing exercises that.
 // ---------------------------------------------------------------------------------------
 
 TEST_F(TestBK, BK_is_bitwise_deterministic_for_a_fixed_seed) {
@@ -670,7 +671,7 @@ TEST_F(TestBK, BK_diagnose_exact_rank_25) {
 /// the run continues, and it stops at iteration 8 with end_rows = end_cols = 39.
 ///
 /// This is NOT a regression from continuation: rank 39 measured claimed 39 / certified 0
-/// before Phase 3 as well. The default tau is deliberately left alone, because the
+/// before continuation as well. The default tau is deliberately left alone, because the
 /// ill-conditioned regime (kappa 1e10, 155 of 200 certified) depends on tau being small
 /// enough not to discard genuine trailing directions. That trade-off is exactly what the
 /// user-facing tau knob exists for.
@@ -714,12 +715,12 @@ TEST_F(TestBK, BK_rank_39_is_a_tau_sensitivity_not_a_shortfall) {
 /// Resume ACROSS a narrowing. This is the guard for the persisted resume state, and it is the
 /// case the old code could not have survived.
 ///
-/// Before Phase 3, resume() reconstructed curr_X_cols = (1 + iter_ev) * k and
+/// Before continuation, resume() reconstructed curr_X_cols = (1 + iter_ev) * k and
 /// curr_Y_cols = iter_od * k from the iteration count, which is correct only while every
 /// block is exactly k wide. It was latent rather than broken because narrowing terminated the
 /// loop, so a narrowed state could never reach resume(). Continuation makes it reachable: a
 /// narrowed run now ends at max_iters_reached, which is precisely the state ABRIK resumes
-/// from. Saving the four scalars instead of recomputing them is what makes this test pass;
+/// from. Saving the counters instead of recomputing them is what makes this test pass;
 /// with the old arithmetic the two legs would diverge from the first post-checkpoint block.
 ///
 /// Exact rank 25 at block size 10 narrows the left block to 5 at iteration 4, so a checkpoint
@@ -745,10 +746,11 @@ TEST_F(TestBK, BK_resume_equals_single_shot_across_a_narrowing) {
 
 /// Matvec accounting. BK applies the operator in exactly three places: once in the prologue
 /// (NoTrans), once per odd iteration (Trans, forming Y from X), and once per even iteration
-/// (NoTrans, forming X from Y). One application per iteration, no more, and the prologue
-/// counts as iteration 1. Nothing checked that until now, so a stray extra apply, or a
-/// reorthogonalisation pass silently routed through the operator, would have cost matvecs
-/// without any test noticing. The counts are exact integers, so there is no tolerance here.
+/// (NoTrans, forming X from Y). One application per iteration, no more, plus one for the
+/// prologue, which runs before iteration 1. Nothing checked that until now, so a stray extra
+/// apply, or a reorthogonalisation pass silently routed through the operator, would have cost
+/// matvecs without any test noticing. The counts are exact integers, so there is no tolerance
+/// here.
 class CountingLinOp {
     public:
         using scalar_t = double;

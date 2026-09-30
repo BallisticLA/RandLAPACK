@@ -169,12 +169,12 @@ class TestABRIK : public ::testing::Test
             A_op, all_data.U, all_data.V, all_data.Sigma, k, tol);
     }
 
-    // Characterization reporting. Phases that follow change *when* BK stops -- restoring
-    // norm_converged (rl_bk.hh:716 uses Uplo::Upper on a lower-triangular R, so norm_R is
-    // only ||diag(R)|| and the criterion almost never fires) and adding an explicit
-    // saturation guard both move termination timing. Without a recorded before/after for
-    // every test, none of those movements would be attributable. Printed in a fixed,
-    // greppable form so the two runs can be diffed mechanically.
+    // Characterization reporting. Restoring norm_converged (rl_bk.hh once measured norm_R
+    // with Uplo::Upper on a lower-triangular R, so it was only ||diag(R)|| and the criterion
+    // almost never fired) and adding an explicit saturation guard both moved *when* BK
+    // stops, and refilling moves it again. A recorded before/after for every test is what
+    // makes such movements attributable. Printed in a fixed, greppable form so two runs can
+    // be diffed mechanically.
     static const char* termination_name(RandLAPACK::ABRIKTermination r) {
         switch (r) {
             case RandLAPACK::ABRIKTermination::not_adaptive:    return "not_adaptive";
@@ -555,10 +555,10 @@ TEST_F(TestABRIK, ABRIK_adaptive_rank_deficient) {
     //   1. we must never deliver more real content than exists, and
     //   2. every triplet we return must actually be a triplet.
     // The second is the invariant that catches over-delivery, and it is the one the old
-    // single ASSERT_GT(k, 0) could not express. The deficiency exit at rl_bk.hh:572 breaks
-    // AFTER the block has already been accounted for -- end_cols at :753 is derived from
-    // `iter`, whose increment at :730 comes after the check -- so the flagged block is
-    // committed with its junk columns and reported in singular_triplets_found.
+    // single ASSERT_GT(k, 0) could not express. The old deficiency exit broke AFTER the
+    // block had been accounted for (end_cols was derived from `iter`, whose increment came
+    // after the check), so the flagged block was committed with its junk columns and
+    // reported in singular_triplets_found.
     ASSERT_LE(certified, true_rank);
     ASSERT_EQ(certified, k);
 }
@@ -627,27 +627,24 @@ static int64_t run_regime(
 // T2: exact rank 25 with b_sz 10, so the rank is NOT a multiple of the block size and the
 // deficiency arrives mid-block. This is where the old code delivered ZERO certified
 // triplets: it committed the whole flagged block, junk columns and all.
-// STATUS: Phase 2 delivers honest under-delivery here, not full delivery. Measured at BK
-// level (TestBK.BK_diagnose_exact_rank_25): iters=4, rank_deficient, width=5, end_rows=25,
-// end_cols=20, terminal iteration EVEN.
 //
-// The criterion is right -- it finds exactly 5 healthy columns in the deficient block. But
-// the block it truncates is an X (left) block, and stopping there strands the RIGHT basis
-// at 20 columns when the matrix needs 25. The two bases advance alternately, so a
-// deficiency detected on one side leaves the other short by design.
+// Truncating without continuing was not enough either. The criterion finds exactly 5
+// healthy columns in the deficient block, but that block is an X (left) block, and stopping
+// there stranded the RIGHT basis at 20 columns when the matrix needs 25 (measured at BK
+// level by TestBK.BK_diagnose_exact_rank_25 before continuation: iters=4, rank_deficient,
+// width=5, end_rows=25, end_cols=20, terminal iteration EVEN). The two bases advance
+// alternately, so a deficiency detected on one side leaves the other short unless the run
+// continues.
 //
 // This is a genuinely two-sided effect that the one-sided MATLAB model could not exhibit:
 // there, "commit the healthy prefix and stop" scored full marks on this regime. It is the
-// concrete reason continuation (Phase 3) is required rather than optional.
-//
-// What must hold NOW, and does: never claim more than exists, and never certify more than
-// is claimed. Tighten to EXPECT_EQ(cert, 25) once continuation lands.
+// concrete reason prune-and-narrow continuation was required rather than optional.
 TEST_F(TestABRIK, ABRIK_regime_T2_exact_rank_not_multiple_of_block) {
     std::vector<double> s(25);
     for (int i = 0; i < 25; ++i) s[i] = std::pow(10.0, -3.0 * i / 24.0);
     int64_t cert = run_regime("T2 exact rank 25", 200, 200, 10, s, 25, 40);
     // Tightened from EXPECT_LE once prune-and-narrow continuation landed. This regime is the
-    // one the whole phase exists for: rank not a multiple of the block size. It used to claim
+    // one continuation exists for: rank not a multiple of the block size. It used to claim
     // 20 and certify 0, because the left basis reached the rank first and the run stopped
     // with the right basis 5 columns short, leaving the Krylov space non-invariant.
     EXPECT_EQ(cert, 25) << "exact rank 25 at block size 10 must certify all 25";
@@ -905,19 +902,19 @@ TEST_F(TestABRIK, ABRIK_identity_option_off_decision_is_scale_invariant) {
     }
 }
 
-// How big is the T2 shortfall, and is it systematic?
+// How big was the T2 shortfall, and was it systematic?
 //
-// T2 is the one regime still short (20 claimed of 25 available). Before deciding whether
-// variable-width continuation is worth its invasiveness, characterize the defect: sweep the
-// exact rank across a whole block period at fixed b_sz and see which ranks lose content and
-// by how much.
+// Before continuation, T2 was the one regime still short (20 claimed of 25 available), and
+// this sweep was written to characterize the defect before deciding whether variable-width
+// continuation was worth its invasiveness: sweep the exact rank across a whole block period
+// at fixed b_sz and see which ranks lose content and by how much.
 //
-// The structural prediction is that it IS systematic. X_ev receives a block at the
+// The structural prediction was that it IS systematic. X_ev receives a block at the
 // prologue AND on every even iteration, while Y_od receives one only on odd iterations, so
-// the left basis always runs one block ahead. Whenever the rank is not a multiple of b, the
-// left basis reaches it first and the run stops with the right basis up to b columns short.
-// If that is right, the loss should appear for every non-multiple rank and vanish exactly
-// at the multiples.
+// the left basis always runs one block ahead. Whenever the rank was not a multiple of b,
+// the left basis reached it first and the run stopped with the right basis up to b columns
+// short. The loss appeared for every non-multiple rank and vanished exactly at the
+// multiples, as the doc comment below records.
 /// The acceptance gate for prune-and-narrow continuation.
 ///
 /// Before continuation this was a characterization of a defect: exact at every multiple of
@@ -930,9 +927,10 @@ TEST_F(TestABRIK, ABRIK_identity_option_off_decision_is_scale_invariant) {
 /// It now asserts r of r at every rank, with ONE documented exception. Rank 39 certifies 0
 /// under the default tau, for a reason that is threshold sensitivity rather than stranding:
 /// see TestBK.BK_rank_39_is_a_tau_sensitivity_not_a_shortfall, which shows it completes
-/// symmetrically at tau = 1e-12. Rank 39 measured 39 claimed / 0 certified before this phase
-/// too, so it is a pre-existing issue this work neither caused nor fixed, and it is left
-/// asserted at its measured value so that fixing it shows up as a loud failure here.
+/// symmetrically at tau = 1e-12. Rank 39 measured 39 claimed / 0 certified before
+/// continuation too, so it is a pre-existing issue this work neither caused nor fixed, and
+/// it is left asserted at its measured value so that fixing it shows up as a loud failure
+/// here.
 TEST_F(TestABRIK, ABRIK_rank_sweep_certifies_full_rank) {
     printf("SWEEP  rank | claimed certified available\n");
     for (int64_t r = 20; r <= 40; ++r) {
@@ -955,17 +953,17 @@ TEST_F(TestABRIK, ABRIK_rank_sweep_certifies_full_rank) {
 }
 
 // Scaling a matrix by a constant does not change its rank, so the algorithm must make the
-// same rank-deficiency decision at every scale. It does not.
+// same rank-deficiency decision at every scale. It once did not.
 //
-// rl_bk.hh:572 (and :680 on the other side) compares a diagonal entry of the band against a
-// bare std::sqrt(eps) -- an ABSOLUTE threshold with no reference to the size of A. Scale A
-// down and every diagonal falls under it, so deficiency fires immediately on a healthy
-// matrix; scale A up and the genuinely dead directions rise above it, so deficiency never
-// fires and the dead columns are committed.
+// BK used to compare a diagonal entry of the band against a bare std::sqrt(eps), an
+// ABSOLUTE threshold with no reference to the size of A. Scaled down, every diagonal fell
+// under it, so deficiency fired immediately on a healthy matrix; scaled up, the genuinely
+// dead directions rose above it, so deficiency never fired and the dead columns were
+// committed.
 //
-// BK already computes norm_A at rl_bk.hh:403, so the anchor it needs is in hand. The
-// principle is Balabanov, "Randomized Cholesky QR factorizations", arXiv:2210.09953,
-// Thm 5.6: the tolerance is a contract on the conditioning of what is retained
+// The rank test now anchors on norm_A (util::block_numerical_rank judges against
+// tau*||A||_F). The principle is Balabanov, "Randomized Cholesky QR factorizations",
+// arXiv:2210.09953, Thm 5.6: the tolerance is a contract on the conditioning of what is retained
 // (cond(X(1:r)) <= 10 n^1.5 r / tau), and an absolute constant cannot express such a
 // contract because it does not know what "large" means for this operator.
 TEST_F(TestABRIK, ABRIK_rank_deficiency_is_scale_invariant) {

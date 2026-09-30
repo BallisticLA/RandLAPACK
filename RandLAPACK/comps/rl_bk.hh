@@ -27,6 +27,53 @@ namespace RandLAPACK {
 /// SVD on R or S and reconstructs the final U, Sigma, V.
 ///
 /// This follows the same pattern as QB (comps) + RSVD (driver).
+///
+/// Deficient blocks and refills. After each block's QR, the relative rank test
+/// util::block_numerical_rank decides how much of the block to keep: the shortest leading
+/// prefix such that the rest of the triangular factor has Frobenius norm at most
+/// tau*||A||_F. The rejected columns' entries in the diagonal band block are zeroed. With
+/// refill_dead_columns on (the default), the rejected slots of the new basis block are then
+/// refilled with Gaussian columns, projected twice against every accepted column on that side
+/// and the block's kept prefix, and orthonormalized by Householder QR. The run thus continues
+/// where the Krylov space closed early (the identity, a singular value repeated more than k
+/// times, I + P with P a projector) instead of stopping short. Refills never touch the
+/// operator, so each iteration still applies A exactly once. The room is n for the right
+/// basis and min(m, n) for the left. On an m > n input the left refills are Gaussian in R^m
+/// and may carry directions outside the range of A, so the left basis can pass n columns
+/// before the saturation guard ends the run; the band argument below is unaffected.
+///
+/// The probe. The next block on the other side is built from the refilled block, so it
+/// measures the refills' images: the trailing rows (odd iteration) or columns (even) of its
+/// diagonal band block. A full-width next block confirms them. A deficient one switches
+/// refilling off for the rest of the run (refills_exhausted), whether or not the refills'
+/// images are alive; if those images are themselves at most tau*||A||_F, the refills lie in
+/// the numerical null space and are retracted, which is a counter change because refills are
+/// the last columns of their block. A failed CQRRT factorization retracts the source block's
+/// refills unconditionally, switches refilling off, and ends the run as rank_deficient. A
+/// dead block that nothing refills ends the run: rank_deficient when refilling is off or
+/// exhausted, saturated when only the room ran out. Refills that no iteration has probed,
+/// those in the newest block when the run stops, stay in the basis and in the saved resume
+/// state, so resume() restores and probes them, but they are never reported in end_rows or
+/// end_cols.
+///
+/// The band argument. Write X_a and Y_c for the a-th left and c-th right blocks (X_1 from the
+/// prologue, Y_a built from X_a, X_{a+1} from Y_a). R stores X_a' A Y_c for c <= a and S
+/// stores it for a <= c + 1; the band leaves every other entry out. The odd step that builds
+/// Y_a leaves A' X_a = Y_prev R_i' + Y_a T_a + E_a, where Y_prev holds every earlier right
+/// column, Y_a T_a is the kept part of the new block, and E_a is the part the rank test
+/// rejected, so ||E_a||_F <= tau*||A||_F (and E_a is at rounding level unless block a was
+/// narrowed). Every later right column y is orthogonal to Y_prev and to the kept columns of
+/// Y_a, so X_a' A y = E_a' y: the entries R leaves out in row block a have Frobenius norm at
+/// most ||E_a||_F. That covers refills, which are orthogonalized against exactly that set, and
+/// the zeroed slots of the diagonal block, whose true value is E_a' y for whichever refill or
+/// later column y occupies them. The even step gives the mirror bound for S: it leaves
+/// A Y_c = X_prev S_i + X_{c+1} T_c + F_c with ||F_c||_F <= tau*||A||_F, and every later left
+/// column x satisfies x' A Y_c = x' F_c. The same identities make the probe meaningful: a
+/// refill's measured image differs from its full image (A' x for a left refill x, A y for a
+/// right refill y) only by such truncation terms, so it is negligible exactly when the refill
+/// lies in the numerical null space of that operator. Summed over the narrowed blocks, the
+/// reported band differs from X' A Y by at most sqrt(narrowed_blocks) * tau * ||A||_F plus
+/// rounding, which is what the band-identity tests measure.
 
 // Struct outside of BK class to make symbols shorter
 struct BKSubroutines {
@@ -62,9 +109,10 @@ class BK {
         /// Mirrors CQRRPT's user-facing `eps` (rl_cqrrpt.hh:120). Zero means "derive a
         /// default from the problem size", which is done inside call_impl where n is known.
         T tau;
-        /// Width of the terminal block after truncation; equals k unless the rank criterion
-        /// rejected part of it. Diagnostic only: end_rows/end_cols are read straight off the
-        /// accepted-column counters and no longer need to be reconstructed from it.
+        /// Columns the rank criterion kept in the newest block, refills excluded; zero when the
+        /// run ended on a dead block or a failed CQRRT. Diagnostic only: end_rows/end_cols are
+        /// read straight off the accepted-column counters and no longer need to be
+        /// reconstructed from it.
         int64_t final_block_width;
         /// Number of blocks the rank criterion narrowed over the run. Lets a test assert
         /// that the mechanism FIRED, not merely that the answer came out right.
@@ -82,12 +130,14 @@ class BK {
         /// Refill the rejected columns of a narrowed or dead block with Gaussian directions
         /// orthogonalized against the accepted basis, so the run continues where the Krylov
         /// space closed early (the identity, a singular value repeated more than k times,
-        /// I + P). The next block on the other side probes them; if their images come back
-        /// dead they are retracted and refilling is switched off for the rest of the run.
+        /// I + P). The next block on the other side probes them: if that block is deficient,
+        /// refilling is switched off for the rest of the run, even when the refills' images are
+        /// alive, and refills whose images come back dead are also retracted.
         /// Default true; false restores prune-and-narrow, where a dead block ends the run.
         bool refill_dead_columns;
-        /// True once a probe has fired or a CQRRT factorization failed: no further refills
-        /// in this run. Output, and resume state that resume() leaves as the last call set it.
+        /// True once a deficient block has probed refills or a CQRRT factorization failed: no
+        /// further refills in this run. Output, and resume state that resume() leaves as the
+        /// last call set it.
         bool refills_exhausted;
         /// Number of blocks that received refills over the run. Diagnostic only.
         int64_t refilled_blocks;
@@ -374,8 +424,11 @@ class BK {
                 int64_t max_X_cols = 0, max_Y_cols = 0;
                 if (prealloc) {
                     // After max_iters iterations:
-                    //   odd iters (1,3,...) grow X_ev; even iters (2,4,...) grow Y_od
-                    //   Initial: k cols each. Each relevant iter adds k cols.
+                    //   odd iters (1,3,...) grow Y_od; even iters (2,4,...) grow X_ev
+                    //   Initial: k cols of X_ev from the prologue. Each relevant iter adds at
+                    //   most k cols, so X_ev needs at most k * (1 + n_even) cols, and Y_od, and
+                    //   with it the column extent of R and S, at most k * n_odd. Since
+                    //   n_even <= n_odd <= n_even + 1, each size below covers both.
                     int64_t n_odd  = (max_iters + 1) / 2;  // ceil(max_iters/2)
                     int64_t n_even = max_iters / 2;
                     max_X_cols = k * (1 + n_odd);
@@ -429,7 +482,7 @@ class BK {
                     //
                     // This used to derive iter_od, iter_ev, both column counts and all six
                     // pointers from `iter` by fixed-width arithmetic, which is silently wrong
-                    // the moment any earlier block is narrower than k. Saving the four scalars
+                    // the moment any earlier block is narrower than k. Saving the counters
                     // instead removes that hazard rather than fencing it off, and the pointers
                     // need no reconstruction at all because every branch derives its own.
                     iter         = this->num_krylov_iters;
@@ -731,9 +784,12 @@ class BK {
                             std::fill(R_11_trans, R_11_trans + k * k, (T)0.0);
                             int cq_status = CQRRT -> call(n, w, Y_i, n, R_11_trans, k, d_factor, state);
                             if (cq_status != 0) {
-                                // A potrf failure leaves the block overwritten and which columns
-                                // were healthy unknown, so no probe can be read and refilling
-                                // would fabricate: retract the source X block's refills and stop.
+                                // A zero diagonal in the sketched factor makes CQRRT return with
+                                // the block intact; a potrf failure returns after the
+                                // preconditioning trsm has overwritten it. Either way no finished
+                                // factor says which columns were healthy, so no probe can be read
+                                // and refilling would fabricate: retract the source X block's
+                                // refills and stop.
                                 x_cols -= pending_refills;
                                 pending_refills = 0;
                                 this->refills_exhausted = true;
@@ -799,18 +855,16 @@ class BK {
                             }
 
                             if (r_blk < w) {
-                                // (2) Zero the REJECTED COLUMNS of the diagonal block. Their true
-                                // value is zero by the band's block-bidiagonal structure, and
-                                // the error this introduces is bounded by tau*||A||, which is
-                                // exactly the order the criterion just declared negligible.
-                                // That bound is the mathematical content of prune-and-narrow,
-                                // and it holds unchanged for a refill placed in those slots.
+                                // (2) Zero the REJECTED COLUMNS of the diagonal block. The true
+                                // value there, for whichever refill or later Y column occupies
+                                // the slot, is bounded by tau*||A||_F, exactly the order the
+                                // criterion just declared negligible (see the band argument at
+                                // the top of this file). That bound is the mathematical content
+                                // of prune-and-narrow, and it holds unchanged for a refill.
                                 //
-                                // A no-op while the loop still breaks here, because those
-                                // positions lie beyond end_cols. It stops being a no-op the
-                                // moment a narrowed block continues: end_cols then grows past
-                                // them and they become interior to the reported band, with
-                                // nothing else ever overwriting them.
+                                // Not a no-op: the run continues past a narrowed block, so
+                                // end_cols grows past these positions and they become interior
+                                // to the reported band, with nothing else ever overwriting them.
                                 //
                                 // Note the copy above cannot simply be narrowed to r_blk
                                 // instead: util::transposition writes column i of the factor
@@ -988,7 +1042,7 @@ class BK {
                                 s_cpy_t_start = steady_clock::now();
                             }
 
-                            // Copy S_ii over to S's space under S_i (offset down by iter_od * k)
+                            // Copy S_ii over to S's space under S_i (at row x_cols)
                             lapack::lacpy(MatrixType::Upper, w, w, X_i, m, S_ii, n + k);
 
                             if(this -> timing) {
@@ -1006,8 +1060,6 @@ class BK {
                             }
                         }
 
-                        // Early termination
-                        // if (abs(S(end)) <= sqrt(eps('T')))
                         // Rank criterion, left basis. S_ii has leading dimension n + k and
                         // is written upper-triangular by lacpy, where R is lower; the shared
                         // helper reads the full square sub-block so both are handled.
@@ -1029,10 +1081,9 @@ class BK {
 
                             if (r_blk < w) {
                                 // (2) Zero the REJECTED ROWS of the diagonal block; see the odd
-                                // branch for why the true value there is zero and why this is
-                                // a no-op only until a narrowed block continues. Rows rather
-                                // than columns because S_ii is written upper-triangular by
-                                // lacpy, where R_ii is lower.
+                                // branch for the bound on the true value there and why this is
+                                // not a no-op. Rows rather than columns because S_ii is written
+                                // upper-triangular by lacpy, where R_ii is lower.
                                 for (int64_t j = 0; j < w; ++j)
                                     for (int64_t i = r_blk; i < w; ++i)
                                         S_ii[i + j * (n + k)] = T(0);
@@ -1047,9 +1098,10 @@ class BK {
                             }
                             pending_refills = 0;
 
-                            // (4) REFILL on the left side; see the odd branch. X lives in R^m and
-                            // the band's row extent is bounded by n (S has n + k rows), so the
-                            // room is min(m, n), never n alone.
+                            // (4) REFILL on the left side; see the odd branch. X lives in R^m, so
+                            // at most m orthonormal columns exist, and the saturation guard ends
+                            // the run once x_cols passes n, so refills past column n would only
+                            // trip it unprobed. Hence the room is min(m, n).
                             int64_t n_ref = 0;
                             const int64_t room = std::min(m, n) - (x_cols + r_blk);
                             if (r_blk < w && this->refill_dead_columns && !this->refills_exhausted) {
@@ -1085,6 +1137,9 @@ class BK {
                         // Buffer growth and pointer derivation both happen at the top of the
                         // branch now, so there is nothing to advance here.
 
+                        // This window opens after the A product, so it also counts the reorth, QR
+                        // and refill time timed above: a double count inherited from the window
+                        // layout and left as is.
                         if(this -> timing) {
                             allocation_t_stop  = steady_clock::now();
                             allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
@@ -1129,31 +1184,36 @@ class BK {
                     // Frobenius-content convergence (criterion 1 above): ||R||_F exceeding
                     // sqrt(1 - tol^2)||M||_F means ||M - hat(M)||_F <= tol * ||M||_F.
                     //
-                    // This check must come BEFORE ++iter. `iter` is the count of COMPLETED
-                    // iterations, and end_cols = ((iter + 1) / 2) * k below reads it that
-                    // way; the max_iters_reached exit below likewise breaks before the
-                    // increment. Breaking after it left iter one too high, so end_cols
-                    // claimed a block that was never built and gesdd read uninitialized
-                    // columns of Y_od/X_ev. That was latent until the Uplo fix above: with
-                    // norm_R stuck at ||diag(R)|| this exit essentially never fired, so the
-                    // miscount was unreachable. Fixing the norm alone turned six passing
-                    // tests into residuals of order 1.
+                    // This check must come BEFORE ++iter. At every exit `iter` is the number
+                    // of the last iteration attempted, which num_krylov_iters reports and
+                    // final_iter_is_odd reads to pick the band: this exit and the
+                    // max_iters_reached exit below break before the increment, and the
+                    // in-branch breaks above (a dead block, a failed CQRRT) break inside
+                    // iteration iter, so that attempt counts; it has already written its
+                    // off-diagonal strip of the band (R_i or S_i). Breaking after the
+                    // increment once left iter one too high, so the former
+                    // end_cols = ((iter + 1) / 2) * k claimed a block that was never built and
+                    // gesdd read uninitialized columns of Y_od/X_ev. That was latent until
+                    // the Uplo fix above: with norm_R stuck at ||diag(R)|| this exit
+                    // essentially never fired, so the miscount was unreachable. Fixing the
+                    // norm alone turned six passing tests into residuals of order 1.
                     if(norm_R > threshold) {
                         this->termination_reason = BKTermination::norm_converged;
                         break;
                     }
 
                     // Saturation guard. The right basis lives in R^n, so it cannot exceed n
-                    // columns; ((iter + 1) / 2) * k is the count already built (the same
-                    // expression end_cols uses below), and another block needs k more.
+                    // columns; under fixed widths ((iter + 1) / 2) * k was the count already
+                    // built, and another block needs k more. The last paragraph gives the form
+                    // the check takes now.
                     //
                     // This is a termination criterion in its own right, independent of any
                     // rank test, and it is also a memory-safety bound. R_ii is placed at row
-                    // k*(iter_ev+1) in a buffer with leading dimension n, and S_ii at row
-                    // k*(iter_od+1) with leading dimension n+k. Once the basis passes n
-                    // columns those writes run past the end of their column and land in the
-                    // next one: silent corruption of the band, no segfault, and nothing for
-                    // a sanitizer to catch because the memory is validly allocated.
+                    // x_cols - w in a buffer with leading dimension n, and S_ii at row x_cols
+                    // with leading dimension n+k. Once the basis passes n columns those writes
+                    // run past the end of their column and land in the next one: silent
+                    // corruption of the band, no segfault, and nothing for a sanitizer to
+                    // catch because the memory is validly allocated.
                     //
                     // Until now this job was being done implicitly by the rank-deficiency
                     // exit, which is why removing that exit on 2026-07-29 broke nine tests
@@ -1175,11 +1235,12 @@ class BK {
                     //
                     // Stated as the memory bound it always was: x_cols > n. Under fixed widths
                     // this is exactly the old expression, since ((iter + 1) / 2) * k was y_cols
-                    // and x_cols was y_cols + k at the end of an even iteration. x_cols changes
-                    // nowhere but the even branch, so one check per even iteration covers every
-                    // change to it, and it is sufficient for the whole next iteration pair: the
-                    // next odd writes R_ii at rows [x_cols - w, x_cols) with ld n, and the next
-                    // even writes S_ii at rows [x_cols, x_cols + w) with ld n + k.
+                    // and x_cols was y_cols + k at the end of an even iteration. x_cols grows
+                    // only in the even branch (the odd branch can only lower it, by retracting
+                    // refills), so one check per even iteration covers every increase, and it is
+                    // sufficient for the whole next iteration pair: the next odd writes R_ii at
+                    // rows [x_cols - w, x_cols) with ld n, and the next even writes S_ii at rows
+                    // [x_cols, x_cols + w) with ld n + k.
                     if ((iter % 2 == 0) && (x_cols > n)) {
                         this->termination_reason = BKTermination::saturated;
                         break;

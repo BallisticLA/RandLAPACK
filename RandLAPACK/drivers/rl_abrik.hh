@@ -22,9 +22,10 @@ namespace RandLAPACK {
     ///
     /// In nonadaptive mode, an economy SVD is performed once after BK terminates.
     /// BK stops on its Frobenius-content criterion, when its relative numerical-rank
-    /// criterion retains no new columns, or when the iteration budget or ambient
-    /// dimension is reached. In adaptive mode, the driver assesses singular-vector
-    /// residuals after each SVD and may resume BK with a larger iteration budget.
+    /// criterion retains no new columns and no refill can take their place, or when the
+    /// iteration budget or ambient dimension is reached. In adaptive mode, the driver
+    /// assesses singular-vector residuals after each SVD and may resume BK with a larger
+    /// iteration budget.
     ///
     /// The main cost of this algorithm comes from large GEMMs with the input matrix A.
     ///
@@ -113,11 +114,13 @@ class ABRIK {
         /// would make the rank decision move whenever convergence was retuned.
         T tau;
         /// Forwarded to BK::refill_dead_columns: refill the rejected columns of a narrowed or
-        /// dead block with random directions, probed by the next block. Default true; false
-        /// restores prune-and-narrow, where a dead block ends the run.
+        /// dead block with random directions, probed by the next block. Any deficient probing
+        /// block switches refilling off, even when the refills' images are alive. Default true;
+        /// false restores prune-and-narrow, where a dead block ends the run.
         bool refill_dead_columns;
-        /// Read back from BK after every call and resume: whether a probe has switched
-        /// refilling off, and how many blocks received refills. Diagnostics.
+        /// Read back from BK after every call and resume: whether refilling has been switched
+        /// off (by a deficient probing block or a failed CQRRT factorization), and how many
+        /// blocks received refills. Diagnostics.
         bool refills_exhausted;
         int64_t refilled_blocks;
 
@@ -176,9 +179,10 @@ class ABRIK {
         /// @param[out] U
         ///     Stores an m by singular_triplets_found orthonormal matrix of left singular
         ///     vectors. singular_triplets_found is bounded above by
-        ///     ((num_krylov_iters + 1) / 2) * k, with equality unless the rank criterion
-        ///     truncated the terminal block, in which case the rejected columns are not
-        ///     reported. It is a bound, not a width.
+        ///     ((num_krylov_iters + 1) / 2) * k, with equality only when every right block is
+        ///     reported at full width k. Columns the rank criterion rejected, refills a probe
+        ///     retracted, and refills no iteration has probed yet are not reported. It is a
+        ///     bound, not a width.
         ///
         /// @param[out] V
         ///     Stores an n by singular_triplets_found orthonormal matrix of right singular
@@ -411,8 +415,9 @@ class ABRIK {
                     // met and reporting success would be a silent under-delivery. A Krylov
                     // space that merely closes early (the identity, I + P) is refilled and
                     // keeps growing, so short of exhausting the Frobenius content, this now
-                    // arises only when a probe has switched refilling off, the basis has run
-                    // out of room, or refill_dead_columns is false.
+                    // arises only when a probe or a failed CQRRT factorization has switched
+                    // refilling off, the basis has run out of room, or refill_dead_columns is
+                    // false.
                     bool short_of_request = (k_assess < this->assessed_rank);
                     bool cannot_grow =
                         bk_obj.termination_reason == BKTermination::norm_converged ||
