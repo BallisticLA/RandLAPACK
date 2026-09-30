@@ -584,7 +584,7 @@ class ABRIK {
             BKTermination reason;     ///< why BK stopped: max_iters_reached at an ordinary checkpoint
             int64_t triplets;         ///< singular triplets in the extracted SVD
             int64_t k_residual;       ///< triplets the residual covers: min(target_rank, triplets)
-            long elapsed_us;          ///< BK time so far plus every SVD extraction so far
+            int64_t elapsed_us;       ///< BK time so far plus every SVD extraction so far
             T residual;               ///< svd_residual over the leading k_residual triplets; +inf if none
         };
 
@@ -607,8 +607,9 @@ class ABRIK {
         ///
         /// @param k                 Block size.
         /// @param target_rank       How many leading triplets enter the residual.
-        /// @param checkpoint_iters  Strictly increasing Krylov iteration counts at which to
-        ///                          stop; the last entry is the full budget.
+        /// @param checkpoint_iters  Strictly increasing Krylov iteration counts, at least 1
+        ///                          and at most INT_MAX, at which to stop; the last entry is
+        ///                          the full budget. An empty list does nothing.
         /// @param on_checkpoint     Called after each checkpoint with a const Checkpoint&.
         /// @return 0, or BK's nonzero status; BK has then already freed its buffers.
         template <RandLAPACK::linops::LinearOperator GLO, typename CheckpointFn>
@@ -620,6 +621,11 @@ class ABRIK {
             CheckpointFn on_checkpoint,
             RandBLAS::RNGState<RNG>& state
         ) {
+            this->termination_reason = ABRIKTermination::not_adaptive;
+            this->singular_triplets_found = 0;
+            if (checkpoint_iters.empty()) return 0;
+            randlapack_require(checkpoint_iters.front() >= 1 && checkpoint_iters.back() <= INT_MAX)
+                << "checkpoint_iters must lie in [1, INT_MAX]";
             for (size_t ci = 1; ci < checkpoint_iters.size(); ++ci)
                 randlapack_require(checkpoint_iters[ci] > checkpoint_iters[ci - 1])
                     << "checkpoint_iters must be strictly increasing";
@@ -635,7 +641,7 @@ class ABRIK {
             int64_t end_rows = 0;
             int64_t end_cols = 0;
             bool final_iter_is_odd = false;
-            long elapsed_us = 0;
+            int64_t elapsed_us = 0;
 
             for (size_t ci = 0; ci < checkpoint_iters.size(); ++ci) {
                 bk_obj.max_krylov_iters = (int) checkpoint_iters[ci];

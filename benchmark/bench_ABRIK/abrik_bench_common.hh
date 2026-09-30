@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <exception>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -43,13 +44,20 @@ inline int abrik_usage(const char* argv0, const char* usage) {
 }
 
 /// The main() shared by the drivers: dispatch on argv[1], "double" or "float" ("single"
-/// is accepted as a synonym). The run functions return the exit status.
+/// is accepted as a synonym). The run functions return the exit status; an exception
+/// (an unparsable number, a bad input file, a library precondition) is reported and
+/// exits with 1 instead of aborting.
 inline int abrik_bench_main(int argc, char* argv[], const char* usage,
                             int (*run_double)(int, char**), int (*run_float)(int, char**)) {
     if (argc < 2) return abrik_usage(argv[0], usage);
     std::string precision = argv[1];
-    if (precision == "double") return run_double(argc, argv);
-    if (precision == "float" || precision == "single") return run_float(argc, argv);
+    try {
+        if (precision == "double") return run_double(argc, argv);
+        if (precision == "float" || precision == "single") return run_float(argc, argv);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
     std::cerr << "Error: precision must be 'double' or 'float', got '" << precision << "'\n";
     return abrik_usage(argv[0], usage);
 }

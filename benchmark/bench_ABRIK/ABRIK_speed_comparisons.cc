@@ -61,6 +61,7 @@ Usage:
 #include <RandBLAS.hh>
 #include <Eigen/Dense>
 #include <algorithm>
+#include <climits>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -145,7 +146,7 @@ template <typename T, typename EigenMatType, RandLAPACK::linops::LinearOperator 
 static T run_svds(const Eigen::Ref<const EigenMatType>& A_eigen, LinOp& A_op,
                   int64_t budget_mv, int64_t target_rank, long& dur_us, int64_t& actual_mv) {
     int64_t nev = target_rank;
-    int64_t ncv_default = std::min(2 * nev + 1, A_op.n_cols - 1);
+    int64_t ncv_default = std::min(2 * nev + 1, std::min(A_op.n_rows, A_op.n_cols) - 1);
     int64_t ncv = BenchmarkUtil::effective_ncv(budget_mv, nev, ncv_default);
     int64_t max_restarts = BenchmarkUtil::budget_to_restarts(budget_mv, nev, ncv);
 
@@ -195,6 +196,10 @@ static void run_with_budget(
                 if (iters >= 1 && (cp_iters.empty() || iters > cp_iters.back()))
                     cp_iters.push_back(iters);
             }
+            if (cp_iters.empty()) {
+                fprintf(stderr, "ABRIK b=%ld: no checkpoint reaches one block, skipped\n", (long) b_sz);
+                continue;
+            }
             auto state_alg = state_run;
             int status = algs.ABRIK.call_with_checkpoints(A_op, b_sz, target_rank, cp_iters,
                 [&](const Checkpoint& cp) {
@@ -204,7 +209,7 @@ static void run_with_budget(
                             << bk_reason_name(cp.reason) << "\n";
                     outfile.flush();
                     printf("  mv=%ld  err=%e  t=%ld us  [%s]\n", (long) (b_sz * cp.iters_done),
-                           (double) cp.residual, cp.elapsed_us, bk_reason_name(cp.reason));
+                           (double) cp.residual, (long) cp.elapsed_us, bk_reason_name(cp.reason));
                 }, state_alg);
             if (status != 0)
                 fprintf(stderr, "ABRIK b=%ld run %d: BK failed with status %d, trace ends\n",
@@ -225,11 +230,12 @@ static void run_with_budget(
         }
 
         // RSVD: one independent call per checkpoint budget, largest block size, rank
-        // budget/2, its operator applications metered. RSVD may deliver fewer triplets
-        // than asked; the residual covers the leading min(target_rank, delivered).
+        // budget/2 capped at the smaller dimension, its operator applications metered.
+        // RSVD may deliver fewer triplets than asked; the residual covers the leading
+        // min(target_rank, delivered).
         printf("\n=== RSVD b=%ld (run %d) ===\n", (long) max_b, run);
         for (auto budget_mv : checkpoint_matvecs) {
-            int64_t k_r = std::max((int64_t) 1, budget_mv / 2);
+            int64_t k_r = std::min(std::max((int64_t) 1, budget_mv / 2), std::min(m, n));
             T *U_r = nullptr, *V_r = nullptr, *S_r = nullptr;
             auto state_rsvd = state_run;
             CountingLinOp<LinOp> counted(A_op);
@@ -260,14 +266,19 @@ static void run_with_budget(
             T* V_g  = new T[n * n];
 
             auto t0 = steady_clock::now();
-            lapack::gesdd(Job::SomeVec, m, n, A_svd, m, S_g, U_g, m, VT_g, n);
+            int64_t info = lapack::gesdd(Job::SomeVec, m, n, A_svd, m, S_g, U_g, m, VT_g, n);
             long dur_svd = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
-            RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
-            T err_SVD = RandLAPACK::linops::svd_residual<T>(A_op, U_g, V_g, S_g, target_rank);
+            T err_SVD = std::numeric_limits<T>::infinity();
+            if (info == 0) {
+                RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
+                err_SVD = RandLAPACK::linops::svd_residual<T>(A_op, U_g, V_g, S_g, target_rank);
+            } else {
+                fprintf(stderr, "GESDD failed with info %ld; err recorded as inf\n", (long) info);
+            }
             printf("  err=%e  t=%ld us\n", (double) err_SVD, dur_svd);
             outfile << "0, GESDD, 0, 0, 0, " << err_SVD << ", " << dur_svd << ", "
-                    << target_rank << ", done\n";
+                    << target_rank << ", " << (info == 0 ? "done" : "failed") << "\n";
             outfile.flush();
             delete[] A_svd; delete[] U_g; delete[] S_g; delete[] VT_g; delete[] V_g;
         }
@@ -280,9 +291,9 @@ static int run_benchmark(int argc, char* argv[]) {
 
     std::string output_dir = argv[2];
     std::string input_path = argv[3];
-    int64_t target_rank    = std::stol(argv[4]);
+    int64_t target_rank    = std::stoll(argv[4]);
     bool run_gesdd         = (std::stoi(argv[5]) != 0);
-    int64_t budget         = std::stol(argv[6]);
+    int64_t budget         = std::stoll(argv[6]);
     int num_runs           = std::stoi(argv[7]);
     int num_b_sz           = std::stoi(argv[8]);
     if (num_runs < 1 || num_b_sz < 1 || argc < 9 + num_b_sz) {
@@ -291,15 +302,16 @@ static int run_benchmark(int argc, char* argv[]) {
     }
     std::vector<int64_t> block_sizes;
     for (int i = 0; i < num_b_sz; ++i)
-        block_sizes.push_back(std::stol(argv[9 + i]));
+        block_sizes.push_back(std::stoll(argv[9 + i]));
     int args_consumed = 9 + num_b_sz;
     double sub_ratio = (argc > args_consumed)     ? std::stod(argv[args_consumed])     : 1.0;
     bool use_cqrrt   = (argc > args_consumed + 1) ? (std::stoi(argv[args_consumed + 1]) != 0) : false;
 
     int64_t min_b = *std::min_element(block_sizes.begin(), block_sizes.end());
     int64_t max_b = *std::max_element(block_sizes.begin(), block_sizes.end());
-    if (budget < min_b) {
-        std::cerr << "Error: budget " << budget << " is below the smallest block size " << min_b << "\n";
+    if (min_b < 1 || target_rank < 1 || budget < min_b || budget > INT_MAX) {
+        std::cerr << "Error: need block sizes >= 1, target_rank >= 1, and smallest block size"
+                  << " <= budget <= " << INT_MAX << "\n";
         return 2;
     }
 
@@ -307,6 +319,12 @@ static int run_benchmark(int argc, char* argv[]) {
     auto mat = BenchIO::load_matrix<T>(input_path, sub_ratio);
     int64_t m = mat.m;
     int64_t n = mat.n;
+    // Spectra needs target_rank < ncv <= min(m, n) - 1.
+    if (target_rank + 2 > std::min(m, n)) {
+        std::cerr << "Error: target_rank " << target_rank << " is too large for a "
+                  << m << " x " << n << " input (needs target_rank + 2 <= min(m, n))\n";
+        return 2;
+    }
     AlgorithmObjects<T, r123::Philox4x32> algs(max_b, tol);
 
     std::ofstream outfile;

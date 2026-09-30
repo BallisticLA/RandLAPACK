@@ -1224,7 +1224,7 @@ TEST_F(TestABRIK, ABRIK_call_with_checkpoints_traces_a_single_run) {
             // Even iteration counts end on an X block: the Y side holds iters/2 full blocks.
             EXPECT_EQ(trace[i].triplets, b * checkpoints[i] / 2);
             EXPECT_EQ(trace[i].k_residual, target);
-            EXPECT_GE(trace[i].elapsed_us, i ? trace[i - 1].elapsed_us : 0L);
+            EXPECT_GE(trace[i].elapsed_us, i ? trace[i - 1].elapsed_us : (int64_t) 0);
             EXPECT_TRUE(std::isfinite(trace[i].residual));
         }
         EXPECT_LT(trace.back().residual, trace.front().residual);

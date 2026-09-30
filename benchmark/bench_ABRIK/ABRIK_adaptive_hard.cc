@@ -41,8 +41,9 @@ Output CSV (long format, one data point per row):
   elapsed_us   = sweep: wall clock of the non-adaptive call; adaptive: wall clock of the
                  adaptive call, including the driver's own certificate checks. The
                  benchmark's residual evaluation is excluded in both.
-  status       = sweep: converged (residual <= tol), running (budget exhausted), or BK's
-                 terminal state (norm_converged, rank_deficient, saturated);
+  status       = sweep: converged (residual <= tol over target_rank triplets), running
+                 (budget exhausted), under_delivered (fewer than target_rank triplets), or
+                 BK's terminal state (norm_converged, rank_deficient, saturated);
                  adaptive: converged, max_retries, norm_converged, rank_deficient,
                  under_delivered, saturated, not_adaptive;
                  failed in either mode when the call returned an error
@@ -140,9 +141,11 @@ static void run_instance(
         int64_t triplets = (status == 0) ? abrik.singular_triplets_found : 0;
         T residual = RandLAPACK::linops::svd_residual<T>(A_op, U, V, Sigma,
                                                          std::min(target_rank, triplets));
-        const char* st = (status != 0)     ? "failed"
-                       : (residual <= tol) ? "converged"
-                                           : bk_reason_name(abrik.bk_termination_reason);
+        bool certified = (status == 0) && triplets >= target_rank && residual <= tol;
+        const char* st = (status != 0)            ? "failed"
+                       : certified                ? "converged"
+                       : (triplets < target_rank) ? "under_delivered"
+                                                  : bk_reason_name(abrik.bk_termination_reason);
         int iters_done = abrik.num_krylov_iters;
 
         outfile << run << ", sweep, " << b_sz << ", " << iters_done << ", "
@@ -155,7 +158,7 @@ static void run_instance(
 
         // Nothing further to learn once the certificate is met; the adaptive run reports
         // where the driver itself stops.
-        if (residual <= tol)
+        if (certified)
             break;
     }
 
@@ -199,7 +202,7 @@ static int run_benchmark(int argc, char* argv[]) {
 
     std::string output_dir = argv[2];
     std::string input_path = argv[3];
-    int64_t target_rank    = std::stol(argv[4]);
+    int64_t target_rank    = std::stoll(argv[4]);
     double tol_exponent    = std::stod(argv[5]);
     int iters_start        = std::stoi(argv[6]);
     int iters_step         = std::stoi(argv[7]);
@@ -216,7 +219,11 @@ static int run_benchmark(int argc, char* argv[]) {
     }
     std::vector<int64_t> block_sizes;
     for (int i = 0; i < num_b_sz; ++i)
-        block_sizes.push_back(std::stol(argv[11 + i]));
+        block_sizes.push_back(std::stoll(argv[11 + i]));
+    if (target_rank < 1 || *std::min_element(block_sizes.begin(), block_sizes.end()) < 1) {
+        std::cerr << "Error: target_rank and every block size must be >= 1\n";
+        return 2;
+    }
     int args_consumed = 11 + num_b_sz;
     double sub_ratio       = (argc > args_consumed)     ? std::stod(argv[args_consumed])     : 1.0;
     double adaptive_growth = (argc > args_consumed + 1) ? std::stod(argv[args_consumed + 1]) : 2.0;

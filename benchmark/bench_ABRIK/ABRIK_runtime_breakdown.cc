@@ -30,6 +30,8 @@ Usage:
 #include "abrik_bench_common.hh"
 
 #include <RandBLAS.hh>
+#include <algorithm>
+#include <climits>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -93,9 +95,15 @@ static int run_benchmark(int argc, char* argv[]) {
     }
     std::vector<int64_t> block_sizes, matmul_counts;
     for (int i = 0; i < num_b_sz; ++i)
-        block_sizes.push_back(std::stol(argv[7 + i]));
+        block_sizes.push_back(std::stoll(argv[7 + i]));
     for (int i = 0; i < num_mm; ++i)
-        matmul_counts.push_back(std::stol(argv[7 + num_b_sz + i]));
+        matmul_counts.push_back(std::stoll(argv[7 + num_b_sz + i]));
+    if (*std::min_element(block_sizes.begin(), block_sizes.end()) < 1
+        || *std::min_element(matmul_counts.begin(), matmul_counts.end()) < 1
+        || *std::max_element(matmul_counts.begin(), matmul_counts.end()) > INT_MAX) {
+        std::cerr << "Error: block sizes must be >= 1 and matmul counts in [1, " << INT_MAX << "]\n";
+        return 2;
+    }
     int args_consumed = 7 + num_b_sz + num_mm;
     double sub_ratio = (argc > args_consumed)     ? std::stod(argv[args_consumed])     : 1.0;
     bool use_cqrrt   = (argc > args_consumed + 1) ? (std::stoi(argv[args_consumed + 1]) != 0) : false;

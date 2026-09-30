@@ -21,6 +21,7 @@ Spectra runs implicitly restarted Lanczos on A'A (AA' when m <= n):
 #include <Spectra/LinAlg/TridiagEigen.h>
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <numeric>
 #include <vector>
 
@@ -89,8 +90,8 @@ private:
     ConstGenericMatrix m_mat;
     const Index m_m;
     const Index m_n;
-    Spectra::SVDMatOp<Scalar>* m_op;
-    AllRitzSymEigsSolver<Spectra::SVDMatOp<Scalar>>* m_eigs;
+    std::unique_ptr<Spectra::SVDMatOp<Scalar>> m_op;
+    std::unique_ptr<AllRitzSymEigsSolver<Spectra::SVDMatOp<Scalar>>> m_eigs;
     Index m_nev;
     Matrix m_ritz_vecs;   // cached by ritz_vectors(); matrix_U and matrix_V both need them
 
@@ -128,17 +129,14 @@ public:
         m_mat(mat), m_m(mat.rows()), m_n(mat.cols()), m_nev(ncomp)
     {
         if (m_m > m_n)
-            m_op = new Spectra::SVDTallMatOp<Scalar, MatrixType>(mat);
+            m_op.reset(new Spectra::SVDTallMatOp<Scalar, MatrixType>(mat));
         else
-            m_op = new Spectra::SVDWideMatOp<Scalar, MatrixType>(mat);
-        m_eigs = new AllRitzSymEigsSolver<Spectra::SVDMatOp<Scalar>>(*m_op, ncomp, ncv);
+            m_op.reset(new Spectra::SVDWideMatOp<Scalar, MatrixType>(mat));
+        m_eigs.reset(new AllRitzSymEigsSolver<Spectra::SVDMatOp<Scalar>>(*m_op, ncomp, ncv));
     }
 
-    ~BudgetedPartialSVDSolver()
-    {
-        delete m_eigs;
-        delete m_op;
-    }
+    BudgetedPartialSVDSolver(const BudgetedPartialSVDSolver&) = delete;
+    BudgetedPartialSVDSolver& operator=(const BudgetedPartialSVDSolver&) = delete;
 
     // Runs exactly max_restarts restarts: the tolerance is far below anything reachable,
     // so Spectra never stops early. Returns the number of formally converged values.

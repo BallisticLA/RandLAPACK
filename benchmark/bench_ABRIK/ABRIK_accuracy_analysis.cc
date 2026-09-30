@@ -62,6 +62,7 @@ GESDD's workspace and ABRIK's outputs: about 3.2 GB in double at m = n = 10000.
 
 #include <RandBLAS.hh>
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -106,13 +107,13 @@ static int run_analysis(int argc, char* argv[]) {
 
     std::string output_dir = argv[2];
     std::string input_path = argv[3];
-    int64_t m_expected     = std::stol(argv[4]);
-    int64_t n_expected     = std::stol(argv[5]);
-    int64_t b_sz           = std::stol(argv[6]);
-    int64_t num_matmuls    = std::stol(argv[7]);
+    int64_t m_expected     = std::stoll(argv[4]);
+    int64_t n_expected     = std::stoll(argv[5]);
+    int64_t b_sz           = std::stoll(argv[6]);
+    int64_t num_matmuls    = std::stoll(argv[7]);
     int     num_runs       = std::stoi(argv[8]);
-    if (num_runs < 1) {
-        std::cerr << "Error: num_runs must be >= 1 (got " << num_runs << ")\n";
+    if (num_runs < 1 || b_sz < 1 || num_matmuls < 1 || num_matmuls > INT_MAX) {
+        std::cerr << "Error: need num_runs >= 1, b_sz >= 1 and 1 <= num_matmuls <= " << INT_MAX << "\n";
         return 2;
     }
     T tol = std::pow(std::numeric_limits<T>::epsilon(), (T) 0.85);
@@ -149,10 +150,15 @@ static int run_analysis(int argc, char* argv[]) {
     lapack::lacpy(MatrixType::General, m, n, A, m, A_copy, m);
 
     auto t0 = steady_clock::now();
-    lapack::gesdd(Job::SomeVec, m, n, A_copy, m, S_g, U_g, m, VT_g, n);
+    int64_t info = lapack::gesdd(Job::SomeVec, m, n, A_copy, m, S_g, U_g, m, VT_g, n);
     long dur_gesdd = duration_cast<microseconds>(steady_clock::now() - t0).count();
-    printf("GESDD: %.2f s\n", dur_gesdd / 1e6);
     delete[] A_copy;
+    if (info != 0) {
+        std::cerr << "Error: GESDD failed with info " << info << "\n";
+        delete[] U_g; delete[] S_g; delete[] VT_g;
+        return 1;
+    }
+    printf("GESDD: %.2f s\n", dur_gesdd / 1e6);
 
     // GESDD returns V^T (column-major, right singular vectors as rows); the metrics want V
     // with one vector per column.
