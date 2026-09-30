@@ -95,7 +95,7 @@ include(FetchContent)
 FetchContent_Declare(
         eigen_lib
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen
-        GIT_TAG 3.4.1
+        GIT_TAG master
         GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(eigen_lib)
@@ -130,7 +130,7 @@ FetchContent_MakeAvailable(
     fast_matrix_market
 )
 
-# Extras headers (for ext_budgeted_svd_solver.hh etc.)
+# The ABRIK drivers include the extras matrix loader by bare name.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../extras/misc)
 
 set(
@@ -138,7 +138,7 @@ set(
     RandLAPACK::RandLAPACK
 )
 
-# Declaring a full set of libs needed for one of ABRIK benchmarks.
+# Libraries for the ABRIK speed comparisons, whose Spectra baseline needs Eigen and Spectra.
 set(
     Benchmark_libs_external
     RandLAPACK::RandLAPACK
@@ -177,21 +177,21 @@ add_benchmark(NAME BQRRP_subroutines_speed            CXX_SOURCES bench_BQRRP/BQ
 add_benchmark(NAME BQRRP_error_analysis               CXX_SOURCES bench_BQRRP/BQRRP_error_analysis.cc               LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME HQRRP_sanity_check                 CXX_SOURCES bench_BQRRP/HQRRP_sanity_check.cc                 LINK_LIBS ${Benchmark_libs})
 
-# CQRRT linops benchmarks (require Eigen + fast_matrix_market + extras headers)
+# Benchmarks that load their inputs through the extras matrix loader (Eigen + fast_matrix_market).
 set(
-    Benchmark_libs_cqrrt_linops
+    Benchmark_libs_matrix_io
     RandLAPACK::RandLAPACK
     Eigen3::Eigen
     fast_matrix_market
 )
-add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_composite_applications.cc LINK_LIBS ${Benchmark_libs_cqrrt_linops})
-add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_composite_applications.cc LINK_LIBS ${Benchmark_libs_matrix_io})
+add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_matrix_io})
 
 # ABRIK benchmarks
-add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs_matrix_io})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME ABRIK_accuracy_analysis        CXX_SOURCES bench_ABRIK/ABRIK_accuracy_analysis.cc        LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME ABRIK_adaptive_hard            CXX_SOURCES bench_ABRIK/ABRIK_adaptive_hard.cc            LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_accuracy_analysis        CXX_SOURCES bench_ABRIK/ABRIK_accuracy_analysis.cc        LINK_LIBS ${Benchmark_libs_matrix_io})
+add_benchmark(NAME ABRIK_adaptive_hard            CXX_SOURCES bench_ABRIK/ABRIK_adaptive_hard.cc            LINK_LIBS ${Benchmark_libs_matrix_io})
 
 # GPU benchmarks (if CUDA is available)
 if (HAVE_CUDA)
