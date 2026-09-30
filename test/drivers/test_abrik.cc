@@ -963,9 +963,11 @@ TEST_F(TestABRIK, ABRIK_rank_sweep_certifies_full_rank) {
 //
 // The rank test now anchors on norm_A (util::block_numerical_rank judges against
 // tau*||A||_F). The principle is Balabanov, "Randomized Cholesky QR factorizations",
-// arXiv:2210.09953, Thm 5.6: the tolerance is a contract on the conditioning of what is retained
-// (cond(X(1:r)) <= 10 n^1.5 r / tau), and an absolute constant cannot express such a
-// contract because it does not know what "large" means for this operator.
+// arXiv:2210.09953, Thm 5.6: there the tolerance is a contract on the conditioning of
+// what is retained (cond(X(1:r)) <= 10 n^1.5 r / tau), and an absolute constant cannot
+// express such a contract because it does not know what "large" means for an operator.
+// BK borrows only the relative scaling from Algorithm 7; its unpivoted criterion does
+// not deliver Theorem 5.6's bound (see BK::tau).
 TEST_F(TestABRIK, ABRIK_rank_deficiency_is_scale_invariant) {
     int64_t m         = 100;
     int64_t n         = 50;
