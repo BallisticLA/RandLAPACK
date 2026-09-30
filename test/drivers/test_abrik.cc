@@ -798,7 +798,8 @@ TEST_F(TestABRIK, ABRIK_exact_rank_two_returns_two_triplets_nothing_fabricated) 
             const int64_t k = solver.singular_triplets_found;
             ASSERT_EQ(k, (int64_t) 2) << "a rank-2 matrix supports exactly 2 triplets";
             // The probe runs at iteration 2. On some BLAS backends BK ends at iteration 1 on the
-            // content test instead (see TestBK.BK_exact_rank_two_refills_once...); then no probe
+            // content test instead (see TestBK.BK_exact_rank_two_reports_the_same_two_columns_on_either_exit);
+            // then no probe
             // ran and the 8 unprobed refills are simply not reported.
             EXPECT_EQ(solver.refills_exhausted, solver.num_krylov_iters >= 2)
                 << "iters=" << solver.num_krylov_iters;

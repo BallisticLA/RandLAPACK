@@ -946,13 +946,20 @@ TEST_F(TestBK, BK_refill_room_uses_min_of_m_and_n) {
 }
 
 /// Exact rank 2 at k = 10, singular values 1 and 1e-10. The first Y block keeps 2 columns and
-/// refills 8. Everything M has is captured at that point, so the run can end in two ways, and
-/// which one happens depends on rounding in ||R||_F against ||M||_F (the content threshold is
-/// exactly ||M||_F in double for any small tol): MKL continues to iteration 2, where the probe
-/// finds the 8 refill images dead, retracts them and stops as rank_deficient; OpenBLAS and
-/// Accelerate stop at iteration 1 as norm_converged with the 8 refills unprobed. Both must give
-/// the same reported result. The second pass forces the iteration-1 exit with a loose tol.
-TEST_F(TestBK, BK_exact_rank_two_refills_once_then_probe_switches_off) {
+/// refills 8, and at that point everything M has is captured. BK has two ways to stop from
+/// here, and rounding picks one:
+///   - the content test compares ||R||_F with ||M||_F; the two are equal in exact arithmetic,
+///     so whether the computed ||R||_F lands a hair above or below decides. Above: the run
+///     stops at iteration 1 (norm_converged) with the 8 refills never probed. This is what
+///     OpenBLAS and Accelerate do.
+///   - below: iteration 2 runs, the probe finds the 8 refill images dead, retracts them and
+///     stops (rank_deficient). This is what MKL does.
+/// Both exits report the same 10 by 2 result, which is what this test pins. The second pass
+/// forces the first exit with a loose tol. The second exit cannot be forced (no tol raises the
+/// content bar above ||M||_F, which ||R||_F already reaches), so the retract-on-dead-probe path
+/// is guaranteed on every BLAS only through the rank-25 leg of the resume test, where the probe
+/// runs before the content test can fire.
+TEST_F(TestBK, BK_exact_rank_two_reports_the_same_two_columns_on_either_exit) {
     const int64_t m = 200, n = 200, k = 10;
     std::vector<double> A(m * n, 0.0);
     build_from_spectrum(m, n, {1.0, 1e-10}, A.data());
@@ -1036,7 +1043,7 @@ TEST_F(TestBK, BK_odd_budget_exit_does_not_report_pending_refills) {
 
     EXPECT_EQ(bk.num_krylov_iters, 1);
     // The budget and the content test both end this run at iteration 1; which one fires first
-    // depends on rounding in ||R||_F against ||M||_F (see BK_exact_rank_two_refills_once...).
+    // depends on rounding in ||R||_F against ||M||_F (see the rank-2 test above).
     EXPECT_TRUE(bk.termination_reason == RandLAPACK::BKTermination::max_iters_reached ||
                 bk.termination_reason == RandLAPACK::BKTermination::norm_converged)
         << "reason=" << (int)bk.termination_reason;
@@ -1053,7 +1060,7 @@ TEST_F(TestBK, BK_odd_budget_exit_does_not_report_pending_refills) {
 /// X columns and refills 5, and iteration 5 probes them dead, which exhausts refilling.
 /// The identity: every even block is entirely old and refilled in full, so the even checkpoint
 /// at 4 holds k pending refills; they are never probed dead, so refilling stays on.
-/// Exact rank 2 (the matrix of BK_exact_rank_two_refills_once_then_probe_switches_off): the odd
+/// Exact rank 2 (the matrix of BK_exact_rank_two_reports_the_same_two_columns_on_either_exit): the odd
 /// checkpoint at 1 holds the 8 Y-side refills, which iteration 2 probes dead and retracts. This
 /// leg runs only where iteration 1 ends on the budget rather than on the content test.
 TEST_F(TestBK, BK_resume_equals_single_shot_across_a_refill) {
