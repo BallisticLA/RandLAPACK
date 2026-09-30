@@ -767,6 +767,144 @@ TEST_F(TestABRIK, ABRIK_identity_delivers_the_request_with_refills) {
     }
 }
 
+// Exact rank 2. BK keeps the two real right columns, refills eight, probes them dead at the next
+// block and retracts them, so exactly the two triplets that exist come back in both modes, and
+// the adaptive request of 2b is reported as a shortfall rather than padded.
+// The second triplet's normalized residual cannot reach roundoff: its absolute residual sits at
+// roundoff of ||A||, so dividing by s2 = 1e-10 floors it at the order of eps * s1 / s2 = 2e-6
+// in double (measured 2.9e-7), hence the loose bound on res[1].
+// The sibling spectrum (1, 1e-3) shows the same two triplets certify once s2 is not that small.
+TEST_F(TestABRIK, ABRIK_exact_rank_two_returns_two_triplets_nothing_fabricated) {
+    const int64_t m = 200, n = 200, b = 10;
+    const double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    for (double s2 : {1e-10, 1e-3}) {
+        for (bool adaptive : {false, true}) {
+            char trace[64];
+            snprintf(trace, sizeof(trace), "s2=%.0e %s", s2, adaptive ? "adaptive" : "non-adaptive");
+            SCOPED_TRACE(trace);
+
+            ABRIKTestData<double> data(m, n);
+            {
+                auto gs = RandBLAS::RNGState();
+                build_from_spectrum(m, n, {1.0, s2}, data.A, gs);
+            }
+            lapack::lacpy(MatrixType::General, m, n, data.A, m, data.A_buff, m);
+
+            auto state = RandBLAS::RNGState();
+            RandLAPACK::ABRIK<double, r123::Philox4x32> solver(false, false, tol);
+            solver.adaptive = adaptive;
+            solver.max_krylov_iters = adaptive ? 4 : 40;
+            ASSERT_EQ(solver.call(m, n, data.A, m, b, data.U, data.V, data.Sigma, state), 0);
+            characterize(solver);
+
+            const int64_t k = solver.singular_triplets_found;
+            ASSERT_EQ(k, (int64_t) 2) << "a rank-2 matrix supports exactly 2 triplets";
+            EXPECT_TRUE(solver.refills_exhausted) << "the probe must have switched refilling off";
+            if (adaptive) {
+                EXPECT_EQ(solver.termination_reason, RandLAPACK::ABRIKTermination::under_delivered)
+                    << "reason=" << termination_name(solver.termination_reason);
+            }
+
+            RandLAPACK::linops::DenseLinOp<double> A_op(m, n, data.A_buff, m, Layout::ColMajor);
+            std::vector<double> res(k);
+            RandLAPACK::linops::svd_residual_per_triplet<double>(A_op, data.U, data.V, data.Sigma, k, res.data());
+            printf("RANK2 s2=%.0e adaptive=%d sigma=%.3e %.3e res=%.3e %.3e\n",
+                   s2, (int)adaptive, data.Sigma[0], data.Sigma[1], res[0], res[1]);
+            fflush(stdout);
+
+            if (s2 == 1e-10) {
+                EXPECT_LE(res[0], 1e-13);
+                EXPECT_LE(res[1], 1e-4);
+            } else {
+                EXPECT_EQ(certified_triplets<double>(data, k, 1e-8), (int64_t) 2);
+            }
+        }
+    }
+}
+
+// With refilling switched off, the identity is the extreme case of a Krylov space that cannot
+// grow: M*Omega = Omega, so the second block is entirely old and the rank test rejects it in
+// full. This pins the prune-and-narrow contract that refill_dead_columns = false restores:
+// exactly b triplets, all exact, in exactly two iterations, on both QR backends, and an honest
+// report when more triplets are requested than span(Omega) supports.
+TEST_F(TestABRIK, ABRIK_identity_option_off_reports_shortfall) {
+    constexpr int64_t n = 200, b = 10;
+    for (auto qr : {Subroutines::QR_explicit::geqrf_ungqr, Subroutines::QR_explicit::cqrrt}) {
+        // mode 0: non-adaptive, generous budget.
+        // mode 1: adaptive, default budget 2, derived request b   -> converged.
+        // mode 2: adaptive, budget 4, derived request 2b          -> under_delivered.
+        for (int mode = 0; mode < 3; ++mode) {
+            std::vector<double> A(n * n, 0.0);
+            for (int64_t i = 0; i < n; ++i) A[i + n * i] = 1.0;
+            std::vector<double> A_ref(A);
+            auto state = RandBLAS::RNGState();
+            double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+            RandLAPACK::ABRIK<double, r123::Philox4x32> solver(false, false, tol);
+            solver.refill_dead_columns = false;
+            solver.qr_exp   = qr;
+            solver.adaptive = (mode != 0);
+            solver.max_krylov_iters = (mode == 0) ? 40 : (mode == 1 ? 2 : 4);
+
+            double *U = nullptr, *V = nullptr, *Sigma = nullptr;
+            ASSERT_EQ(solver.call(n, n, A.data(), n, b, U, V, Sigma, state), 0)
+                << "qr=" << (int)qr << " mode=" << mode;
+
+            EXPECT_EQ(solver.num_krylov_iters, 2) << "the second block is entirely old; BK must stop there";
+            ASSERT_EQ(solver.singular_triplets_found, b) << "span(Omega) supports exactly b triplets";
+            for (int64_t i = 0; i < b; ++i)
+                EXPECT_NEAR(Sigma[i], 1.0, 1e-13) << "triplet " << i;
+
+            RandLAPACK::linops::DenseLinOp<double> A_op(n, n, A_ref.data(), n, Layout::ColMajor);
+            EXPECT_EQ(RandLAPACK::linops::svd_triplets_certified<double>(A_op, U, V, Sigma, b, 1e-12), b)
+                << "every returned triplet must satisfy both singular-vector equations";
+
+            // Orthonormality of the lifted factors (svd_residual does not check it).
+            std::vector<double> G(b * b);
+            for (double* Q : {U, V}) {
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, b, b, n, 1.0, Q, n, Q, n, 0.0, G.data(), b);
+                for (int64_t i = 0; i < b; ++i) G[i + b * i] -= 1.0;
+                EXPECT_LT(lapack::lange(Norm::Fro, b, b, G.data(), b), 1e-13);
+            }
+
+            switch (mode) {
+                case 0:
+                    EXPECT_EQ(solver.termination_reason, RandLAPACK::ABRIKTermination::not_adaptive);
+                    break;
+                case 1:
+                    EXPECT_EQ(solver.assessed_rank, b);
+                    EXPECT_EQ(solver.termination_reason, RandLAPACK::ABRIKTermination::converged);
+                    break;
+                case 2:
+                    EXPECT_EQ(solver.assessed_rank, 2 * b);
+                    EXPECT_EQ(solver.termination_reason, RandLAPACK::ABRIKTermination::under_delivered)
+                        << "a request above b cannot be met on the identity and must be reported, not padded";
+                    break;
+            }
+            delete[] U; delete[] V; delete[] Sigma;
+        }
+    }
+}
+
+// Scale invariance of the decision on the identity with refilling off: the rank test is
+// relative to ||M||_F, so 1e-8 I and 1e8 I must give the same count and the same termination.
+TEST_F(TestABRIK, ABRIK_identity_option_off_decision_is_scale_invariant) {
+    constexpr int64_t n = 200, b = 10;
+    for (double scale : {1e-8, 1.0, 1e8}) {
+        std::vector<double> A(n * n, 0.0);
+        for (int64_t i = 0; i < n; ++i) A[i + n * i] = scale;
+        auto state = RandBLAS::RNGState();
+        RandLAPACK::ABRIK<double, r123::Philox4x32> solver(false, false, std::pow(std::numeric_limits<double>::epsilon(), 0.85));
+        solver.refill_dead_columns = false;
+        solver.max_krylov_iters = 40;
+        double *U = nullptr, *V = nullptr, *Sigma = nullptr;
+        ASSERT_EQ(solver.call(n, n, A.data(), n, b, U, V, Sigma, state), 0);
+        EXPECT_EQ(solver.num_krylov_iters, 2) << "scale " << scale;
+        EXPECT_EQ(solver.singular_triplets_found, b) << "scale " << scale;
+        for (int64_t i = 0; i < b; ++i) EXPECT_NEAR(Sigma[i] / scale, 1.0, 1e-13);
+        delete[] U; delete[] V; delete[] Sigma;
+    }
+}
+
 // How big is the T2 shortfall, and is it systematic?
 //
 // T2 is the one regime still short (20 claimed of 25 available). Before deciding whether

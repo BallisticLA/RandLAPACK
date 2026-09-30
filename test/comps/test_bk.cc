@@ -165,12 +165,39 @@ class TestBK : public ::testing::Test
     static T orth_err(const T* Q, int64_t rows, int64_t cols) {
         return RandLAPACK::testing::orthogonality_error<T>(Q, rows, cols);
     }
+    /// A = U diag(s) V' with Haar-like factors, drawn from a fresh generator state so that
+    /// every test asking for the same spectrum gets the same matrix. The pattern of
+    /// build_from_spectrum in test_abrik.cc; trailing singular values are exactly zero.
+    static void build_from_spectrum(int64_t m, int64_t n, std::vector<double> s, double* A) {
+        const int64_t r = (int64_t) s.size();
+        std::vector<double> S(r * r, 0.0);
+        RandLAPACK::util::diag(r, r, s.data(), r, S.data());
+        auto gs = RandBLAS::RNGState();
+        RandLAPACK::gen::gen_singvec<double>(m, n, A, r, S.data(), gs);
+    }
+
+    /// r singular values decaying over three decades: the exact-rank matrices of this file.
+    static std::vector<double> decaying_spectrum(int64_t r) {
+        std::vector<double> s(r);
+        for (int i = 0; i < r; ++i) s[i] = std::pow(10.0, -3.0 * i / (r - 1));
+        return s;
+    }
+
+    /// What the checkpoint leg of check_resume_equals_single_shot saw: the refill state at the
+    /// checkpoint, and refills_exhausted once resume() has run.
+    struct ResumeCheckpoint {
+        int64_t refilled_blocks       = 0;
+        int64_t saved_pending_refills = 0;
+        bool    refills_exhausted     = false;
+    };
+
     /// call(p) must equal call(p1) followed by resume(p), bitwise. Shared by the full-width case
     /// and the narrowed case; `expect_narrowed` demands that the checkpoint leg actually crossed
     /// a narrowing, so the narrowed variant cannot silently degrade into a second copy of the
-    /// full-width one.
+    /// full-width one. A non-null `ckpt` receives the checkpoint's refill state.
     static void check_resume_equals_single_shot(
-        int64_t m, int64_t n, int64_t k, int p1, int p, const double* A_src, bool expect_narrowed
+        int64_t m, int64_t n, int64_t k, int p1, int p, const double* A_src, bool expect_narrowed,
+        ResumeCheckpoint* ckpt = nullptr
     ) {
         double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
         double* A = new double[m * n]();
@@ -200,9 +227,15 @@ class TestBK : public ::testing::Test
                     << "this variant exists to resume ACROSS a narrowing, but none occurred "
                        "before the checkpoint; the configuration no longer tests what it claims";
             }
+            if (ckpt) {
+                ckpt->refilled_blocks       = bk.refilled_blocks;
+                ckpt->saved_pending_refills = bk.saved_pending_refills;
+            }
             bk.max_krylov_iters = p;
             ASSERT_EQ(bk.resume(A_op, k, two.X_ev, two.Y_od, two.R, two.S,
                                 two.end_rows, two.end_cols, two.final_iter_is_odd, state), 0);
+            if (ckpt)
+                ckpt->refills_exhausted = bk.refills_exhausted;
         }
 
         printf("RESUME%s single(%d): rows=%ld cols=%ld | %d then resume(%d): rows=%ld cols=%ld\n",
@@ -909,4 +942,188 @@ TEST_F(TestBK, BK_refill_room_uses_min_of_m_and_n) {
     EXPECT_TRUE(reason == RandLAPACK::BKTermination::saturated ||
                 reason == RandLAPACK::BKTermination::rank_deficient)
         << "termination_reason=" << (int)reason;
+}
+
+/// Exact rank 2 (singular values 1 and 1e-10) at block size 10. The first odd block keeps 2
+/// columns and refills 8; at iteration 2 their images are dead, so the probe retracts them and
+/// switches refilling off, and the dead X block ends the run. That terminal block is not counted
+/// in narrowed_blocks, so the one narrowing is iteration 1.
+TEST_F(TestBK, BK_exact_rank_two_refills_once_then_probe_switches_off) {
+    const int64_t m = 200, n = 200, k = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n, 0.0);
+    build_from_spectrum(m, n, {1.0, 1e-10}, A.data());
+
+    auto state = RandBLAS::RNGState();
+    BKOut<double> out;
+    RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+    bk.max_krylov_iters = 40;
+    ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                      out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+    printf("RANK2 iters=%d reason=%d refilled=%ld exhausted=%d narrowed=%ld end_rows=%ld end_cols=%ld odd=%d\n",
+           bk.num_krylov_iters, (int)bk.termination_reason, (long)bk.refilled_blocks,
+           (int)bk.refills_exhausted, (long)bk.narrowed_blocks,
+           (long)out.end_rows, (long)out.end_cols, (int)out.final_iter_is_odd);
+    fflush(stdout);
+
+    EXPECT_EQ(bk.num_krylov_iters, 2);
+    EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::rank_deficient);
+    EXPECT_EQ(bk.refilled_blocks, (int64_t) 1);
+    EXPECT_TRUE(bk.refills_exhausted);
+    EXPECT_EQ(bk.narrowed_blocks, (int64_t) 1) << "the terminal dead block is not counted";
+    ASSERT_EQ(out.end_rows, (int64_t) 10);
+    ASSERT_EQ(out.end_cols, (int64_t) 2);
+    EXPECT_FALSE(out.final_iter_is_odd);
+
+    // The reported band carries both singular values, the small one to absolute roundoff.
+    const int64_t er = out.end_rows, ec = out.end_cols;
+    const double* band = out.final_iter_is_odd ? out.R : out.S;
+    const int64_t ldb = out.final_iter_is_odd ? n : (n + k);
+    std::vector<double> band_cpy(er * ec), sv(std::min(er, ec));
+    lapack::lacpy(MatrixType::General, er, ec, band, ldb, band_cpy.data(), er);
+    ASSERT_EQ(lapack::gesdd(Job::NoVec, er, ec, band_cpy.data(), er, sv.data(),
+                            static_cast<double*>(nullptr), 1,
+                            static_cast<double*>(nullptr), 1), 0);
+    printf("RANK2 band sv = %.17e %.17e\n", sv[0], sv[1]);
+    fflush(stdout);
+    EXPECT_LE(std::abs(sv[0] - 1.0),   1e-13);
+    EXPECT_LE(std::abs(sv[1] - 1e-10), 1e-14);
+
+    // The retracted refills sit past column 2 of Y_od; the reported prefix is orthonormal.
+    EXPECT_LT(orth_err<double>(out.Y_od, n, 2) * std::sqrt(2.0), 1e-13);
+}
+
+/// Resume across a refill. The checkpoint must hold refills that no iteration has probed yet,
+/// so that resume() restores and probes them exactly as the single shot does.
+/// Rank 25 (the matrix of BK_resume_equals_single_shot_across_a_narrowing): iteration 4 keeps 5
+/// X columns and refills 5, and iteration 5 probes them dead, which exhausts refilling.
+/// The identity: every even block is entirely old and refilled in full, so the even checkpoint
+/// at 4 holds k pending refills; they are never probed dead, so refilling stays on.
+TEST_F(TestBK, BK_resume_equals_single_shot_across_a_refill) {
+    {
+        SCOPED_TRACE("rank 25");
+        const int64_t m = 200, n = 200, k = 10;
+        std::vector<double> A(m * n, 0.0);
+        build_from_spectrum(m, n, decaying_spectrum(25), A.data());
+        ResumeCheckpoint ck;
+        check_resume_equals_single_shot(m, n, k, /*p1=*/4, /*p=*/8, A.data(),
+                                        /*expect_narrowed=*/true, &ck);
+        if (HasFatalFailure()) return;
+        printf("RESUME-REFILL rank25 refilled=%ld pending=%ld exhausted_after=%d\n",
+               (long)ck.refilled_blocks, (long)ck.saved_pending_refills, (int)ck.refills_exhausted);
+        fflush(stdout);
+        EXPECT_GE(ck.refilled_blocks, (int64_t) 1);
+        EXPECT_EQ(ck.saved_pending_refills, (int64_t) 5);
+        EXPECT_TRUE(ck.refills_exhausted) << "iteration 5 must probe the 5 refills and find them dead";
+    }
+    {
+        SCOPED_TRACE("identity 60");
+        const int64_t m = 60, n = 60, k = 10;
+        std::vector<double> A(m * n, 0.0);
+        for (int64_t i = 0; i < n; ++i) A[i + i * m] = 1.0;
+        ResumeCheckpoint ck;
+        check_resume_equals_single_shot(m, n, k, /*p1=*/4, /*p=*/9, A.data(),
+                                        /*expect_narrowed=*/true, &ck);
+        if (HasFatalFailure()) return;
+        printf("RESUME-REFILL identity60 refilled=%ld pending=%ld exhausted_after=%d\n",
+               (long)ck.refilled_blocks, (long)ck.saved_pending_refills, (int)ck.refills_exhausted);
+        fflush(stdout);
+        EXPECT_GE(ck.refilled_blocks, (int64_t) 1);
+        EXPECT_EQ(ck.saved_pending_refills, k) << "an even checkpoint must hold the refilled X block";
+        EXPECT_FALSE(ck.refills_exhausted) << "identity refills are confirmed at full width";
+    }
+}
+
+/// Refills are random draws from the RNG state BK threads through the run, so two runs from
+/// equal seeds must agree bitwise, exactly as without refills. Both inputs refill before the
+/// budget of 8 runs out, which the refilled_blocks check guarantees.
+TEST_F(TestBK, BK_refills_are_bitwise_deterministic) {
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    auto check = [&](int64_t m, int64_t n, int64_t k, const double* A_src, const char* label) {
+        SCOPED_TRACE(label);
+        std::vector<double> A(A_src, A_src + m * n);
+        BKOut<double> o1, o2;
+        for (int rep = 0; rep < 2; ++rep) {
+            BKOut<double> &o = (rep == 0) ? o1 : o2;
+            auto state = RandBLAS::RNGState();          // identical seed both times
+            RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+            bk.max_krylov_iters = 8;
+            ASSERT_EQ(bk.call(m, n, A.data(), m, k, o.X_ev, o.Y_od, o.R, o.S,
+                              o.end_rows, o.end_cols, o.final_iter_is_odd, state), 0);
+            ASSERT_GE(bk.refilled_blocks, (int64_t) 1)
+                << "the run must cross a refill, or this is a copy of the no-refill test";
+        }
+        printf("DETERMINISM-REFILL %-12s end_rows=%ld end_cols=%ld odd=%d\n",
+               label, (long)o1.end_rows, (long)o1.end_cols, (int)o1.final_iter_is_odd);
+        fflush(stdout);
+
+        ASSERT_EQ(o1.end_rows, o2.end_rows);
+        ASSERT_EQ(o1.end_cols, o2.end_cols);
+        ASSERT_EQ(o1.final_iter_is_odd, o2.final_iter_is_odd);
+        for (int64_t i = 0; i < m * o1.end_rows; ++i)
+            ASSERT_EQ(o1.X_ev[i], o2.X_ev[i]) << "X_ev differs at " << i;
+        for (int64_t i = 0; i < n * o1.end_cols; ++i)
+            ASSERT_EQ(o1.Y_od[i], o2.Y_od[i]) << "Y_od differs at " << i;
+    };
+
+    {
+        const int64_t n = 60;
+        std::vector<double> A(n * n, 0.0);
+        for (int64_t i = 0; i < n; ++i) A[i + i * n] = 1.0;
+        check(n, n, 10, A.data(), "identity 60");
+    }
+    if (HasFatalFailure()) return;
+    {
+        const int64_t m = 200, n = 200;
+        std::vector<double> A(m * n, 0.0);
+        build_from_spectrum(m, n, decaying_spectrum(25), A.data());
+        check(m, n, 10, A.data(), "rank 25");
+    }
+}
+
+/// The band still equals X' A Y once refills have entered the basis, been probed, and been
+/// retracted. Refill slots in the band hold zeros whose true value is bounded by tau*||A||_F,
+/// so the identity holds to the same tolerance as without refills.
+TEST_F(TestBK, BK_band_identity_after_refills) {
+    const int64_t m = 200, n = 200, k = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    // Rank 25 at budget 8: refilled at iteration 4, probed dead and retracted at iteration 5.
+    {
+        SCOPED_TRACE("rank 25");
+        std::vector<double> A(m * n, 0.0);
+        build_from_spectrum(m, n, decaying_spectrum(25), A.data());
+        auto state = RandBLAS::RNGState();
+        BKOut<double> out;
+        RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+        bk.max_krylov_iters = 8;
+        ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                          out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+        printf("BAND-REFILL rank25 iters=%d reason=%d refilled=%ld exhausted=%d end_rows=%ld end_cols=%ld\n",
+               bk.num_krylov_iters, (int)bk.termination_reason, (long)bk.refilled_blocks,
+               (int)bk.refills_exhausted, (long)out.end_rows, (long)out.end_cols);
+        fflush(stdout);
+        EXPECT_GE(bk.refilled_blocks, (int64_t) 1);
+        EXPECT_TRUE(bk.refills_exhausted);
+        EXPECT_EQ(out.end_rows, (int64_t) 25);
+        EXPECT_EQ(out.end_cols, (int64_t) 25);
+        check_band_identity<double>(m, n, k, A.data(), out, 1e-10);
+    }
+    if (HasFatalFailure()) return;
+
+    // Singular values 1 and 1e-10: eight Y refills probed dead and retracted at iteration 2.
+    {
+        SCOPED_TRACE("(1, 1e-10)");
+        std::vector<double> A(m * n, 0.0);
+        build_from_spectrum(m, n, {1.0, 1e-10}, A.data());
+        auto state = RandBLAS::RNGState();
+        BKOut<double> out;
+        RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+        bk.max_krylov_iters = 40;
+        ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                          out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+        EXPECT_GE(bk.refilled_blocks, (int64_t) 1);
+        check_band_identity<double>(m, n, k, A.data(), out, 1e-10);
+    }
 }
