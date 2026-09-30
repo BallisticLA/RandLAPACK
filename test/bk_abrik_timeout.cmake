@@ -1,0 +1,5 @@
+foreach(test_name IN LISTS RandLAPACK_tests_TESTS)
+    if(test_name MATCHES "(^|/)(TestBK|TestABRIK|TestABRIKProjector)\\.")
+        set_tests_properties("${test_name}" PROPERTIES TIMEOUT 300)
+    endif()
+endforeach()

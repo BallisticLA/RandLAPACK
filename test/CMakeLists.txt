@@ -13,6 +13,7 @@ if (GTest_FOUND)
         comps/test_rf.cc
         comps/test_syrf.cc
         comps/test_rpchol.cc
+        comps/test_bk.cc
         drivers/test_krill.cc
         drivers/test_rsvd.cc
         drivers/test_rsvd_linop.cc
@@ -22,6 +23,7 @@ if (GTest_FOUND)
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
         drivers/test_abrik.cc
+        drivers/test_abrik_projector.cc
         drivers/test_orth_linop.cc
         misc/test_config.cc
         misc/test_util.cc
@@ -46,6 +48,10 @@ if (GTest_FOUND)
     # Stage dependency DLLs before gtest_discover_tests runs the binary at build time.
     randlapack_stage_runtime_dlls(RandLAPACK_tests)
     gtest_discover_tests(RandLAPACK_tests)
+    # Bound BK/ABRIK non-termination regressions after test discovery, including
+    # parameterized tests, without changing the other suites' timeout behavior.
+    set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/bk_abrik_timeout.cmake")
 
     # Check if CUDA is required and setup CUDA-specific tests
     if (RequireCUDA AND CUDAToolkit_FOUND)
