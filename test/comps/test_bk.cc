@@ -200,9 +200,8 @@ class TestBK : public ::testing::Test
         ResumeCheckpoint* ckpt = nullptr
     ) {
         double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-        double* A = new double[m * n]();
-        std::copy(A_src, A_src + m * n, A);
-        RandLAPACK::linops::DenseLinOp<double> A_op(m, n, A, m, Layout::ColMajor);
+        std::vector<double> A(A_src, A_src + m * n);
+        RandLAPACK::linops::DenseLinOp<double> A_op(m, n, A.data(), m, Layout::ColMajor);
 
         BKOut<double> one;
         {
@@ -251,8 +250,6 @@ class TestBK : public ::testing::Test
             ASSERT_EQ(one.X_ev[i], two.X_ev[i]) << "X_ev differs at " << i;
         for (int64_t i = 0; i < n * one.end_cols; ++i)
             ASSERT_EQ(one.Y_od[i], two.Y_od[i]) << "Y_od differs at " << i;
-
-        delete[] A;
     }
 
 };
@@ -948,53 +945,71 @@ TEST_F(TestBK, BK_refill_room_uses_min_of_m_and_n) {
     EXPECT_EQ(bk.num_krylov_iters, 4);
 }
 
-/// Exact rank 2 (singular values 1 and 1e-10) at block size 10. The first odd block keeps 2
-/// columns and refills 8; at iteration 2 their images are dead, so the probe retracts them and
-/// switches refilling off, and the dead X block ends the run. That terminal block is not counted
-/// in narrowed_blocks, so the one narrowing is iteration 1.
+/// Exact rank 2 at k = 10, singular values 1 and 1e-10. The first Y block keeps 2 columns and
+/// refills 8. Everything M has is captured at that point, so the run can end in two ways, and
+/// which one happens depends on rounding in ||R||_F against ||M||_F (the content threshold is
+/// exactly ||M||_F in double for any small tol): MKL continues to iteration 2, where the probe
+/// finds the 8 refill images dead, retracts them and stops as rank_deficient; OpenBLAS and
+/// Accelerate stop at iteration 1 as norm_converged with the 8 refills unprobed. Both must give
+/// the same reported result. The second pass forces the iteration-1 exit with a loose tol.
 TEST_F(TestBK, BK_exact_rank_two_refills_once_then_probe_switches_off) {
     const int64_t m = 200, n = 200, k = 10;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     std::vector<double> A(m * n, 0.0);
     build_from_spectrum(m, n, {1.0, 1e-10}, A.data());
 
-    auto state = RandBLAS::RNGState();
-    BKOut<double> out;
-    RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
-    bk.max_krylov_iters = 40;
-    ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
-                      out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
-    printf("RANK2 iters=%d reason=%d refilled=%ld exhausted=%d narrowed=%ld end_rows=%ld end_cols=%ld odd=%d\n",
-           bk.num_krylov_iters, (int)bk.termination_reason, (long)bk.refilled_blocks,
-           (int)bk.refills_exhausted, (long)bk.narrowed_blocks,
-           (long)out.end_rows, (long)out.end_cols, (int)out.final_iter_is_odd);
-    fflush(stdout);
+    for (double tol : {std::pow(std::numeric_limits<double>::epsilon(), 0.85), 0.25}) {
+        SCOPED_TRACE(tol);
+        auto state = RandBLAS::RNGState();
+        BKOut<double> out;
+        RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+        bk.max_krylov_iters = 40;
+        ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                          out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+        printf("RANK2 tol=%.1e iters=%d reason=%d refilled=%ld exhausted=%d pending=%ld narrowed=%ld end_rows=%ld end_cols=%ld odd=%d\n",
+               tol, bk.num_krylov_iters, (int)bk.termination_reason, (long)bk.refilled_blocks,
+               (int)bk.refills_exhausted, (long)bk.saved_pending_refills, (long)bk.narrowed_blocks,
+               (long)out.end_rows, (long)out.end_cols, (int)out.final_iter_is_odd);
+        fflush(stdout);
 
-    EXPECT_EQ(bk.num_krylov_iters, 2);
-    EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::rank_deficient);
-    EXPECT_EQ(bk.refilled_blocks, (int64_t) 1);
-    EXPECT_TRUE(bk.refills_exhausted);
-    EXPECT_EQ(bk.narrowed_blocks, (int64_t) 1) << "the terminal dead block is not counted";
-    ASSERT_EQ(out.end_rows, (int64_t) 10);
-    ASSERT_EQ(out.end_cols, (int64_t) 2);
-    EXPECT_FALSE(out.final_iter_is_odd);
+        // Independent of the exit taken.
+        EXPECT_EQ(bk.refilled_blocks, (int64_t) 1);
+        EXPECT_EQ(bk.narrowed_blocks, (int64_t) 1) << "only the first Y block narrows";
+        ASSERT_EQ(out.end_rows, (int64_t) 10);
+        ASSERT_EQ(out.end_cols, (int64_t) 2) << "the 8 refills are never reported, probed or not";
 
-    // The reported band carries both singular values, the small one to absolute roundoff.
-    const int64_t er = out.end_rows, ec = out.end_cols;
-    const double* band = out.final_iter_is_odd ? out.R : out.S;
-    const int64_t ldb = out.final_iter_is_odd ? n : (n + k);
-    std::vector<double> band_cpy(er * ec), sv(std::min(er, ec));
-    lapack::lacpy(MatrixType::General, er, ec, band, ldb, band_cpy.data(), er);
-    ASSERT_EQ(lapack::gesdd(Job::NoVec, er, ec, band_cpy.data(), er, sv.data(),
-                            static_cast<double*>(nullptr), 1,
-                            static_cast<double*>(nullptr), 1), 0);
-    printf("RANK2 band sv = %.17e %.17e\n", sv[0], sv[1]);
-    fflush(stdout);
-    EXPECT_LE(std::abs(sv[0] - 1.0),   1e-13);
-    EXPECT_LE(std::abs(sv[1] - 1e-10), 1e-14);
+        // The exit taken, and what each one implies.
+        ASSERT_TRUE(bk.num_krylov_iters == 1 || bk.num_krylov_iters == 2);
+        if (tol == 0.25)
+            EXPECT_EQ(bk.num_krylov_iters, 1) << "a loose tol must take the content exit at once";
+        if (bk.num_krylov_iters == 2) {
+            EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::rank_deficient);
+            EXPECT_TRUE(bk.refills_exhausted) << "the probe found the refill images dead";
+            EXPECT_EQ(bk.saved_pending_refills, (int64_t) 0);
+            EXPECT_FALSE(out.final_iter_is_odd);
+        } else {
+            EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::norm_converged);
+            EXPECT_FALSE(bk.refills_exhausted) << "no probe ran";
+            EXPECT_EQ(bk.saved_pending_refills, (int64_t) 8) << "the refills stay in the resume state";
+            EXPECT_TRUE(out.final_iter_is_odd);
+        }
 
-    // The retracted refills sit past column 2 of Y_od; the reported prefix is orthonormal.
-    EXPECT_LT(orth_err<double>(out.Y_od, n, 2) * std::sqrt(2.0), 1e-13);
+        // The reported band carries both singular values, the small one to absolute roundoff.
+        const int64_t er = out.end_rows, ec = out.end_cols;
+        const double* band = out.final_iter_is_odd ? out.R : out.S;
+        const int64_t ldb = out.final_iter_is_odd ? n : (n + k);
+        std::vector<double> band_cpy(er * ec), sv(std::min(er, ec));
+        lapack::lacpy(MatrixType::General, er, ec, band, ldb, band_cpy.data(), er);
+        ASSERT_EQ(lapack::gesdd(Job::NoVec, er, ec, band_cpy.data(), er, sv.data(),
+                                static_cast<double*>(nullptr), 1,
+                                static_cast<double*>(nullptr), 1), 0);
+        printf("RANK2 band sv = %.17e %.17e\n", sv[0], sv[1]);
+        fflush(stdout);
+        EXPECT_LE(std::abs(sv[0] - 1.0),   1e-13);
+        EXPECT_LE(std::abs(sv[1] - 1e-10), 1e-14);
+
+        // The reported prefix of Y is orthonormal; the refills sit past column 2.
+        EXPECT_LT(orth_err<double>(out.Y_od, n, 2) * std::sqrt(2.0), 1e-13);
+    }
 }
 
 /// The odd-parity exit with pending refills. On the matrix above, a budget of 1 stops right
@@ -1020,7 +1035,11 @@ TEST_F(TestBK, BK_odd_budget_exit_does_not_report_pending_refills) {
     fflush(stdout);
 
     EXPECT_EQ(bk.num_krylov_iters, 1);
-    EXPECT_EQ(bk.termination_reason, RandLAPACK::BKTermination::max_iters_reached);
+    // The budget and the content test both end this run at iteration 1; which one fires first
+    // depends on rounding in ||R||_F against ||M||_F (see BK_exact_rank_two_refills_once...).
+    EXPECT_TRUE(bk.termination_reason == RandLAPACK::BKTermination::max_iters_reached ||
+                bk.termination_reason == RandLAPACK::BKTermination::norm_converged)
+        << "reason=" << (int)bk.termination_reason;
     EXPECT_TRUE(out.final_iter_is_odd);
     EXPECT_EQ(bk.refilled_blocks, (int64_t) 1);
     EXPECT_EQ(bk.saved_pending_refills, (int64_t) 8) << "the exit must be taken with refills pending";
@@ -1035,7 +1054,8 @@ TEST_F(TestBK, BK_odd_budget_exit_does_not_report_pending_refills) {
 /// The identity: every even block is entirely old and refilled in full, so the even checkpoint
 /// at 4 holds k pending refills; they are never probed dead, so refilling stays on.
 /// Exact rank 2 (the matrix of BK_exact_rank_two_refills_once_then_probe_switches_off): the odd
-/// checkpoint at 1 holds the 8 Y-side refills, which iteration 2 probes dead and retracts.
+/// checkpoint at 1 holds the 8 Y-side refills, which iteration 2 probes dead and retracts. This
+/// leg runs only where iteration 1 ends on the budget rather than on the content test.
 TEST_F(TestBK, BK_resume_equals_single_shot_across_a_refill) {
     {
         SCOPED_TRACE("rank 25");
@@ -1074,6 +1094,23 @@ TEST_F(TestBK, BK_resume_equals_single_shot_across_a_refill) {
         const int64_t m = 200, n = 200, k = 10;
         std::vector<double> A(m * n, 0.0);
         build_from_spectrum(m, n, {1.0, 1e-10}, A.data());
+        // Resume is defined only after max_iters_reached. On this matrix the content test can
+        // fire at iteration 1 instead, depending on the BLAS (see the rank-2 test above); then
+        // there is nothing to resume and this leg does not apply. The odd-parity exclusion of
+        // the pending refills is pinned by BK_odd_budget_exit_does_not_report_pending_refills.
+        {
+            auto state = RandBLAS::RNGState();
+            BKOut<double> probe;
+            RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, std::pow(std::numeric_limits<double>::epsilon(), 0.85));
+            bk.max_krylov_iters = 1;
+            ASSERT_EQ(bk.call(m, n, A.data(), m, k, probe.X_ev, probe.Y_od, probe.R, probe.S,
+                              probe.end_rows, probe.end_cols, probe.final_iter_is_odd, state), 0);
+            if (bk.termination_reason == RandLAPACK::BKTermination::norm_converged) {
+                printf("RESUME-REFILL rank2: content exit at iteration 1 on this BLAS, leg skipped\n");
+                fflush(stdout);
+                return;
+            }
+        }
         ResumeCheckpoint ck;
         check_resume_equals_single_shot(m, n, k, /*p1=*/1, /*p=*/2, A.data(),
                                         /*expect_narrowed=*/true, &ck);

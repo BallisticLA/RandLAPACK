@@ -764,9 +764,10 @@ TEST_F(TestABRIK, ABRIK_identity_delivers_the_request_with_refills) {
     }
 }
 
-// Exact rank 2. BK keeps the two real right columns, refills eight, probes them dead at the next
-// block and retracts them, so exactly the two triplets that exist come back in both modes, and
-// the adaptive request of 2b is reported as a shortfall rather than padded.
+// Exact rank 2. BK keeps the two real right columns and refills eight. Either the next block
+// probes them dead and retracts them, or the content test ends the run first and they stay
+// unprobed; in both cases exactly the two triplets that exist come back in both modes, and the
+// adaptive request of 2b is reported as a shortfall rather than padded.
 // The second triplet's normalized residual cannot reach roundoff: its absolute residual sits at
 // roundoff of ||A||, so dividing by s2 = 1e-10 floors it at the order of eps * s1 / s2 = 2e-6
 // in double (measured 2.9e-7), hence the loose bound on res[1].
@@ -796,7 +797,11 @@ TEST_F(TestABRIK, ABRIK_exact_rank_two_returns_two_triplets_nothing_fabricated) 
 
             const int64_t k = solver.singular_triplets_found;
             ASSERT_EQ(k, (int64_t) 2) << "a rank-2 matrix supports exactly 2 triplets";
-            EXPECT_TRUE(solver.refills_exhausted) << "the probe must have switched refilling off";
+            // The probe runs at iteration 2. On some BLAS backends BK ends at iteration 1 on the
+            // content test instead (see TestBK.BK_exact_rank_two_refills_once...); then no probe
+            // ran and the 8 unprobed refills are simply not reported.
+            EXPECT_EQ(solver.refills_exhausted, solver.num_krylov_iters >= 2)
+                << "iters=" << solver.num_krylov_iters;
             if (adaptive) {
                 EXPECT_EQ(solver.termination_reason, RandLAPACK::ABRIKTermination::under_delivered)
                     << "reason=" << termination_name(solver.termination_reason);
