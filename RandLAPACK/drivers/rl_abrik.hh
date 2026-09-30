@@ -585,6 +585,140 @@ class ABRIK {
                 return 0;
             }
 
+        /// Runs BK to a sequence of iteration checkpoints. At each checkpoint the SVD factors
+        /// are extracted from the accepted bases and on_checkpoint(total_matvecs, elapsed_us,
+        /// residual) is invoked. This is benchmark support: it traces ABRIK's residual against
+        /// its cumulative cost without restarting the Krylov iteration for every budget.
+        ///
+        /// Elapsed time covers the BK iterations and the SVD extraction, not the residual
+        /// evaluation. BK runs through call() once and resume() afterwards, so no work is
+        /// repeated between checkpoints. Every BK option that call() forwards, including the
+        /// refill rule, is forwarded here in the same way; BK's timing breakdown is off.
+        ///
+        /// @param k                 Block size.
+        /// @param target_rank       How many leading triplets enter the residual.
+        /// @param checkpoint_iters  Strictly increasing Krylov iteration counts at which to
+        ///                          stop; the last entry is the full budget.
+        /// @param on_checkpoint     Called after each checkpoint with
+        ///                          (int64_t total_matvecs, long elapsed_us, T residual).
+        ///                          total_matvecs is k times the completed iterations, the
+        ///                          convention of the speed comparisons: the initial block
+        ///                          A * Omega is not counted, every block counts at full width
+        ///                          (an upper bound once the rank criterion has narrowed one),
+        ///                          and it is smaller than k * checkpoint_iters[i] when BK
+        ///                          stopped before the checkpoint. An empty terminal space
+        ///                          reports (0, elapsed_us, 1).
+        /// @return 0, or BK's nonzero status; BK has then already freed its buffers.
+        template <RandLAPACK::linops::LinearOperator GLO, typename CheckpointFn>
+        int call_with_checkpoints(
+            GLO& A,
+            int64_t k,
+            int64_t target_rank,
+            std::vector<int64_t> checkpoint_iters,
+            CheckpointFn on_checkpoint,
+            RandBLAS::RNGState<RNG>& state
+        ) {
+            int64_t m = A.n_rows;
+            int64_t n = A.n_cols;
+
+            bk_obj.qr_exp              = this->qr_exp;
+            bk_obj.tol                 = this->tol;
+            bk_obj.verbose             = this->verbose;
+            bk_obj.timing              = false;
+            bk_obj.tau                 = this->tau;
+            bk_obj.refill_dead_columns = this->refill_dead_columns;
+
+            T* X_ev = nullptr;
+            T* Y_od = nullptr;
+            T* R    = nullptr;
+            T* S    = nullptr;
+            int64_t end_rows = 0;
+            int64_t end_cols = 0;
+            bool final_iter_is_odd = false;
+            long elapsed_us = 0;
+
+            for (size_t ci = 0; ci < checkpoint_iters.size(); ++ci) {
+                bk_obj.max_krylov_iters = (int) checkpoint_iters[ci];
+
+                // BK step: call on the first checkpoint, resume on the later ones.
+                auto t0 = steady_clock::now();
+                int status;
+                if (ci == 0)
+                    status = bk_obj.call(A, k, X_ev, Y_od, R, S,
+                                         end_rows, end_cols, final_iter_is_odd, state);
+                else
+                    status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
+                                           end_rows, end_cols, final_iter_is_odd, state);
+                elapsed_us += duration_cast<microseconds>(steady_clock::now() - t0).count();
+
+                this->num_krylov_iters  = bk_obj.num_krylov_iters;
+                this->norm_R_end        = bk_obj.norm_R_end;
+                this->refills_exhausted = bk_obj.refills_exhausted;
+                this->refilled_blocks   = bk_obj.refilled_blocks;
+
+                // BK frees its own buffers on failure, as in call().
+                if (status != 0) return status;
+
+                // The rank criterion can reject an entire terminal block.
+                if (end_rows == 0 || end_cols == 0) {
+                    this->singular_triplets_found = 0;
+                    on_checkpoint(0, elapsed_us, (T) 1);
+                    break;
+                }
+
+                // SVD extraction on a copy of the band so BK's buffers survive for resume,
+                // then two GEMMs. Timed as part of the total ABRIK cost.
+                auto t1 = steady_clock::now();
+
+                T* band = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
+                if (final_iter_is_odd)
+                    lapack::lacpy(MatrixType::General, end_rows, end_cols, R, n, band, end_rows);
+                else
+                    lapack::lacpy(MatrixType::General, end_rows, end_cols, S, n + k, band, end_rows);
+
+                T* U_hat  = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
+                T* VT_hat = ( T * ) malloc( end_cols * end_cols * sizeof( T ) );
+                // Fully written by gesdd and the beta=0 GEMMs below, so no value-initialization.
+                T* Sigma  = new T[std::min(end_rows, end_cols)];
+                T* U      = new T[m * end_cols];
+                T* V      = new T[n * end_cols];
+
+                lapack::gesdd(Job::SomeVec, end_rows, end_cols, band, end_rows,
+                              Sigma, U_hat, end_rows, VT_hat, end_cols);
+                free(band);
+
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows,
+                           1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols,
+                           1.0, Y_od, n, VT_hat, end_cols, 0.0, V, n);
+                free(U_hat);
+                free(VT_hat);
+                this->singular_triplets_found = end_cols;
+
+                elapsed_us += duration_cast<microseconds>(steady_clock::now() - t1).count();
+
+                // Residual evaluation is not part of elapsed_us.
+                int64_t k_out = std::min(target_rank, end_cols);
+                T residual = linops::svd_residual<T>(A, U, V, Sigma, k_out);
+
+                delete[] U;
+                delete[] V;
+                delete[] Sigma;
+
+                on_checkpoint(k * (int64_t) bk_obj.num_krylov_iters, elapsed_us, residual);
+
+                // Any terminal state other than an exhausted budget ends the trace.
+                if (bk_obj.termination_reason != BKTermination::max_iters_reached)
+                    break;
+            }
+
+            free(X_ev);
+            free(Y_od);
+            free(R);
+            free(S);
+            return 0;
+        }
+
     private:
         BK<T, RNG> bk_obj;
     };
