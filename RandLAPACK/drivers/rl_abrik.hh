@@ -123,6 +123,8 @@ class ABRIK {
         /// blocks received refills. Diagnostics.
         bool refills_exhausted;
         int64_t refilled_blocks;
+        /// Read back from BK likewise: why the last BK call or resume stopped.
+        BKTermination bk_termination_reason;
 
         ABRIK(
             bool verb,
@@ -144,6 +146,7 @@ class ABRIK {
             refill_dead_columns = true;
             refills_exhausted = false;
             refilled_blocks = 0;
+            bk_termination_reason = BKTermination::max_iters_reached;
         }
 
         /// Computes an SVD of the form:
@@ -260,13 +263,7 @@ class ABRIK {
                 if(this -> timing)
                     total_t_start = steady_clock::now();
 
-                // Forward config to BK
-                bk_obj.qr_exp            = this->qr_exp;
-                bk_obj.tol               = this->tol;
-                bk_obj.verbose           = this->verbose;
-                bk_obj.timing            = this->timing;
-                bk_obj.tau               = this->tau;
-                bk_obj.refill_dead_columns = this->refill_dead_columns;
+                forward_config_to_bk(this->timing);
 
                 // Call BK to build Krylov subspaces and band matrices
                 T* X_ev = nullptr;
@@ -318,10 +315,7 @@ class ABRIK {
                                          end_rows, end_cols, final_iter_is_odd, state);
 
                 // Read back BK outputs
-                this->num_krylov_iters  = bk_obj.num_krylov_iters;
-                this->norm_R_end        = bk_obj.norm_R_end;
-                this->refills_exhausted = bk_obj.refills_exhausted;
-                this->refilled_blocks   = bk_obj.refilled_blocks;
+                read_back_from_bk();
 
                 if (status != 0) return status;
 
@@ -496,10 +490,7 @@ class ABRIK {
                     status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
                                            end_rows, end_cols, final_iter_is_odd, state);
 
-                    this->num_krylov_iters  = bk_obj.num_krylov_iters;
-                    this->norm_R_end        = bk_obj.norm_R_end;
-                    this->refills_exhausted = bk_obj.refills_exhausted;
-                    this->refilled_blocks   = bk_obj.refilled_blocks;
+                    read_back_from_bk();
 
                     if (status != 0) {
                         // BK resume failed (realloc failure); BK already cleaned up its buffers.
@@ -585,48 +576,57 @@ class ABRIK {
                 return 0;
             }
 
-        /// Runs BK to a sequence of iteration checkpoints. At each checkpoint the SVD factors
-        /// are extracted from the accepted bases and on_checkpoint(total_matvecs, elapsed_us,
-        /// residual) is invoked. This is benchmark support: it traces ABRIK's residual against
-        /// its cumulative cost without restarting the Krylov iteration for every budget.
+        /// One checkpoint of call_with_checkpoints: where BK stood when the trace stopped
+        /// there, and the residual of the SVD extracted at that point.
+        struct Checkpoint {
+            int64_t iters_requested;  ///< the entry of checkpoint_iters this point was made for
+            int64_t iters_done;       ///< Krylov iterations BK had completed; fewer if it stopped early
+            BKTermination reason;     ///< why BK stopped: max_iters_reached at an ordinary checkpoint
+            int64_t triplets;         ///< singular triplets in the extracted SVD
+            int64_t k_residual;       ///< triplets the residual covers: min(target_rank, triplets)
+            long elapsed_us;          ///< BK time so far plus every SVD extraction so far
+            T residual;               ///< svd_residual over the leading k_residual triplets; +inf if none
+        };
+
+        /// Runs BK to a sequence of iteration checkpoints, one trace through call and resume.
+        /// At each checkpoint the SVD factors are extracted from the reported part of the
+        /// bases (unprobed refills excluded), the residual over the leading target_rank
+        /// triplets is evaluated, and on_checkpoint(const Checkpoint&) is invoked. This is
+        /// benchmark support: it traces ABRIK's residual against its cumulative cost without
+        /// restarting the Krylov iteration for every budget.
         ///
-        /// Elapsed time covers the BK iterations and the SVD extraction, not the residual
-        /// evaluation. BK runs through call() once and resume() afterwards, so no work is
-        /// repeated between checkpoints. Every BK option that call() forwards, including the
-        /// refill rule, is forwarded here in the same way; BK's timing breakdown is off.
+        /// Checkpoint::elapsed_us is cumulative: the BK time so far plus the SVD extraction at
+        /// this and every earlier checkpoint, residual evaluation excluded. The extraction is
+        /// what call() does at that budget, at the full width of the reported bases, so the
+        /// time is the cost of ABRIK's output there, not of target_rank triplets alone. Every
+        /// BK option that call() forwards, including the refill rule, is forwarded here in the
+        /// same way; BK's timing breakdown is off.
+        ///
+        /// The trace ends at the first checkpoint where BK reached a terminal state. An empty
+        /// reported space is reported once, with zero triplets and an infinite residual.
         ///
         /// @param k                 Block size.
         /// @param target_rank       How many leading triplets enter the residual.
         /// @param checkpoint_iters  Strictly increasing Krylov iteration counts at which to
         ///                          stop; the last entry is the full budget.
-        /// @param on_checkpoint     Called after each checkpoint with
-        ///                          (int64_t total_matvecs, long elapsed_us, T residual).
-        ///                          total_matvecs is k times the completed iterations, the
-        ///                          convention of the speed comparisons: the initial block
-        ///                          A * Omega is not counted, every block counts at full width
-        ///                          (an upper bound once the rank criterion has narrowed one),
-        ///                          and it is smaller than k * checkpoint_iters[i] when BK
-        ///                          stopped before the checkpoint. An empty terminal space
-        ///                          reports (0, elapsed_us, 1).
+        /// @param on_checkpoint     Called after each checkpoint with a const Checkpoint&.
         /// @return 0, or BK's nonzero status; BK has then already freed its buffers.
         template <RandLAPACK::linops::LinearOperator GLO, typename CheckpointFn>
         int call_with_checkpoints(
             GLO& A,
             int64_t k,
             int64_t target_rank,
-            std::vector<int64_t> checkpoint_iters,
+            const std::vector<int64_t>& checkpoint_iters,
             CheckpointFn on_checkpoint,
             RandBLAS::RNGState<RNG>& state
         ) {
+            for (size_t ci = 1; ci < checkpoint_iters.size(); ++ci)
+                randlapack_require(checkpoint_iters[ci] > checkpoint_iters[ci - 1])
+                    << "checkpoint_iters must be strictly increasing";
+
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
-
-            bk_obj.qr_exp              = this->qr_exp;
-            bk_obj.tol                 = this->tol;
-            bk_obj.verbose             = this->verbose;
-            bk_obj.timing              = false;
-            bk_obj.tau                 = this->tau;
-            bk_obj.refill_dead_columns = this->refill_dead_columns;
+            forward_config_to_bk(false);
 
             T* X_ev = nullptr;
             T* Y_od = nullptr;
@@ -650,19 +650,22 @@ class ABRIK {
                     status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
                                            end_rows, end_cols, final_iter_is_odd, state);
                 elapsed_us += duration_cast<microseconds>(steady_clock::now() - t0).count();
-
-                this->num_krylov_iters  = bk_obj.num_krylov_iters;
-                this->norm_R_end        = bk_obj.norm_R_end;
-                this->refills_exhausted = bk_obj.refills_exhausted;
-                this->refilled_blocks   = bk_obj.refilled_blocks;
+                read_back_from_bk();
 
                 // BK frees its own buffers on failure, as in call().
                 if (status != 0) return status;
 
+                Checkpoint cp{};
+                cp.iters_requested = checkpoint_iters[ci];
+                cp.iters_done      = bk_obj.num_krylov_iters;
+                cp.reason          = bk_obj.termination_reason;
+                cp.residual        = std::numeric_limits<T>::infinity();
+
                 // The rank criterion can reject an entire terminal block.
                 if (end_rows == 0 || end_cols == 0) {
                     this->singular_triplets_found = 0;
-                    on_checkpoint(0, elapsed_us, (T) 1);
+                    cp.elapsed_us = elapsed_us;
+                    on_checkpoint(cp);
                     break;
                 }
 
@@ -696,16 +699,18 @@ class ABRIK {
                 this->singular_triplets_found = end_cols;
 
                 elapsed_us += duration_cast<microseconds>(steady_clock::now() - t1).count();
+                cp.elapsed_us = elapsed_us;
+                cp.triplets   = end_cols;
+                cp.k_residual = std::min(target_rank, end_cols);
 
                 // Residual evaluation is not part of elapsed_us.
-                int64_t k_out = std::min(target_rank, end_cols);
-                T residual = linops::svd_residual<T>(A, U, V, Sigma, k_out);
+                cp.residual = linops::svd_residual<T>(A, U, V, Sigma, cp.k_residual);
 
                 delete[] U;
                 delete[] V;
                 delete[] Sigma;
 
-                on_checkpoint(k * (int64_t) bk_obj.num_krylov_iters, elapsed_us, residual);
+                on_checkpoint(cp);
 
                 // Any terminal state other than an exhausted budget ends the trace.
                 if (bk_obj.termination_reason != BKTermination::max_iters_reached)
@@ -721,5 +726,24 @@ class ABRIK {
 
     private:
         BK<T, RNG> bk_obj;
+
+        // The BK options every entry point forwards. Whether BK times its subroutines is
+        // the entry point's choice.
+        void forward_config_to_bk(bool timing) {
+            bk_obj.qr_exp              = this->qr_exp;
+            bk_obj.tol                 = this->tol;
+            bk_obj.timing              = timing;
+            bk_obj.tau                 = this->tau;
+            bk_obj.refill_dead_columns = this->refill_dead_columns;
+        }
+
+        // The BK outputs read back after every call and resume.
+        void read_back_from_bk() {
+            this->num_krylov_iters      = bk_obj.num_krylov_iters;
+            this->norm_R_end            = bk_obj.norm_R_end;
+            this->refills_exhausted     = bk_obj.refills_exhausted;
+            this->refilled_blocks       = bk_obj.refilled_blocks;
+            this->bk_termination_reason = bk_obj.termination_reason;
+        }
     };
 }
