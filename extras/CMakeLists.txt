@@ -54,6 +54,23 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(eigen_lib)
 
+# Spectra - Sparse eigenvalue solver (for BudgetedPartialSVDSolver)
+# Spectra is header-only. We download the source and create an interface target
+# manually, bypassing Spectra's own CMakeLists.txt which has install(EXPORT)
+# rules that conflict with FetchContent'd Eigen.
+message(STATUS "Fetching Spectra library...")
+FetchContent_Declare(
+    spectra_lib
+    GIT_REPOSITORY https://github.com/yixuan/spectra/
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR _disable_  # Prevents FetchContent from running Spectra's CMakeLists.txt
+)
+FetchContent_MakeAvailable(spectra_lib)
+add_library(Spectra INTERFACE)
+target_include_directories(Spectra INTERFACE ${spectra_lib_SOURCE_DIR}/include)
+target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
+
 # fast_matrix_market - Matrix file I/O
 message(STATUS "Fetching fast_matrix_market library...")
 FetchContent_Declare(
@@ -146,5 +163,8 @@ endif()
 # Testing Support
 # -----------------------------------------------------------------------------
 
-enable_testing()
-add_subdirectory(test)
+option(BUILD_TESTING "Build tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(test)
+endif()
