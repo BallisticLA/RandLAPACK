@@ -27,6 +27,7 @@
 #include "RandLAPACK/testing/rl_test_utils.hh"
 
 // Computational routines
+#include "RandLAPACK/comps/rl_nystrom_recovery.hh"
 #include "RandLAPACK/comps/rl_determiter.hh"
 #include "RandLAPACK/comps/rl_preconditioners.hh"
 #include "RandLAPACK/comps/rl_bk.hh"
@@ -56,6 +57,8 @@
 #include "RandLAPACK/comps/rl_lanczos_qfa.hh"
 
 #include "RandLAPACK/comps/rl_lanczos_qfa_block.hh"
+
+#include "RandLAPACK/drivers/rl_nystrom_evd.hh"
 
 // GPU layer. __CUDACC__ is set only while a CUDA compiler is processing this file, so
 // .cu translation units get the GPU drivers and host .cc files build with no CUDA

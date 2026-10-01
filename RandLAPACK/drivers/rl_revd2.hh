@@ -7,6 +7,7 @@
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
+#include "rl_nystrom_recovery.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -36,6 +37,7 @@ T power_error_est(
     T err = 0;
     for(int i = 0; i < p; ++i) {
         T g_norm = blas::nrm2(m, vector_buf, 1);
+        if (g_norm == (T)0) return (T)0;
         // Compute g = g / ||g|| - we need this because dot product does not take in an alpha
         blas::scal(m, 1 / g_norm, vector_buf, 1);
 
@@ -100,15 +102,17 @@ class REVD2 {
         ///     A_hat = V diag(eigvals) V^*,
         /// where V is a matrix of eigenvectors and eigvals is a vector of eigenvalues.
         /// 
-        /// This function is adaptive. If the tolerance is not met, increases the rank
-        /// estimation parameter by 2. Tolerance is the maximum of user-specified tol times
-        /// 5 and computed 'nu' times 5. This is motivated by the fact that the approximation
-        /// error will never be smaller than nu.
+        /// This function is adaptive. If the tolerance is not met, doubles the rank
+        /// estimation parameter. The stopping threshold is 5*max(tol, nu),
+        /// where nu accounts for rounding error in the spectral recovery.
         /// 
-        /// This code is identical to Algorithm E2 from https://arxiv.org/pdf/2110.02820.pdf.
-        /// It uses a SymmetricRangeFinder for constructing a sketching operator.
-        /// It has a lot of potential in terms of storage space optimization, 
-        /// which, however, will affect readability.
+        /// The adaptive scheme follows Algorithm E2 from https://arxiv.org/pdf/2110.02820.pdf.
+        /// A SymmetricRangeFinder constructs the sketch. Spectral recovery uses
+        /// the same shifted Nyström kernel as NystromEVD, with
+        /// nu = sqrt(m)*epsilon*||A*Omega||_F. It shifts both the sampled image
+        /// and the Gram matrix, and retains orthonormal columns when eigenvalues
+        /// are clamped to zero. Set error_est_power_iters to zero for fixed rank;
+        /// NystromEVD also provides a fixed-rank interface with sparse sketches.
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
@@ -162,6 +166,7 @@ class REVD2 {
             randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
             randlapack_require(tol >= (T)0) << "tol=" << tol << " must be >= 0";
             int64_t m = A.dim;
+            randlapack_require(k <= m) << "target rank k=" << k << " must be <= m=" << m;
             T err = 0;
             RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
             error_est_state.key.incr(1);
@@ -181,50 +186,17 @@ class REVD2 {
                 // Y = A * Omega
                 A(Layout::ColMajor, k, 1.0, Omega_dat, m, 0.0, Y_dat, m);
 
-                T nu = std::numeric_limits<T>::epsilon() * lapack::lange(Norm::Fro, m, k, Y_dat, m);
-
-                // We need Y = Y + v Omega
-                // We further need R = chol(Omega' Y)
-                // Solve this as R = chol(Omega' Y + v Omega'Omega)
-                // Compute v Omega' Omega; syrk only computes the lower triangular part. Need full.
-                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega_dat, m, (T) 0.0, R_dat, k);
-                for(int i = 1; i < k; ++i)
-                    blas::copy(k - i, &R_dat[i + ((i-1) * k)], 1, &R_dat[(i - 1) + (i * k)], k);
-                // Compute Omega' Y + v Omega' Omega
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, (T) 1.0, Omega_dat, m, Y_dat, m, (T) 1.0, R_dat, k);
-
-                // Compute R = chol(Omega' Y + v Omega' Omega)
-                // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
-                if(lapack::potrf(Uplo::Upper, k, R_dat, k))
-                    throw std::runtime_error("Cholesky decomposition failed.");
-                RandLAPACK::util::get_U(k, k, R_dat, k);
-
-                // B = Y(R')^-1 - need to transpose R
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_dat, k, Y_dat, m);
-
-                //[V, S, ~] = SVD(B)
-                // Although we don't need the right singular vectors, we need to give space for those.
-                // Use R as a buffer for that.
-                lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, R_dat, k);
-
-                // eigvals = diag(S^2)
-                T buf;
-                int64_t r = 0;
-                int i;
-                for(i = 0; i < k; ++i) {
-                    buf = std::pow(S[i], 2);
-                    eigvals[i] = buf;
-                    // r = number of entries in eigvals that are greater than v
-                    if(buf > nu)
-                        ++r;
-                }
-
-                // Undo regularlization
-                // Need to make sure no eigenvalue is negative
-                for(i = 0; i < r; ++i)
-                    (eigvals[i] - nu < 0) ? 0 : eigvals[i] -=nu;
-
-                std::fill(&V_dat[m * r], &V_dat[m * k], 0.0);
+                int64_t clamped_eigenvalues = 0;
+                T nu = detail::nystrom_recovery<T>(m, k,
+                    {Y_dat, R_dat, S_dat, R_dat, clamped_eigenvalues},
+                    V_dat, eigvals.data(),
+                    [&](T shift) {
+                        blas::axpy(m * k, shift, Omega_dat, 1, Y_dat, 1);
+                    },
+                    [&] {
+                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
+                                   (T)1, Omega_dat, m, Y_dat, m, (T)0, R_dat, k);
+                    }, -1, "REVD2");
 
                 // Error estimation
                 // Using the first column of Omega as a buffer for a random vector

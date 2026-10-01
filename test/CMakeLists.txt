@@ -6,6 +6,7 @@ if (GTest_FOUND)
     set(tmp TRUE)
 
     set(RandLAPACK_test_srcs
+        drivers/test_nystrom_evd.cc
         comps/test_lanczos_qfa_block.cc
         comps/test_lanczos_qfa.cc
         comps/test_lanczos_qfa_scaling.cc

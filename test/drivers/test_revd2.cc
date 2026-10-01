@@ -4,8 +4,168 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
+#include <cmath>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <limits>
+#include <utility>
+
+namespace {
+
+// This operator deliberately supports only dense right-hand sides, as required
+// by SymmetricLinearOperator. REVD2 must not require a sketch-operator overload.
+template <typename T>
+struct DenseOnlyDiagonalOperator {
+    using scalar_t = T;
+    const int64_t dim;
+    std::vector<T> diagonal;
+
+    explicit DenseOnlyDiagonalOperator(std::vector<T> values)
+        : dim(values.size()), diagonal(std::move(values)) {}
+
+    void operator()(blas::Layout layout, int64_t n, T alpha, T* B, int64_t ldb,
+                    T beta, T* C, int64_t ldc) {
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i < dim; ++i) {
+                const int64_t b_index = layout == blas::Layout::ColMajor ? i + j * ldb : i * ldb + j;
+                const int64_t c_index = layout == blas::Layout::ColMajor ? i + j * ldc : i * ldc + j;
+                C[c_index] = alpha * diagonal[i] * B[b_index]
+                           + (beta == T(0) ? T(0) : beta * C[c_index]);
+            }
+        }
+    }
+};
+
+// Supply an exact orthonormal sketch so the recovery tests have known spectra
+// independent of random range-finding accuracy.
+template <typename Scalar>
+struct CoordinateRangeFinder {
+    using T = Scalar;
+    using RNG = r123::Philox4x32;
+
+    template <RandLAPACK::linops::SymmetricLinearOperator SLO>
+    int call(SLO& A, int64_t k, std::vector<T>& Q,
+             RandBLAS::RNGState<RNG>&, T*) {
+        std::fill(Q.begin(), Q.begin() + A.dim * k, T(0));
+        for (int64_t j = 0; j < k; ++j) Q[j + j * A.dim] = T(1);
+        return 0;
+    }
+};
+
+template <typename T>
+class TestREVD2Recovery : public ::testing::Test {
+protected:
+    static void check_basis(const std::vector<T>& V, int64_t m, int64_t k) {
+        ASSERT_GE(V.size(), static_cast<size_t>(m * k));
+        for (int64_t j = 0; j < k; ++j) {
+            for (int64_t i = 0; i <= j; ++i) {
+                T dot = 0;
+                for (int64_t p = 0; p < m; ++p) dot += V[p + i * m] * V[p + j * m];
+                EXPECT_NEAR(dot, T(i == j), T(32) * std::numeric_limits<T>::epsilon());
+            }
+        }
+    }
+};
+
+using RecoveryRealTypes = ::testing::Types<float, double>;
+TYPED_TEST_SUITE(TestREVD2Recovery, RecoveryRealTypes);
+
+TYPED_TEST(TestREVD2Recovery, ShiftedImagePreservesSmallResolvedEigenvalue) {
+    using T = TypeParam;
+    const T eps = std::numeric_limits<T>::epsilon();
+    DenseOnlyDiagonalOperator<T> A({T(1), T(16) * eps, T(0), T(0)});
+    CoordinateRangeFinder<T> range_finder;
+    RandLAPACK::REVD2<CoordinateRangeFinder<T>> revd2(range_finder, 1);
+    RandBLAS::RNGState<typename CoordinateRangeFinder<T>::RNG> state(7);
+    int64_t k = 2;
+    std::vector<T> V, eigenvalues;
+
+    ASSERT_NO_THROW(revd2.call(A, k, T(64) * eps, V, eigenvalues, state));
+    ASSERT_EQ(k, 2);
+    ASSERT_GE(eigenvalues.size(), 2U);
+    EXPECT_NEAR(eigenvalues[0], T(1), T(8) * eps);
+    // With a coordinate sketch the recovered eigenvalue is 16*eps. Omitting
+    // nu*Omega from the sampled image loses about 2*eps, even though this
+    // eigenvalue is well above the shift and can be resolved accurately.
+    EXPECT_NEAR(eigenvalues[1], T(16) * eps, eps / T(16));
+    this->check_basis(V, A.dim, k);
+}
+
+TYPED_TEST(TestREVD2Recovery, ZeroEigenvaluesRetainOrthonormalColumns) {
+    using T = TypeParam;
+    const T eps = std::numeric_limits<T>::epsilon();
+    DenseOnlyDiagonalOperator<T> A({T(1), T(0), T(0), T(0)});
+    CoordinateRangeFinder<T> range_finder;
+    RandLAPACK::REVD2<CoordinateRangeFinder<T>> revd2(range_finder, 1);
+    RandBLAS::RNGState<typename CoordinateRangeFinder<T>::RNG> state(7);
+    int64_t k = 3;
+    std::vector<T> V, eigenvalues;
+
+    ASSERT_NO_THROW(revd2.call(A, k, T(64) * eps, V, eigenvalues, state));
+    ASSERT_EQ(k, 3);
+    ASSERT_GE(eigenvalues.size(), 3U);
+    EXPECT_NEAR(eigenvalues[0], T(1), T(8) * eps);
+    for (int64_t j = 1; j < k; ++j) {
+        EXPECT_GE(eigenvalues[j], T(0));
+        EXPECT_LE(eigenvalues[j], T(8) * eps);
+    }
+    this->check_basis(V, A.dim, k);
+}
+
+TYPED_TEST(TestREVD2Recovery, NullspaceSketchReturnsZeroApproximation) {
+    using T = TypeParam;
+    DenseOnlyDiagonalOperator<T> A({T(0), T(0), T(8), T(4)});
+    CoordinateRangeFinder<T> range_finder;
+    RandLAPACK::REVD2<CoordinateRangeFinder<T>> revd2(range_finder, 1);
+    RandBLAS::RNGState<typename CoordinateRangeFinder<T>::RNG> state(7);
+    int64_t k = 2;
+    std::vector<T> V, eigenvalues;
+
+    // The requested tolerance permits the zero approximation, while A itself
+    // is nonzero. Recovery must handle A*Omega == 0 without a Cholesky failure.
+    ASSERT_NO_THROW(revd2.call(A, k, T(8), V, eigenvalues, state));
+    ASSERT_EQ(k, 2);
+    ASSERT_GE(eigenvalues.size(), 2U);
+    for (int64_t j = 0; j < k; ++j) EXPECT_EQ(eigenvalues[j], T(0));
+    this->check_basis(V, A.dim, k);
+}
+
+TYPED_TEST(TestREVD2Recovery, ZeroMatrixStopsAtRequestedRank) {
+    using T = TypeParam;
+    using RNG = r123::Philox4x32;
+    DenseOnlyDiagonalOperator<T> A(std::vector<T>(4, T(0)));
+    RandLAPACK::SYPS<T, RNG> syps(1, 1, false, false);
+    RandLAPACK::HQRQ<T> orth(false, false);
+    RandLAPACK::SYRF range_finder(syps, orth);
+    RandLAPACK::REVD2 revd2(range_finder, 4);
+    RandBLAS::RNGState<RNG> state(7);
+    int64_t k = 2;
+    std::vector<T> V, eigenvalues;
+
+    // Four power iterations must stop on an exactly zero residual; normalizing
+    // that residual would produce NaN and spuriously increase the target rank.
+    ASSERT_NO_THROW(revd2.call(A, k, T(0), V, eigenvalues, state));
+    ASSERT_EQ(k, 2);
+    ASSERT_GE(eigenvalues.size(), 2U);
+    for (int64_t j = 0; j < k; ++j) EXPECT_EQ(eigenvalues[j], T(0));
+    this->check_basis(V, A.dim, k);
+}
+
+TYPED_TEST(TestREVD2Recovery, ExactApproximationHasFiniteZeroErrorEstimate) {
+    using T = TypeParam;
+    DenseOnlyDiagonalOperator<T> A({T(8), T(4), T(0), T(0)});
+    std::vector<T> V = {T(1), T(0), T(0), T(0), T(0), T(1), T(0), T(0)};
+    std::vector<T> eigenvalues = {T(8), T(4)};
+    std::vector<T> matrix_work(8), vector_work(16, T(0));
+    for (int64_t i = 0; i < 4; ++i) vector_work[i] = T(i + 1);
+
+    const T error = RandLAPACK::power_error_est(
+        A, 2, 4, vector_work.data(), V.data(), matrix_work.data(), eigenvalues.data());
+    EXPECT_TRUE(std::isfinite(error));
+    EXPECT_EQ(error, T(0));
+}
+
+} // namespace
 
 
 class TestREVD2 : public ::testing::Test
