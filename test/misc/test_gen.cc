@@ -326,3 +326,38 @@ TEST_F(TestGenSpectra, bad_cholqr_legacy_call_signatures) {
             EXPECT_DOUBLE_EQ(A[i + j * m], i == j ? expected[i] : 0.0);
     }
 }
+
+TEST(GeometricSpectrum, KnownSingularValues) {
+    const auto s = RandLAPACK::gen::gen_geometric_singvals<double>(4, 16.0);
+    ASSERT_EQ(s.size(), 4);
+    const double expected[] = {16.0, 8.0, 4.0, 2.0};
+    for (int i = 0; i < 4; ++i) EXPECT_DOUBLE_EQ(s[i], expected[i]);
+}
+
+TEST(GeometricSpectrum, RectangularDiagonalWithReducedRank) {
+    int64_t m = 6, n = 4, k = 2;
+    std::vector<double> A(m * n, -17.0);
+    RandBLAS::RNGState<> state(42);
+    RandLAPACK::gen::mat_gen_info<double> info(m, n, RandLAPACK::gen::geometric);
+    info.rank = k;
+    info.cond_num = 16.0;
+    info.diag = true;
+    RandLAPACK::gen::mat_gen(info, A.data(), state);
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < m; ++i)
+            EXPECT_DOUBLE_EQ(A[i + j * m], (i == j && i < k) ? (i == 0 ? 16.0 : 4.0) : 0.0);
+}
+
+TEST(GeometricSpectrum, RotatedRectangularMatrixHasRequestedSpectrum) {
+    int64_t m = 8, n = 5, k = 4;
+    std::vector<double> A(m * n), singular_values(n);
+    RandBLAS::RNGState<> state(42);
+    const auto before = state;
+    RandLAPACK::gen::gen_geometric_mat(m, n, A.data(), k, 16.0, false, state);
+    EXPECT_NE(state.counter, before.counter);
+    double unused = 0.0;
+    ASSERT_EQ(lapack::gesvd(lapack::Job::NoVec, lapack::Job::NoVec,
+        m, n, A.data(), m, singular_values.data(), &unused, 1, &unused, 1), 0);
+    const double expected[] = {16.0, 8.0, 4.0, 2.0, 0.0};
+    for (int i = 0; i < 5; ++i) EXPECT_NEAR(singular_values[i], expected[i], 1e-12);
+}
