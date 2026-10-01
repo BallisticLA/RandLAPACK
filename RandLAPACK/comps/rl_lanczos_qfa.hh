@@ -297,7 +297,13 @@ public:
                         if (a <= (T)0) cert_ok[col] = 0;
                     } else if (cert_ok[col]) {
                         const T b_ = beta[col * d + (t - 2)];
-                        const T corner = b_ * b_ / ldl_piv[col];
+                        const T b_squared = b_ * b_;
+                        // Keep the usual multiplication order at ordinary scales.
+                        // If squaring loses range, divide first so a representable
+                        // Radau corner does not become zero or infinity.
+                        const T corner = std::isnormal(b_squared)
+                            ? b_squared / ldl_piv[col]
+                            : b_ * (b_ / ldl_piv[col]);
                         radau_corner[col] = corner;   // exact α̂_t, read back by evaluate_pair
                         const T piv = a - corner;
                         ldl_piv[col] = piv;   // pivot THROUGH depth t
@@ -351,11 +357,13 @@ public:
                               /*use_prev=*/(t > 1), slot_v, panel_par, nthreads);
             for (int64_t j = 0; j < act; ++j) {
                 const int64_t col = col_of_slot[j];
-                // sqrt of the accumulated sum of squares rather than nrm2's
-                // scaled recurrence: these are Lanczos vectors of norm O(‖A‖),
-                // so there is no overflow risk, and a sum that underflows to 0
-                // is a breakdown, which is exactly how it is then handled.
-                const T nrm = std::sqrt(slot_v[j]);
+                // The fused sum of squares is fast at ordinary scales. A zero,
+                // subnormal, or nonfinite sum can instead reflect range loss;
+                // recompute that column's norm with BLAS's scaled recurrence
+                // before deciding whether the Krylov space is invariant.
+                const T nrm = std::isnormal(slot_v[j])
+                    ? std::sqrt(slot_v[j])
+                    : blas::nrm2(n, w + j * n, 1);
                 beta[col * d + (t - 1)] = nrm;
                 // Breakdown threshold: relative to the local scale |α_t|, not
                 // exact zero. A tiny-but-nonzero β is the normal floating-point
@@ -725,15 +733,20 @@ private:
         T* b_c  = a_c + ws_depth;
         T* Z    = b_c + ws_depth;
         const T nb2 = normb[col] * normb[col];
+        // A finite quadratic form need not have a representable squared input
+        // norm. Multiplying one norm at a time avoids that intermediate.
+        const auto rescale = [nb = normb[col], nb2](T value) {
+            return std::isnormal(nb2) ? value * nb2 : (value * nb) * nb;
+        };
         // Gauss.
         blas::copy(t, alpha + col * d, 1, a_c, 1);
         blas::copy(t - 1, beta + col * d, 1, b_c, 1);
-        U = quad_e1(f, t, a_c, b_c, Z) * nb2;
+        U = rescale(quad_e1(f, t, a_c, b_c, Z));
         // Radau: same T_t but corner α̂_t (pins a node at 0).
         blas::copy(t, alpha + col * d, 1, a_c, 1);
         blas::copy(t - 1, beta + col * d, 1, b_c, 1);
         a_c[t - 1] = radau_corner[col];
-        L = quad_e1(f, t, a_c, b_c, Z) * nb2;
+        L = rescale(quad_e1(f, t, a_c, b_c, Z));
     }
 
     /// e₁ᵀ f(T) e₁ for the t×t tridiagonal (diag a, subdiag b), via stevd.

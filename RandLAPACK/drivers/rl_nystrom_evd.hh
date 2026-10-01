@@ -262,6 +262,29 @@ void NystromEVD(
     // ---- Shifted Nyström spectral recovery (Algorithm 2, lines 3-8) ----
     auto t_specrec_start = clk::now();
 
+    // A zero sampled image defines the zero Nyström approximation even if
+    // A itself is nonzero: the sketch may lie in its null space. With k < m
+    // the trace driver still samples the residual, so retain an orthonormal
+    // U and zero eigenvalues instead of factoring the zero Gram. Do not take
+    // this shortcut at k == m: the driver then omits the residual, and a
+    // singular square sketch would not justify full spectral recovery.
+    if (k < m && std::all_of(ws.Y, ws.Y + m * k, [](T value) { return value == (T)0; })) {
+        lapack::laset(lapack::MatrixType::General, m, k, (T)0, (T)1, U_out, m);
+        std::fill(lambda_out, lambda_out + k, (T)0);
+        ws.clamped_eigenvalues = 0;
+        const auto t_end = clk::now();
+        if (t_specrec_ms_out)
+            *t_specrec_ms_out = std::chrono::duration<double, std::milli>(t_end - t_specrec_start).count();
+        if (ws.times_enabled) {
+            ws.times[0] = t_alloc;
+            ws.times[1] = t_syrf;
+            ws.times[2] = t_matvec;
+            ws.times[6] = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_specrec_start).count();
+            ws.times[10] = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_total_start).count();
+        }
+        return;
+    }
+
     const T eps_mach = std::numeric_limits<T>::epsilon();
     // [Alg. 2, line 3] ν ← sqrt(m)·eps·‖Y‖_F  (pseudocode convention; NB
     //   nystrom_epperly.m uses eps·‖Y‖_F / sqrt(m), a factor-of-m difference,
