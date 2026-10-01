@@ -76,10 +76,9 @@ namespace RandLAPACK {
 /// already done. `matvecs` reports the actual total Σⱼ t_j.
 ///
 /// Cost of a certificate check at depth t: two t×t symmetric-tridiagonal
-/// eigensolves per active column (full-eigenvector stevd by default, O(t³);
-/// first-row implicit QL with `use_first_row_ql`, O(t²) - measured 3.3-3.6x
-/// cheaper on the check bucket at t = 3000) - zero matvecs, and negligible next
-/// to an n-length matvec for the depths this method runs at (tens).
+/// eigensolves per active column (full-eigenvector stevd, O(t³)) - zero
+/// matvecs, and negligible next to an n-length matvec for the depths this
+/// method runs at (tens).
 ///
 /// @tparam T  Floating-point scalar type.
 template <typename T>
@@ -89,11 +88,6 @@ public:
     bool    adaptive      = false;   ///< per-column Gauss-Radau certified stop
     T       adaptive_rtol = (T)1e-2; ///< certified relative-error tolerance
     int64_t check_every   = 1;       ///< 1 = geometric check ladder; >1 = fixed stride (checks at t ≥ 2 either way)
-    /// Opt-in: e₁ᵀ f(T_t) e₁ via implicit QL accumulating only the first eigenvector
-    /// row (O(t²), O(t) scratch) instead of full-eigenvector stevd (O(t³), t×t scratch).
-    /// Single precision retains stevd; nonconverged QL evaluations retry with stevd.
-    bool    use_first_row_ql = false;
-    bool first_row_ql_fallback_seen = false; ///< Any precision guard or retry during this object's lifetime.
 
     // ---- outputs of the last call ------------------------------------------
     int64_t d_used        = 0;       ///< max over columns of the depth used
@@ -106,7 +100,6 @@ public:
     // converging, which is indistinguishable from a healthy run in everything we export.
     int64_t ritz_clamped = 0;
 
-    bool first_row_ql_fallback = false; ///< stevd used after precision guard or QL failure.
     bool    all_certified = false;   ///< every column certified before the cap
     /// Per-column results, indexed by the ORIGINAL column of B (length s):
     int64_t* t_used    = nullptr; int64_t t_used_sz    = 0; ///< depth per column
@@ -128,7 +121,6 @@ public:
     T*       normb       = nullptr; int64_t normb_sz       = 0;
     T*       ldl_piv     = nullptr; int64_t ldl_piv_sz     = 0;
     T*       radau_corner= nullptr; int64_t radau_corner_sz= 0;
-    uint8_t* eval_retry = nullptr; int64_t eval_retry_sz = 0;
     uint8_t* cert_ok     = nullptr; int64_t cert_ok_sz     = 0; ///< pivot chain still PD
     int64_t* col_of_slot = nullptr; int64_t col_of_slot_sz = 0;
     T*       workspace   = nullptr; int64_t workspace_sz   = 0; ///< per-slot stevd scratch
@@ -160,7 +152,7 @@ public:
         delete[] qbuf; delete[] alpha; delete[] beta; delete[] normb;
         delete[] ldl_piv; delete[] radau_corner; delete[] cert_ok; delete[] col_of_slot;
         delete[] t_used; delete[] gauss_val; delete[] radau_val;
-        delete[] certified; delete[] workspace; delete[] eval_retry;
+        delete[] certified; delete[] workspace;
         delete[] panel_par; delete[] slot_a; delete[] slot_b; delete[] slot_v;
     }
 
@@ -179,9 +171,6 @@ public:
         steady_clock::time_point t_start, mv0, mv1, c0, c1;
         long cert_us = 0;
         _t_matvec_us = 0;
-        first_row_ql_fallback = use_first_row_ql &&
-            std::numeric_limits<T>::digits < std::numeric_limits<double>::digits;
-        first_row_ql_fallback_seen = first_row_ql_fallback_seen || first_row_ql_fallback;
         if (timing) t_start = steady_clock::now();
 
         if (d < 1) throw std::invalid_argument("LanczosQFA: depth d must be >= 1.");
@@ -195,7 +184,6 @@ public:
         util::upsize(ldl_piv,     ldl_piv_sz,     s);
         util::upsize(radau_corner, radau_corner_sz, s);
         util::upsize(cert_ok,     cert_ok_sz,     s);
-        util::upsize(eval_retry, eval_retry_sz, s);
         util::upsize(col_of_slot, col_of_slot_sz, s);
         util::upsize(t_used,      t_used_sz,      s);
         util::upsize(gauss_val,   gauss_val_sz,   s);
@@ -323,7 +311,7 @@ public:
                 // (it can re-map workspace and change the uniform slot stride).
                 ensure_eval_ws(t, s);
                 if (timing) c0 = steady_clock::now();
-                evaluate_sweep(f, act, t, d, s, false);
+                evaluate_sweep(f, act, t, d, false);
                 if (timing) { c1 = steady_clock::now(); cert_us += duration_cast<microseconds>(c1 - c0).count(); }
                 // [compaction] retire certified slots; the batched matvec
                 // shrinks to the survivors. Serial: each retire is 3 column
@@ -376,14 +364,7 @@ public:
                     // Breakdown: certify with the exact depth-t value.
                     ensure_eval_ws(t, s);          // serial loop: safe to resize here
                     T U;
-                    try {
-                        evaluate_gauss(f, col, t, d, U);
-                    } catch (const QLConvergenceFailure&) {
-                        first_row_ql_fallback = true;
-                        first_row_ql_fallback_seen = true;
-                        ensure_eval_ws(t, s);
-                        evaluate_gauss(f, col, t, d, U);
-                    }
+                    evaluate_gauss(f, col, t, d, U);
                     certified[col] = 1; t_used[col] = t;
                     gauss_val[col] = U; radau_val[col] = U;
                 }
@@ -416,7 +397,7 @@ public:
             // (every evaluation below is at the same depth t).
             ensure_eval_ws(t, s);
             if (timing) c0 = steady_clock::now();
-            evaluate_sweep(f, act, t, d, s, true);
+            evaluate_sweep(f, act, t, d, true);
             if (timing) { c1 = steady_clock::now(); cert_us += duration_cast<microseconds>(c1 - c0).count(); }
         }
 
@@ -653,8 +634,6 @@ private:
         }
     }
 
-    struct QLConvergenceFailure {};
-
     template <std::invocable<T> F>
     void evaluate_column(F f, int64_t col, int64_t t, int64_t d, bool final) {
         if (!final && !cert_ok[col]) return;
@@ -677,33 +656,19 @@ private:
     }
 
     template <std::invocable<T> F>
-    void evaluate_sweep(F f, int64_t act, int64_t t, int64_t d, int64_t s, bool final) {
-        std::fill(eval_retry, eval_retry + s, uint8_t(0));
+    void evaluate_sweep(F f, int64_t act, int64_t t, int64_t d, bool final) {
         std::exception_ptr failure;
 #pragma omp parallel for schedule(dynamic, 1)
         for (int64_t j = 0; j < act; ++j) {
             const int64_t col = col_of_slot[j];
             try {
                 evaluate_column(f, col, t, d, final);
-            } catch (const QLConvergenceFailure&) {
-                eval_retry[col] = 1;
             } catch (...) {
 #pragma omp critical(rl_qfa_evaluation_failure)
                 { if (!failure) failure = std::current_exception(); }
             }
         }
         if (failure) std::rethrow_exception(failure);
-        if (std::any_of(eval_retry, eval_retry + s, [](uint8_t x) { return x != 0; })) {
-            // Retry only the projected evaluation, with fresh alpha/beta copies.
-            // No operator applications repeat; resize outside the parallel region.
-            first_row_ql_fallback = true;
-            first_row_ql_fallback_seen = true;
-            ensure_eval_ws(t, s);
-            for (int64_t j = 0; j < act; ++j) {
-                const int64_t col = col_of_slot[j];
-                if (eval_retry[col]) evaluate_column(f, col, t, d, final);
-            }
-        }
     }
 
     // ------------------------------------------------------------------
@@ -754,7 +719,6 @@ private:
     /// assumption; the Radau node sits at 0 ± roundoff).
     template <std::invocable<T> F>
     T quad_e1(F f, int64_t t, T* a, T* b, T* Z) {
-        if (use_first_row_ql && !first_row_ql_fallback) return quad_e1_ql(f, t, a, b, Z);
         // Nonzero info means stevd did not converge and a/Z hold garbage;
         // fail loudly rather than certify against it.
         const int64_t info = lapack::stevd(lapack::Job::Vec, t, a, b, Z, t);
@@ -769,75 +733,6 @@ private:
                 this->ritz_clamped += 1;
             }
             acc += f(std::max(a[i], (T)0)) * z0 * z0;
-        }
-        return acc;
-    }
-
-    /// e₁ᵀ f(T) e₁ by implicit QL with Wilkinson shifts (imtql2 form), rotating only
-    /// the first eigenvector row z (z[i]² = Gauss weight of node d[i]); no t×t matrix.
-    /// d and e (t entries each, e[t-1] is scratch) are destroyed; z needs t entries.
-    template <std::invocable<T> F>
-    T quad_e1_ql(F f, int64_t t, T* d, T* e, T* z) {
-        z[0] = (T)1;
-        for (int64_t i = 1; i < t; ++i) z[i] = (T)0;
-        if (t > 1) {
-            const T eps = std::numeric_limits<T>::epsilon();
-            e[t - 1] = (T)0;
-            for (int64_t l = 0; l < t; ++l) {
-                int64_t iter = 0;
-                while (true) {
-                    // Look for a negligible subdiagonal to split off the
-                    // trailing block [l, m].
-                    int64_t m;
-                    for (m = l; m < t - 1; ++m) {
-                        const T dd = std::abs(d[m]) + std::abs(d[m + 1]);
-                        if (std::abs(e[m]) <= eps * dd) break;
-                    }
-                    if (m == l) break;   // d[l] has converged
-                    if (++iter > 60)
-                        throw QLConvergenceFailure{};
-                    // Wilkinson shift from the leading 2x2, then one implicit
-                    // QL sweep from m-1 down to l.
-                    T g = (d[l + 1] - d[l]) / ((T)2 * e[l]);
-                    T r = std::hypot(g, (T)1);
-                    g = d[m] - d[l] + e[l] / (g + std::copysign(r, g));
-                    T sn = (T)1, cs = (T)1, p = (T)0;
-                    int64_t i;
-                    for (i = m - 1; i >= l; --i) {
-                        T fq = sn * e[i];
-                        const T bq = cs * e[i];
-                        r = std::hypot(fq, g);
-                        e[i + 1] = r;
-                        if (r == (T)0) {   // underflow: recover and restart the sweep
-                            d[i + 1] -= p;
-                            e[m] = (T)0;
-                            break;
-                        }
-                        sn = fq / r; cs = g / r;
-                        g = d[i + 1] - p;
-                        r = (d[i] - g) * sn + (T)2 * cs * bq;
-                        p = sn * r;
-                        d[i + 1] = g + p;
-                        g = cs * r - bq;
-                        // First-row accumulation of the rotation on columns (i, i+1).
-                        fq = z[i + 1];
-                        z[i + 1] = sn * z[i] + cs * fq;
-                        z[i]     = cs * z[i] - sn * fq;
-                    }
-                    if (r == (T)0 && i >= l) continue;
-                    d[l] -= p;
-                    e[l] = g;
-                    e[m] = (T)0;
-                }
-            }
-        }
-        T acc = (T)0;
-        for (int64_t i = 0; i < t; ++i) {
-            if (d[i] < (T)0) {
-#pragma omp atomic
-                this->ritz_clamped += 1;
-            }
-            acc += f(std::max(d[i], (T)0)) * z[i] * z[i];
         }
         return acc;
     }
@@ -866,15 +761,13 @@ private:
     /// alpha/beta histories in.
     void ensure_eval_ws(int64_t t, int64_t s) {
         if (t > ws_depth) ws_depth = t;
-        // Always re-check the byte count: the stride depends on the evaluation
-        // mode, which may have been switched between calls.
         util::upsize(workspace, workspace_sz, s * slot_stride());
     }
 
-    /// Per-slot scratch stride: alpha copy + beta copy + either the t×t
-    /// eigenvector matrix (stevd) or the first-row vector z (implicit QL).
+    /// Per-slot scratch stride: alpha copy + beta copy + the t×t
+    /// eigenvector matrix (stevd).
     int64_t slot_stride() const {
-        return use_first_row_ql && !first_row_ql_fallback ? 3 * ws_depth : ws_depth * ws_depth + 2 * ws_depth;
+        return ws_depth * ws_depth + 2 * ws_depth;
     }
 
     /// Eigensolve scratch for the column `col`. Indexed by COLUMN, not thread

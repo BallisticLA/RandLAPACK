@@ -6,6 +6,14 @@ if (GTest_FOUND)
     set(tmp TRUE)
 
     set(RandLAPACK_test_srcs
+        drivers/test_nystrom_evd.cc
+        drivers/test_fun_nystrom_pp.cc
+        drivers/test_nystrom_zero.cc
+        comps/test_lanczos_qfa_block.cc
+        comps/test_lanczos_qfa.cc
+        comps/test_lanczos_qfa_scaling.cc
+        comps/test_lanczos_fa.cc
+        comps/test_lanczos_fa_block.cc
         comps/test_determiter.cc
         comps/test_orth.cc
         comps/test_qb.cc
@@ -14,7 +22,6 @@ if (GTest_FOUND)
         comps/test_syrf.cc
         comps/test_rpchol.cc
         comps/test_bk.cc
-        comps/test_lanczos_qfa_scaling.cc
         drivers/test_krill.cc
         drivers/test_rsvd.cc
         drivers/test_rsvd_linop.cc
@@ -22,8 +29,6 @@ if (GTest_FOUND)
         drivers/test_cqrrt.cc
         drivers/test_bqrrp.cc
         drivers/test_revd2.cc
-        drivers/test_fun_nystrom_pp.cc
-        drivers/test_nystrom_zero.cc
         drivers/test_hqrrp.cc
         drivers/test_abrik.cc
         drivers/test_abrik_projector.cc
@@ -32,8 +37,9 @@ if (GTest_FOUND)
         misc/test_util.cc
         misc/test_pdkernels.cc
         linops/test_svd_residual.cc
-        linops/test_linops.cc
         linops/test_diag_sym_linop.cc
+        linops/test_sparse_sym_linop.cc
+        linops/test_linops.cc
         linops/test_downdatable_linop.cc
         linops/test_linop_unified.cc
         misc/test_gen.cc
