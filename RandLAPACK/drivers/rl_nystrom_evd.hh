@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -259,6 +260,9 @@ void NystromEVD(
     // ---- Shifted Nyström spectral recovery (Algorithm 2, lines 3-8) ----
     auto t_specrec_start = clk::now();
 
+    // The Gram-EVD alternative remains opt-in and double precision only.
+    const char* nyseig = std::getenv("RANDLAPACK_PERF_NYSEIG");
+    const bool use_gram_evd = sizeof(T) >= 8 && nyseig != nullptr && nyseig[0] == '1';
     detail::nystrom_recovery<T>(m, k,
         {ws.Y, ws.G, ws.Sigma, ws.VT_B, ws.clamped_eigenvalues},
         U_out, lambda_out,
@@ -286,7 +290,7 @@ void NystromEVD(
                 blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
                            (T)1, ws.Q, m, ws.Y, m, (T)0, ws.G, k);
             }
-        }, vnz);
+        }, vnz, "NystromEVD", use_gram_evd);
 
     auto t_specrec_end = clk::now();
     if (t_specrec_ms_out) {

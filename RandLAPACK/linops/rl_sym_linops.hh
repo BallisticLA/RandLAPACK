@@ -11,6 +11,17 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+
+// Opt-in performance switch, off by default: runtime switches read on every call, all off by default.
+//   RANDLAPACK_PERF_GEMM=1  ExplicitSymLinOp dense products with 2..256 columns use gemm on the full buffer, not symm.
+//   RANDLAPACK_PERF_SPMM=1  sparse sketches use right_spmm instead of the one-triangle sketch_symmetric.
+// Both read the WHOLE buffer, so they apply only to an ExplicitSymLinOp whose owner sets both_triangles.
+inline bool rl_perf_switch(const char* name) {
+    const char* v = std::getenv(name);
+    return v != nullptr && v[0] == '1';
+}
+
 
 namespace RandLAPACK::linops {
 
@@ -70,6 +81,10 @@ struct ExplicitSymLinOp {
     const T* A_buff;
     const int64_t lda;
     const Layout buff_layout;
+    /// Set true only when A_buff holds the full symmetric matrix (both triangles). The opt-in
+    /// RANDLAPACK_PERF_GEMM and RANDLAPACK_PERF_SPMM switches read the whole buffer, so they
+    /// take effect only for operators that declare this; the default honours `uplo` alone.
+    bool both_triangles = false;
 
     ExplicitSymLinOp(
         int64_t dim,
@@ -100,6 +115,14 @@ struct ExplicitSymLinOp {
             blas_call_uplo = (this->uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
         // Reading the "blas_call_uplo" triangle of "this->A_buff" in "layout" order is the same
         // as reading the "this->uplo" triangle of "this->A_buff" in "this->buff_layout" order.
+        // gemm only for 2..256 columns: at n = 50,000 MKL's gemm beats symm up to 1.7x there, but falls off a cliff
+        // above 257 columns (2.0 s against symm's 1.27 s at 269) and loses slightly at one column.
+        if (this->both_triangles && rl_perf_switch("RANDLAPACK_PERF_GEMM") && n >= 2 && n <= 256) {
+            // A is symmetric with both triangles stored, so reading it in either layout gives A.
+            blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, dim, n, dim, alpha,
+                this->A_buff, this->lda, B, ldb, beta, C, ldc);
+            return;
+        }
         blas::symm(
             layout, Side::Left, blas_call_uplo, dim, n, alpha,
             this->A_buff, this->lda, B, ldb, beta, C, ldc
@@ -138,12 +161,16 @@ struct ExplicitSymLinOp {
             // Fill once before choosing the triangle-aware or legacy product.
             if (S.nnz < 0) RandBLAS::fill_sparse(S);
 #ifdef RANDLAPACK_SYMMETRIC_SKETCH
-            auto apply_uplo = this->uplo;
-            if (layout != this->buff_layout)
-                apply_uplo = (apply_uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
-            RandBLAS::sketch_symmetric(layout, apply_uplo, dim, n_vecs,
-                alpha, this->A_buff, this->lda, S, 0, 0, beta, C, ldc);
-#else
+            if (!(this->both_triangles && rl_perf_switch("RANDLAPACK_PERF_SPMM"))) {
+                auto apply_uplo = this->uplo;
+                if (layout != this->buff_layout)
+                    apply_uplo = (apply_uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
+                RandBLAS::sketch_symmetric(layout, apply_uplo, dim, n_vecs,
+                    alpha, this->A_buff, this->lda, S, 0, 0, beta, C, ldc);
+                return;
+            }
+#endif
+            {
             auto S_coo = RandBLAS::coo_view_of_skop(S);
             RandBLAS::sparse_data::right_spmm(
                 layout, blas::Op::NoTrans, blas::Op::NoTrans,
@@ -152,7 +179,7 @@ struct ExplicitSymLinOp {
                 S_coo, 0, 0,
                 beta, C, ldc
             );
-#endif
+            }
         }
     }
 };

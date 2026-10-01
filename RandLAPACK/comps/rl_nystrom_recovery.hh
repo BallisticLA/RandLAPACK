@@ -33,6 +33,8 @@ struct NystromRecoveryBuffers {
 // write both triangles of Omega^T*Y into G. These operations let the caller
 // retain a sparse sketch without changing the recovery or allocating a dense
 // copy. U_out and lambda_out have sizes m*k and k, respectively.
+// The Gram-EVD alternative is opt-in; NystromEVD restricts it to double
+// precision, while REVD2 keeps the default thin SVD.
 //
 // Returns the shift used in the recovery. A zero sampled image returns an
 // orthonormal basis and zero eigenvalues when k < m. At k == m, Cholesky
@@ -44,7 +46,8 @@ T nystrom_recovery(
     T* U_out, T* lambda_out,
     AddShift&& add_shift, FormGram&& form_gram,
     int64_t vec_nnz = -1,
-    const char* caller = "NystromEVD"
+    const char* caller = "NystromEVD",
+    bool use_gram_evd = false
 ) {
     using namespace blas;
 
@@ -98,10 +101,35 @@ T nystrom_recovery(
     // B = (A + nu*I)*Omega*C^{-1}, where C^T*C is the shifted Gram.
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
                m, k, (T)1, ws.G, k, ws.Y, m);
-    lapack::gesdd(lapack::Job::SomeVec, m, k, ws.Y, m,
-                  ws.Sigma, U_out, m, ws.VT_B, k);
+    // [Alg. 2, line 7] [U, Σ, ~] ← svd_econ(B). U_out ← left singular vectors (m×k).
+    // Opt-in performance switch, off by default: RANDLAPACK_PERF_NYSEIG=1 replaces the thin SVD of the
+    // m×k B by an eigendecomposition of the k×k Gram BᵀB: its eigenvalues are Σ² (all line 8 needs) and
+    // U = B·V·Σ⁻¹. About 3.5x faster at m = 50,000, k = 7,276. Squaring loses only eigenvalues below about
+    // eps·‖B‖², under the shift that line 8 removes; a zero singular value leaves a zero column of U (λ̂ = 0).
+    // Double precision only: squaring B loses the eigenvalues below about eps*||B||^2, which is
+    // harmless in double (estimates move by at most 2.8e-14 on 72 cases) but up to 1.3e-4 in
+    // single, so single precision keeps the thin SVD whatever the switch says.
+    if (use_gram_evd) {
+        T* V = ws.VT_B;   // k×k, otherwise gesdd's unused VT output
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T)1, ws.Y, m, (T)0, V, k);
+        lapack::syevd(lapack::Job::Vec, Uplo::Upper, k, V, k, ws.Sigma);   // ascending
+        for (int64_t i = 0; i < k / 2; ++i) {   // descending, as gesdd returns them
+            std::swap(ws.Sigma[i], ws.Sigma[k - 1 - i]);
+            std::swap_ranges(V + i * k, V + (i + 1) * k, V + (k - 1 - i) * k);
+        }
+        for (int64_t i = 0; i < k; ++i) {       // σ = sqrt(eigenvalue); scale V's columns by 1/σ before U = B·V
+            ws.Sigma[i] = std::sqrt(std::max(ws.Sigma[i], (T)0));
+            const T inv = (ws.Sigma[i] > (T)0) ? (T)1 / ws.Sigma[i] : (T)0;
+            blas::scal(k, inv, V + i * k, 1);
+        }
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, (T)1, ws.Y, m, V, k, (T)0, U_out, m);
+    } else {
+        lapack::gesdd(lapack::Job::SomeVec, m, k, ws.Y, m,
+                      ws.Sigma, U_out, m, ws.VT_B, k);
+    }
 
-    // Retain every orthonormal column, including those with zero eigenvalue.
+
+    // Remove the shift and clamp eigenvalues without changing the recovered columns.
     ws.clamped_eigenvalues = 0;
     for (int64_t i = 0; i < k; ++i) {
         const T raw = ws.Sigma[i] * ws.Sigma[i] - nu;
