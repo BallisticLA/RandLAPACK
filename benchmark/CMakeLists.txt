@@ -188,6 +188,15 @@ set(
 add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_composite_applications.cc LINK_LIBS ${Benchmark_libs_matrix_io})
 add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_matrix_io})
 
+# FunNyström++ v2 benchmark (reference-aligned baseline; Phase 0 stub)
+add_benchmark(NAME FunNystromPP_benchmark CXX_SOURCES bench_FunNystromPP/FunNystromPP_benchmark.cc LINK_LIBS ${Benchmark_libs})
+
+# QFA micro-benchmark: block vs scalar, adaptive vs fixed (LOCAL) -- see
+# the QFA micro-benchmark plan (internal note, 2026-09-02)
+add_benchmark(NAME qfa_micro CXX_SOURCES bench_FunNystromPP/qfa_micro.cc LINK_LIBS ${Benchmark_libs})
+
+add_benchmark(NAME qfa_timing_probe CXX_SOURCES bench_FunNystromPP/qfa_timing_probe.cc LINK_LIBS ${Benchmark_libs})
+
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs_matrix_io})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
