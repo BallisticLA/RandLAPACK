@@ -6,6 +6,8 @@ if (GTest_FOUND)
     set(tmp TRUE)
 
     set(RandLAPACK_test_srcs
+        comps/test_lanczos_qfa.cc
+        comps/test_lanczos_qfa_scaling.cc
         comps/test_lanczos_fa.cc
         comps/test_lanczos_fa_block.cc
         comps/test_determiter.cc
