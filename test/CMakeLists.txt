@@ -6,6 +6,7 @@ if (GTest_FOUND)
     set(tmp TRUE)
 
     set(RandLAPACK_test_srcs
+        misc/test_binary_fixture_io.cc
         comps/test_lanczos_optimizations.cc
         linops/test_sym_linop_optimizations.cc
         drivers/test_nystrom_evd.cc
