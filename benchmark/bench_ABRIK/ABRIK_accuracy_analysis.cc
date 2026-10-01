@@ -37,8 +37,8 @@ Usage:
                           <num_matmuls> <num_runs>
 
   precision   = double | float
-  input       = .bin, whitespace-delimited text, or a dense-array .mtx; sparse input is
-                rejected because GESDD needs the dense matrix
+  input_matrix_path = .bin, whitespace-delimited text, or a dense-array .mtx; sparse
+                input is rejected because GESDD needs the dense matrix
   m, n        = expected dimensions, checked against the file
   b_sz        = Krylov block size
   num_matmuls = Krylov iteration budget (max_krylov_iters). The matvec count in the header

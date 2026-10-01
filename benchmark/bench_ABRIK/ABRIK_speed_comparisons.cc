@@ -364,7 +364,8 @@ static int run_benchmark(int argc, char* argv[]) {
             << "# total_matvecs = checkpoint budget (ABRIK: rounded down to whole blocks); actual_matvecs = ABRIK b_sz * iterations done (initial block not counted), Spectra 2 * A'A applications, RSVD metered\n"
             << "# err = sqrt(||A V S^-1 - U||_F^2 + ||A' U S^-1 - V||_F^2) over the leading k_res triplets\n"
             << "# elapsed_us: ABRIK cumulative BK + SVD extraction (residual excluded); Spectra its Lanczos iteration; RSVD and GESDD wall clock of the call\n"
-            << "# GESDD runs once on dense input, reported under run 0\n"
+            << "# run_gesdd: " << (run_gesdd && !mat.is_sparse ? 1 : 0)
+            << (run_gesdd && !mat.is_sparse ? " (GESDD runs once, reported under run 0)" : "") << "\n"
             << "# k_res = triplets the residual covers; status: ABRIK = why BK stopped (budget = checkpoint reached), RSVD and GESDD = done or failed, Spectra = done; err = inf when the call failed or no triplet exists\n"
             << "run, method, b_sz, total_matvecs, actual_matvecs, err, elapsed_us, k_res, status\n";
     outfile.flush();

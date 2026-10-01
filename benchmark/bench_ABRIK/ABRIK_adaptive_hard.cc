@@ -46,7 +46,7 @@ Output CSV (long format, one data point per row):
                  (budget exhausted), under_delivered (fewer than target_rank triplets), or
                  BK's terminal state (norm_converged, rank_deficient, saturated);
                  adaptive: converged, max_retries, norm_converged, rank_deficient,
-                 under_delivered, saturated, not_adaptive;
+                 under_delivered, saturated;
                  failed in either mode when the call returned an error
 
 Usage:
@@ -281,7 +281,7 @@ static int run_benchmark(int argc, char* argv[]) {
             << "# sweep = independent non-adaptive calls at increasing budgets; adaptive = one call with the driver growing its own budget, assessed_rank = target_rank\n"
             << "# matvecs = krylov_iters * b_sz, initial block not counted; residual over the leading min(target_rank, triplets)\n"
             << "# elapsed_us excludes the benchmark's residual evaluation; adaptive rows include the driver's own checks\n"
-            << "# status max_retries = the driver declined to certify tol, a valid outcome; failed = the call returned an error\n"
+            << "# status: sweep rows converged (tol met over target_rank triplets), running (budget exhausted), under_delivered (fewer than target_rank triplets) or BK's terminal state; adaptive rows the driver's termination reason, max_retries = it declined to certify tol, a valid outcome; failed = the call returned an error\n"
             << "# residual = inf when the call failed or no triplet exists\n"
             << "run, mode, b_sz, krylov_iters, matvecs, triplets, residual, elapsed_us, status\n";
     outfile.flush();

@@ -1229,24 +1229,34 @@ TEST_F(TestABRIK, ABRIK_call_with_checkpoints_traces_a_single_run) {
         }
         EXPECT_LT(trace.back().residual, trace.front().residual);
 
-        // Resume reproduces the single-shot bases, so one plain call at the last budget gives
-        // the same residual up to the rounding of a separately computed SVD.
+        // Resume reproduces the single-shot bases, so one plain call at a checkpoint's budget
+        // gives the same residual up to the rounding of a separately computed SVD. Checked at
+        // checkpoint 8, where the residual is far from the rounding floor, with a relative
+        // tolerance, and at the last checkpoint.
         auto state_single = RandBLAS::RNGState();
         Solver single(false, false, tol);
-        single.max_krylov_iters = 12;
+        single.max_krylov_iters = 8;
         ASSERT_EQ(single.call(A_op, b, data.U, data.V, data.Sigma, state_single), 0);
-        ASSERT_EQ(single.singular_triplets_found, trace.back().triplets);
-        double r_single = RandLAPACK::linops::svd_residual<double>(
-            A_op, data.U, data.V, data.Sigma, target);
-        printf("CHECKPOINTS full rank: residuals %.3e %.3e %.3e %.3e, single call %.3e\n",
-               trace[0].residual, trace[1].residual, trace[2].residual, trace[3].residual,
-               r_single);
-        EXPECT_NEAR(trace.back().residual, r_single, 1e-10);
+        ASSERT_EQ(single.singular_triplets_found, trace[2].triplets);
+        double r8 = RandLAPACK::linops::svd_residual<double>(A_op, data.U, data.V, data.Sigma, target);
+        EXPECT_NEAR(trace[2].residual, r8, 1e-8 * r8);
+        delete[] data.U; delete[] data.V; delete[] data.Sigma;
+        data.U = data.V = data.Sigma = nullptr;
+        auto state_single12 = RandBLAS::RNGState();
+        Solver single12(false, false, tol);
+        single12.max_krylov_iters = 12;
+        ASSERT_EQ(single12.call(A_op, b, data.U, data.V, data.Sigma, state_single12), 0);
+        ASSERT_EQ(single12.singular_triplets_found, trace.back().triplets);
+        double r12 = RandLAPACK::linops::svd_residual<double>(A_op, data.U, data.V, data.Sigma, target);
+        printf("CHECKPOINTS full rank: residuals %.3e %.3e %.3e %.3e, single calls %.3e %.3e\n",
+               trace[0].residual, trace[1].residual, trace[2].residual, trace[3].residual, r8, r12);
+        EXPECT_NEAR(trace.back().residual, r12, 1e-10);
     }
 
-    // Exact rank 25 on 200 x 200: BK reaches a terminal state before the last checkpoint.
+    // Exact rank 25 on 200 x 200: BK reaches a terminal state inside the third segment, so
+    // the trace stops there and the fourth checkpoint is never visited.
     {
-        SCOPED_TRACE("exact rank 25, checkpoints 2 4 40");
+        SCOPED_TRACE("exact rank 25, checkpoints 2 4 40 60");
         const int64_t m = 200, n = 200, rank = 25;
         std::vector<double> s(rank);
         for (int64_t i = 0; i < rank; ++i) s[i] = 1.0 / (double) (i + 1);
@@ -1257,9 +1267,11 @@ TEST_F(TestABRIK, ABRIK_call_with_checkpoints_traces_a_single_run) {
         trace.clear();
         auto state = RandBLAS::RNGState();
         Solver traced(false, false, tol);
-        ASSERT_EQ(traced.call_with_checkpoints(A_op, b, rank, {2, 4, 40}, record, state), 0);
+        ASSERT_EQ(traced.call_with_checkpoints(A_op, b, rank, {2, 4, 40, 60}, record, state), 0);
 
-        ASSERT_FALSE(trace.empty());
+        ASSERT_EQ(trace.size(), (size_t) 3);
+        EXPECT_EQ(trace[0].reason, RandLAPACK::BKTermination::max_iters_reached);
+        EXPECT_EQ(trace[1].reason, RandLAPACK::BKTermination::max_iters_reached);
         const Checkpoint& final_point = trace.back();
         EXPECT_EQ(final_point.iters_requested, (int64_t) 40);
         EXPECT_LT(final_point.iters_done, (int64_t) 40);

@@ -8,8 +8,9 @@ Spectra runs implicitly restarted Lanczos on A'A (AA' when m <= n):
   - ncv is the Krylov subspace dimension, the caller's choice (the speed comparisons use
     min(2 nev + 1, min(m, n) - 1), reduced by effective_ncv for small budgets);
   - max_restarts bounds the restarts;
-  - the Lanczos iteration applies A'A about ncv + 1 + max_restarts (ncv - nev) times, and
-    each application is two matvecs with A. num_operations() reports the count actually made.
+  - the Lanczos iteration applies A'A ncv + 1 times for the initial factorization and about
+    ncv - nev times per restart, each application two matvecs with A; num_operations()
+    reports the count actually made.
 */
 
 #ifndef BUDGETED_SVD_SOLVER_HH
@@ -139,9 +140,9 @@ public:
     BudgetedPartialSVDSolver(const BudgetedPartialSVDSolver&) = delete;
     BudgetedPartialSVDSolver& operator=(const BudgetedPartialSVDSolver&) = delete;
 
-    // Runs exactly max_restarts restarts: the tolerance is the smallest positive value of
-    // the scalar type, below anything reachable, so Spectra never stops early. Returns the
-    // number of formally converged values.
+    // Runs max_restarts restarts: the tolerance is the smallest positive value of the
+    // scalar type, so Spectra stops earlier only on an exact Lanczos breakdown (an input
+    // of rank below ncv). Returns the number of formally converged values.
     Index compute(Index max_restarts)
     {
         m_ritz_vecs.resize(0, 0);
@@ -178,26 +179,26 @@ public:
 };
 
 // The Krylov dimension a matvec budget can afford: ncv_default when the budget covers the
-// initial factorization, otherwise as many A'A applications as the budget buys, but never
-// fewer than nev + 1, which Spectra requires. Below that the initial factorization alone
-// exceeds the budget.
+// initial factorization of ncv + 1 A'A applications, otherwise as large as the budget
+// buys, but never below nev + 1, which Spectra requires. Below that the initial
+// factorization alone exceeds the budget.
 inline int64_t effective_ncv(int64_t budget, int64_t nev, int64_t ncv_default)
 {
     int64_t ata_ops = budget / 2;
-    if (ata_ops >= ncv_default)
+    if (ata_ops >= ncv_default + 1)
         return ncv_default;
-    return std::max(nev + 1, ata_ops);
+    return std::max(nev + 1, ata_ops - 1);
 }
 
-// The restarts a matvec budget buys after the initial factorization of ncv A'A
+// The restarts a matvec budget buys after the initial factorization of ncv + 1 A'A
 // applications, at ncv - nev applications per restart; zero when the budget does not
 // reach one restart. The divisor is guarded against a degenerate ncv.
 inline int64_t budget_to_restarts(int64_t budget, int64_t nev, int64_t ncv)
 {
     int64_t ata_ops = budget / 2;
-    if (ata_ops <= ncv || ncv <= nev)
+    if (ata_ops <= ncv + 1 || ncv <= nev)
         return 0;
-    return (ata_ops - ncv) / (ncv - nev);
+    return (ata_ops - ncv - 1) / (ncv - nev);
 }
 
 }  // namespace BenchmarkUtil
