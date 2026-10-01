@@ -4,15 +4,13 @@
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
+#include "rl_nystrom_recovery.hh"
 
 #include <RandBLAS.hh>
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -261,131 +259,34 @@ void NystromEVD(
     // ---- Shifted Nyström spectral recovery (Algorithm 2, lines 3-8) ----
     auto t_specrec_start = clk::now();
 
-    // A zero sampled image defines the zero Nyström approximation even if
-    // A itself is nonzero: the sketch may lie in its null space. With k < m
-    // the trace driver still samples the residual, so retain an orthonormal
-    // U and zero eigenvalues instead of factoring the zero Gram. Do not take
-    // this shortcut at k == m: the driver then omits the residual, and a
-    // singular square sketch would not justify full spectral recovery.
-    if (k < m && std::all_of(ws.Y, ws.Y + m * k, [](T value) { return value == (T)0; })) {
-        lapack::laset(lapack::MatrixType::General, m, k, (T)0, (T)1, U_out, m);
-        std::fill(lambda_out, lambda_out + k, (T)0);
-        ws.clamped_eigenvalues = 0;
-        const auto t_end = clk::now();
-        if (t_specrec_ms_out)
-            *t_specrec_ms_out = std::chrono::duration<double, std::milli>(t_end - t_specrec_start).count();
-        if (ws.times_enabled) {
-            ws.times[0] = t_alloc;
-            ws.times[1] = t_syrf;
-            ws.times[2] = t_matvec;
-            ws.times[6] = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_specrec_start).count();
-            ws.times[10] = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_total_start).count();
-        }
-        return;
-    }
-
-    const T eps_mach = std::numeric_limits<T>::epsilon();
-    // [Alg. 2, line 3] ν ← sqrt(m)·eps·‖Y‖_F  (pseudocode convention; NB
-    //   nystrom_epperly.m uses eps·‖Y‖_F / sqrt(m), a factor-of-m difference,
-    //   pinned to the pseudocode per project decision 2026-07-08).
-    //   Magnitude note: the SASO carries ±1 entries (isometry_scale is never
-    //   applied), so ‖Ω‖_F = sqrt(vec_nnz·m) and ν ~ m·eps·sqrt(vec_nnz)·‖A‖₂.
-    //   In double that is harmless (~1e-12·‖A‖₂ at n = 3000), but in single
-    //   precision it reaches ~1e-3·‖A‖₂ at n = 3000 and the λ̂ = max{0, Σ²−ν}
-    //   recovery then clamps a large part of the spectrum. Not blocked, but
-    //   flagged once per instantiation below.
-    if constexpr (sizeof(T) < 8) {
-        // Atomic: NystromEVD<float> can be called concurrently from multiple
-        // threads, and a plain bool would race on this check-then-set (worst
-        // case the note prints more than once).
-        static std::atomic<bool> nu_note_emitted{false};
-        if (!nu_note_emitted.exchange(true, std::memory_order_relaxed)) {
-            std::fprintf(stderr,
-                "NOTE NystromEVD: single-precision shift nu ~ n*eps*sqrt(vec_nnz)*||A||_2 "
-                "can reach ~1e-3*||A||_2 at n ~ 3000 and clamps the recovered "
-                "eigenvalue tail; prefer double precision for spectra spanning "
-                "more than a few decades.\n");
-        }
-    }
-    const T nu = std::sqrt((T)m) * eps_mach * blas::nrm2(m * k, ws.Y, 1);
-
-    // [Alg. 2, line 4] Y_ν ← Y + ν·Ω = (A+νI)·Ω  (overwrites ws.Y).
-    //   Sparse path: ν·Ω has only m·vec_nnz stored entries (vec_nnz per row),
-    //   so the update is a scatter-add over the SASO's COO triplets - no dense
-    //   image of Ω needed.
-    if (q == 1 && dense_sketch) {
-        blas::axpy(m * k, nu, ws.Om, 1, ws.Y, 1);
-    } else if (q == 1) {
-        auto S_coo = RandBLAS::coo_view_of_skop(S);
-        for (int64_t t = 0; t < S_coo.nnz; ++t)
-            ws.Y[S_coo.rows[t] + S_coo.cols[t] * m] += nu * S_coo.vals[t];
-    } else {
-        blas::axpy(m * k, nu, ws.Q, 1, ws.Y, 1);
-    }
-
-    // [Alg. 2, line 5a] H ← Ωᵀ·Y_ν  (k×k = Ωᵀ(A+νI)Ω, SPD since A+νI is).
-    //   Sparse path: apply Ωᵀ as a sketching operator (RandBLAS::sketch_general,
-    //   the same primitive CQRRPT uses to apply its SASO) - O(m·vec_nnz·k) vs
-    //   O(mk²) for the dense GEMM.
-    //   H is symmetric in exact arithmetic, but either product forms its two
-    //   triangles from independent accumulations, so they disagree at roundoff
-    //   (‖H−Hᵀ‖ ~ ε‖Ω‖‖Y_ν‖). The Cholesky below reads a single triangle, so
-    //   average H ← (H+Hᵀ)/2 (util::symmetrize; deliberately NOT the
-    //   reflect-one-triangle RandBLAS::symmetrize - both triangles carry
-    //   equally valid information). potrf then factors the symmetric part,
-    //   the nearest symmetric matrix in ‖·‖_F, rather than whichever of two
-    //   slightly different matrices the Uplo convention would select. O(k²),
-    //   invisible next to the Gram product.
-    if (q == 1 && dense_sketch) {
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
-                   (T)1, ws.Om, m, ws.Y, m, (T)0, ws.G, k);
-    } else if (q == 1) {
-        RandBLAS::sketch_general(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                                 k, k, m, (T)1, S, 0, 0, ws.Y, m, (T)0, ws.G, k);
-    } else {
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
-                   (T)1, ws.Q, m, ws.Y, m, (T)0, ws.G, k);
-    }
-    RandLAPACK::util::symmetrize(k, ws.G, k);
-
-    // [Alg. 2, line 5b] C ← chol(H), upper. SPD by construction; guard defensively.
-    //   No need to zero the strict lower triangle of the factor: the only
-    //   consumer is the Uplo::Upper trsm below, which never reads it.
-    int64_t chol_status = lapack::potrf(Uplo::Upper, k, ws.G, k);
-    if (chol_status != 0)
-        throw std::runtime_error(
-            "NystromEVD: shifted Cholesky failed (potrf status " +
-            std::to_string(chol_status) + " at rank k=" + std::to_string(k) +
-            ", n=" + std::to_string(m) + ", vec_nnz=" + std::to_string(vnz) +
-            "). At large k the likely cause is an exactly-zero column of the "
-            "sparse SASO sketch (probability (1 - vec_nnz/k)^n per column): a "
-            "rank-deficient Omega makes the Gram Omega^T(A+nu I)Omega exactly "
-            "singular, and the shift adds nu*Omega, not nu*I, so it cannot "
-            "help. Raise vec_nnz (or pass vec_nnz = 0 for the ~log(k) auto "
-            "policy) and keep the sketch rank k <= n/2.");
-
-    // [Alg. 2, line 6] B ← Y_ν·C⁻¹  (triangular solve; B overwrites ws.Y).
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
-               m, k, (T)1, ws.G, k, ws.Y, m);
-
-    // [Alg. 2, line 7] [U, Σ, ~] ← svd_econ(B). U_out ← left singular vectors (m×k).
-    lapack::gesdd(lapack::Job::SomeVec, m, k, ws.Y, m,
-                  ws.Sigma, U_out, m, ws.VT_B, k);
-
-    // [Alg. 2, line 8] λ̂ ← max{0, Σ² − ν}  (remove the shift; clamp negatives to 0).
-    //   Lines 9-10 (truncate to rank k) are a no-op: Ω is drawn at rank k, so B is
-    //   m×k and U_out / lambda_out already have exactly k columns / entries.
-    // Count how many eigenvalues the shift removal drove negative before clamping. A large
-    // count means the shift nu dominated the tail of the spectrum, so that part of the head
-    // carries no information and the estimate leans entirely on the residual term. Today this
-    // is invisible: the clamp is silent and the caller sees only a clean nonnegative spectrum.
-    // Observability only; the clamp itself is unchanged.
-    ws.clamped_eigenvalues = 0;
-    for (int64_t i = 0; i < k; ++i) {
-        const T raw = ws.Sigma[i] * ws.Sigma[i] - nu;
-        if (raw < (T)0) ws.clamped_eigenvalues += 1;
-        lambda_out[i] = std::max(raw, (T)0);
-    }
+    detail::nystrom_recovery<T>(m, k,
+        {ws.Y, ws.G, ws.Sigma, ws.VT_B, ws.clamped_eigenvalues},
+        U_out, lambda_out,
+        [&](T nu) {
+            // [Alg. 2, line 4] Y_nu = Y + nu*Omega. Keep the SASO sparse.
+            if (q == 1 && dense_sketch) {
+                blas::axpy(m * k, nu, ws.Om, 1, ws.Y, 1);
+            } else if (q == 1) {
+                auto S_coo = RandBLAS::coo_view_of_skop(S);
+                for (int64_t t = 0; t < S_coo.nnz; ++t)
+                    ws.Y[S_coo.rows[t] + S_coo.cols[t] * m] += nu * S_coo.vals[t];
+            } else {
+                blas::axpy(m * k, nu, ws.Q, 1, ws.Y, 1);
+            }
+        },
+        [&] {
+            // [Alg. 2, line 5] Form both triangles of Omega^T*Y_nu.
+            if (q == 1 && dense_sketch) {
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
+                           (T)1, ws.Om, m, ws.Y, m, (T)0, ws.G, k);
+            } else if (q == 1) {
+                RandBLAS::sketch_general(Layout::ColMajor, Op::Trans, Op::NoTrans,
+                                         k, k, m, (T)1, S, 0, 0, ws.Y, m, (T)0, ws.G, k);
+            } else {
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
+                           (T)1, ws.Q, m, ws.Y, m, (T)0, ws.G, k);
+            }
+        }, vnz);
 
     auto t_specrec_end = clk::now();
     if (t_specrec_ms_out) {

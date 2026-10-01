@@ -27,6 +27,7 @@
 #include "RandLAPACK/testing/rl_test_utils.hh"
 
 // Computational routines
+#include "RandLAPACK/comps/rl_nystrom_recovery.hh"
 #include "RandLAPACK/comps/rl_determiter.hh"
 #include "RandLAPACK/comps/rl_preconditioners.hh"
 #include "RandLAPACK/comps/rl_bk.hh"
