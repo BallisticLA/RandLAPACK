@@ -50,6 +50,9 @@
 #include "RandLAPACK/drivers/rl_abrik.hh"
 #include "RandLAPACK/drivers/rl_krill.hh"
 
+#include "RandLAPACK/comps/rl_lanczos_fa.hh"
+#include "RandLAPACK/comps/rl_lanczos_fa_block.hh"
+
 // GPU layer. __CUDACC__ is set only while a CUDA compiler is processing this file, so
 // .cu translation units get the GPU drivers and host .cc files build with no CUDA
 // toolkit on the include path. rl_cuda_kernels.cuh must come first: it decides whether

@@ -22,6 +22,7 @@
 #include <iomanip>
 #include <stdexcept>
 #include <cmath>
+#include <functional>
 
 namespace RandLAPACK {
 namespace testing {
@@ -475,6 +476,54 @@ template <typename T, typename RNG>
     ::lapack::ormqr(::blas::Side::Left, ::blas::Op::NoTrans, m, n, m,
                     U.data(), m, tau.data(), A.data(), m);
     return out_state;
+}
+
+// ============================================================================
+// Exact dense matrix-function oracle:  f(A)*B = V * diag(f(lambda)) * V^T * B
+// ============================================================================
+
+/// Build an exact f(A)*B oracle from a precomputed symmetric eigendecomposition.
+/// `V` holds the eigenvectors as columns (n x n, column-major); `f_lambda`
+/// holds f evaluated at the corresponding eigenvalues. Returns a callable
+/// (m, s, B, Y) that computes Y = V * diag(f_lambda) * V^T * B (column-major,
+/// ldY = m). The closure owns V and f_lambda by value (they are moved in).
+///
+/// This is the reference ("exact") Phase-2 oracle for funNystromPP tests,
+/// benchmarks, and the MATLAB/Python bindings: the dense counterpart to the
+/// Krylov LanczosFA / BlockLanczosFA oracles. Single point of truth so the
+/// three call sites do not re-implement the GEMM-diag-GEMM apply.
+template <typename T>
+::std::function<void(int64_t, int64_t, const T *, T *)>
+make_exact_fa_oracle_from_eig(int64_t n, ::std::vector<T> V, ::std::vector<T> f_lambda) {
+    return [n, V = ::std::move(V), f_lambda = ::std::move(f_lambda)]
+           (int64_t m, int64_t s, const T *B, T *Y) {
+        ::std::vector<T> tmp(static_cast<::std::size_t>(n) * s);
+        // tmp = V^T * B   (n x s)
+        ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::Trans, ::blas::Op::NoTrans,
+                     n, s, m, (T)1, V.data(), n, B, m, (T)0, tmp.data(), n);
+        // scale rows by f(lambda)
+        for (int64_t j = 0; j < s; ++j)
+            for (int64_t i = 0; i < n; ++i)
+                tmp[i + j * n] *= f_lambda[i];
+        // Y = V * tmp     (m x s)
+        ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans,
+                     m, s, n, (T)1, V.data(), m, tmp.data(), n, (T)0, Y, m);
+    };
+}
+
+/// Convenience: eigendecompose a symmetric A (n x n, column-major, upper
+/// triangle read) once via syevd, then return the exact f(A)*B oracle. Prefer
+/// make_exact_fa_oracle_from_eig when you already have the eigendecomposition
+/// (e.g. a benchmark that also reports the exact trace tr(f(A)) = sum f(lambda)).
+template <typename T, typename F>
+::std::function<void(int64_t, int64_t, const T *, T *)>
+make_exact_fa_oracle(int64_t n, const T *A, F &&fscalar) {
+    ::std::vector<T> V(A, A + n * n);          // copy; syevd is destructive
+    ::std::vector<T> ev(n);
+    ::lapack::syevd(::lapack::Job::Vec, ::lapack::Uplo::Upper, n, V.data(), n, ev.data());
+    ::std::vector<T> f_lambda(n);
+    for (int64_t i = 0; i < n; ++i) f_lambda[i] = fscalar(ev[i]);
+    return make_exact_fa_oracle_from_eig<T>(n, ::std::move(V), ::std::move(f_lambda));
 }
 
 }  // namespace testing
