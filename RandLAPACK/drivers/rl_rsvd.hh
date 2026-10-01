@@ -5,9 +5,13 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <new>
 #include <vector>
 
 namespace RandLAPACK {
@@ -34,6 +38,15 @@ class RSVDalg {
 template <typename T, typename RNG>
 class RSVD : public RSVDalg<T, RNG> {
     public:
+
+        /// Return codes for the LinearOperator overload; the int API is retained.
+        enum Status {
+            Success = 0,
+            BlockOrthogonalityFailure = 4,
+            BasisOrthogonalityFailure = 5,
+            QBSubroutineFailure = 6,
+            SVDNonconvergence = 7
+        };
 
         // Constructor
         RSVD(
@@ -104,6 +117,47 @@ class RSVD : public RSVDalg<T, RNG> {
             RandBLAS::RNGState<RNG> &state
         ) override;
 
+        /// Compute a rank-k approximate SVD of a LinearOperator.
+        /// Requires 1 <= k <= min(A_op.n_rows, A_op.n_cols), a positive block_sz,
+        /// finite nonnegative tol, and the positive finite Frobenius norm norm_A
+        /// supplied by the caller. Requires a QB object with RF/RS components,
+        /// nonnegative RS passes, a positive RS stabilization interval, and an
+        /// operator supporting column-major applications.
+        /// The base operator is never modified (deflation is implicit).
+        ///
+        /// On Success, k is the achieved rank and U, S, V receive new allocations:
+        /// column-major m-by-k U, k singular values, and column-major n-by-k V.
+        /// The caller must free these allocations with std::free. Incoming output
+        /// buffers are not freed or reused. QB termination at the tolerance (0),
+        /// an increasing error estimate (2), or the requested rank (3) all produce
+        /// a usable approximation and return Success; meeting tol is not guaranteed.
+        ///
+        /// Numerical failures return BlockOrthogonalityFailure (4) for a new QB
+        /// block, BasisOrthogonalityFailure (5) for the accumulated QB basis,
+        /// QBSubroutineFailure (6) when sketching or stabilization returns nonzero,
+        /// or SVDNonconvergence (7) for positive gesdd info. On QB failure, k is the
+        /// number of previously accepted columns; on SVD failure it is the QB rank.
+        ///
+        /// Invalid parameter values or incompatible algorithm components throw Error.
+        /// LAPACK++ throws lapack::Error for negative info (an argument rejected
+        /// by the backend, which can include nonfinite data); this is not SVD
+        /// nonconvergence. Allocation failures throw std::bad_alloc. Exceptions
+        /// from operators, components, BLAS/LAPACK, or standard containers propagate
+        /// unchanged. On any failure or exception, U, S, V and their existing data
+        /// remain unchanged, and RSVD's temporary factor buffers are released. k and the
+        /// RNG state may have changed; neither is rolled back after computation.
+        template <linops::LinearOperator LinOp>
+        int call(
+            LinOp& A_op,
+            T norm_A,
+            int64_t &k,
+            T tol,
+            T* &U,
+            T* &S,
+            T* &V,
+            RandBLAS::RNGState<RNG> &state
+        );
+
     public:
         RandLAPACK::QBalg<T, RNG> &QB_Obj;
         int64_t block_sz;
@@ -151,6 +205,67 @@ int RSVD<T, RNG>::call(
     free(BT);
     free(UT_buf);
     return 0;
+}
+
+// -----------------------------------------------------------------------------
+// LinOp-templated RSVD: accepts any LinearOperator.
+// The base operator is never modified: deflation is handled implicitly
+// by DowndatableLinOp inside QB.
+template <typename T, typename RNG>
+template <linops::LinearOperator LinOp>
+int RSVD<T, RNG>::call(
+    LinOp& A_op,
+    T norm_A,
+    int64_t &k,
+    T tol,
+    T* &U,
+    T* &S,
+    T* &V,
+    RandBLAS::RNGState<RNG> &state
+){
+    T* Q = nullptr;
+    T* BT = nullptr;
+
+    auto* qb_concrete = dynamic_cast<QB<T, RNG>*>(&this->QB_Obj);
+    randlapack_require(qb_concrete != nullptr) << "operator RSVD requires a QB factorization object";
+    int status;
+    try {
+        status = qb_concrete->call(A_op, k, this->block_sz, tol, norm_A, Q, BT, state);
+    } catch (...) {
+        free(Q);
+        free(BT);
+        throw;
+    }
+    using Buffer = std::unique_ptr<T, decltype(&std::free)>;
+    Buffer Q_owner(Q, &std::free);
+    Buffer BT_owner(BT, &std::free);
+    if (status == BlockOrthogonalityFailure || status == BasisOrthogonalityFailure
+        || status == QBSubroutineFailure) {
+        return status;
+    }
+
+    std::vector<T> UT_buf(k * k);
+    Buffer U_buffer(static_cast<T*>(calloc(A_op.n_rows * k, sizeof(T))), &std::free);
+    Buffer S_buffer(static_cast<T*>(calloc(k, sizeof(T))), &std::free);
+    Buffer V_buffer(static_cast<T*>(calloc(A_op.n_cols * k, sizeof(T))), &std::free);
+    if (!U_buffer || !S_buffer || !V_buffer)
+        throw std::bad_alloc();
+
+    // SVD of B
+    const int64_t info = lapack::gesdd(Job::SomeVec, A_op.n_cols, k, BT, A_op.n_cols,
+                                      S_buffer.get(), V_buffer.get(), A_op.n_cols,
+                                      UT_buf.data(), k);
+    // LAPACK++ throws lapack::Error for negative info; positive info means that
+    // the bidiagonal divide-and-conquer iteration did not converge.
+    if (info > 0) return SVDNonconvergence;
+    // U = Q * UT_buf^T
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, A_op.n_rows, k, k, T(1),
+               Q, A_op.n_rows, UT_buf.data(), k, T(0), U_buffer.get(), A_op.n_rows);
+
+    U = U_buffer.release();
+    S = S_buffer.release();
+    V = V_buffer.release();
+    return Success;
 }
 
 } // end namespace RandLAPACK

@@ -512,12 +512,6 @@ static int64_t CHOLQR_mod_WY(
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
-    #if defined(__APPLE__)
-    UNUSED(num_stages); UNUSED(m_A); UNUSED(n_A); UNUSED(buff_A); UNUSED(ldim_A);
-    UNUSED(buff_t); UNUSED(buff_T); UNUSED(ldim_T); UNUSED(buff_R); UNUSED(ldim_R);
-    UNUSED(buff_D);
-    throw std::runtime_error("Unsupported on macOS.");
-    #else
 
     // Some initializations.
     if( num_stages < 0 )
@@ -548,7 +542,6 @@ static int64_t CHOLQR_mod_WY(
     // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
-    #endif
     return 0;
 }
 

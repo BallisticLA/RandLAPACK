@@ -1,10 +1,3 @@
-#if defined(__APPLE__)
-#include <iostream>
-int main() {
-    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
-    return 1;
-}
-#else
 /*
 Performs computations in order to assess the pivot quality of BQRRP.
 The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.
@@ -330,4 +323,3 @@ int main(int argc, char *argv[]) {
     sv_ratio(m_info, b_sz, all_data, state_constant2, path);
     std::cout << "Pivot quality metric 2 done\n\n";
 }
-#endif

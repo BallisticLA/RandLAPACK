@@ -118,6 +118,12 @@ jobs:
           grep -q "external install" discovery.out
           test -d RandNLA-project-discovery/build/RandLAPACK-build
 
+      # The installer sends each step's full output to install.log and prints
+      # only progress lines, so on failure the log holds the actual error.
+      - name: show install.log on failure
+        if: failure()
+        run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
+
   install-macos:
     runs-on: macos-latest
     steps:
@@ -125,11 +131,19 @@ jobs:
         with:
           path: RandLAPACK
 
+      # Deliberately no `brew install openblas`: the default macOS backend is
+      # Accelerate through Apple's new interface, and this lane proves that
+      # the default needs no Homebrew BLAS.
       - name: configure OS
-        run: brew install googletest openblas libomp
+        run: brew install googletest libomp
 
       - name: run the installer (non-interactive)
-        run: bash RandLAPACK/install.sh --yes --no-gpu
+        run: |
+          set -euo pipefail
+          bash RandLAPACK/install.sh --yes --no-gpu | tee installer.out
+          # LP64 for now: Accelerate ILP64 is blocked on an upstream LAPACK++
+          # compile bug (icl-utk-edu/lapackpp#89; tracked in issue #173).
+          grep -qE '^  Backend  *accelerate, LP64' installer.out
 
       - name: test the installed library
         run: |
@@ -138,6 +152,23 @@ jobs:
 
       - name: re-run the installer in place (idempotency)
         run: bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu
+
+      # Homebrew OpenBLAS remains a supported route; keep it exercised.
+      - name: install with --blas=openblas into a second project
+        run: |
+          set -euo pipefail
+          brew install openblas
+          bash RandLAPACK/install.sh --yes --no-gpu --blas=openblas \
+              --project-dir "$GITHUB_WORKSPACE/RandNLA-project-openblas" | tee openblas.out
+          grep -qE '^  Backend  *openblas, ' openblas.out
+          ctest --test-dir RandNLA-project-openblas/build/RandLAPACK-build \
+                --output-on-failure
+
+      # The installer sends each step's full output to install.log and prints
+      # only progress lines, so on failure the log holds the actual error.
+      - name: show install.log on failure
+        if: failure()
+        run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
 
   install-windows:
     runs-on: windows-2022
@@ -161,14 +192,14 @@ jobs:
       - name: run the installer
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/installers/install.ps1" `
             -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
             -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps"
 
       - name: re-run the installer in place (idempotency)
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE/RandLAPACK/install/install.ps1" `
+          & "$env:GITHUB_WORKSPACE/RandLAPACK/installers/install.ps1" `
             -ProjectDir "$env:GITHUB_WORKSPACE/RandNLA-project" `
             -DependencyRoot "$env:GITHUB_WORKSPACE/../windows-deps" `
             -SkipTests

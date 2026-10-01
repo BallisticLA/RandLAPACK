@@ -8,6 +8,10 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+namespace {
+using RNG = RandBLAS::DefaultRNG;
+}
+
 class TestQB : public ::testing::Test
 {
     protected:
@@ -88,16 +92,8 @@ class TestQB : public ::testing::Test
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_2.data(), 1);
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_3.data(), 1);
 
-        // Reference (economy) SVD U*diag(s)*VT = A_cpy.
-        // Uses gesvd (Golub-Reinsch, QR-based) rather than gesdd
-        // (divide-and-conquer). gesdd has a version-sensitive bug on Apple
-        // Silicon that returns a spurious NEGATIVE singular value for 100x100
-        // matrices (this test's exact shape) -- confirmed a genuine LAPACK bug
-        // on the BALLISTIC list (Murray/Langou/Demmel, Mar 2026; reproduced with
-        // OpenBLAS, scipy's dgesdd gives sane values on the same matrix). In CI
-        // it surfaced as ||U*S_k*VT - QB|| ~ 4.6 while ||A - QB|| ~ 1e-15 (QB is
-        // fine). gesvd does not use the buggy D&C path and reconstructs to
-        // ~1e-15 on Linux/MKL; it is the expected macOS fix.
+        // Use the QR-based reference SVD to avoid version-dependent failures in
+        // divide-and-conquer SVD on Apple Silicon BLAS/LAPACK backends.
         lapack::gesvd(Job::SomeVec, Job::SomeVec, m, n, all_data.A_cpy.data(), m,
                       all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
     }
@@ -256,7 +252,7 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -289,7 +285,7 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 6.7;
@@ -321,7 +317,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
   
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -353,7 +349,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, RNG>(verbose, cond_check, orth_check, p, passes_per_iteration);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;

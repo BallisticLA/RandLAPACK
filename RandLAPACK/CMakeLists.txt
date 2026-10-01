@@ -1,32 +1,4 @@
 
-set(RandLAPACK_cxx_sources
-    rl_abrik.hh
-    rl_lapackpp.hh
-    rl_cqrrt.hh
-    rl_cqrrpt.hh
-    rl_bqrrp.hh
-    rl_rsvd.hh
-    rl_revd2.hh
-    rl_qb.hh
-    rl_orth.hh
-    rl_util.hh
-    rl_determiter.hh
-    rl_rs.hh
-    rl_rf.hh
-    rl_syps.hh
-    rl_syrf.hh
-    rl_rpchol.hh
-    rl_blaspp.hh
-    rl_pdkernels.hh
-    rl_exceptions.hh
-
-    rl_cusolver.hh
-    rl_cuda_kernels.cuh
-    rl_cuda_macros.hh
-    rl_cqrrpt_gpu.hh
-    rl_bqrrp_gpu.hh
-)
-
 add_library(RandLAPACK INTERFACE)
 target_compile_features(RandLAPACK INTERFACE cxx_std_20)
 

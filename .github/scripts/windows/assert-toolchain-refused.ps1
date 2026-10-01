@@ -14,7 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$output = & cmd /c "powershell -ExecutionPolicy Bypass -File .\install\install.ps1 2>&1"
+$output = & cmd /c "powershell -ExecutionPolicy Bypass -File .\installers\install.ps1 2>&1"
 $installerExit = $LASTEXITCODE
 $text = $output -join "`n"
 Write-Host $text

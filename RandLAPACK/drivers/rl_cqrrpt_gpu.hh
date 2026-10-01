@@ -15,6 +15,7 @@
 #include <vector>
 #include <chrono>
 #include <numeric>
+#include <algorithm>
 
 using namespace std::chrono;
 
@@ -194,6 +195,10 @@ int CQRRPT_GPU<T, RNG>::call(
     T* tau   = new T[n]();
     // Buffer for column pivoting.
     int64_t* J_buf = new int64_t[n]();
+
+    // geqp3 reads jpvt on entry (nonzero marks a fixed column), so zero the
+    // caller's J to keep its prior contents from steering the pivoting.
+    std::fill(J, J + n, (int64_t) 0);
 
     if(this -> timing)
         saso_t_start = steady_clock::now();

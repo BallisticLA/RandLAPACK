@@ -12,6 +12,7 @@
 #include <vector>
 #include <chrono>
 #include <numeric>
+#include <algorithm>
 
 using namespace std::chrono;
 
@@ -207,9 +208,13 @@ int CQRRPT<T, RNG>::call(
     // Buffer for column pivoting.
     int64_t* J_buf = new int64_t[n]();
 
+    // geqp3 reads jpvt on entry (nonzero marks a fixed column), so zero the
+    // caller's J to keep its prior contents from steering the pivoting.
+    std::fill(J, J + n, (int64_t) 0);
+
     if(this -> timing)
         saso_t_start = steady_clock::now();
-    
+
     /// Generating a SASO
     RandBLAS::SparseDist DS(d, m, this->nnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -231,7 +236,6 @@ int CQRRPT<T, RNG>::call(
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
     } else if(this -> qrcp == Subroutines::QRCP::bqrrp) {
 
-        #if !defined(__APPLE__)
         if (n <= 2000) {
             this->bqrrp_block_ratio = 1.0;
         } else if (n <= 8000) {
@@ -242,7 +246,6 @@ int CQRRPT<T, RNG>::call(
 
         RandLAPACK::BQRRP<T, RNG> BQRRP(false, n * this->bqrrp_block_ratio);
         BQRRP.call(d, n, A_hat, d, 1.0, tau, J, state);
-        #endif
     } else {
         lapack::geqp3(d, n, A_hat, d, J, tau);
     }

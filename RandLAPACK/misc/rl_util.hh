@@ -441,6 +441,35 @@ T cond_num_check(
     return cond_num;
 }
 
+/// Return the smallest leading width r whose trailing square block has Frobenius
+/// norm at most tau * norm_A, or k if no r < k satisfies the comparison.
+///
+/// Rii is a real k-by-k block in column-major storage, with ldr >= k. The entire
+/// trailing square is read, so triangular inputs must have their unused triangle
+/// explicitly zeroed. k must be nonnegative; k == 0 returns zero without reading Rii.
+/// norm_A and tau are caller-supplied, finite, nonnegative scale and tolerance.
+///
+/// This is a truncation criterion for a leading block, not an SVD rank estimate
+/// or a bound on the conditioning of the retained columns. Norms are accumulated
+/// as sums of squares in T without rescaling; extreme magnitudes can overflow or
+/// underflow.
+template <typename T>
+int64_t block_numerical_rank(int64_t k, const T* Rii, int64_t ldr, T norm_A, T tau) {
+    const T thresh = tau * norm_A;
+    for (int64_t r = 0; r < k; ++r) {
+        T acc = 0;
+        for (int64_t j = r; j < k; ++j) {
+            for (int64_t i = r; i < k; ++i) {
+                const T v = Rii[i + j * ldr];
+                acc += v * v;
+            }
+        }
+        if (std::sqrt(acc) <= thresh)
+            return r;
+    }
+    return k;
+}
+
 // Computes the numerical rank of a given matrix
 template <typename T>
 int64_t rank_check(
@@ -454,15 +483,20 @@ int64_t rank_check(
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
-    for(int i = 0; i < n; ++i) {
-        if (s[i] <= 5 * std::numeric_limits<T>::epsilon() * s[0])
-            return i - 1;
+    // s is non-increasing, so the first index at or below the threshold is the rank:
+    // s[0..i-1] are the i retained values.
+    int64_t rank = n;
+    for (int64_t i = 0; i < n; ++i) {
+        if (s[i] <= 5 * std::numeric_limits<T>::epsilon() * s[0]) {
+            rank = i;
+            break;
+        }
     }
 
     delete[] A_cpy;
     delete[] s;
 
-    return n;
+    return rank;
 }
 
 /// Checks whether matrix A has orthonormal columns.

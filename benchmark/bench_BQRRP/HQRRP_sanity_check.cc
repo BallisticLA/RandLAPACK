@@ -1,12 +1,5 @@
 
 
-#if defined(__APPLE__)
-#include <iostream>
-int main() {
-    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
-    return 1;
-}
-#else
 
 // Making sure that HQRRP's performance instability is specific to HQRRP and not related to the flaws in behcnmarking logic
 // by comparing HQRRP and GEMM side-by-side.
@@ -183,4 +176,3 @@ int main(int argc, char *argv[]) {
     file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
     file.flush();   
 }
-#endif

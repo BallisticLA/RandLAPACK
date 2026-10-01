@@ -55,6 +55,7 @@ benchmark/build/**
 .vscode/*
 .idea/*.xml
 
+build/
 **/*-build/**
 **/*-install/**
 !RandLAPACK-build/.gitkeep
