@@ -196,19 +196,21 @@ inline void write_host_line(std::ostream& out) {
 // Schema for the per-round engine records sidecar (restarted_pcg_ne /
 // IterRefineLSQ): one row per (algorithm, run, round).
 // be_kw: sketched Karlson-Walden backward error of the iterate after the round,
-// relative to ||A||_F; -1 when the oracle was off.
+// relative to ||A||_F; -1 when the oracle was off. be_polls: in-round oracle
+// evaluations of the round (0 when be_poll_every is 0).
 inline const char* kRoundsCsvHeader =
-    "algorithm,run,round,inner_iters,inner_status,inner_relres,best_relres,best_iter,ls_relres,be_kw\n";
+    "algorithm,run,round,inner_iters,inner_status,inner_relres,best_relres,best_iter,ls_relres,be_kw,be_polls\n";
 
 // Write one round record row (round_idx is 1-based, matching every caller).
 template <typename T>
 static void write_round_row(std::ostream& out, const std::string& alg, int64_t run_idx,
                             size_t round_idx, int iters, int status, T relres,
-                            T best_relres, int best_iter, T ls_relres, T be_kw) {
+                            T best_relres, int best_iter, T ls_relres, T be_kw, int be_polls) {
     out << alg << "," << run_idx << "," << round_idx << ","
         << iters << "," << status << ","
         << std::scientific << std::setprecision(6) << relres << ","
-        << best_relres << "," << best_iter << "," << ls_relres << "," << be_kw << "\n";
+        << best_relres << "," << best_iter << "," << ls_relres << "," << be_kw << ","
+        << be_polls << "\n";
 }
 
 // Fold a driver's per-pass Cholesky shift record (chol_applied_shifts /

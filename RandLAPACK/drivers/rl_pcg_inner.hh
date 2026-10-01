@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <functional>
 
 
 namespace RandLAPACK {
@@ -36,7 +37,8 @@ enum class InnerCGStatus : int {
     Converged = 0,   ///< reached the relative-residual target
     HitCap    = 1,   ///< exhausted max_iters without reaching the target
     Breakdown = 2,   ///< p^T M p <= 0 (loss of orthogonality / non-SPD M)
-    Stagnated = 3    ///< residual stopped descending; exited early with the best iterate
+    Stagnated = 3,   ///< residual stopped descending; exited early with the best iterate
+    OracleMet = 4    ///< the caller's poll hook ended the solve: an outer target is met
 };
 
 /// What one inner-CG solve did, for diagnosis.
@@ -59,6 +61,12 @@ struct PCGInnerControls {
     T   stag_rel_improve = (T)1e-3;     ///< drop counting as progress for the window
     bool verbose         = false;
     const char* tag      = "[PCG]";     ///< verbose-output prefix
+    /// Optional outer-target poll. Every poll_every completed iterations the kernel calls
+    /// poll(z, it) with the CURRENT iterate, after the convergence test and before the
+    /// stagnation test; a true return ends the solve with OracleMet and z unchanged.
+    /// 0 or an empty hook disables it.
+    int poll_every = 0;
+    std::function<bool(const T* z, int it)> poll;
 };
 
 /// @brief Instrumented CG on the SPD system M z = c.
@@ -178,6 +186,13 @@ int pcg_inner(FApplyM&& apply_M, const T* c, int64_t n,
         if (r_norm <= tol_abs) {
             rep.iters  = it + 1;
             rep.status = InnerCGStatus::Converged;
+            rep.relres = relres;
+            return 0;
+        }
+        if (ctl.poll_every > 0 && ctl.poll && ((it + 1) % ctl.poll_every) == 0 &&
+            ctl.poll(z, it + 1)) {
+            rep.iters  = it + 1;
+            rep.status = InnerCGStatus::OracleMet;
             rep.relres = relres;
             return 0;
         }

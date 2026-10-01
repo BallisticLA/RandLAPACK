@@ -111,3 +111,40 @@ TEST_F(TestRunRefinedBlendenpik, warm_needs_no_more_iters_than_cold) {
     EXPECT_LE(res_warm.solver_relres, tol);
     EXPECT_LE(res_cold.solver_relres, tol);
 }
+
+// run_refined_blendenpik forwards be_poll_every: with an active, never-met oracle the poll
+// records land in history.polls (one entry per round) and the solution is bit-identical to the
+// run without polling; with the parameter absent the records are all zero.
+TEST_F(TestRunRefinedBlendenpik, forwards_be_poll_every_to_the_engine) {
+    int64_t m = 400, n = 20;
+    std::vector<T> A, b;
+    make_problem(m, n, 451, A, b);
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    int calls = 0;
+    RandLAPACK::BackwardErrorOracle<T> positive = [&](const T*, const T*, const T*) -> T { ++calls; return (T)1; };
+    auto run = [&](int poll_every, std::vector<T>& x) {
+        RandBLAS::RNGState<RNG> state(453);
+        return RandLAPACK::bench::run_refined_blendenpik<T, RNG>(
+            Aop, b.data(), m, x.data(), n, /*d_factor=*/4.0, /*sketch_nnz=*/4,
+            state, /*warm=*/false,
+            /*tol=*/1e-10, /*max_iters=*/2000,
+            /*restart_maxit=*/200, /*restart_drop=*/1e-4, /*max_restarts=*/20,
+            /*stag_window=*/20, /*stag_rel_improve=*/1e-3, /*inner_abs_tol=*/0.0,
+            /*outer_stag_window=*/2, positive, /*be_tol=*/0.0, poll_every);
+    };
+    std::vector<T> x0(n, 0), x5(n, 0);
+    auto r0 = run(0, x0); int calls0 = calls; calls = 0;
+    auto r5 = run(5, x5); int calls5 = calls;
+    ASSERT_EQ(r0.qr_status, 0);
+    ASSERT_EQ(r5.qr_status, 0);
+    EXPECT_EQ(r0.status, r5.status);
+    EXPECT_EQ(r0.iters, r5.iters);
+    EXPECT_EQ(r0.rounds, r5.rounds);
+    ASSERT_EQ(r0.history.polls.size(), (size_t)r0.rounds);
+    ASSERT_EQ(r5.history.polls.size(), (size_t)r5.rounds);
+    for (int k : r0.history.polls) EXPECT_EQ(k, 0);
+    int polls5 = 0; for (int k : r5.history.polls) polls5 += k;
+    EXPECT_EQ(calls0, r0.rounds);
+    EXPECT_EQ(calls5, polls5 + r5.rounds);
+    for (int64_t i = 0; i < n; ++i) EXPECT_EQ(x0[i], x5[i]) << "element " << i;
+}

@@ -802,3 +802,322 @@ TEST_F(TestIterRefineLSQ, iter_refine_lsq_forwards_be_oracle) {
     EXPECT_EQ(ir.be_x0, (T)-1);
     EXPECT_GE(ir.t_be_us, 0L);
 }
+
+// ---------------------------------------------------------------------------
+// In-round oracle poll (2026-10-01): pcg_inner gains an optional poll hook that can end a
+// round with OracleMet; restarted_pcg_ne uses it to test the backward-error target every
+// be_poll_every inner iterations instead of only between rounds.
+// ---------------------------------------------------------------------------
+
+// Direct kernel probe: SPD system M z = c, poll every 3 iterations, stop at the second poll.
+// The kernel must report OracleMet after exactly 6 completed iterations and hand back the
+// CURRENT iterate (not the best-iterate snapshot), bit for bit what the hook saw.
+TEST_F(TestIterRefineLSQ, pcg_inner_poll_hook_ends_the_solve_at_the_polled_iteration_with_the_current_iterate) {
+    using T = double;
+    const int64_t n = 40;
+    std::vector<T> B(n * n), M(n * n, 0), c(n);
+    fill_random(B, 601);
+    fill_random(c, 602);
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans, n, n, (T)1, B.data(), n, (T)0, M.data(), n);
+    for (int64_t j = 0; j < n; ++j) {                       // M = B^T B + 1e-3 I, full symmetric storage
+        M[j + j * n] += (T)1e-3;
+        for (int64_t i = j + 1; i < n; ++i) M[i + j * n] = M[j + i * n];
+    }
+    auto apply_M = [&](const T* v, T* out) {
+        blas::gemv(Layout::ColMajor, blas::Op::NoTrans, n, n, (T)1, M.data(), n, v, 1, (T)0, out, 1);
+    };
+    std::vector<T> z(n), r(n), p(n), Mp(n), zb(n), snapshot;
+    std::vector<int> polled_at;
+    RandLAPACK::PCGInnerControls<T> ctl;
+    ctl.tol = (T)1e-12; ctl.max_iters = 500; ctl.stag_window = 0;
+    ctl.poll_every = 3;
+    ctl.poll = [&](const T* zc, int it) -> bool {
+        polled_at.push_back(it);
+        if (it == 6) { snapshot.assign(zc, zc + n); return true; }
+        return false;
+    };
+    RandLAPACK::PCGInnerReport<T> rep;
+    int ret = RandLAPACK::pcg_inner<T>(apply_M, c.data(), n, z.data(), r.data(), p.data(),
+                                       Mp.data(), zb.data(), ctl, rep);
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(rep.status, RandLAPACK::InnerCGStatus::OracleMet);
+    EXPECT_EQ(rep.iters, 6);
+    ASSERT_EQ(polled_at, (std::vector<int>{3, 6}));
+    ASSERT_EQ(snapshot.size(), (size_t)n);
+    for (int64_t i = 0; i < n; ++i) EXPECT_EQ(z[i], snapshot[i]) << "element " << i;
+    EXPECT_GT(rep.relres, (T)1e-12);                         // it had not converged
+}
+
+// A poll that always declines must leave the solve bit-identical to a solve without a hook,
+// and it must never be consulted on the iteration at which the solve converges (convergence
+// is tested first).
+TEST_F(TestIterRefineLSQ, pcg_inner_poll_hook_that_never_fires_changes_nothing) {
+    using T = double;
+    const int64_t n = 40;
+    std::vector<T> B(n * n), M(n * n, 0), c(n);
+    fill_random(B, 603);
+    fill_random(c, 604);
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans, n, n, (T)1, B.data(), n, (T)0, M.data(), n);
+    for (int64_t j = 0; j < n; ++j) {
+        M[j + j * n] += (T)1e-3;
+        for (int64_t i = j + 1; i < n; ++i) M[i + j * n] = M[j + i * n];
+    }
+    auto apply_M = [&](const T* v, T* out) {
+        blas::gemv(Layout::ColMajor, blas::Op::NoTrans, n, n, (T)1, M.data(), n, v, 1, (T)0, out, 1);
+    };
+    auto solve = [&](bool with_hook, int& calls, RandLAPACK::PCGInnerReport<T>& rep, std::vector<T>& z) {
+        std::vector<T> r(n), p(n), Mp(n), zb(n);
+        RandLAPACK::PCGInnerControls<T> ctl;
+        ctl.tol = (T)1e-10; ctl.max_iters = 500; ctl.stag_window = 0;   // no stagnation exit: this probes convergence versus poll only
+        if (with_hook) {
+            ctl.poll_every = 3;
+            ctl.poll = [&](const T*, int) -> bool { ++calls; return false; };
+        }
+        return RandLAPACK::pcg_inner<T>(apply_M, c.data(), n, z.data(), r.data(), p.data(),
+                                        Mp.data(), zb.data(), ctl, rep);
+    };
+    int ca = 0, cb = 0;
+    RandLAPACK::PCGInnerReport<T> ra, rb;
+    std::vector<T> za(n), zbv(n);
+    int reta = solve(false, ca, ra, za);
+    int retb = solve(true,  cb, rb, zbv);
+    EXPECT_EQ(reta, retb);
+    EXPECT_EQ(ra.status, RandLAPACK::InnerCGStatus::Converged);
+    EXPECT_EQ(rb.status, ra.status);
+    EXPECT_EQ(rb.iters, ra.iters);
+    EXPECT_EQ(rb.relres, ra.relres);
+    for (int64_t i = 0; i < n; ++i) EXPECT_EQ(za[i], zbv[i]) << "element " << i;
+    EXPECT_EQ(ca, 0);
+    EXPECT_EQ(cb, (ra.iters - 1) / 3);                      // multiples of 3 strictly below the converging iteration
+    // Convergence is tested before the poll: a poll due exactly on the converging iteration is
+    // never made. Re-run with the period equal to the converging iteration count K.
+    int cc = 0;
+    RandLAPACK::PCGInnerReport<T> rc;
+    std::vector<T> zc(n), rr(n), pp(n), mp(n), zz(n);
+    RandLAPACK::PCGInnerControls<T> ctl_k;
+    ctl_k.tol = (T)1e-10; ctl_k.max_iters = 500; ctl_k.stag_window = 0;
+    ctl_k.poll_every = ra.iters;
+    ctl_k.poll = [&](const T*, int) -> bool { ++cc; return true; };   // would end the solve if ever asked
+    RandLAPACK::pcg_inner<T>(apply_M, c.data(), n, zc.data(), rr.data(), pp.data(), mp.data(), zz.data(), ctl_k, rc);
+    EXPECT_EQ(cc, 0);
+    EXPECT_EQ(rc.status, RandLAPACK::InnerCGStatus::Converged);
+    EXPECT_EQ(rc.iters, ra.iters);
+}
+
+// With a weak R, a tiny per-round drop and a loose target, the FIRST round runs far past the
+// point where the LS residual meets be_tol. Polling every 5 iterations must end the run there:
+// status 5, one round, kernel status OracleMet, an iteration count that is a multiple of 5 and
+// no larger than the unpolled count, x equal to the iterate the firing poll evaluated, and the
+// usual count and residual invariants.
+TEST_F(TestIterRefineLSQ, be_poll_ends_the_run_mid_round_with_status_5_and_a_consistent_state) {
+    using T = double;
+    int64_t m = 300, n = 60;                               // large enough that the 1e-6 crossing and the 1e-12 drop are many iterations apart
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 611);
+    fill_random(x_true, 612);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 613, (T)0.60);                        // weak preconditioner: long rounds
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+
+    auto run = [&](int poll_every, std::vector<T>& x, int& iters, int& rounds,
+                   RandLAPACK::PCGRoundHistory<T>& hist, int& calls, std::vector<std::vector<T>>& seen, T& final_rel) {
+        RandLAPACK::BackwardErrorOracle<T> oracle = [&](const T* xx, const T* r, const T* ATr) -> T {
+            (void)ATr; ++calls; seen.emplace_back(xx, xx + n);     // every evaluated iterate, in call order
+            return blas::nrm2(m, r, 1) / b_norm;
+        };
+        return RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+            /*tol=*/(T)0, /*max_iters=*/4000, iters, /*restart_maxit=*/400, /*restart_drop=*/(T)1e-12,
+            /*max_restarts=*/-1, &rounds, nullptr, &final_rel, /*stag_window=*/20,
+            /*stag_rel_improve=*/(T)1e-3, /*inner_abs_tol=*/(T)0, &hist, /*x0=*/nullptr,
+            /*outer_stag_window=*/0, oracle, /*be_tol=*/(T)1e-6, poll_every);
+    };
+    std::vector<T> xa(n, 0), xb(n, 0);
+    std::vector<std::vector<T>> seen_a, seen_b;
+    int ia = 0, ra = 0, ca = 0, ib = 0, rb = 0, cb = 0;
+    T fa = 0, fb = 0;
+    RandLAPACK::PCGRoundHistory<T> ha, hb;
+    int sa = run(0, xa, ia, ra, ha, ca, seen_a, fa);
+    int sb = run(5, xb, ib, rb, hb, cb, seen_b, fb);
+
+    EXPECT_EQ(sa, 5);
+    EXPECT_EQ(sb, 5);
+    EXPECT_EQ(rb, 1);
+    ASSERT_EQ(hb.status.size(), (size_t)1);
+    EXPECT_EQ(hb.status[0], static_cast<int>(RandLAPACK::InnerCGStatus::OracleMet));
+    EXPECT_EQ(ib % 5, 0);
+    EXPECT_LE(ib, ia);                                      // polling never adds iterations; OracleMet above is the proof of the early exit
+    int sum_b = 0; for (int k : hb.iters) sum_b += k;
+    EXPECT_EQ(ib, sum_b);
+    ASSERT_EQ(hb.polls.size(), (size_t)rb);
+    EXPECT_EQ(hb.polls[0], ib / 5);                         // one poll per 5 iterations, the last one fired
+    EXPECT_EQ(cb, hb.polls[0] + rb);                        // polls plus one round-end call
+    EXPECT_LE(hb.be.back(), (T)1e-6);
+    EXPECT_LE(fb, (T)1e-6);
+    EXPECT_EQ(fb, hb.ls_relres.back());
+    // The returned x is the iterate the FIRING POLL evaluated (second-to-last call), bit for bit,
+    // and the round-end call (last) saw the same vector: the fold + recover reproduce the trial.
+    ASSERT_EQ(seen_b.size(), (size_t)cb);
+    ASSERT_GE(cb, 2);
+    for (int64_t i = 0; i < n; ++i) {
+        EXPECT_EQ(xb[i], seen_b[cb - 2][i]) << "poll iterate, element " << i;
+        EXPECT_EQ(xb[i], seen_b[cb - 1][i]) << "round-end iterate, element " << i;
+    }
+    ASSERT_EQ(ha.polls.size(), (size_t)ra);
+    for (int k : ha.polls) EXPECT_EQ(k, 0);
+    EXPECT_EQ(ha.t_poll_us, 0L);
+}
+
+// An active oracle that is never satisfied: polling every 5 iterations must produce the same
+// x, iteration count, round count and per-round records, bit for bit, as polling off. Only the
+// oracle call count may differ (polls plus round ends versus round ends).
+TEST_F(TestIterRefineLSQ, active_but_unmet_poll_changes_nothing_but_the_call_count) {
+    using T = double;
+    int64_t m = 300, n = 60;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 621);
+    fill_random(x_true, 622);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 623, (T)0.60);                        // weak R: rounds long enough to be polled
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    int calls = 0;
+    RandLAPACK::BackwardErrorOracle<T> positive = [&](const T*, const T*, const T*) -> T { ++calls; return (T)1; };
+    auto run = [&](int poll_every, std::vector<T>& x, int& iters, int& rounds, RandLAPACK::PCGRoundHistory<T>& hist) {
+        return RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+            (T)1e-10, 4000, iters, 200, (T)1e-4, -1, &rounds, nullptr, nullptr,
+            20, (T)1e-3, (T)0, &hist, nullptr, 2, positive, /*be_tol=*/(T)0, poll_every);
+    };
+    std::vector<T> xa(n, 0), xb(n, 0);
+    int ia = 0, ra = 0, ib = 0, rb = 0;
+    RandLAPACK::PCGRoundHistory<T> ha, hb;
+    int sa = run(0, xa, ia, ra, ha);
+    int calls_a = calls; calls = 0;
+    int sb = run(5, xb, ib, rb, hb);
+    int calls_b = calls;
+    EXPECT_EQ(sa, sb);
+    EXPECT_NE(sb, 5);
+    EXPECT_EQ(ia, ib);
+    EXPECT_EQ(ra, rb);
+    for (int64_t i = 0; i < n; ++i) EXPECT_EQ(xa[i], xb[i]) << "element " << i;
+    ASSERT_EQ(ha.iters.size(), hb.iters.size());
+    for (size_t k = 0; k < ha.iters.size(); ++k) {
+        EXPECT_EQ(ha.iters[k], hb.iters[k]);
+        EXPECT_EQ(ha.status[k], hb.status[k]);
+        EXPECT_EQ(ha.ls_relres[k], hb.ls_relres[k]);
+        EXPECT_EQ(ha.be[k], hb.be[k]);
+        EXPECT_EQ(ha.polls[k], 0);
+        EXPECT_LE(hb.polls[k], hb.iters[k] / 5);           // at most one poll per 5 iterations
+        EXPECT_GE(hb.polls[k], (hb.iters[k] - 1) / 5);     // none skipped, except the converging iteration itself
+    }
+    int polls_b = 0; for (int k : hb.polls) polls_b += k;
+    EXPECT_GT(polls_b, 0);                                  // the test is void if nothing was ever polled
+    EXPECT_EQ(calls_a, ra);
+    EXPECT_EQ(calls_b, polls_b + rb);
+    // Engine-level pin of "convergence before poll": with the period equal to the first round's
+    // length, that round (which ended Converged) must make no poll at its last iteration.
+    ASSERT_GT(ha.iters.size(), (size_t)0);
+    ASSERT_EQ(ha.status[0], static_cast<int>(RandLAPACK::InnerCGStatus::Converged));   // the 1e-4 drop is reached long before any stagnation
+    std::vector<T> xc(n, 0); int ic = 0, rc = 0; RandLAPACK::PCGRoundHistory<T> hc; calls = 0;
+    run(ha.iters[0], xc, ic, rc, hc);
+    ASSERT_GT(hc.polls.size(), (size_t)0);
+    EXPECT_EQ(hc.polls[0], 0);
+    EXPECT_EQ(hc.iters[0], ha.iters[0]);
+}
+
+// Mirrors be_oracle_exit_returns_the_evaluated_iterate_and_consistent_counts: a sleeping
+// oracle shows up in t_be_us (all calls) and in t_poll_us (polls only) and is excluded from
+// times[3]; the poll's applies stay inside the kernel slice.
+TEST_F(TestIterRefineLSQ, be_poll_time_is_recorded_per_call_and_excluded_from_the_total) {
+    using T = double;
+    int64_t m = 300, n = 60;
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 631);
+    fill_random(x_true, 632);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 633, (T)0.60);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+    int calls = 0;
+    RandLAPACK::BackwardErrorOracle<T> slow = [&](const T*, const T* r, const T*) -> T {
+        ++calls;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        return blas::nrm2(m, r, 1) / b_norm;
+    };
+    std::vector<T> x(n, 0);
+    RandLAPACK::PCGRoundHistory<T> hist;
+    int iters = 0, rounds = 0;
+    long times[4] = {0, 0, 0, 0};
+    auto t0 = std::chrono::steady_clock::now();
+    int st = RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x.data(),
+        (T)0, 4000, iters, 400, (T)1e-12, -1, &rounds, times, nullptr,
+        20, (T)1e-3, (T)0, &hist, nullptr, 0, slow, (T)1e-6, 5);
+    long wall_us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
+    EXPECT_EQ(st, 5);
+    int polls = 0; for (int k : hist.polls) polls += k;
+    EXPECT_GT(polls, 0);
+    EXPECT_GE(hist.t_be_us, 5000L * calls);
+    EXPECT_GE(hist.t_poll_us, 5000L * polls);
+    EXPECT_LT(times[3], wall_us - hist.t_be_us / 2);
+    EXPECT_LE(hist.t_inner_us, times[3]);                   // the inner slice never exceeds the total
+    EXPECT_LE(hist.t_fwd_inner_us + hist.t_adj_inner_us + hist.t_trsm_inner_us, hist.t_inner_us);   // poll applies are inside the kernel slice
+}
+
+// The adapter forwards be_poll_every and republishes the per-round poll counts; its result is
+// bit-identical to the direct engine call with the same arguments.
+TEST_F(TestIterRefineLSQ, iter_refine_lsq_forwards_be_poll_every) {
+    using T = double;
+    int64_t m = 300, n = 60;                               // large enough that the 1e-6 crossing and the 1e-12 drop are many iterations apart
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 641);
+    fill_random(x_true, 642);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 643, (T)0.60);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+    const T b_norm = blas::nrm2(m, b.data(), 1);
+    RandLAPACK::BackwardErrorOracle<T> oracle = [&](const T*, const T* r, const T*) -> T {
+        return blas::nrm2(m, r, 1) / b_norm;
+    };
+
+    IterRefineLSQ<T> ir(/*tol=*/(T)0, /*max_inner=*/400, /*n_steps=*/10, /*timing=*/true);
+    ir.round_drop = (T)1e-12; ir.outer_tol = (T)0; ir.outer_stag_window = 0;
+    ir.be_oracle = oracle; ir.be_tol = (T)1e-6; ir.be_poll_every = 5;
+    std::vector<T> x_ir(n, 0);
+    ir.call(J, R.data(), n, b.data(), m, x_ir.data(), n);
+    EXPECT_EQ(ir.engine_status, 5);
+    ASSERT_EQ(ir.polls_per_step.size(), (size_t)ir.outer_iters_done);
+    int polls = 0; for (int k : ir.polls_per_step) polls += k;
+    EXPECT_GT(polls, 0);
+
+    std::vector<T> x_eng(n, 0);
+    RandLAPACK::PCGRoundHistory<T> hist;
+    int iters = 0, rounds = 0;
+    int st = RandLAPACK::restarted_pcg_ne<T>(J, m, n, R.data(), n, b.data(), x_eng.data(),
+        (T)0, 400 * 10, iters, 400, (T)1e-12, 9, &rounds, nullptr, nullptr,
+        20, (T)1e-3, (T)0, &hist, nullptr, 0, oracle, (T)1e-6, 5);
+    EXPECT_EQ(st, 5);
+    EXPECT_EQ(ir.outer_iters_done, rounds);
+    ASSERT_EQ(hist.polls.size(), ir.polls_per_step.size());
+    for (size_t k = 0; k < hist.polls.size(); ++k) EXPECT_EQ(hist.polls[k], ir.polls_per_step[k]);
+    for (int64_t i = 0; i < n; ++i) EXPECT_DOUBLE_EQ(x_ir[i], x_eng[i]) << "element " << i;
+}

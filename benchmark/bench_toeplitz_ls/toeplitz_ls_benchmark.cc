@@ -147,11 +147,12 @@ static void print_toep_usage(const char* exe) {
       "  --inner-tol=F          [-1]      inner absolute floor; <0 = eps^0.85, 0 = off\n"
       "  --be-tol-mult=F        [0]       stop a run once the sketched Karlson-Walden backward\n"
       "                                   error is <= F*sqrt(n)*u (Epperly's test); 0 = off\n"
+      "  --be-poll-every=N      [0]       also test that target every N inner CG iterations\n"
       "\n"
       "The positional form is still accepted for existing job scripts, but is deprecated:\n"
       "  <prec> <outdir> <m> <n> <omega> <lambda_rel> <mask> <tol> <maxit> <d_factor>\n"
       "  <sketch_nnz> [seed] [runs] [solver] [pcg_restart_maxit] [pcg_max_restarts]\n"
-      "  [round_drop] [inner_abs_tol] [be_tol_mult]\n", exe);
+      "  [round_drop] [inner_abs_tol] [be_tol_mult] [be_poll_every]\n", exe);
 }
 
 int main(int argc, char** argv) {
@@ -163,6 +164,7 @@ int main(int argc, char** argv) {
     int maxit = 3000, pcg_restart_maxit = 500, pcg_max_restarts = 50;
     double pcg_restart_drop = 1e-4, abs_guard_cli = -1.0;
     double be_tol_mult = 0.0;   // <= 0 => backward-error oracle off (today's behaviour)
+    int be_poll_every = 0;      // > 0: also test the target every N inner iterations (needs be_tol_mult > 0)
 
     if (rl::bench::BenchArgs::looks_named(argc, argv)) {
         try {
@@ -170,7 +172,7 @@ int main(int argc, char** argv) {
             a.reject_unknown({"precision", "out", "m", "n", "omega", "lambda-rel", "mask",
                               "tol", "maxit", "d-factor", "sketch-nnz", "seed", "runs",
                               "solver", "pcg-restart-maxit", "pcg-max-restarts",
-                              "round-drop", "inner-tol", "be-tol-mult", "help"});
+                              "round-drop", "inner-tol", "be-tol-mult", "be-poll-every", "help"});
             if (a.has("help")) { print_toep_usage(argv[0]); return 0; }
             std::string prec = a.str("precision", "double");
             if (prec != "double") {
@@ -196,6 +198,7 @@ int main(int argc, char** argv) {
             pcg_restart_drop  = a.dbl("round-drop", 1e-4);
             abs_guard_cli     = a.dbl("inner-tol", -1.0);
             be_tol_mult       = a.dbl("be-tol-mult", 0.0);
+            be_poll_every     = (int)a.i64("be-poll-every", 0);
             if (m <= 0 || n <= 0) {
                 std::fprintf(stderr, "--m and --n are required and must be positive\n");
                 return 1;
@@ -236,6 +239,7 @@ int main(int argc, char** argv) {
         pcg_restart_drop  = (argc > 17) ? std::stod(argv[17]) : 1e-4;
         abs_guard_cli     = (argc > 18) ? std::stod(argv[18]) : -1.0;
         be_tol_mult       = (argc > 19) ? std::stod(argv[19]) : 0.0;
+        be_poll_every     = (argc > 20) ? std::stoi(argv[20]) : 0;
     }
 
     if (num_runs < 1) {
@@ -265,6 +269,11 @@ int main(int argc, char** argv) {
     // Backward-error termination (Epperly's step-two test): -1 = off, else
     // be_tol_mult * sqrt(n) * u on the sketched Karlson-Walden estimate.
     const double be_tol = rl::bench::resolve_be_tol<double>(be_tol_mult, n);
+    if (be_poll_every < 0) { std::fprintf(stderr, "be-poll-every must be >= 0 (got %d)\n", be_poll_every); return 2; }
+    if (be_poll_every > 0 && be_tol < 0.0) {
+        std::fprintf(stderr, "be-poll-every=%d requires be-tol-mult > 0: the poll tests the backward-error target\n", be_poll_every);
+        return 2;
+    }
     int64_t block_size = 256;
     const double relnoise = 1e-11;   // data noise level (hoisted so the CSV header echoes it)
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }
@@ -412,6 +421,7 @@ int main(int argc, char** argv) {
                      << " inner_abs_tol=" << abs_guard;
     // Echoed unconditionally: the refine rows run the engine whatever the solver knob says.
     out << " be_tol_mult=" << be_tol_mult << " be_tol=" << be_tol
+        << " be_poll_every=" << be_poll_every
         << " kw_sketch_nnz=" << rl::bench::kKWSketchNNZ;   // the oracle's sketch, not --sketch-nnz
     out << "\n";
     // Host provenance: wall-clock timings and MKL thread behavior are
@@ -440,7 +450,7 @@ int main(int argc, char** argv) {
            "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us,"
            "solver,pcg_rounds,"
            "lsqr_iters,stop_reason,t_inner_us,t_fwd_inner_us,t_adj_inner_us,"
-           "t_trsm_inner_us,t_overhead_us,total_row_us,x0_relres,chol_shift_abs,chol_shift_rel,t_be_us,be_x0,be_final\n";
+           "t_trsm_inner_us,t_overhead_us,total_row_us,x0_relres,chol_shift_abs,chol_shift_rel,t_be_us,be_x0,be_final,t_poll_us\n";
     // Column notes: pcg_rounds (renamed from pcg_restarts) holds TOTAL
     // rounds run, which is what the engine reports. iterations = engine inner CG
     // iterations (or LSQR iterations for the published Blendenpik rows and lsqr
@@ -469,8 +479,9 @@ int main(int argc, char** argv) {
     struct KWPending { std::string alg; int run_idx; std::vector<double> x; };
     std::vector<KWPending> kw_pending;
     std::ofstream out_rounds(csv_rounds);
-    out_rounds << "# Per-round engine records (restarted_pcg_ne). inner_status: 0 Converged, 1 HitCap, 2 Breakdown, 3 Stagnated.\n"
+    out_rounds << "# Per-round engine records (restarted_pcg_ne). inner_status: 0 Converged, 1 HitCap, 2 Breakdown, 3 Stagnated, 4 OracleMet (in-round poll met the target).\n"
                << "# be_kw: sketched Karlson-Walden backward error after the round, relative to ||A||_F; -1 when the oracle was off.\n"
+               << "# be_polls: in-round oracle evaluations of the round; 0 when be_poll_every is 0.\n"
                << rl::bench::kRoundsCsvHeader;
 
     // stop_reason mapping (shared with bench_CQRRTO_linops; cqrrto_bench_common.hh):
@@ -590,7 +601,7 @@ int main(int argc, char** argv) {
                 d_factor, sketch_nnz, state, warm,
                 tol, maxit, pcg_restart_maxit, pcg_restart_drop, pcg_max_restarts,
                 /*stag_window=*/20, /*stag_rel_improve=*/1e-3, /*inner_abs_tol=*/abs_guard,
-                /*outer_stag_window=*/2, be_oracle, be_tol);
+                /*outer_stag_window=*/2, be_oracle, be_tol, be_poll_every);
             qr_status = rres.qr_status;
             if (qr_status == 0) {
                 qr_us    = rres.qr_us;
@@ -665,7 +676,7 @@ int main(int argc, char** argv) {
                                                     tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
                                                     pcg_max_restarts, &pcg_rounds, lt, &solver_relres,
                                                     20, 1e-3, abs_guard, &hist, /*x0=*/nullptr,
-                                                    /*outer_stag_window=*/2, be_oracle, be_tol);
+                                                    /*outer_stag_window=*/2, be_oracle, be_tol, be_poll_every);
                 have_hist = true;
                 stop_reason = pcg_reason(flag);
             } else {
@@ -720,7 +731,7 @@ int main(int argc, char** argv) {
                                                         tol, maxit, iters, pcg_restart_maxit, pcg_restart_drop,
                                                         pcg_max_restarts, &pcg_rounds, lt, &solver_relres,
                                                         20, 1e-3, abs_guard, &hist, /*x0=*/nullptr,
-                                                        /*outer_stag_window=*/2, be_oracle, be_tol);
+                                                        /*outer_stag_window=*/2, be_oracle, be_tol, be_poll_every);
                     have_hist = true;
                     stop_reason = pcg_reason(flag);
                 } else {
@@ -797,10 +808,12 @@ int main(int argc, char** argv) {
         // Inner-kernel/overhead split (pcg rows; -1 where no history exists).
         long t_inner_us = -1, t_fwd_in = -1, t_adj_in = -1, t_trsm_in = -1, t_overhead_us = -1;
         long   t_be_us = -1;   // oracle wall time; -1 where no engine history exists
+        long   t_poll_us = -1; // wall time inside in-round polls (applies + oracle); -1 as above
         double be_x0   = -1;   // oracle value of the warm start (refine warm row); -1 otherwise
         double be_final = -1;  // oracle value of the RETURNED iterate; -1 when off or no engine
         if (have_hist) {
             t_be_us  = hist.t_be_us;
+            t_poll_us = hist.t_poll_us;
             be_x0    = hist.be_x0;
             // Oracle on but nothing measured (no round ran and no warm x0): +inf, so
             // the value can never read as "below the target"; -1 stays "oracle off".
@@ -828,14 +841,14 @@ int main(int argc, char** argv) {
             << lsqr_iters_col << "," << stop_reason << ","
             << t_inner_us << "," << t_fwd_in << "," << t_adj_in << "," << t_trsm_in << ","
             << t_overhead_us << "," << total_row_us << "," << x0_relres << ","
-            << chol_shift_abs << "," << chol_shift_rel << "," << t_be_us << "," << be_x0 << "," << be_final << "\n";
+            << chol_shift_abs << "," << chol_shift_rel << "," << t_be_us << "," << be_x0 << "," << be_final << "," << t_poll_us << "\n";
         out.flush();   // partial results survive a scheduler kill mid-campaign
 
         if (have_hist) {
             for (size_t r = 0; r < hist.iters.size(); ++r) {
                 rl::bench::write_round_row(out_rounds, alg, run_idx, r + 1,
                     hist.iters[r], hist.status[r], hist.relres[r],
-                    hist.best_relres[r], hist.best_iter[r], hist.ls_relres[r], hist.be[r]);
+                    hist.best_relres[r], hist.best_iter[r], hist.ls_relres[r], hist.be[r], hist.polls[r]);
             }
             out_rounds.flush();
         }

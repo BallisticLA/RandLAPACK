@@ -8,7 +8,7 @@
 //      J = CompositeOperator(L_inv_op, CompositeOperator(K_op, V_op)).
 //   4. Run Q-less QR on the augmented operator [J; mu*I] via one of 5 variants
 //      (CQRRTO_linop, CholQR, sCholQR3, sCholQR3_basic, CholQR2), selected by the mask,
-//      giving R = chol(J^T J + mu^2 I).
+//      giving R = chol(J^T J + mu^2 I); mu_factor = 0 skips the augmentation (J itself).
 //   5. Solve with IterRefineLSQ from x_0 = 0, preconditioned by that R. The Blendenpik
 //      family rows (mask bits 32/64) instead solve on the base operator with their own
 //      sketch-QR preconditioner, and bit 128 runs the refinement engine with no factor.
@@ -266,6 +266,7 @@ struct bench_result {
     std::vector<int> round_iters, round_status, round_best_iter;
     std::vector<T>   round_relres, round_best_relres, round_ls_relres;
     std::vector<T>   round_be;        // oracle value after each round (-1 when the oracle was off)
+    std::vector<int> round_polls;     // in-round oracle polls per round (0 when be_poll_every is 0)
     long t_be_us = -1;                // wall time inside the oracle, excluded from every solve time;
                                       // -1 where no engine ran (published Blendenpik rows, failed builds)
     T    be_x0   = (T)-1;             // oracle value of a warm start (refine warm row); -1 otherwise
@@ -457,6 +458,7 @@ static void copy_round_records(const RandLAPACK::PCGRoundHistory<T>& h, bench_re
     res.round_best_relres = h.best_relres;
     res.round_ls_relres   = h.ls_relres;
     res.round_be          = h.be;
+    res.round_polls       = h.polls;
 }
 template <typename T>
 static void record_ir_outputs(const RandLAPACK::IterRefineLSQ<T>& ir, bench_result<T>& res) {
@@ -469,6 +471,7 @@ static void record_ir_outputs(const RandLAPACK::IterRefineLSQ<T>& ir, bench_resu
     res.round_best_relres = ir.inner_best_relres_per_step;
     res.round_ls_relres   = ir.ls_relres_per_step;
     res.round_be          = ir.be_per_step;
+    res.round_polls       = ir.polls_per_step;
 }
 
 // Shared method-mask decode, to avoid per-path copies diverging (the rspec
@@ -627,15 +630,16 @@ static void write_rounds_csv(const std::string& filename,
                              const std::vector<bench_result<T>>& results) {
     std::ofstream out(filename);
     out << "# Per-round engine records (restarted_pcg_ne / IterRefineLSQ).\n"
-        << "# inner_status: 0 Converged, 1 HitCap, 2 Breakdown, 3 Stagnated.\n"
+        << "# inner_status: 0 Converged, 1 HitCap, 2 Breakdown, 3 Stagnated, 4 OracleMet (in-round poll met the target).\n"
         << "# be_kw: sketched Karlson-Walden backward error after the round, relative to ||A||_F; -1 when the oracle was off.\n"
+        << "# be_polls: in-round oracle evaluations of the round; 0 when be_poll_every is 0.\n"
         << kRoundsCsvHeader;
     for (const auto& r : results) {
         for (size_t k = 0; k < r.round_iters.size(); ++k) {
             write_round_row(out, r.alg_name, r.run_idx, k + 1,
                 r.round_iters[k], r.round_status[k], r.round_relres[k],
                 r.round_best_relres[k], r.round_best_iter[k], r.round_ls_relres[k],
-                r.round_be[k]);
+                r.round_be[k], r.round_polls[k]);
         }
     }
 }
@@ -725,7 +729,8 @@ static void write_irlsq_reg_results(
         << "# precond_prec=" << precond_prec << " solve_prec=" << solve_prec << "\n"
         << "# blendenpik=warm+cold (IR methods always cold x0);"
         << " refine rows = init_only x0 + shared engine\n"
-        << "# A_hat = [A; mu*I];  R = chol(A^T A + mu^2 I) built in precond_prec,\n"
+        << (mu > 0 ? "# A_hat = [A; mu*I];  R = chol(A^T A + mu^2 I) built in precond_prec,\n"
+                   : "# no augmentation (mu = 0);  R = chol(A^T A) built in precond_prec,\n")
         << "#   used as right preconditioner for IterRefineLSQ run in solve_prec.\n"
 #ifdef _OPENMP
         << "# OpenMP threads: " << omp_get_max_threads() << "\n"
@@ -946,12 +951,20 @@ static int run_irlsq_reg(
     // precision). NO ||A|| or size scaling: the augmented operator is exactly
     // A_hat = [A; mu*I], Q-less CholeskyQR of which gives R = chol(A^T A + mu^2 I),
     // used as a right preconditioner for the LS problem in A.
-    const P_precond mu_P = (P_precond)(mu_factor * (double)unit_roundoff<P_precond>());
+    // mu_factor = 0 switches the augmentation off: the Q-less methods then factor J itself.
+    const bool augmented = (mu_factor > 0.0);
+    const P_precond mu_P = augmented ? (P_precond)(mu_factor * (double)unit_roundoff<P_precond>()) : (P_precond)0;
     rl::ScaledIdentityOp<P_precond> reg_op(n, mu_P);
     rl::VStackOp<decltype(J_Pp), rl::ScaledIdentityOp<P_precond>> A_hat_Pp(J_Pp, reg_op);
     A_hat_Pp.block_size = block_size;   // caps the blocked-sketch slice width (CQRRTO)
-    std::cout << "Augmented operator A_hat = [J; mu*I], mu=" << (double)mu_P
-              << " (= " << mu_factor << " * u(" << precond_prec_str << "))\n\n";
+    // Both operands satisfy LinearOperator; one generic lambda instantiates each Q-less call
+    // for both types and this runtime flag picks the operand.
+    auto with_qless_operator = [&](auto&& body) { if (augmented) body(A_hat_Pp); else body(J_Pp); };
+    if (augmented)
+        std::cout << "Augmented operator A_hat = [J; mu*I], mu=" << (double)mu_P
+                  << " (= " << mu_factor << " * u(" << precond_prec_str << "))\n\n";
+    else
+        std::cout << "No augmentation (mu_factor = 0): Q-less methods factor J itself\n\n";
 
     const P_precond tol_P = std::pow(std::numeric_limits<P_precond>::epsilon(), (P_precond)0.85);
     const T_solve   tol_T = std::pow(std::numeric_limits<T_solve>::epsilon(), (T_solve)0.85);
@@ -985,7 +998,7 @@ static int run_irlsq_reg(
           Rw = new P_precond[n * n]();
           RandLAPACK::CQRRTO_linops<P_precond, RNG> warm(false, tol_P);
           warm.nnz = sketch_nnz; warm.block_size = block_size;
-          warm_status = warm.call(A_hat_Pp, Rw, n, (P_precond)d_factor, ws);
+          with_qless_operator([&](auto& A_q) { warm_status = warm.call(A_q, Rw, n, (P_precond)d_factor, ws); });
           Rw_T = new T_solve[n * n];
           if (warm_status == 0)
               for (int64_t i = 0; i < n * n; ++i) Rw_T[i] = (T_solve)Rw[i];
@@ -1056,35 +1069,36 @@ static int run_irlsq_reg(
                 // sentinels and the solve is the whole row.
                 res.qr_status = 0; res.qr_time_us = 0;
                 res.qr_breakdown.clear(); res.analytical_kb = -1;
-            } else if (alg_name == "sCholQR3") {
+            } else { with_qless_operator([&](auto& A_q) {
+            if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                harvest(RandLAPACK::bench::run_cholqr_family(qr, A_hat_Pp, R_P, n, [&]{
-                    return RandLAPACK::scholqr3_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }), qr);
+                harvest(RandLAPACK::bench::run_cholqr_family(qr, A_q, R_P, n, [&]{
+                    return RandLAPACK::scholqr3_linops_analytical_kb<P_precond>(A_q.n_rows, n, block_size); }), qr);
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<P_precond> qr(true, tol_P);
-                harvest(RandLAPACK::bench::run_cholqr_family(qr, A_hat_Pp, R_P, n, [&]{
-                    return RandLAPACK::scholqr3_linops_basic_analytical_kb<P_precond>(A_hat_Pp.n_rows, n); }), qr);
+                harvest(RandLAPACK::bench::run_cholqr_family(qr, A_q, R_P, n, [&]{
+                    return RandLAPACK::scholqr3_linops_basic_analytical_kb<P_precond>(A_q.n_rows, n); }), qr);
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                harvest(RandLAPACK::bench::run_cholqr_family(qr, A_hat_Pp, R_P, n, [&]{
-                    return RandLAPACK::cholqr_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }), qr);
+                harvest(RandLAPACK::bench::run_cholqr_family(qr, A_q, R_P, n, [&]{
+                    return RandLAPACK::cholqr_linops_analytical_kb<P_precond>(A_q.n_rows, n, block_size); }), qr);
             } else if (alg_name == "CholQR2") {
                 RandLAPACK::CholQR2_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                harvest(RandLAPACK::bench::run_cholqr_family(qr, A_hat_Pp, R_P, n, [&]{
-                    return RandLAPACK::cholqr2_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, block_size); }), qr);
+                harvest(RandLAPACK::bench::run_cholqr_family(qr, A_q, R_P, n, [&]{
+                    return RandLAPACK::cholqr2_linops_analytical_kb<P_precond>(A_q.n_rows, n, block_size); }), qr);
             } else {
-                // CQRRTO: sketch + Gram the augmented A_hat (via VStack's blocked sketch
-                // overload), uniformly with the other 4 methods. R = chol(A^T A + mu^2 I).
+                // CQRRTO: sketch + Gram the selected operand (augmented view or J),
+                // uniformly with the other 4 methods. R = chol(A^T A + mu^2 I), mu = 0 when off.
                 RandLAPACK::CQRRTO_linops<P_precond, RNG> qr(true, tol_P);
                 qr.max_retries = bench_chol_max_retries();
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
                 qr.precond_method = RandLAPACK::CQRRTOLinopPrecond::TRSM_IDENTITY;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.chol_retries = qr.n_chol_retries;
+                res.qr_status = qr.call(A_q, R_P, n, (P_precond)d_factor, state); res.chol_retries = qr.n_chol_retries;
                 record_chol_shift(res, qr.chol_applied_shifts, qr.chol_gram_traces);
                 if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
                     res.qr_breakdown = qr.times;   // whole vector, not truncated to a fixed slot count
-                    res.analytical_kb = RandLAPACK::cqrrto_linops_analytical_kb<P_precond>(A_hat_Pp.n_rows, n, (P_precond)d_factor, block_size); }
-            }
+                    res.analytical_kb = RandLAPACK::cqrrto_linops_analytical_kb<P_precond>(A_q.n_rows, n, (P_precond)d_factor, block_size); }
+            } }); }
 
             if (res.qr_status != 0) {
                 std::cerr << "\n  [" << alg_name << "] Run " << run_idx
@@ -1301,7 +1315,7 @@ static void print_app_usage(const char* exe) {
       "  --compute-cond    [off]    also estimate the preconditioned condition number\n"
       "  --mask=N          [31]     method bitmask (campaign uses 127)\n"
       "  --noise=F         [0.05]   relative noise added to b; pass 0 for a consistent RHS\n"
-      "  --mu-factor=F     [10]     mu = mu_factor * u(precond precision)\n"
+      "  --mu-factor=F     [10]     mu = mu_factor * u(precond precision); 0 = no augmentation\n"
       "  --precond-prec=P  [single] preconditioner precision: double|single\n"
       "  --max-inner=N     [200]    inner CG iteration cap per round\n"
       "  --inner-tol=F     [-1]     inner absolute floor; <0 = eps^0.85, 0 = off\n"

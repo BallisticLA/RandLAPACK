@@ -60,10 +60,11 @@ namespace RandLAPACK {
 
 
 /// Caller-supplied convergence oracle for restarted_pcg_ne. Called on a supplied
-/// x0 before the first round and after every round, with the current iterate x
-/// (length n), the true residual r = b - A x (length m) and its adjoint product
-/// A^T r (length n), all already formed by the restart loop, so the oracle adds
-/// only its own arithmetic. Returns a nonnegative measure; the loop ends with
+/// x0 before the first round and after every round (and, when be_poll_every > 0,
+/// every be_poll_every completed inner iterations on the trial iterate
+/// R^{-1}(z + dz)), with the current iterate x (length n), the true residual
+/// r = b - A x (length m) and its adjoint product A^T r (length n), all formed
+/// by the restart loop, so the oracle adds only its own arithmetic. Returns a nonnegative measure; the loop ends with
 /// status 5 when it is <= be_tol. The benchmarks pass the sketched
 /// Karlson-Walden backward error here (Epperly, Meier and Nakatsukasa 2024,
 /// arXiv:2406.03468, eq. 4.2: the quantity their Algorithm 4 tests every fifth
@@ -88,17 +89,19 @@ struct PCGRoundHistory {
     std::vector<int> best_iter;      ///< iteration achieving best_relres
     std::vector<T>   ls_relres;      ///< true LS relres after the round
     std::vector<T>   be;             ///< oracle value after the round (-1 when no oracle is active)
+    std::vector<int> polls;          ///< in-round oracle polls of the round (0 when be_poll_every is 0)
     T    be_x0           = (T)-1;    ///< oracle value of a supplied x0 (-1: cold start or inactive)
     long t_inner_us      = 0;        ///< wallclock inside pcg_inner
     long t_fwd_inner_us  = 0;        ///< A applies inside the kernel
     long t_adj_inner_us  = 0;        ///< A^T applies inside the kernel
     long t_trsm_inner_us = 0;        ///< trsv time inside the kernel
     long t_be_us         = 0;        ///< wallclock inside the oracle, EXCLUDED from times[3]
+    long t_poll_us       = 0;        ///< wallclock inside in-round polls (applies + oracle); the applies stay in times[3]
     void clear() {
         iters.clear(); status.clear(); relres.clear();
-        best_relres.clear(); best_iter.clear(); ls_relres.clear(); be.clear();
+        best_relres.clear(); best_iter.clear(); ls_relres.clear(); be.clear(); polls.clear();
         be_x0 = (T)-1;
-        t_inner_us = t_fwd_inner_us = t_adj_inner_us = t_trsm_inner_us = t_be_us = 0;
+        t_inner_us = t_fwd_inner_us = t_adj_inner_us = t_trsm_inner_us = t_be_us = t_poll_us = 0;
     }
 };
 
@@ -160,6 +163,12 @@ struct PCGRoundHistory {
 ///                      in the triggering round reports 2. The oracle's wall
 ///                      time is kept out of times[3] and reported in
 ///                      history->t_be_us.
+/// @param[in]  be_poll_every  when > 0 and the oracle is active, the inner CG also evaluates
+///                      the oracle every be_poll_every completed iterations and ends the run
+///                      with status 5 as soon as it is <= be_tol (the round's kernel status is
+///                      then OracleMet). Each poll costs one triangular solve, one forward and
+///                      one adjoint apply, counted as solve time; the oracle's own time stays in
+///                      t_be_us. 0 keeps the round-end check only.
 /// @returns 0 if the LS tolerance was met;
 ///          1 if the total inner-iteration budget was exhausted;
 ///          2 if the inner CG broke down or made no progress (reference flag 2);
@@ -189,12 +198,15 @@ int restarted_pcg_ne(
     const T* x0 = nullptr,
     int outer_stag_window = 2,
     BackwardErrorOracle<T> be_oracle = {},
-    T be_tol = (T)-1)
+    T be_tol = (T)-1,
+    int be_poll_every = 0)
 {
     randlapack_require(restart_drop > (T)0 && restart_drop < (T)1)
         << "restarted_pcg_ne: restart_drop must lie in (0,1)";
     randlapack_require(restart_maxit >= 1)
         << "restarted_pcg_ne: restart_maxit must be >= 1";
+    randlapack_require(be_poll_every >= 0)
+        << "restarted_pcg_ne: be_poll_every must be >= 0 (got " << be_poll_every << ")";
 
     using clock = std::chrono::steady_clock;
     using std::chrono::duration_cast;
@@ -214,6 +226,8 @@ int restarted_pcg_ne(
     if (history) history->clear();
 
     const bool prec = (R != nullptr);
+    const bool be_active   = static_cast<bool>(be_oracle) && be_tol >= (T)0;
+    const bool poll_active = be_active && be_poll_every > 0;
 
     // Workspaces (raw T*, freed on every return path via cleanup()).
     T* z    = new T[n]();     // preconditioned solution, x = R^{-1} z
@@ -226,9 +240,11 @@ int restarted_pcg_ne(
     T* zb   = new T[n]();     // kernel best-iterate snapshot
     T* sc   = new T[n]();     // trsv scratch
     T* wm   = new T[m]();     // length-m scratch (A applies)
+    T* rp   = poll_active ? new T[m]() : nullptr;   // in-round poll: b - A x_trial
+    T* ATrp = poll_active ? new T[n]() : nullptr;   // in-round poll: A^T (b - A x_trial)
     auto cleanup = [&]() { delete[] z; delete[] g; delete[] r_ne; delete[] dz;
                            delete[] p; delete[] q; delete[] r; delete[] zb;
-                           delete[] sc; delete[] wm; };
+                           delete[] sc; delete[] wm; delete[] rp; delete[] ATrp; };
 
     // H v  =  R^{-T} (A^T (A (R^{-1} v)))      (out has length n; out may not alias v)
     auto apply_H = [&](const T* vin, T* out) {
@@ -311,20 +327,61 @@ int restarted_pcg_ne(
     // stable form avoids).
     // Optional convergence oracle (see BackwardErrorOracle). Its wall time is
     // accumulated separately so times[3] keeps measuring the solver alone.
-    const bool be_active = static_cast<bool>(be_oracle) && be_tol >= (T)0;
-    long t_be = 0;
+    long t_be = 0, t_poll = 0, t_be_poll = 0;
     bool be_done = false;
     int status = 1;
-    auto eval_oracle = [&](T& out) {
+    auto eval_oracle_at = [&](const T* xq, const T* rq, const T* ATrq, T& out) {
         auto tb = clock::now();
         // Evaluate at the solve's pinned level-2 width: an ambient-width gemv here
         // would force two OpenMP team re-formations per round (see
         // rl_blas2_threads.hh), and that cost would land in the NEXT capped
         // region's time, not in t_be.
         { Blas2ThreadGuard tg(n);
-            out = be_oracle(x, wm, r_ne);       // r_ne holds A^T (b - A x) at every call site
+            out = be_oracle(xq, rq, ATrq);
         }
         t_be += duration_cast<microseconds>(clock::now() - tb).count();
+    };
+    auto eval_oracle = [&](T& out) { eval_oracle_at(x, wm, r_ne, out); };   // r_ne holds A^T (b - A x) at every call site
+    // In-round poll (be_poll_every > 0): the kernel hands over its current correction dz;
+    // form the trial iterate x = R^{-1}(z + dz) with the round-end fold's own arithmetic
+    // (axpy, then trsv), its true residual and adjoint product in dedicated buffers, and
+    // ask the oracle. Nothing the kernel reads (dz, r_ne, p, q, r) is touched, so an
+    // unfired poll leaves the trajectory bit-identical. The applies are solve work and run
+    // inside the kernel window, so they go to the kernel counters too.
+    int polls_round = 0;
+    auto poll_hook = [&](const T* dz_cur, int) -> bool {
+        auto tp = clock::now();
+        long dt;
+        std::copy(z, z + n, x);
+        blas::axpy(n, (T)1.0, dz_cur, 1, x, 1);
+        if (prec) {
+            auto ts = clock::now();
+            { Blas2ThreadGuard tg(n);
+                blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                           blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, x, 1);
+            }
+            dt = duration_cast<microseconds>(clock::now() - ts).count();
+            t_trsm += dt; t_trsm_in += dt;
+        }
+        auto tf = clock::now();
+        A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+          m, 1, n, (T)1.0, x, n, (T)0.0, rp, m);
+        dt = duration_cast<microseconds>(clock::now() - tf).count();
+        t_fwd += dt; t_fwd_in += dt;
+        blas::scal(m, (T)-1.0, rp, 1);
+        blas::axpy(m, (T)1.0, b, 1, rp, 1);                  // rp = b - A x
+        auto ta = clock::now();
+        A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
+          n, 1, m, (T)1.0, rp, m, (T)0.0, ATrp, n);
+        dt = duration_cast<microseconds>(clock::now() - ta).count();
+        t_adj += dt; t_adj_in += dt;
+        long tb0 = t_be;
+        T v;
+        eval_oracle_at(x, rp, ATrp, v);
+        t_be_poll += t_be - tb0;
+        ++polls_round;
+        t_poll += duration_cast<microseconds>(clock::now() - tp).count();
+        return v <= be_tol;
     };
 
     T relres;
@@ -421,6 +478,9 @@ int restarted_pcg_ne(
         ctl.stag_window      = stag_window;
         ctl.stag_rel_improve = stag_rel_improve;
         ctl.tag              = "[PCG-NE]";
+        ctl.poll_every       = poll_active ? be_poll_every : 0;
+        if (poll_active) ctl.poll = poll_hook;
+        polls_round = 0;
         PCGInnerReport<T> rep;
         in_kernel = true;
         auto tk0 = clock::now();
@@ -466,11 +526,12 @@ int restarted_pcg_ne(
             history->best_iter.push_back(rep.best_iter);
             history->ls_relres.push_back(relres);
             history->be.push_back(be_round);
+            history->polls.push_back(polls_round);
         }
 
         if (relres <= tol) { status = 0; break; }
         if (kret != 0) { status = 2; break; }             // breakdown: R unusable; outranks the oracle
-        if (be_active && be_round <= be_tol) { status = 5; break; }   // oracle target met
+        if (be_active && (be_round <= be_tol || rep.status == InnerCGStatus::OracleMet)) { status = 5; break; }   // target met, at a poll or at the round end
         // A zero-iteration round changes nothing, so the loop must end either
         // way; gate the MEANING on the kernel status, not the count: a round
         // whose target was already met at entry is the LS floor (the NE
@@ -504,11 +565,12 @@ int restarted_pcg_ne(
     if (times) { times[0] = t_fwd; times[1] = t_adj; times[2] = t_trsm;
                  times[3] = duration_cast<microseconds>(clock::now() - total_start).count() - t_be; }
     if (history) {
-        history->t_inner_us      = t_kernel;
+        history->t_inner_us      = t_kernel - t_be_poll;   // the oracle's share inside polls is not solve work
         history->t_fwd_inner_us  = t_fwd_in;
         history->t_adj_inner_us  = t_adj_in;
         history->t_trsm_inner_us = t_trsm_in;
         history->t_be_us         = t_be;
+        history->t_poll_us       = t_poll;
     }
     if (final_relres) *final_relres = relres;
     cleanup();

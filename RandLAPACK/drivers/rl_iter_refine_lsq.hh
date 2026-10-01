@@ -114,6 +114,8 @@ struct IterRefineLSQ {
     /// run then ends with engine status 5 as soon as the oracle is <= be_tol.
     BackwardErrorOracle<T> be_oracle;
     T be_tol = (T)-1;
+    /// In-round oracle poll period forwarded to the engine (see be_poll_every there). 0 = off.
+    int be_poll_every = 0;
     /// Enable per-step / per-substep timing breakdown.
     bool timing;
     /// Print convergence info to stdout.
@@ -143,9 +145,13 @@ struct IterRefineLSQ {
     /// Oracle value after each round (-1 when inactive) and of the start (always -1
     /// here, the start is cold); engine history republished.
     std::vector<T> be_per_step;
+    /// In-round oracle polls per round (engine history republished; 0 when be_poll_every is 0).
+    std::vector<int> polls_per_step;
     T be_x0 = (T)-1;
     /// Wall time spent inside the oracle, already excluded from times[0] and times[5].
     long t_be_us = 0;
+    /// Wall time spent inside in-round polls (applies plus oracle).
+    long t_poll_us = 0;
     /// Final relative residual ||b - J x|| / ||b|| (or ||b - J x|| if ||b|| == 0).
     T final_residual_norm;
     /// The engine's exit status, verbatim (see restarted_pcg_ne @returns:
@@ -235,7 +241,7 @@ struct IterRefineLSQ {
             &final_rel,
             inner_stag_window, inner_stag_rel_improve,
             abs_guard, &hist, /*x0=*/nullptr, outer_stag_window,
-            be_oracle, be_tol);
+            be_oracle, be_tol, be_poll_every);
         engine_status = st;
 
         // Republish the engine's per-round records under this class's field names.
@@ -246,13 +252,15 @@ struct IterRefineLSQ {
         inner_best_iter_per_step   = hist.best_iter;
         ls_relres_per_step         = hist.ls_relres;
         be_per_step                = hist.be;
+        polls_per_step             = hist.polls;
         be_x0                      = hist.be_x0;
         t_be_us                    = hist.t_be_us;
+        t_poll_us                  = hist.t_poll_us;
         outer_iters_done    = rounds;
         final_residual_norm = final_rel;
 
         if (verbose) {
-            static const char* kNames[] = {"converged", "HIT CAP", "breakdown", "STAGNATED"};
+            static const char* kNames[] = {"converged", "HIT CAP", "breakdown", "STAGNATED", "ORACLE MET"};
             for (size_t s = 0; s < hist.iters.size(); ++s) {
                 std::printf("[IR-LSQ] round %zu: inner CG %s after %d iters, "
                             "relres=%.4e (best %.4e at iter %d); LS relres %.4e\n",
