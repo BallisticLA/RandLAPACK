@@ -364,7 +364,9 @@ public:
     ///                      exactly singular, and NystromEVD's potrf throws;
     ///                      raising vec_nnz (or vec_nnz = 0 auto) suppresses
     ///                      this (the knob-free auto tier caps k at m/2;
-    ///                      k == m is exact and safe).
+    ///                      k == m captures the full spectrum only when the
+    ///                      recovery sketch has full column rank; a singular
+    ///                      square sketch can still make Cholesky fail).
     /// @param[in]  s        Phase 2 Hutchinson sample count.
     /// @param[in]  q        Phase 1 number of A applications (q = 1 single
     ///                      pass; q = 2 = 1 subspace-iter pass; etc.).
@@ -678,8 +680,10 @@ T FunNystromPP<T>::call(
     //   kernel-internal sphere-normalized Gaussians by default, or
     //   caller-supplied when Omega2 != nullptr (resolved below).
     //
-    // Skip Phase 2 when k == m: Phase 1 has captured the full spectrum
-    // exactly (Â = A), so f(A) − f(Â) is analytically zero. Running the
+    // Skip Phase 2 when k == m: a successful recovery with a full-rank
+    // sketch captures the full spectrum (Â = A), so the residual is
+    // analytically zero. A singular square sketch can fail in Phase 1.
+    // Running the
     // Hutchinson correction anyway would leave an O(ε · s · LFA_residual)
     // misleading noise floor because Z1 (LFA approximation) and Z2
     // (V · diag(f(λ)) · Vᵀ · Ω) follow different floating-point paths.

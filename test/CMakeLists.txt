@@ -14,6 +14,7 @@ if (GTest_FOUND)
         comps/test_syrf.cc
         comps/test_rpchol.cc
         comps/test_bk.cc
+        comps/test_lanczos_qfa_scaling.cc
         drivers/test_krill.cc
         drivers/test_rsvd.cc
         drivers/test_rsvd_linop.cc
@@ -22,6 +23,7 @@ if (GTest_FOUND)
         drivers/test_bqrrp.cc
         drivers/test_revd2.cc
         drivers/test_fun_nystrom_pp.cc
+        drivers/test_nystrom_zero.cc
         drivers/test_hqrrp.cc
         drivers/test_abrik.cc
         drivers/test_abrik_projector.cc
