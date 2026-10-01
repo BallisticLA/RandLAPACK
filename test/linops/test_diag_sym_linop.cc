@@ -4,6 +4,7 @@
 #include <RandBLAS.hh>
 #include <gtest/gtest.h>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <type_traits>
 #include <vector>
@@ -218,6 +219,14 @@ TEST_F(TestDiagSymLinOp, RejectsShortStrides) {
 class TestExplicitSymLinOpPerfSwitch : public ::testing::Test {
 protected:
     static constexpr int64_t n = 64, k = 8;
+    static int set_gemm_switch(bool enabled) {
+#ifdef _WIN32
+        return _putenv_s("RANDLAPACK_PERF_GEMM", enabled ? "1" : "");
+#else
+        return enabled ? setenv("RANDLAPACK_PERF_GEMM", "1", 1)
+                       : unsetenv("RANDLAPACK_PERF_GEMM");
+#endif
+    }
     // Upper triangle holds a symmetric matrix; the strict lower triangle holds unrelated values.
     static std::vector<double> upper_only() {
         std::vector<double> A(n * n);
@@ -232,15 +241,15 @@ protected:
         op(Layout::ColMajor, k, 1.0, B.data(), n, 0.0, C.data(), n);
         return C;
     }
-    void TearDown() override { unsetenv("RANDLAPACK_PERF_GEMM"); }
+    void TearDown() override { EXPECT_EQ(set_gemm_switch(false), 0); }
 };
 
 TEST_F(TestExplicitSymLinOpPerfSwitch, GemmSwitchIgnoredForOneTriangleStorage) {
     auto A = upper_only();
     linops::ExplicitSymLinOp<double> op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
-    unsetenv("RANDLAPACK_PERF_GEMM");
+    ASSERT_EQ(set_gemm_switch(false), 0);
     auto ref = apply(op);
-    setenv("RANDLAPACK_PERF_GEMM", "1", 1);
+    ASSERT_EQ(set_gemm_switch(true), 0);
     auto got = apply(op);
     for (int64_t i = 0; i < n * k; ++i) ASSERT_EQ(got[i], ref[i]) << "entry " << i;
 }
@@ -249,9 +258,9 @@ TEST_F(TestExplicitSymLinOpPerfSwitch, GemmSwitchHonouredWhenBothTrianglesDeclar
     auto A = upper_only();   // deliberately inconsistent lower triangle: the gemm path must read it
     linops::ExplicitSymLinOp<double> op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
     op.both_triangles = true;
-    unsetenv("RANDLAPACK_PERF_GEMM");
+    ASSERT_EQ(set_gemm_switch(false), 0);
     auto ref = apply(op);
-    setenv("RANDLAPACK_PERF_GEMM", "1", 1);
+    ASSERT_EQ(set_gemm_switch(true), 0);
     auto got = apply(op);
     double diff = 0;
     for (int64_t i = 0; i < n * k; ++i) diff = std::max(diff, std::abs(got[i] - ref[i]));
