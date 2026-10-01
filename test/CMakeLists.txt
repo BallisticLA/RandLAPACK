@@ -6,6 +6,8 @@ if (GTest_FOUND)
     set(tmp TRUE)
 
     set(RandLAPACK_test_srcs
+        comps/test_lanczos_optimizations.cc
+        linops/test_sym_linop_optimizations.cc
         drivers/test_nystrom_evd.cc
         drivers/test_fun_nystrom_pp.cc
         drivers/test_nystrom_zero.cc

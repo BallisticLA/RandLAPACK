@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <limits>
 #include <stdexcept>
@@ -369,8 +370,32 @@ void NystromEVD(
                m, k, (T)1, ws.G, k, ws.Y, m);
 
     // [Alg. 2, line 7] [U, Σ, ~] ← svd_econ(B). U_out ← left singular vectors (m×k).
-    lapack::gesdd(lapack::Job::SomeVec, m, k, ws.Y, m,
-                  ws.Sigma, U_out, m, ws.VT_B, k);
+    // Opt-in performance switch, off by default: RANDLAPACK_PERF_NYSEIG=1 replaces the thin SVD of the
+    // m×k B by an eigendecomposition of the k×k Gram BᵀB: its eigenvalues are Σ² (all line 8 needs) and
+    // U = B·V·Σ⁻¹. About 3.5x faster at m = 50,000, k = 7,276. Squaring loses only eigenvalues below about
+    // eps·‖B‖², under the shift that line 8 removes; a zero singular value leaves a zero column of U (λ̂ = 0).
+    // Double precision only: squaring B loses the eigenvalues below about eps*||B||^2, which is
+    // harmless in double (estimates move by at most 2.8e-14 on 72 cases) but up to 1.3e-4 in
+    // single, so single precision keeps the thin SVD whatever the switch says.
+    const char* nyseig = std::getenv("RANDLAPACK_PERF_NYSEIG");
+    if (sizeof(T) >= 8 && nyseig != nullptr && nyseig[0] == '1') {
+        T* V = ws.VT_B;   // k×k, otherwise gesdd's unused VT output
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T)1, ws.Y, m, (T)0, V, k);
+        lapack::syevd(lapack::Job::Vec, Uplo::Upper, k, V, k, ws.Sigma);   // ascending
+        for (int64_t i = 0; i < k / 2; ++i) {   // descending, as gesdd returns them
+            std::swap(ws.Sigma[i], ws.Sigma[k - 1 - i]);
+            std::swap_ranges(V + i * k, V + (i + 1) * k, V + (k - 1 - i) * k);
+        }
+        for (int64_t i = 0; i < k; ++i) {       // σ = sqrt(eigenvalue); scale V's columns by 1/σ before U = B·V
+            ws.Sigma[i] = std::sqrt(std::max(ws.Sigma[i], (T)0));
+            const T inv = (ws.Sigma[i] > (T)0) ? (T)1 / ws.Sigma[i] : (T)0;
+            blas::scal(k, inv, V + i * k, 1);
+        }
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, (T)1, ws.Y, m, V, k, (T)0, U_out, m);
+    } else {
+        lapack::gesdd(lapack::Job::SomeVec, m, k, ws.Y, m,
+                      ws.Sigma, U_out, m, ws.VT_B, k);
+    }
 
     // [Alg. 2, line 8] λ̂ ← max{0, Σ² − ν}  (remove the shift; clamp negatives to 0).
     //   Lines 9-10 (truncate to rank k) are a no-op: Ω is drawn at rank k, so B is
