@@ -1,8 +1,9 @@
 # Builds and installs RandLAPACK's native Windows dependencies:
 #   - a BLAS/LAPACK backend (-Backend): oneMKL (default; discovered from an
-#     installed oneAPI or fetched from Intel's NuGet packages, ILP64 +
-#     sequential), OpenBLAS (official release binaries, LP64), or
-#     custom/bring-your-own libraries
+#     installed oneAPI or fetched from Intel's NuGet packages, ILP64, threaded
+#     through Intel's OpenMP runtime), OpenBLAS (official release binaries,
+#     LP64, threaded with its own thread pool), or custom/bring-your-own
+#     libraries
 #   - GoogleTest v1.18.0
 #   - Random123 (headers only)
 #   - BLAS++  from icl-utk-edu/blaspp   (upstream), pinned by commit
@@ -23,15 +24,17 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DependencyRoot,
 
-    # BLAS/LAPACK backend. "mkl" (default): oneMKL, ILP64 + sequential,
-    # discovered from an installed oneAPI, else downloaded (see -NoDownload).
+    # BLAS/LAPACK backend. "mkl" (default): oneMKL, ILP64, threaded through
+    # Intel's OpenMP runtime; discovered from an installed oneAPI, else
+    # downloaded (see -NoDownload).
     # "openblas": official OpenBLAS release binaries, LP64.
     # "custom": bring your own libraries via -BlasLibraries (anything
     # BLAS++/LAPACK++ can link, e.g. AMD AOCL).
     [ValidateSet("mkl", "openblas", "custom")]
     [string]$Backend = "mkl",
 
-    # Refuse to download a backend that was not found locally, and fail
+    # Refuse to download a backend that was not found locally (or the Intel
+    # OpenMP runtime oneMKL's threading layer needs), and fail
     # instead. The default is to download, which is the ordinary Windows
     # practice (no system prefix exists for third-party libraries, so
     # per-project acquisition via vcpkg/NuGet/release archives is the norm).
@@ -212,6 +215,38 @@ function Find-OneMklLayout {
     return $null
 }
 
+function Find-IntelOpenMP {
+    # Looks for Intel's OpenMP runtime (libiomp5md.lib + libiomp5md.dll) that
+    # ships with a discovered oneMKL. First the oneMKL layout itself (its lib
+    # directory and DLL directory): conda's <env>\Library and oneAPI's unified
+    # <oneAPI>\<version> layout keep the runtime there. Then oneAPI's
+    # component layout, <oneAPI>\compiler\<same version> and
+    # <oneAPI>\compiler\latest for a oneMKL root <oneAPI>\mkl\<version>, in
+    # the current layout (lib\, bin\) and the pre-2024 one
+    # (windows\compiler\lib\intel64_win, windows\redist\intel64_win\compiler).
+    # Takes the hashtable from Find-OneMklLayout; returns @{Lib; Dll} or $null.
+    param([hashtable]$MklLayout)
+    $lib = Join-Path $MklLayout.LibDir "libiomp5md.lib"
+    $dll = Join-Path $MklLayout.BinDir "libiomp5md.dll"
+    if ((Test-Path $lib) -and (Test-Path $dll)) { return @{ Lib = $lib; Dll = $dll } }
+    $mklParent = Split-Path $MklLayout.Root -Parent
+    if (-not $mklParent) { return $null }
+    $oneApi = Split-Path $mklParent -Parent
+    if (-not $oneApi) { return $null }
+    $versions = @((Split-Path $MklLayout.Root -Leaf), "latest") | Select-Object -Unique
+    foreach ($version in $versions) {
+        $compiler = Join-Path $oneApi "compiler\$version"
+        foreach ($layout in @(
+                @{ Lib = "lib"; Dll = "bin" },
+                @{ Lib = "windows\compiler\lib\intel64_win"; Dll = "windows\redist\intel64_win\compiler" })) {
+            $lib = Join-Path $compiler "$($layout.Lib)\libiomp5md.lib"
+            $dll = Join-Path $compiler "$($layout.Dll)\libiomp5md.dll"
+            if ((Test-Path $lib) -and (Test-Path $dll)) { return @{ Lib = $lib; Dll = $dll } }
+        }
+    }
+    return $null
+}
+
 function Test-BlasLinkage {
     # Compiles and runs a minimal dgemm_/dgesv_ caller against the given
     # import libraries: one clear pass/fail up front instead of a BLAS++
@@ -296,8 +331,8 @@ if ($Backend -ne "custom") {
 # Every branch below must define: $backendLibraries (array of cmake-style
 # .lib paths for BLAS++), $backendLapackLibraries ("" = let LAPACK++ resolve
 # from the BLAS libs), $backendBlasInt, $backendBlasFortran ("" = unset),
-# $backendBlasThreaded ("" = unset), and $backendBin (DLL directory; "" only
-# for -Backend custom without -BackendBinDir).
+# $backendBlasThreaded ("" = unset), and $backendBin (DLL directories,
+# semicolon-separated; "" only for -Backend custom without -BackendBinDir).
 
 if ($Backend -eq "mkl") {
     $mklLayout = $null
@@ -331,6 +366,7 @@ if ($Backend -eq "mkl") {
     # keeps a 155 MB download from being a surprise, and states plainly where
     # it goes and that nothing touches the system.
     $provisionMkl = $false
+    $mklFromNuGet = $false
     if (-not $mklLayout -and -not $NoDownload) {
         Write-Host ""
         Write-Host "No existing oneMKL found (checked -MklRoot, `$env:MKLROOT, `$env:ONEAPI_ROOT,"
@@ -375,12 +411,13 @@ if ($Backend -eq "mkl") {
     if (-not $mklLayout) {
         # oneMKL comes straight from Intel's official NuGet packages -- plain
         # zip archives on nuget.org, pinned by version and SHA256. The devel
-        # package carries the ILP64/sequential import libs and headers, the
-        # redist package the runtime DLLs. This deliberately avoids vcpkg: its
+        # package carries the ILP64 import libs and headers, the redist
+        # package the runtime DLLs. This deliberately avoids vcpkg: its
         # Visual Studio-bundled distribution is manifest-only (no classic-mode
         # instance), and nothing here needed vcpkg beyond this one download.
-        # The OpenMP/TBB packages the devel nuspec references are skipped on
-        # purpose -- RandLAPACK links the sequential MKL DLL set.
+        # Of the packages the devel nuspec references, Intel OpenMP is fetched
+        # below; TBB is skipped because RandLAPACK does not link MKL's TBB
+        # threading layer.
         $mklVersion = "2026.1.0.226"
         $mklPackages = @(
             @{ Id = "intelmkl.devel.win-x64"
@@ -416,16 +453,93 @@ if ($Backend -eq "mkl") {
             Remove-Item -Recurse -Force $extractRoot
         }
         $mklLayout = @{ Root = $mklRoot; LibDir = $mklLibDir; BinDir = $mklBin }
+        $mklFromNuGet = $true
     }
     $mklRoot = $mklLayout.Root
     $mklLibDir = $mklLayout.LibDir
     $mklBin = $mklLayout.BinDir
     foreach ($required in @(
             (Join-Path $mklLibDir "mkl_intel_ilp64_dll.lib"),
-            (Join-Path $mklLibDir "mkl_sequential_dll.lib"),
+            (Join-Path $mklLibDir "mkl_intel_thread_dll.lib"),
             (Join-Path $mklLibDir "mkl_core_dll.lib"))) {
         if (-not (Test-Path $required)) { throw "oneMKL install is missing $required." }
     }
+
+    # Threading. oneMKL is threaded through its Intel OpenMP layer
+    # (mkl_intel_thread), whose runtime is Intel's libiomp5md. RandLAPACK's own
+    # OpenMP loops (compiled with /openmp:llvm) resolve to that same runtime:
+    # libiomp5md.lib travels in BLAS++'s link interface and precedes the
+    # compiler's default OpenMP library on every link line, so one runtime and
+    # one thread pool serve both, the Windows counterpart of mkl_gnu_thread
+    # with GCC's libgomp on Linux. MKL's sequential layer would avoid the
+    # question but runs every BLAS/LAPACK call on one core, and its TBB layer
+    # would add a second thread pool beside RandLAPACK's OpenMP.
+    #
+    # Only libiomp5md.lib and libiomp5md.dll are taken, into a directory of
+    # their own: everything in a staged DLL directory is copied beside each
+    # executable, and oneAPI's compiler\bin holds hundreds of megabytes.
+    # Preferred source for a discovered oneMKL: the runtime shipped with its
+    # oneAPI install (same release). Otherwise, and always for the NuGet
+    # oneMKL, the pinned NuGet packages the oneMKL devel package depends on.
+    $iompLocal = if ($mklFromNuGet) { $null } else { Find-IntelOpenMP $mklLayout }
+    if ($iompLocal) {
+        $iompRoot = Join-Path $resolvedRoot "intel-openmp-local"
+        foreach ($sub in @("lib", "bin")) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $iompRoot $sub) | Out-Null
+        }
+        # Re-copied on every run so an updated oneAPI install is picked up.
+        Copy-Item -LiteralPath $iompLocal.Lib -Destination (Join-Path $iompRoot "lib") -Force
+        Copy-Item -LiteralPath $iompLocal.Dll -Destination (Join-Path $iompRoot "bin") -Force
+        Write-Host "Using Intel OpenMP from $(Split-Path $iompLocal.Dll -Parent)"
+    } else {
+        $iompVersion = "2026.1.0.239"
+        $iompRoot = Join-Path $resolvedRoot "intel-openmp-$iompVersion"
+        if ((Test-Path (Join-Path $iompRoot "lib\libiomp5md.lib")) -and
+                (Test-Path (Join-Path $iompRoot "bin\libiomp5md.dll"))) {
+            Write-Host "Reusing Intel OpenMP at $iompRoot"
+        } else {
+            if ($NoDownload) {
+                Write-Host ""
+                Write-Host "oneMKL at $mklRoot has no Intel OpenMP runtime (libiomp5md) beside it,"
+                Write-Host "and -NoDownload forbids fetching the pinned copy (~2 MB)."
+                Write-Host ""
+                Write-Host "  Either drop -NoDownload, install the Intel oneAPI DPC++/C++ Compiler"
+                Write-Host "  (or its OpenMP component) into the same oneAPI directory, or use"
+                Write-Host "  -Backend openblas."
+                Write-Host ""
+                throw "oneMKL's threading layer needs Intel OpenMP; see the options above."
+            }
+            Write-Host "Fetching Intel OpenMP $iompVersion (~2 MB) into $iompRoot"
+            if (Test-Path $iompRoot) { Remove-Item -Recurse -Force $iompRoot }
+            $iompPackages = @(
+                @{ Id = "intelopenmp.devel.win"
+                   Sha256 = "3fa832b31d9e6cb0160aabd17c9615df77d9c21aaf79b7dd643f4c0dea376949"
+                   File = "build\native\win-x64\libiomp5md.lib"; Dest = "lib" },
+                @{ Id = "intelopenmp.redist.win"
+                   Sha256 = "2a0f9fcdb51d8ac9fa535b67f013fd9341338355679261a39b946ef5e3f399fe"
+                   File = "runtimes\win-x64\native\libiomp5md.dll"; Dest = "bin" })
+            $extractRoot = Join-Path $iompRoot "extract"
+            foreach ($package in $iompPackages) {
+                $archive = Join-Path $resolvedRoot "$($package.Id).$iompVersion.zip"
+                Invoke-Checked "curl.exe" @("-fsSL", "--retry", "5", "--retry-all-errors",
+                    "--retry-delay", "3", "-o", $archive,
+                    "https://api.nuget.org/v3-flatcontainer/$($package.Id)/$iompVersion/$($package.Id).$iompVersion.nupkg")
+                $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+                if ($actual -ne $package.Sha256) {
+                    throw "$($package.Id) $iompVersion hash mismatch: expected $($package.Sha256), got $actual."
+                }
+                $packageDir = Join-Path $extractRoot $package.Id
+                Expand-Archive -Path $archive -DestinationPath $packageDir -Force
+                Remove-Item $archive
+                $destDir = Join-Path $iompRoot $package.Dest
+                New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+                Move-Item (Join-Path $packageDir $package.File) $destDir
+            }
+            Remove-Item -Recurse -Force $extractRoot
+        }
+    }
+    $iompLib = Join-Path $iompRoot "lib\libiomp5md.lib"
+    $iompBin = Join-Path $iompRoot "bin"
     # Same link-and-run check the other two backends get: one clear pass/fail
     # here beats a BLAS++ probe cascade three layers down. It catches an
     # incomplete or mismatched oneMKL (and, belt-and-braces after
@@ -433,29 +547,36 @@ if ($Backend -eq "mkl") {
     # built.
     $mklLibs = @(
         (Join-Path $mklLibDir "mkl_intel_ilp64_dll.lib"),
-        (Join-Path $mklLibDir "mkl_sequential_dll.lib"),
-        (Join-Path $mklLibDir "mkl_core_dll.lib"))
-    if (-not (Test-BlasLinkage -Libraries $mklLibs -DllDir $mklBin `
+        (Join-Path $mklLibDir "mkl_intel_thread_dll.lib"),
+        (Join-Path $mklLibDir "mkl_core_dll.lib"),
+        $iompLib)
+    if (-not (Test-BlasLinkage -Libraries $mklLibs -DllDir "$mklBin;$iompBin" `
             -Int64 $true -ScratchDir (Join-Path $resolvedRoot "conftest-mkl"))) {
         throw ("oneMKL at $mklRoot failed a minimal ILP64 dgemm_/dgesv_ link-and-run check. " +
-            "Verify that the install is complete and that its DLL directory ($mklBin) holds " +
-            "the matching runtime DLLs.")
+            "Verify that the install is complete and that its DLL directory ($mklBin) and " +
+            "Intel OpenMP ($iompBin) hold the matching runtime DLLs.")
     }
     $backendLibraries = @($mklLibs | ForEach-Object { Convert-ToCMakePath $_ })
     $backendLapackLibraries = ""
     # ILP64 because RandBLAS's MKL sparse backend static-asserts that its
-    # int64_t sparse indices match sizeof(MKL_INT).
+    # int64_t sparse indices match sizeof(MKL_INT). (That backend is not
+    # active in these builds yet: BLAS++ defines BLAS_HAVE_MKL only when
+    # mkl.h is on the compiler's INCLUDE path at configure time.)
     $backendBlasInt = "ilp64"
     $backendBlasFortran = ""
-    $backendBlasThreaded = "false"
-    $backendBin = $mklBin
+    $backendBlasThreaded = "true"
+    # Two DLL directories, semicolon-separated: every consumer treats this
+    # value as a list (PATH entries, RANDLAPACK_RUNTIME_DLL_DIRS).
+    $backendBin = "$mklBin;$iompBin"
 } elseif ($Backend -eq "openblas") {
     # Official OpenBLAS release binaries: MinGW-built but self-contained
     # (the DLL imports only kernel32/msvcrt -- the MinGW runtimes are linked
     # in statically), MSVC-linkable through the shipped import library, and
     # full LAPACK is included. LP64: no ILP64 OpenBLAS binaries are
-    # published for Windows. Without MKL, RandBLAS's MKL sparse
-    # acceleration stays off and its portable fallbacks take over.
+    # published for Windows. Threaded with OpenBLAS's own thread pool, so no
+    # second OpenMP runtime beside RandLAPACK's. Without MKL,
+    # RandBLAS's MKL sparse acceleration stays off and its portable fallbacks
+    # take over.
     #
     # Unlike oneMKL there is nothing to auto-discover: OpenBLAS has no
     # canonical Windows install location (GitHub release zips, vcpkg, conda
@@ -599,6 +720,19 @@ function Copy-LibrariesToSpaceFreePath {
     })
 }
 
+# The BLAS++/LAPACK++ reuse stamps record the backend library paths as well
+# as the source, so changing them (oneMKL's sequential layer to its threaded
+# one, or a NuGet oneMKL to a discovered one whose DLL names differ) rebuilds
+# both instead of silently reusing an install built against the old set.
+# Taken before the space-free copies below, which keep only leaf names, and
+# stored as a SHA256: the stamps are written as ASCII, so raw paths with
+# non-ASCII characters (e.g. a user profile directory) would never match.
+$backendLibraryList = (@($backendLibraries) + @($backendLapackLibraries -split ';') |
+    Where-Object { $_ -ne "" }) -join ';'
+$sha = [System.Security.Cryptography.SHA256]::Create()
+$backendSignature = "libs-" + (($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($backendLibraryList)) |
+    ForEach-Object { $_.ToString("x2") }) -join "")
+
 $spaceFreeLibDir = Join-Path $resolvedRoot "backend-libs"
 $backendLibraries = Copy-LibrariesToSpaceFreePath -Libraries $backendLibraries `
     -Destination $spaceFreeLibDir -Label "BLAS"
@@ -659,7 +793,7 @@ $blasppInstall = Join-Path $resolvedRoot "blaspp-$backendId-install"
 # stamp, so the two cannot drift.
 $blasppUrl = "https://github.com/icl-utk-edu/blaspp.git"
 $blasppRef = "2d8d4e937ac46fffab33d4174a4fc7659726dbda"
-$blasppSource = "$blasppUrl@$blasppRef"
+$blasppSource = "$blasppUrl@$blasppRef|$backendSignature"
 $blasppReusable = (Test-Path $blasppInstall) -and (Get-ChildItem -Path $blasppInstall -Recurse `
     -Filter "blasppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `
     -and (Test-Provenance $blasppInstall $blasppSource)
@@ -699,7 +833,8 @@ $lapackppInstall = Join-Path $resolvedRoot "lapackpp-$backendId-install"
 # fix (PR #87); likewise not yet in a release. Declared once, as above.
 $lapackppUrl = "https://github.com/icl-utk-edu/lapackpp.git"
 $lapackppRef = "b9439cf3c26d1655d88e7f510ae8b4f82fbeb687"
-$lapackppSource = "$lapackppUrl@$lapackppRef"
+# LAPACK++ is built against BLAS++, so its stamp also carries the BLAS++ pin.
+$lapackppSource = "$lapackppUrl@$lapackppRef|blaspp@$blasppRef|$backendSignature"
 $lapackppReusable = (Test-Path $lapackppInstall) -and (Get-ChildItem -Path $lapackppInstall -Recurse `
     -Filter "lapackppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `
     -and (Test-Provenance $lapackppInstall $lapackppSource)
@@ -732,8 +867,10 @@ $lapackppDir = Find-PackageConfigDirectory $lapackppInstall "lapackpp"
 Export-GitHubValue "RANDNLA_BLAS_BACKEND" $Backend
 if ($backendBin -ne "") { Export-GitHubValue "RANDNLA_BLAS_BIN" $backendBin }
 if ($Backend -eq "mkl") {
-    # MKLROOT is what RandBLAS's MKL_sparse.cmake probes for mkl_spblas.h;
-    # its absence on other backends is what turns the MKL sparse path off.
+    # MKLROOT is what RandBLAS's MKL_sparse.cmake probes for mkl_spblas.h
+    # (it also requires BLAS_HAVE_MKL from BLAS++, which these builds do not
+    # get yet; see above); its absence on other backends keeps the MKL
+    # sparse path off.
     Export-GitHubValue "MKLROOT" (Convert-ToCMakePath $mklRoot)
     Export-GitHubValue "MKL_BIN" $mklBin
 }
@@ -742,7 +879,10 @@ Export-GitHubValue "Random123_DIR" (Convert-ToCMakePath (Join-Path $random123Ins
 Export-GitHubValue "blaspp_DIR" (Convert-ToCMakePath $blasppDir)
 Export-GitHubValue "lapackpp_DIR" (Convert-ToCMakePath $lapackppDir)
 if ($env:GITHUB_PATH -and $backendBin -ne "") {
-    Add-Content -Path $env:GITHUB_PATH -Value $backendBin
+    # GITHUB_PATH takes one directory per line.
+    foreach ($dir in ($backendBin -split ';' | Where-Object { $_ -ne "" })) {
+        Add-Content -Path $env:GITHUB_PATH -Value $dir
+    }
 }
 
 Write-Host "All native Windows dependencies are ready under $resolvedRoot"

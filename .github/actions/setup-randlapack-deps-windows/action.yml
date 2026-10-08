@@ -1,9 +1,11 @@
 name: setup-randlapack-deps-windows
 description: >
   Builds/restores RandLAPACK's native Windows dependencies (a BLAS/LAPACK
-  backend -- oneMKL from Intel's NuGet packages or OpenBLAS release binaries --
-  plus GoogleTest, Random123, BLAS++, LAPACK++) and exports their locations as
-  environment variables (RANDNLA_BLAS_BACKEND, RANDNLA_BLAS_BIN, MKLROOT for
+  backend, either oneMKL with Intel OpenMP from Intel's NuGet packages or the
+  OpenBLAS release binaries, plus GoogleTest, Random123, BLAS++, LAPACK++)
+  and exports their locations as
+  environment variables (RANDNLA_BLAS_BACKEND, RANDNLA_BLAS_BIN (a
+  semicolon-separated list of DLL directories), MKLROOT for
   mkl, googletest_PREFIX, Random123_DIR, blaspp_DIR, lapackpp_DIR). Requires an
   initialized MSVC environment (ilammy/msvc-dev-cmd).
 
@@ -39,6 +41,15 @@ runs:
         path: ${{ github.workspace }}\..\windows-deps\onemkl-2026.1.0.226
         key: windows-nuget-intel-mkl-2026.1.0.226-r1
 
+    # Intel OpenMP for oneMKL's threading layer; the version in `path` must
+    # match $iompVersion in setup.ps1, for the same reason as above.
+    - name: cache Intel OpenMP (NuGet)
+      if: inputs.blas-backend == 'mkl'
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}\..\windows-deps\intel-openmp-2026.1.0.239
+        key: windows-nuget-intel-openmp-2026.1.0.239-r1
+
     - name: cache OpenBLAS (release binaries)
       if: inputs.blas-backend == 'openblas'
       uses: actions/cache@v4
@@ -70,13 +81,13 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\blaspp-${{ inputs.blas-backend }}-install
-        key: windows-msvc-blaspp-upstream-3057185-${{ inputs.blas-backend }}-ninja-r2
+        key: windows-msvc-blaspp-upstream-2d8d4e9-${{ inputs.blas-backend }}-ninja-r3
 
     - name: cache LAPACK++
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\lapackpp-${{ inputs.blas-backend }}-install
-        key: windows-msvc-lapackpp-upstream-40b9d0d-${{ inputs.blas-backend }}-ninja-r2
+        key: windows-msvc-lapackpp-upstream-b9439cf-${{ inputs.blas-backend }}-ninja-r3
 
     - name: build missing dependencies
       shell: pwsh
