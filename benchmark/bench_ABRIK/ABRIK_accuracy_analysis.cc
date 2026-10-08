@@ -27,6 +27,13 @@ and against GESDD's triplet:
             The sine of the angle between two unit vectors is |R(2,2)| of the Householder
             QR factorization of [x1, x2], exact to O(eps); sqrt(1 - (x1'x2)^2) floors at
             sqrt(eps) by cancellation once the vectors nearly coincide.
+  sval_pyth sqrt(|s_gesdd_i^2 - s_abrik_i^2|) / s_gesdd_i, formed as
+            sqrt(|s_gesdd_i - s_abrik_i| (s_gesdd_i + s_abrik_i)) / s_gesdd_i. This is the
+            singular-value error on the scale of the residual: sval_diff is quadratic in
+            res_err, sval_pyth is linear in it. Its floor is about sqrt(2 eps), because at
+            rounding level it is the square root of a relative error.
+  s_abrik, s_gesdd  the two singular values themselves, so any other singular-value metric
+            can be formed from the CSV without a rerun.
 
 The GESDD residual columns do not depend on the run; they are a baseline for the metrics
 themselves: for a backward-stable SVD, res_err_gesdd and res_1s_gesdd are of order
@@ -50,7 +57,7 @@ early or its rank criterion narrows a block.
 
 Output CSV: '#' metadata lines, the column header
   run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, res_sw_abrik, res_sw_gesdd,
-  res_1s_abrik, res_1s_gesdd
+  res_1s_abrik, res_1s_gesdd, s_abrik, s_gesdd, sval_pyth
 then one row per (run, triplet). The GESDD time and each run's ABRIK time and triplet
 count are '#' lines after the column header.
 
@@ -165,8 +172,9 @@ static int run_analysis(int argc, char* argv[]) {
          << "# res_sw = sqrt(||Av-su||^2 + ||A'u-sv||^2) (two-sided absolute, Tropp and Webber eq. 6.1)\n"
          << "# res_1s = ||Av-su|| / s (one-sided normalized, Tomas, Quintana-Orti and Anzt Sec. 4.1.1)\n"
          << "# sval_diff = |s_abrik - s_gesdd| / s_gesdd; svec_diff = sqrt((sin^2 u-angle + sin^2 v-angle) / 2), sines via Householder QR\n"
+         << "# sval_pyth = sqrt(|s_gesdd^2 - s_abrik^2|) / s_gesdd (singular-value error on the residual's scale; floor about sqrt(2 eps))\n"
          << "run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, "
-            "res_sw_abrik, res_sw_gesdd, res_1s_abrik, res_1s_gesdd\n";
+            "res_sw_abrik, res_sw_gesdd, res_1s_abrik, res_1s_gesdd, s_abrik, s_gesdd, sval_pyth\n";
     file.flush();
 
     // GESDD once, on a copy since it destroys its input. Economy shapes: U_g is m x r,
@@ -240,6 +248,7 @@ static int run_analysis(int argc, char* argv[]) {
             T res_abrik = per_triplet_residuals(A, m, n, u_a, v_a, S_a[i], scratch_m, scratch_n, sw_abrik, os_abrik);
             T res_gesdd = per_triplet_residuals(A, m, n, u_g, v_g, S_g[i], scratch_m, scratch_n, sw_gesdd, os_gesdd);
             T sval_diff = std::abs(S_a[i] - S_g[i]) / S_g[i];
+            T sval_pyth = std::sqrt(std::abs(S_g[i] - S_a[i]) * (S_g[i] + S_a[i])) / S_g[i];
             T sin_u = sin_angle_via_qr(u_g, u_a, m, qr_buf_u, tau_u);
             T sin_v = sin_angle_via_qr(v_g, v_a, n, qr_buf_v, tau_v);
             T svec_diff = std::sqrt((sin_u * sin_u + sin_v * sin_v) / 2);
@@ -248,7 +257,9 @@ static int run_analysis(int argc, char* argv[]) {
                  << res_abrik << ", " << res_gesdd << ", "
                  << sval_diff << ", " << svec_diff << ", "
                  << sw_abrik << ", " << sw_gesdd << ", "
-                 << os_abrik << ", " << os_gesdd << "\n";
+                 << os_abrik << ", " << os_gesdd << ", "
+                 << std::setprecision(17) << S_a[i] << ", " << S_g[i] << ", "
+                 << std::setprecision(15) << sval_pyth << "\n";
             file.flush();
             if ((i + 1) % 50 == 0)
                 printf("  Processed triplet %ld / %ld\n", (long) (i + 1), (long) k_a);
