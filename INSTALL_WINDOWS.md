@@ -88,12 +88,15 @@ installer does differently:
 | Getting BLAS/LAPACK | you install one first (`apt install libopenblas-dev`, `brew install openblas`); the installer errors without it | no system location for libraries exists, so the installer discovers an existing oneMKL and otherwise fetches a pinned copy into the project directory. Pass `-NoDownload` for the Linux/macOS behavior |
 | Where the compiler lives | `gcc`/`clang` always on PATH | MSVC (`cl.exe`) exists only inside a "Developer" shell that Visual Studio sets up per session |
 | Finding shared libraries at run time | the binary itself remembers where its libraries are (RPATH), plus system-wide loader paths | executables have no such memory; Windows searches the executable's **own directory first** and PATH **last**, so the installer copies ("stages") every needed DLL next to each executable |
-| Default BLAS backend | OpenBLAS (Linux CI), Accelerate (macOS CI) | Intel oneMKL, ILP64 sequential (fastest on typical Windows x64 machines, and enables RandBLAS's MKL-accelerated sparse routines) |
+| Default BLAS backend | OpenBLAS (Linux CI), Accelerate (macOS CI) | Intel oneMKL, ILP64, multithreaded through Intel's OpenMP runtime |
 
-Two smaller differences: OpenMP with MSVC needs the `/openmp:llvm` runtime
+A few smaller differences: OpenMP with MSVC needs the `/openmp:llvm` mode
 (the only MSVC mode that accepts RandLAPACK's 64-bit loop indices), which the
-build selects automatically; and GPU support is not available on native
-Windows. The build tool is Ninja everywhere, which Visual Studio bundles.
+build selects automatically; with oneMKL, RandLAPACK's OpenMP code runs on
+Intel's OpenMP runtime, the one oneMKL's threading layer uses, so a single
+thread pool serves both (on Linux, GCC's runtime plays that role); and GPU
+support is not available on native Windows. The build tool is Ninja
+everywhere, which Visual Studio bundles.
 
 The practical consequence of the third row is worth internalizing: **on
 Windows you never need to edit PATH for RandLAPACK**. If an executable is
@@ -178,15 +181,21 @@ on a BLAS/LAPACK library of your choice. On Windows the installer supports:
 
 | Backend | Flag | What you get | How it is obtained |
 |---|---|---|---|
-| **oneMKL** (default) | none needed | fastest option on most x64 CPUs; 64-bit integers (ILP64); MKL-accelerated sparse routines in RandBLAS | discovered from an existing install via `-MklRoot`, `MKLROOT`, `ONEAPI_ROOT`, or the default oneAPI location; otherwise Intel's official NuGet packages are downloaded, pinned by version and SHA256. `-NoDownload` turns "not found" into an error |
-| **OpenBLAS** | `-Backend openblas` | solid free backend; 32-bit integers (LP64); RandBLAS's portable sparse fallbacks replace the MKL-only accelerations | official OpenBLAS release binaries, pinned and checksum-verified; the archive is self-contained and includes full LAPACK |
+| **oneMKL** (default) | none needed | multithreaded through Intel's OpenMP runtime; 64-bit integers (ILP64) | discovered from an existing install via `-MklRoot`, `MKLROOT`, `ONEAPI_ROOT`, or the default oneAPI location; otherwise Intel's official NuGet packages are downloaded, pinned by version and SHA256. Intel's OpenMP runtime comes from the same oneAPI install, or else from its own pinned NuGet packages (~2 MB). `-NoDownload` turns "not found" into an error |
+| **OpenBLAS** | `-Backend openblas` | solid free backend; multithreaded with its own thread pool; 32-bit integers (LP64) | official OpenBLAS release binaries, pinned and checksum-verified; the archive is self-contained and includes full LAPACK |
 | **Custom / bring-your-own** | `-Backend custom -BlasLibraries <paths>` | anything BLAS++/LAPACK++ can link -- e.g. AMD AOCL, a local ILP64 OpenBLAS build | you provide the import libraries (and their DLL directory via `-BackendBinDir`); the installer verifies them with a small link-and-run check before building anything |
 
 **ILP64 and LP64** describe the integer width a BLAS library uses for matrix
-dimensions -- 64-bit and 32-bit respectively. It matters only if you mix
-libraries built for different widths; the installer keeps it consistent for
-you, and the practical difference is that ILP64 lets RandBLAS use oneMKL's
-accelerated sparse routines.
+dimensions: 64-bit and 32-bit respectively. Mixing libraries built for
+different widths breaks silently, which is why the installer keeps the width
+consistent for you. Beyond that, the practical difference is that LP64 caps
+every single matrix dimension at 2^31 - 1 (about 2.1 billion).
+
+RandBLAS's MKL-accelerated sparse routines are not active in the
+installer's Windows builds yet: BLAS++ marks oneMKL as MKL only when `mkl.h`
+is on the compiler's INCLUDE path while it is configured (for example in a
+oneAPI `setvars` shell), which the installer does not arrange, so RandBLAS
+uses its portable sparse code.
 
 ### When no oneMKL is found
 
@@ -228,18 +237,21 @@ version, and is verified by checksum where the source publishes archives:
 | Component | Version | Source | Verified by |
 |---|---|---|---|
 | Intel oneMKL | **2026.1.0.226** | `intelmkl.devel/redist.win-x64` on nuget.org | SHA256 |
+| Intel OpenMP (for oneMKL) | **2026.1.0.239** | `intelopenmp.devel/redist.win` on nuget.org | SHA256 |
 | OpenBLAS | **0.3.34** | official GitHub release binaries | SHA256 |
 | GoogleTest | **v1.18.0** | release tag | git tag |
 | Random123 | **v1.14.0** | release tag | git tag |
-| BLAS++ | commit `3057185` | icl-utk-edu/blaspp | git commit |
-| LAPACK++ | commit `40b9d0d` | icl-utk-edu/lapackpp | git commit |
+| BLAS++ | commit `2d8d4e9` | icl-utk-edu/blaspp | git commit |
+| LAPACK++ | commit `b9439cf` | icl-utk-edu/lapackpp | git commit |
 
 All are fetched from the project's canonical upstream and pinned to an immutable reference, so
 a given RandLAPACK revision always builds the same dependency versions.
 
 **oneMKL is only downloaded if you do not already have one.** If an existing oneAPI is
-discovered (§4), the installer uses *your* version, whatever that is, and downloads nothing.
-The version above therefore applies only to the no-oneMKL case.
+discovered (§4), the installer uses *your* version, whatever that is, together with the Intel
+OpenMP runtime from the same install; only if that install has no Intel OpenMP beside it is the
+pinned Intel OpenMP (~2 MB) fetched alone. The oneMKL version above therefore applies only to the
+no-oneMKL case.
 
 **Two deliberate exceptions to "pin a stable release".** BLAS++ and LAPACK++ are pinned to
 commits rather than to their latest release, `v2025.05.28`, because that release predates the
@@ -257,17 +269,19 @@ a stable, released version.
 -MklRoot <path>       Use this specific oneMKL install (oneAPI layout);
                       skips discovery. Backend mkl only. Invalid paths are
                       an error, never a silent fallback to something else.
--NoDownload           Fail instead of downloading a backend that was not
+-NoDownload           Fail instead of downloading a backend (or the Intel
+                      OpenMP runtime oneMKL needs) that was not
                       found locally. The default fetches one into
                       <ProjectDir>; nothing is installed system-wide, and
                       deleting <ProjectDir> removes it. With -Backend
                       openblas this always fails, because OpenBLAS has no
                       canonical Windows location to discover -- use
                       -Backend custom to supply your own.
--NoOpenMP             Build serially. The default enables OpenMP through
-                      MSVC's /openmp:llvm runtime, the only mode that
-                      accepts RandLAPACK's 64-bit loop indices; a serial
-                      build is fully functional too.
+-NoOpenMP             Build RandLAPACK's own loops serially; the BLAS
+                      backend keeps its own threading. The default enables
+                      OpenMP through MSVC's /openmp:llvm mode, the only
+                      one that accepts RandLAPACK's 64-bit loop indices; a
+                      serial build is fully functional too.
 -Yes                  Skip interactive questions, taking each documented
                       default. Questions are already skipped when stdin is
                       not a terminal, so CI never needs this.
@@ -277,9 +291,12 @@ a stable, released version.
 -BlasInt lp64|ilp64   Backend custom: the library's integer width (default lp64).
 -BlasFortran <name>   Backend custom: BLAS++ name-mangling hint (e.g. "add").
 -DependencyRoot <p>   Where the dependency stack lives (default: <ProjectDir>\install).
--Fresh                Reconfigure RandLAPACK from scratch (dependencies are
-                      still reused; delete <ProjectDir>\install subdirectories
-                      to force dependency rebuilds).
+-Fresh                Reconfigure RandLAPACK from scratch. Dependencies are
+                      still reused unless their pinned source or the backend
+                      libraries changed, in which case BLAS++/LAPACK++ are
+                      rebuilt automatically (as on the first run after an
+                      upgrade from a sequential-oneMKL install); delete
+                      <ProjectDir>\install subdirectories to force a rebuild.
 -SkipTests            Skip the test suite.
 ```
 
@@ -319,8 +336,9 @@ target_link_libraries(myprog RandLAPACK)
 randlapack_stage_runtime_dlls(myprog)   # no-op on non-Windows platforms
 ```
 
-If you prefer not to use the helper, copy the DLLs from the backend's `bin`
-directory (the installer prints it at the end) next to your `.exe`.
+If you prefer not to use the helper, copy the DLLs from the backend's DLL
+directories (the installer prints them at the end; with oneMKL there are two,
+oneMKL's `bin` and Intel OpenMP's) next to your `.exe`.
 
 ## 8. Troubleshooting
 
@@ -341,6 +359,11 @@ directory (the installer prints it at the end) next to your `.exe`.
   almost always the 32-bit shell above, on a version of the installer that
   predates the preflight check. The x86 linker rejects the x64 import
   library, and BLAS++ can only report that its probe did not link.
+- **Tests run far slower with `ctest -j N`**: with oneMKL each test
+  process starts a full set of threads (one per core), so N processes
+  oversubscribe the machine. Run `ctest` without `-j`, or set
+  `OMP_NUM_THREADS` to a small number for parallel test runs; it sizes the
+  thread pool that oneMKL and RandLAPACK's OpenMP code share.
 - **A download fails with a hash mismatch**: the pinned artifact changed
   upstream or the download was corrupted. Re-run once; if it persists, open
   an issue -- do not bypass the check.

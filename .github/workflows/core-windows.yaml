@@ -70,7 +70,8 @@ jobs:
     strategy:
       fail-fast: false
       # Deliberately small matrix (see docs/CI.md): the mkl legs cover the
-      # default backend serial + OpenMP; ONE openblas leg covers the non-MKL
+      # default backend serial + OpenMP ("serial" = RandLAPACK's own loops;
+      # oneMKL is multithreaded in both); ONE openblas leg covers the non-MKL
       # provisioning and LP64 build. No openblas-openmp (OpenMP x MSVC is
       # backend-orthogonal and already covered) and no Windows ASan lane.
       matrix:

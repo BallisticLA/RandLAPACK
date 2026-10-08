@@ -8,11 +8,12 @@
 # CI runs the setup-randlapack-deps-windows action first (for caching) and then
 # invokes this script without -SetupDependencies.
 #
-# OpenMP on MSVC uses the /openmp:llvm runtime, selected by RandBLAS's build
+# OpenMP on MSVC uses the /openmp:llvm mode, selected by RandBLAS's build
 # system (RandBLAS #184): it is the only MSVC mode that accepts RandLAPACK's
 # 64-bit loop indices and collapse clauses. Pass -OpenMP to enable it;
-# without the switch the build is serial (also fully functional --
-# RandLAPACK guards all OpenMP use).
+# without the switch RandLAPACK's own loops are serial (also fully
+# functional, since RandLAPACK guards all OpenMP use) while the BLAS backend
+# keeps its own threading.
 
 [CmdletBinding()]
 param(

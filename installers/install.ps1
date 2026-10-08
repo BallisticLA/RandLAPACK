@@ -19,16 +19,20 @@
 #                       default touches nothing and prints the setx command.
 #   -Backend <name>     mkl (default) | openblas | custom. See setup.ps1.
 #   -MklRoot <path>     Use this oneMKL install instead of discovery.
-#   -NoDownload         Fail rather than download a backend that was not
+#   -NoDownload         Fail rather than download a backend (or the Intel
+#                       OpenMP runtime oneMKL needs) that was not
 #                       found locally. The default fetches one into
 #                       <ProjectDir>; nothing is installed system-wide.
 #   -Yes                Skip interactive questions, taking each default.
 #                       Already skipped when stdin is not a terminal.
-#   -NoOpenMP           Build serially. The default enables OpenMP through
-#                       MSVC's /openmp:llvm runtime.
+#   -NoOpenMP           Build RandLAPACK's own loops serially (the BLAS
+#                       backend keeps its own threading). The default enables
+#                       OpenMP through MSVC's /openmp:llvm mode.
 #   -Fresh              Reconfigure RandLAPACK from scratch. Dependencies are
-#                       always reused; delete <ProjectDir>\install to rebuild
-#                       them.
+#                       reused unless their pinned source or the backend
+#                       libraries changed (then BLAS++/LAPACK++ rebuild
+#                       automatically); delete <ProjectDir>\install to force
+#                       a rebuild.
 #   -SkipTests          Do not run the test suite after building.
 #   -BlasLibraries / -LapackLibraries / -BackendBinDir / -BlasInt / -BlasFortran
 #                       Backend custom only; see setup.ps1's header.
@@ -186,9 +190,11 @@ $configureArgs = @(
     "-DCMAKE_PREFIX_PATH=$env:googletest_PREFIX",
     "-DRANDLAPACK_RUNTIME_DLL_DIRS=$stageDllDirs")
 # OpenMP is ON by default. RandLAPACK's CMake selects MSVC's /openmp:llvm
-# runtime, the only mode that accepts its 64-bit loop indices and collapse
-# clauses; core-windows exercises that configuration on every run. -NoOpenMP
-# builds serially, which is also fully functional.
+# mode, the only one that accepts its 64-bit loop indices and collapse
+# clauses; core-windows exercises that configuration on every run. With the
+# oneMKL backend the OpenMP calls resolve to Intel's runtime, shared with
+# oneMKL's threading layer (see setup.ps1). -NoOpenMP builds RandLAPACK's own
+# loops serially, which is also fully functional.
 if ($NoOpenMP) { $configureArgs += "-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE" }
 Invoke-Checked "cmake" $configureArgs
 Invoke-Checked "cmake" @("--build", $buildDir, "--target", "install")
@@ -224,9 +230,12 @@ if (-not $ModifyEnvironment) {
     Write-Host ""
 }
 if ($env:RANDNLA_BLAS_BIN) {
-    Write-Host "Runtime DLLs from $env:RANDNLA_BLAS_BIN are staged next to RandLAPACK's"
-    Write-Host "test and benchmark executables automatically -- no PATH changes needed."
+    Write-Host "Runtime DLLs from these directories are staged next to RandLAPACK's"
+    Write-Host "test and benchmark executables automatically (no PATH changes needed):"
+    foreach ($dllDir in ($env:RANDNLA_BLAS_BIN -split ';' | Where-Object { $_ -ne "" })) {
+        Write-Host "    $dllDir"
+    }
     Write-Host "For your own executables: find_package(RandLAPACK), then call"
     Write-Host "randlapack_stage_runtime_dlls(<your_target>) in your CMakeLists, or copy"
-    Write-Host "the DLLs from that directory beside your .exe."
+    Write-Host "the DLLs from all of those directories beside your .exe."
 }
