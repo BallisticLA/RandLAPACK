@@ -12,15 +12,28 @@
 #      alongside each executable.
 #
 # With both in place, staged executables run without any PATH preparation.
-set(RANDLAPACK_RUNTIME_DLL_DIRS "" CACHE STRING
-    "Semicolon-separated directories whose DLLs are staged beside RandLAPACK executables on Windows.")
+#
+# Declare the cache entry only when no value exists yet. RandLAPACKConfig.cmake
+# sets a normal variable to the directories recorded when RandLAPACK was
+# configured and then includes this file; in a consumer whose
+# cmake_minimum_required is below 3.21 (policy CMP0126 OLD), declaring the
+# cache entry on a fresh configure deletes that normal variable and the
+# backend DLLs are silently not staged.
+if (NOT DEFINED RANDLAPACK_RUNTIME_DLL_DIRS)
+    set(RANDLAPACK_RUNTIME_DLL_DIRS "" CACHE STRING
+        "Semicolon-separated directories whose DLLs are staged beside RandLAPACK executables on Windows.")
+endif()
 
 function(randlapack_stage_runtime_dlls target)
     if (WIN32)
+        # TARGET_RUNTIME_DLLS is empty when every dependency is static, and
+        # copy_if_different given only a destination fails the build; run a
+        # no-op instead in that case.
         add_custom_command(
             TARGET ${target}
             POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            COMMAND ${CMAKE_COMMAND} -E
+                    $<IF:$<BOOL:$<TARGET_RUNTIME_DLLS:${target}>>,copy_if_different,true>
                     $<TARGET_RUNTIME_DLLS:${target}>
                     $<TARGET_FILE_DIR:${target}>
             COMMAND_EXPAND_LISTS
