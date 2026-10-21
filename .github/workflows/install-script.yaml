@@ -148,9 +148,10 @@ jobs:
         run: |
           set -euo pipefail
           bash RandLAPACK/install.sh --yes --no-gpu | tee installer.out
-          # LP64 for now: Accelerate ILP64 is blocked on an upstream LAPACK++
-          # compile bug (icl-utk-edu/lapackpp#89; tracked in issue #173).
-          grep -qE '^  Backend  *accelerate, LP64' installer.out
+          # ILP64 through Apple's new interface, proving issue #173 is closed
+          # (needs the LAPACK++ pin at or past icl-utk-edu/lapackpp#89's fix).
+          grep -qE '^  Backend  *accelerate, ILP64' installer.out
+          grep -q '^#define BLAS_ILP64' RandNLA-project/install/blaspp-accelerate-cpu-install/include/blas/defines.h
 
       - name: test the installed library
         run: |
@@ -159,6 +160,14 @@ jobs:
 
       - name: re-run the installer in place (idempotency)
         run: bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu
+
+      # An explicit --blas-int=ilp64 used to be refused for Accelerate (issue
+      # #173). In place, the ILP64 dependencies are reused, so this is cheap.
+      - name: an explicit --blas-int=ilp64 is accepted
+        run: |
+          set -euo pipefail
+          bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu --blas-int=ilp64 | tee ilp64.out
+          grep -qE '^  Backend  *accelerate, ILP64' ilp64.out
 
       # Homebrew OpenBLAS remains a supported route; keep it exercised.
       - name: install with --blas=openblas into a second project
@@ -173,6 +182,40 @@ jobs:
 
       # The installer sends each step's full output to install.log and prints
       # only progress lines, so on failure the log holds the actual error.
+      - name: show install.log on failure
+        if: failure()
+        run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
+
+  # The explicit-LP64 route on Accelerate stays supported and tested: with
+  # the default now resolving to ILP64, this is the one installer lane that
+  # still builds it (core-macos covers it without the installer).
+  install-macos-lp64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+
+      - name: configure OS
+        run: brew install googletest libomp
+
+      - name: run the installer with --blas-int=lp64
+        run: |
+          set -euo pipefail
+          bash RandLAPACK/install.sh --yes --no-gpu --blas-int=lp64 \
+              --no-extras --no-benchmarks | tee installer.out
+          grep -qE '^  Backend  *accelerate, LP64' installer.out
+          defines=RandNLA-project/install/blaspp-accelerate-cpu-install/include/blas/defines.h
+          grep -q 'ACCELERATE_NEW_LAPACK' "$defines"
+          if grep -q '^#define BLAS_ILP64' "$defines"; then
+            echo "::error::--blas-int=lp64 produced an ILP64 BLAS++"; exit 1
+          fi
+
+      - name: test the installed library
+        run: |
+          ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --output-on-failure
+
       - name: show install.log on failure
         if: failure()
         run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
