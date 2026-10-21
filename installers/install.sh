@@ -463,10 +463,16 @@ clone_pinned() {  # <url> <dest> <ref>
     local url="$1" dest="$2" ref="$3"
     rm -rf "$dest"
     mkdir -p "$dest"
-    git -C "$dest" init --quiet
-    git -C "$dest" remote add origin "$url"
-    git -C "$dest" fetch --quiet --depth 1 origin "$ref"
-    git -C "$dest" checkout --quiet FETCH_HEAD
+    # Chained explicitly: run_step calls this inside an `if`, where set -e is
+    # off, so an unchained failed fetch would still reach write_stamp.
+    git -C "$dest" init --quiet &&
+        git -C "$dest" remote add origin "$url" &&
+        git -C "$dest" fetch --quiet --depth 1 origin "$ref" &&
+        git -C "$dest" checkout --quiet FETCH_HEAD || return 1
+    # A full commit hash must come back as itself: proof the fetch got it.
+    if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+        [[ "$(git -C "$dest" rev-parse HEAD)" == "$ref" ]] || return 1
+    fi
     write_stamp "$dest" "$url@$ref"
 }
 
@@ -474,19 +480,23 @@ source_is_current() { stamp_matches "$1" "$2@$3"; }
 
 #==============================================================================
 # Dependency pins. Immutable refs only: a tag or a full commit hash, never a
-# branch name. These match the refs this repository's own Windows provisioner
-# already validated, so the two halves of the project stop disagreeing about
-# what they build.
+# branch name. BLAS++ and LAPACK++ come from installers/dependency-pins.env,
+# the one file every build lane reads (this script, the Windows provisioner
+# and CI), so no two of them can disagree about what they build.
 #==============================================================================
-BLASPP_URL="https://github.com/icl-utk-edu/blaspp.git"
-# The commit that merged new-Apple-Accelerate support (blaspp PR #134,
-# 2026-08-27); also contains the MSVC portability fix (PR #132). Not in a
-# release yet -- the latest tag, v2025.05.28, predates both.
-BLASPP_REF="2d8d4e937ac46fffab33d4174a4fc7659726dbda"
-LAPACKPP_URL="https://github.com/icl-utk-edu/lapackpp.git"
-# The commit that merged the LAPACK++ half of new-Accelerate support
-# (lapackpp PR #88, 2026-08-27).
-LAPACKPP_REF="b9439cf3c26d1655d88e7f510ae8b4f82fbeb687"
+PINS_FILE="$SCRIPT_DIR/dependency-pins.env"
+[[ -f "$PINS_FILE" ]] || die "Missing $PINS_FILE; this clone looks incomplete."
+# Sourced, carriage returns stripped first: a checkout that ignored
+# .gitattributes has CRLF endings, which would put a \r into every value. eval
+# rather than `source <(...)`, which bash 3.2 (macOS) reads as empty.
+eval "$(tr -d '\r' < "$PINS_FILE")"
+for pin in BLASPP_REF LAPACKPP_REF; do
+    [[ "${!pin:-}" =~ ^[0-9a-f]{40}$ ]] \
+        || die "$PINS_FILE: $pin must be a full 40-character commit hash, not '${!pin:-}'."
+done
+for pin in BLASPP_URL LAPACKPP_URL; do
+    [[ -n "${!pin:-}" ]] || die "$PINS_FILE: $pin is empty."
+done
 RANDOM123_URL="https://github.com/DEShawResearch/Random123.git"
 RANDOM123_REF="v1.14.0"
 
@@ -705,7 +715,8 @@ fi
 # cannot stand in for a CPU-only one -- without it, switching --gpu to --no-gpu
 # silently reuses the wrong artifact.
 BLASPP_STAMP_BASE="$BLASPP_URL@$BLASPP_REF backend=$BLAS_BACKEND libs=$BLAS_LIBRARIES_ARG gpu=$RANDNLA_PROJECT_GPU_AVAIL"
-LAPACKPP_STAMP_BASE="$LAPACKPP_URL@$LAPACKPP_REF backend=$BLAS_BACKEND libs=$BLAS_LIBRARIES_ARG gpu=$RANDNLA_PROJECT_GPU_AVAIL"
+# LAPACK++ is built against BLAS++, so its stamp carries the BLAS++ pin too.
+LAPACKPP_STAMP_BASE="$LAPACKPP_URL@$LAPACKPP_REF blaspp=$BLASPP_URL@$BLASPP_REF backend=$BLAS_BACKEND libs=$BLAS_LIBRARIES_ARG gpu=$RANDNLA_PROJECT_GPU_AVAIL"
 RANDOM123_STAMP="$RANDOM123_URL@$RANDOM123_REF"
 
 #==============================================================================
@@ -869,7 +880,7 @@ if (( BUILD_LAPACKPP )); then
             local build="$RANDNLA_PROJECT_DIR/build/lapackpp-build"
             rm -rf "$build"; mkdir -p "$build"
             if ! source_is_current "$LAPACKPP_SRC" "$LAPACKPP_URL" "$LAPACKPP_REF"; then
-                clone_pinned "$LAPACKPP_URL" "$LAPACKPP_SRC" "$LAPACKPP_REF"
+                clone_pinned "$LAPACKPP_URL" "$LAPACKPP_SRC" "$LAPACKPP_REF" || return 1
             fi
             cmake -S "$LAPACKPP_SRC" -B "$build" \
                 -DCMAKE_BUILD_TYPE=Release \

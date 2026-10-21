@@ -44,17 +44,24 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -qq -y git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
 
+      # The BLAS++/LAPACK++ commits the installer will build, read from the
+      # same file it reads, for the cache key below.
+      - name: read dependency pins
+        id: pins
+        run: bash RandLAPACK/.github/scripts/dependency-pins.sh export RandLAPACK/installers/dependency-pins.env
+
       # blaspp/lapackpp/random123 rarely change; cache their installs keyed
-      # per-OS. On a cache hit the discovery env vars are seeded, so the
-      # installer's reuse path gets exercised; on a miss the full
-      # build-from-source path runs and the installs are copied out for the
-      # cache. Bump the -v suffix to force a from-scratch run.
+      # per-OS and on the BLAS++/LAPACK++ pins. On a cache hit the discovery
+      # env vars are seeded, so the installer's reuse path gets exercised --
+      # and that path does not check the pins, which is why the key must. On a
+      # miss the full build-from-source path runs and the installs are copied
+      # out for the cache. Bump the -v suffix to force a from-scratch run.
       - name: cache dependencies
         id: deps-cache
         uses: actions/cache@v4
         with:
           path: deps-install
-          key: installer-deps-${{ runner.os }}-v1
+          key: installer-deps-${{ runner.os }}-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       # Globbed rather than spelled out: dependency install directories carry
       # the backend and GPU configuration in their names (blaspp-openblas-cpu-install),

@@ -18,9 +18,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# BLAS++/LAPACK++/Random123 track their upstream default branches but change
-# rarely; their installs are cached below. Bump the -v suffix in the cache key
-# to force a rebuild against fresh upstream clones.
+# BLAS++ and LAPACK++ are fetched at the commits in
+# installers/dependency-pins.env, and the dependency cache key carries both
+# hashes, so changing a pin rebuilds them. Random123 still tracks its default
+# branch; bump the -v suffix in the cache key to refresh it.
 #
 # The RandBLAS submodule's own test suite is disabled (-DBUILD_TESTS=OFF):
 # the pinned commit is already tested by RandBLAS's CI, and rebuilding and
@@ -51,6 +52,10 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
           sudo apt update
 
+      - name: read dependency pins
+        id: pins
+        run: bash .github/scripts/dependency-pins.sh export installers/dependency-pins.env
+
       - name: cache dependencies
         id: deps-cache
         uses: actions/cache@v4
@@ -59,13 +64,16 @@ jobs:
             ${{ github.workspace }}/../blaspp-install
             ${{ github.workspace }}/../lapackpp-install
             ${{ github.workspace }}/../Random123-install
-          key: core-deps-${{ runner.os }}-v1
+          key: core-deps-${{ runner.os }}-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          BLASPP_URL: ${{ steps.pins.outputs.BLASPP_URL }}
+          BLASPP_REF: ${{ steps.pins.outputs.BLASPP_REF }}
         run: |
           cd ..
-          git clone https://github.com/icl-utk-edu/blaspp.git
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$BLASPP_URL" "$BLASPP_REF" blaspp
           mkdir blaspp-build
           cd blaspp-build
           pwd
@@ -82,9 +90,12 @@ jobs:
 
       - name: install LAPACK++
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          LAPACKPP_URL: ${{ steps.pins.outputs.LAPACKPP_URL }}
+          LAPACKPP_REF: ${{ steps.pins.outputs.LAPACKPP_REF }}
         run: |
           cd ..
-          git clone https://github.com/icl-utk-edu/lapackpp.git
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$LAPACKPP_URL" "$LAPACKPP_REF" lapackpp
           mkdir lapackpp-build
           cd lapackpp-build
           cmake -DCMAKE_BUILD_TYPE=Release \
@@ -151,6 +162,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -qq -y git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
 
+      - name: read dependency pins
+        id: pins
+        run: bash .github/scripts/dependency-pins.sh export installers/dependency-pins.env
+
       - name: cache dependencies
         id: deps-cache
         uses: actions/cache@v4
@@ -159,13 +174,16 @@ jobs:
             ${{ github.workspace }}/../blaspp-install
             ${{ github.workspace }}/../lapackpp-install
             ${{ github.workspace }}/../Random123-install
-          key: core-deps-${{ runner.os }}-v1
+          key: core-deps-${{ runner.os }}-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          BLASPP_URL: ${{ steps.pins.outputs.BLASPP_URL }}
+          BLASPP_REF: ${{ steps.pins.outputs.BLASPP_REF }}
         run: |
           cd ..
-          git clone https://github.com/icl-utk-edu/blaspp.git
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$BLASPP_URL" "$BLASPP_REF" blaspp
           mkdir blaspp-build
           cd blaspp-build
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
@@ -181,9 +199,12 @@ jobs:
 
       - name: install LAPACK++
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          LAPACKPP_URL: ${{ steps.pins.outputs.LAPACKPP_URL }}
+          LAPACKPP_REF: ${{ steps.pins.outputs.LAPACKPP_REF }}
         run: |
           cd ..
-          git clone https://github.com/icl-utk-edu/lapackpp.git
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$LAPACKPP_URL" "$LAPACKPP_REF" lapackpp
           mkdir lapackpp-build
           cd lapackpp-build
           cmake -DCMAKE_BUILD_TYPE=Release \

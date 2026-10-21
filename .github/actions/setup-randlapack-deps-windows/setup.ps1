@@ -6,14 +6,12 @@
 #     libraries
 #   - GoogleTest v1.18.0
 #   - Random123 (headers only)
-#   - BLAS++  from icl-utk-edu/blaspp   (upstream), pinned by commit
-#   - LAPACK++ from icl-utk-edu/lapackpp (upstream), pinned by commit
+#   - BLAS++ and LAPACK++ at the commits named in installers/dependency-pins.env
 #
-# Everything is fetched from its canonical upstream and pinned to an immutable
-# ref. The two one-line MSVC fixes this build needs merged upstream on
-# 2026-08-06 (icl-utk-edu/blaspp#132, icl-utk-edu/lapackpp#87), so the forks these
-# once pointed at are no longer needed. The pins are commits rather than tags
-# only because the latest release of each, v2025.05.28, predates those merges.
+# Everything is pinned to an immutable ref. BLAS++ and LAPACK++ come from the
+# BallisticLA forks, which carry fixes not yet merged upstream; the pins file
+# is shared with install.sh and the CI workflows, so every lane builds the
+# same commits.
 #
 # Every step is idempotent: work already present under -DependencyRoot (for
 # example, restored from a CI cache) is left alone. Run from an MSVC developer
@@ -93,6 +91,15 @@ if (-not (Test-Path $archHelper)) {
 }
 . $archHelper
 
+# The BLAS++/LAPACK++ pins, read up front so a damaged pins file fails before
+# anything is downloaded. The parser is shared with action.yml.
+$pinsHelper = Join-Path $PSScriptRoot "..\..\scripts\windows\dependency-pins.ps1"
+if (-not (Test-Path $pinsHelper)) {
+    throw "Missing $pinsHelper. This clone looks incomplete."
+}
+. $pinsHelper
+$pins = Read-DependencyPins (Join-Path $PSScriptRoot "..\..\..\installers\dependency-pins.env")
+
 function Convert-ToCMakePath {
     param([string]$Path)
     return $Path.Replace('\', '/')
@@ -167,6 +174,11 @@ function Clone-Pinned {
     Invoke-Checked "git" @("-C", $Destination, "remote", "add", "origin", $Url)
     Invoke-Checked "git" @("-C", $Destination, "fetch", "--quiet", "--depth", "1", "origin", $Ref)
     Invoke-Checked "git" @("-C", $Destination, "checkout", "--quiet", "FETCH_HEAD")
+    # A full commit hash must come back as itself: proof the fetch got it.
+    if ($Ref -cmatch '^[0-9a-f]{40}$') {
+        $head = (& git -C $Destination rev-parse HEAD)
+        if ($head -ne $Ref) { throw "$Destination is at $head after fetching $Url@$Ref." }
+    }
 }
 
 function Test-Provenance {
@@ -786,13 +798,10 @@ if (Test-Path (Join-Path $random123Install "include\Random123\philox.h")) {
 $blasppInstall = Join-Path $resolvedRoot "blaspp-$backendId-install"
 # Reuse only on an intact install: a partially restored cache directory must
 # trigger a rebuild, not silently skip it.
-# Upstream, pinned to the commit that merged new-Apple-Accelerate support
-# (PR #134, 2026-08-27), which also contains the MSVC fix (PR #132). Not in a
-# release yet: the latest tag, v2025.05.28, predates both. Move to a tag once
-# one includes them. Declared once and used for both the clone and the reuse
-# stamp, so the two cannot drift.
-$blasppUrl = "https://github.com/icl-utk-edu/blaspp.git"
-$blasppRef = "2d8d4e937ac46fffab33d4174a4fc7659726dbda"
+# The commit pinned in installers/dependency-pins.env. Declared once and used
+# for both the clone and the reuse stamp, so the two cannot drift.
+$blasppUrl = $pins.BLASPP_URL
+$blasppRef = $pins.BLASPP_REF
 $blasppSource = "$blasppUrl@$blasppRef|$backendSignature"
 $blasppReusable = (Test-Path $blasppInstall) -and (Get-ChildItem -Path $blasppInstall -Recurse `
     -Filter "blasppConfig.cmake" -ErrorAction SilentlyContinue | Select-Object -First 1) `
@@ -828,11 +837,9 @@ $blasppDir = Find-PackageConfigDirectory $blasppInstall "blaspp"
 # --------------------------------------------------------------- LAPACK++ ----
 
 $lapackppInstall = Join-Path $resolvedRoot "lapackpp-$backendId-install"
-# Upstream, pinned to the commit that merged the LAPACK++ half of
-# new-Accelerate support (PR #88, 2026-08-27), which also contains the MSVC
-# fix (PR #87); likewise not yet in a release. Declared once, as above.
-$lapackppUrl = "https://github.com/icl-utk-edu/lapackpp.git"
-$lapackppRef = "b9439cf3c26d1655d88e7f510ae8b4f82fbeb687"
+# Pinned in installers/dependency-pins.env as well; declared once, as above.
+$lapackppUrl = $pins.LAPACKPP_URL
+$lapackppRef = $pins.LAPACKPP_REF
 # LAPACK++ is built against BLAS++, so its stamp also carries the BLAS++ pin.
 $lapackppSource = "$lapackppUrl@$lapackppRef|blaspp@$blasppRef|$backendSignature"
 $lapackppReusable = (Test-Path $lapackppInstall) -and (Get-ChildItem -Path $lapackppInstall -Recurse `

@@ -22,8 +22,20 @@ inputs:
 runs:
   using: composite
   steps:
+    # The BLAS++/LAPACK++ commits from installers/dependency-pins.env, found
+    # relative to this action so both checkout layouts (the repo root, and
+    # RandLAPACK\ in install-script) read the same file. Their hashes go into
+    # the BLAS++/LAPACK++ cache keys below, so changing a pin rebuilds both.
+    - name: read dependency pins
+      id: pins
+      shell: pwsh
+      run: |
+        . "$env:GITHUB_ACTION_PATH/../../scripts/windows/dependency-pins.ps1"
+        Export-DependencyPins "$env:GITHUB_ACTION_PATH/../../../installers/dependency-pins.env"
+
     # Cache keys use MANUAL revision literals (-r<N>), bumped here whenever
-    # the corresponding recipe in setup.ps1 changes. Do NOT key on
+    # the corresponding recipe in setup.ps1 changes, plus the pinned commit
+    # hashes from the step above. Do NOT key on
     # hashFiles(): it resolves paths relative to GITHUB_WORKSPACE, and the
     # install-script workflow checks this repo out under RandLAPACK\, where
     # the glob matches nothing and hashFiles() silently returns "" -- the two
@@ -81,13 +93,14 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\blaspp-${{ inputs.blas-backend }}-install
-        key: windows-msvc-blaspp-upstream-2d8d4e9-${{ inputs.blas-backend }}-ninja-r3
+        key: windows-msvc-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-${{ inputs.blas-backend }}-ninja-r4
 
+    # LAPACK++ is built against BLAS++, so its key carries both pins.
     - name: cache LAPACK++
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}\..\windows-deps\lapackpp-${{ inputs.blas-backend }}-install
-        key: windows-msvc-lapackpp-upstream-b9439cf-${{ inputs.blas-backend }}-ninja-r3
+        key: windows-msvc-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-${{ inputs.blas-backend }}-ninja-r4
 
     - name: build missing dependencies
       shell: pwsh
