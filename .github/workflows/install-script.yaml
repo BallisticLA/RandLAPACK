@@ -83,6 +83,16 @@ jobs:
           set -euo pipefail
           bash RandLAPACK/install.sh --yes --no-gpu 2>&1 | tee installer.out
 
+      # apt's OpenBLAS is LP64, so the ILP64-first width policy must fall back
+      # and, when it built BLAS++ itself (a cache miss), say that it did.
+      - name: the reported integer width matches the backend
+        run: |
+          set -euo pipefail
+          grep -qE '^  Backend  *openblas, LP64' installer.out
+          if [ "${{ steps.deps-cache.outputs.cache-hit }}" != "true" ]; then
+            grep -q 'No ILP64 openblas was available' installer.out
+          fi
+
       # Redirected output must carry no ANSI escapes and no carriage returns.
       # The installer draws a progress bar on a terminal; without this check,
       # that bar could start filling install.log and every CI transcript with
@@ -127,6 +137,47 @@ jobs:
 
       # The installer sends each step's full output to install.log and prints
       # only progress lines, so on failure the log holds the actual error.
+      - name: show install.log on failure
+        if: failure()
+        run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
+
+  # ILP64 OpenBLAS through BLAS++'s own discovery (icl-utk-edu/blaspp#129):
+  # with Debian/Ubuntu's libopenblas64 as the only OpenBLAS, --blas=openblas
+  # must resolve to ILP64. An LP64 libopenblas beside it would be tried first
+  # and win (INSTALL_SCRIPT.md, section 6.2), so the lane checks there is none.
+  install-linux-openblas64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+
+      - name: configure OS
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND="noninteractive"
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y git-core gcc g++ gfortran cmake libgtest-dev libopenblas64-openmp-dev
+          if [ "$(gcc -print-file-name=libopenblas.so)" != "libopenblas.so" ]; then
+            echo "::error::an LP64 libopenblas is on the link path; this lane needs libopenblas64 alone"
+            exit 1
+          fi
+
+      - name: run the installer (non-interactive)
+        run: |
+          set -euo pipefail
+          bash RandLAPACK/install.sh --yes --no-gpu --blas=openblas \
+              --no-extras --no-benchmarks 2>&1 | tee installer.out
+          grep -qE '^  Backend  *openblas, ILP64' installer.out
+          grep -q '^#define BLAS_ILP64' RandNLA-project/install/blaspp-openblas-cpu-install/include/blas/defines.h
+          lib="$(find RandNLA-project/install/blaspp-openblas-cpu-install -name 'libblaspp.so' | head -n1)"
+          ldd "$lib" | grep -q 'libopenblas64'
+
+      - name: test the installed library
+        run: |
+          ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --output-on-failure
+
       - name: show install.log on failure
         if: failure()
         run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true

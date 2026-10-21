@@ -342,6 +342,7 @@ well work; it is simply untested.
 | OS | Compiler | BLAS backend | Integer width | GPU | OpenMP |
 |---|---|---|---|---|---|
 | Ubuntu (latest) | gcc | OpenBLAS | LP64 | none | yes |
+| Ubuntu (latest) | gcc | OpenBLAS (`libopenblas64` only) | ILP64 | none | yes |
 | Ubuntu (latest) | gcc | oneMKL | ILP64 | none | yes |
 | Ubuntu (latest) | clang | OpenBLAS | LP64 | none | yes |
 | macOS 14/15 | Apple Clang | Accelerate (new interface) | ILP64 | none | no (see below) |
@@ -368,20 +369,23 @@ backend can genuinely provide it:
 | `--blas=` | Width you get | Why |
 |---|---|---|
 | `mkl` | ILP64 | `mkl_intel_ilp64` is a separate library, so requesting it actually selects it |
-| `openblas` | LP64, with a warning | there is only `-lopenblas`, so the request selects nothing |
+| `openblas` | LP64 with a warning, or ILP64 when `libopenblas64` is the only OpenBLAS installed | BLAS++ tries plain `-lopenblas` first; see below |
 | `accelerate` | ILP64 | Apple's new interface (macOS >= 13.3) ships ILP64 in the framework; BLAS++ selects it (`icl-utk-edu/blaspp#134`) and LAPACK++ compiles against it (`icl-utk-edu/lapackpp#90`). Older macOS lacks the new interface entirely, and the installer refuses the legacy one (see 6.4) |
 | `custom` | whatever you pass | you named the library, so its width is yours to state |
 
-The OpenBLAS row deserves explaining, because it is counter-intuitive. BLAS++
-probes `int32` before `int64`, and `blas_int` only filters which *library names*
-to consider. With one candidate name, a plain LP64 OpenBLAS passes the `int32`
-probe and is accepted — so a successful `blas_int=int64` configure proves
-nothing. The installer therefore reads the width back out of BLAS++'s generated
+The OpenBLAS row deserves explaining, because it is counter-intuitive. The
+pinned BLAS++ looks for plain `-lopenblas` first and for the ILP64
+`-lopenblas64` second (`icl-utk-edu/blaspp#129`). Its `int64` BLAS probe cannot
+tell the widths apart, so an LP64 `libopenblas` passes it by accident; the
+LAPACK probe then catches the mismatch and fails the whole configure, before
+`-lopenblas64` is ever tried. The installer then falls back to LP64 and says
+so. With `libopenblas64` as the only OpenBLAS installed (on Debian/Ubuntu,
+`libopenblas64-dev` without `libopenblas-dev`), `--blas=openblas` gives ILP64.
+Either way the installer reads the width back out of BLAS++'s generated
 `blas/defines.h` after building, and reports what was actually produced.
 
-ILP64 OpenBLAS **does** exist (`libopenblas64`, from Debian/Ubuntu's
-`libopenblas64-dev` or Fedora's `openblas64`); BLAS++ just never looks for it.
-Until that is fixed upstream, name it explicitly:
+With both installed, or with an ILP64 OpenBLAS under another name, name it
+explicitly:
 
 ```shell
 bash install.sh --blas=custom --blas-int=ilp64 \
