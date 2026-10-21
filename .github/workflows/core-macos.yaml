@@ -30,6 +30,7 @@ concurrency:
 # 2026-08-27). The cache key carries an "accelerate" tag because earlier
 # caches hold dependencies built without -Dblas=accelerate, and the pinned
 # commit hashes so that changing a pin rebuilds them.
+# Cache paths start from runner.workspace; see core-linux.yaml for why.
 
 jobs:
   build:
@@ -58,9 +59,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/../blaspp-install
-            ${{ github.workspace }}/../lapackpp-install
-            ${{ github.workspace }}/../Random123-install
+            ${{ runner.workspace }}/blaspp-install
+            ${{ runner.workspace }}/lapackpp-install
+            ${{ runner.workspace }}/Random123-install
           key: core-deps-${{ runner.os }}-accelerate-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++ (new Accelerate)
@@ -168,9 +169,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/../blaspp-install
-            ${{ github.workspace }}/../lapackpp-install
-            ${{ github.workspace }}/../Random123-install
+            ${{ runner.workspace }}/blaspp-install
+            ${{ runner.workspace }}/lapackpp-install
+            ${{ runner.workspace }}/Random123-install
           key: core-deps-${{ runner.os }}-accelerate-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++ (new Accelerate)

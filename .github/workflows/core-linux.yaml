@@ -23,6 +23,11 @@ concurrency:
 # hashes, so changing a pin rebuilds them. Random123 still tracks its default
 # branch; bump the -v suffix in the cache key to refresh it.
 #
+# Cache paths start from runner.workspace, the checkout's parent:
+# actions/cache refuses to save a path containing ".." ("Invalid pattern ...
+# Relative pathing '.' and '..' is not allowed"), so the old
+# github.workspace/../ spelling restored caches that were never saved.
+#
 # The RandBLAS submodule's own test suite is disabled (-DBUILD_TESTS=OFF):
 # the pinned commit is already tested by RandBLAS's CI, and rebuilding and
 # rerunning its ~450 tests here roughly doubled the job time.
@@ -61,9 +66,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/../blaspp-install
-            ${{ github.workspace }}/../lapackpp-install
-            ${{ github.workspace }}/../Random123-install
+            ${{ runner.workspace }}/blaspp-install
+            ${{ runner.workspace }}/lapackpp-install
+            ${{ runner.workspace }}/Random123-install
           key: core-deps-${{ runner.os }}-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++
@@ -171,9 +176,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/../blaspp-install
-            ${{ github.workspace }}/../lapackpp-install
-            ${{ github.workspace }}/../Random123-install
+            ${{ runner.workspace }}/blaspp-install
+            ${{ runner.workspace }}/lapackpp-install
+            ${{ runner.workspace }}/Random123-install
           key: core-deps-${{ runner.os }}-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++
