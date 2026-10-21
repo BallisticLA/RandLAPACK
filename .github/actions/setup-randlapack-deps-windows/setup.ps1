@@ -712,47 +712,22 @@ if ($Backend -eq "custom") {
     $backendId = "custom-$($hashHex.Substring(0, 8))"
 }
 
-function Copy-LibrariesToSpaceFreePath {
-    # BLAS++ splits library paths on spaces before probing them, so any path
-    # containing one fails as "BLAS library not found". Intel's default oneMKL
-    # location has a space, making this the common case rather than a corner
-    # one. Fixed upstream in icl-utk-edu/blaspp#137; removing this workaround
-    # is tracked in #158. Import libraries only name their DLL, still loaded
-    # at run time from $backendBin, so relocating them is safe.
-    param([string[]]$Libraries, [string]$Destination, [string]$Label)
-    if (-not ($Libraries | Where-Object { $_ -match ' ' })) { return $Libraries }
-    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    Write-Host ("Staging $Label import libraries into a space-free path " +
-        "($Destination): BLAS++ cannot probe libraries whose path contains a space.")
-    return @($Libraries | ForEach-Object {
-        $leaf = Split-Path $_ -Leaf
-        $target = Join-Path $Destination $leaf
-        Copy-Item -LiteralPath $_.Replace('/', '\') -Destination $target -Force
-        Convert-ToCMakePath $target
-    })
-}
-
 # The BLAS++/LAPACK++ reuse stamps record the backend library paths as well
 # as the source, so changing them (oneMKL's sequential layer to its threaded
 # one, or a NuGet oneMKL to a discovered one whose DLL names differ) rebuilds
 # both instead of silently reusing an install built against the old set.
-# Taken before the space-free copies below, which keep only leaf names, and
-# stored as a SHA256: the stamps are written as ASCII, so raw paths with
+# Stored as a SHA256: the stamps are written as ASCII, so raw paths with
 # non-ASCII characters (e.g. a user profile directory) would never match.
+# The paths reach BLAS++ and LAPACK++ as they are, spaces included (Intel's
+# default oneMKL location has them): the pinned BLAS++ no longer splits
+# library entries on spaces (icl-utk-edu/blaspp#137), nor does the pinned
+# LAPACK++ (the same fix to its LAPACKFinder, carried on the fork), which
+# retired the space-free copies this script used to make (#158).
 $backendLibraryList = (@($backendLibraries) + @($backendLapackLibraries -split ';') |
     Where-Object { $_ -ne "" }) -join ';'
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $backendSignature = "libs-" + (($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($backendLibraryList)) |
     ForEach-Object { $_.ToString("x2") }) -join "")
-
-$spaceFreeLibDir = Join-Path $resolvedRoot "backend-libs"
-$backendLibraries = Copy-LibrariesToSpaceFreePath -Libraries $backendLibraries `
-    -Destination $spaceFreeLibDir -Label "BLAS"
-if ($backendLapackLibraries -ne "") {
-    $backendLapackLibraries = (Copy-LibrariesToSpaceFreePath `
-        -Libraries @($backendLapackLibraries -split ';') `
-        -Destination $spaceFreeLibDir -Label "LAPACK") -join ';'
-}
 
 if ($backendBin -ne "") { $env:PATH = "$backendBin;$env:PATH" }
 
