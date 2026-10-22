@@ -261,6 +261,15 @@ configuration* — backend, integer width and GPU setting all count. Switching
 `--no-gpu` to `--gpu` therefore rebuilds BLAS++ rather than silently reusing a
 CPU-only one.
 
+BLAS++ and LAPACK++ come from the BallisticLA forks
+([blaspp](https://github.com/BallisticLA/blaspp),
+[lapackpp](https://github.com/BallisticLA/lapackpp)), at the commits pinned in
+[`installers/dependency-pins.env`](installers/dependency-pins.env) and tagged
+`ballistic-2026.10.22`. The forks carry fixes that are not yet in an upstream
+release; each fork's `BALLISTIC.md` lists them, and issue
+[#204](https://github.com/BallisticLA/RandLAPACK/issues/204)
+tracks the return to upstream.
+
 ## 4. Verifying the Installation
 
 ### Running Tests

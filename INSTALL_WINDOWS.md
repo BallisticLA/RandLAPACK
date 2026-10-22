@@ -185,6 +185,12 @@ on a BLAS/LAPACK library of your choice. On Windows the installer supports:
 | **OpenBLAS** | `-Backend openblas` | solid free backend; multithreaded with its own thread pool; 32-bit integers (LP64) | official OpenBLAS release binaries, pinned and checksum-verified; the archive is self-contained and includes full LAPACK |
 | **Custom / bring-your-own** | `-Backend custom -BlasLibraries <paths>` | anything BLAS++/LAPACK++ can link -- e.g. AMD AOCL, a local ILP64 OpenBLAS build | you provide the import libraries (and their DLL directory via `-BackendBinDir`); the installer verifies them with a small link-and-run check before building anything |
 
+Library paths may contain spaces. The installer hands BLAS++ and LAPACK++ the
+libraries where they are, including a oneMKL at Intel's default location
+(`C:\Program Files (x86)\Intel\oneAPI\mkl\latest`) and `-BlasLibraries` or
+`-LapackLibraries` paths under a folder such as `C:\Program Files`. CI builds
+against a oneMKL copied to such a path to keep this working.
+
 **ILP64 and LP64** describe the integer width a BLAS library uses for matrix
 dimensions: 64-bit and 32-bit respectively. Mixing libraries built for
 different widths breaks silently, which is why the installer keeps the width
@@ -241,11 +247,12 @@ version, and is verified by checksum where the source publishes archives:
 | OpenBLAS | **0.3.34** | official GitHub release binaries | SHA256 |
 | GoogleTest | **v1.18.0** | release tag | git tag |
 | Random123 | **v1.14.0** | release tag | git tag |
-| BLAS++ | commit `2d8d4e9` | icl-utk-edu/blaspp | git commit |
-| LAPACK++ | commit `b9439cf` | icl-utk-edu/lapackpp | git commit |
+| BLAS++ | tag `ballistic-2026.10.22` | [BallisticLA/blaspp](https://github.com/BallisticLA/blaspp), a fork of icl-utk-edu/blaspp | git commit |
+| LAPACK++ | tag `ballistic-2026.10.22` | [BallisticLA/lapackpp](https://github.com/BallisticLA/lapackpp), a fork of icl-utk-edu/lapackpp | git commit |
 
-All are fetched from the project's canonical upstream and pinned to an immutable reference, so
-a given RandLAPACK revision always builds the same dependency versions.
+All but BLAS++ and LAPACK++ are fetched from the project's canonical upstream; those two come
+from forks, as explained below. Every one is pinned to an immutable reference, so a given
+RandLAPACK revision always builds the same dependency versions.
 
 **oneMKL is only downloaded if you do not already have one.** If an existing oneAPI is
 discovered (§4), the installer uses *your* version, whatever that is, together with the Intel
@@ -253,12 +260,20 @@ OpenMP runtime from the same install; only if that install has no Intel OpenMP b
 pinned Intel OpenMP (~2 MB) fetched alone. The oneMKL version above therefore applies only to the
 no-oneMKL case.
 
-**Two deliberate exceptions to "pin a stable release".** BLAS++ and LAPACK++ are pinned to
-commits rather than to their latest release, `v2025.05.28`, because that release predates the
-two one-line MSVC fixes this build needs (icl-utk-edu/blaspp#132 and
-icl-utk-edu/lapackpp#87, both merged upstream on
-2026-08-06). They move to a release tag as soon as one includes those fixes. Everything else is
-a stable, released version.
+**Two deliberate exceptions to "pin a stable release".** BLAS++ and LAPACK++ come from the
+BallisticLA forks, pinned by full commit hash in
+[`installers/dependency-pins.env`](installers/dependency-pins.env), which also names the tag
+`ballistic-2026.10.22` on those commits. That one file is read by this installer, by `install.sh`
+on Linux and macOS, and by CI. The forks carry seven fixes that are open as upstream pull
+requests but not yet merged or released (icl-utk-edu/blaspp#137, #141 and #142, and
+icl-utk-edu/lapackpp#91, #92, #93 and #94); each fork's `BALLISTIC.md`
+([blaspp](https://github.com/BallisticLA/blaspp/blob/main/BALLISTIC.md),
+[lapackpp](https://github.com/BallisticLA/lapackpp/blob/main/BALLISTIC.md)) lists what it
+carries. Upstream's latest release, `v2025.05.28`, also predates fixes already on upstream
+`master`, among them the two MSVC fixes this build needs (icl-utk-edu/blaspp#132 and
+icl-utk-edu/lapackpp#87). Issue
+[#204](https://github.com/BallisticLA/RandLAPACK/issues/204) tracks the
+return to an upstream release tag. Everything else is a stable, released version.
 
 ## 6. `install.ps1` reference
 

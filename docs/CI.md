@@ -1,10 +1,11 @@
 # RandLAPACK's GitHub CI
 
-Four workflows run on every push and pull request. They divide into two
+Five workflows run on every push and pull request. Four divide into two
 lanes per operating system: the **core** workflows hand-replicate the build
 recipe step by step (so a failure points at a specific step), and the
 **install-script** workflow runs the user-facing installers end to end (so
-the thing we tell users to type is itself under test).
+the thing we tell users to type is itself under test). The fifth,
+**dependency-pins**, checks the BLAS++/LAPACK++ pins that every lane builds.
 
 | Workflow | Job | Runner | Validates | Required check? |
 |----------|-----|--------|-----------|-----------------|
@@ -14,14 +15,16 @@ the thing we tell users to type is itself under test).
 | core-macos | `build-asan` | macos-latest | Debug + AddressSanitizer build and test run | no |
 | core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no (new) |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial ("serial" = RandLAPACK's own loops; the BLAS backend is multithreaded in every leg); each leg ends with a stripped-PATH run of a staged test executable | no (new) |
+| core-windows | `windows-spaced-path` | windows-2022 | oneMKL ILP64 copied under `Program Files (x86)\Intel\oneAPI\mkl\latest`, once through `-Backend mkl -MklRoot` and once through `-Backend custom`: fresh BLAS++/LAPACK++ builds whose exported config must name that spaced path, then the test suite | no (new) |
+| dependency-pins | `pins` | ubuntu-latest | `installers/dependency-pins.env`: each commit exists at its URL, a non-empty tag points at its commit, and the pins match the RandBLAS submodule's | no (new) |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
 | install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, explicit `--blas=openblas` install | **yes** |
 | install-script | `install-windows` | windows-2022 | `installers/install.ps1`: fresh install, idempotent re-run | no (new) |
 
 Required-check names match **job** names (`build`, `install-linux`,
-`install-macos`), not "workflow / job" display names. The two Windows jobs
-and the two `build-asan` jobs are deliberately not required yet; they become
-candidates once they have a green track record.
+`install-macos`), not "workflow / job" display names. The Windows jobs, the
+`pins` job and the two `build-asan` jobs are deliberately not required yet;
+they become candidates once they have a green track record.
 
 ## Things that are deliberate (do not "fix" without reading this)
 
@@ -63,6 +66,18 @@ candidates once they have a green track record.
   mkl-openmp), no second install-script backend leg (the installer's
   `-Backend` forwarding is thin; provisioning is covered by the openblas
   core leg), and no Windows ASan lane.
+- **`windows-spaced-path` builds its dependencies uncached, on purpose.**
+  Intel installs oneMKL under `C:\Program Files (x86)\Intel\oneAPI` by
+  default, and upstream BLAS++ and LAPACK++ split library paths on spaces,
+  so `setup.ps1` used to copy the import libraries to a space-free
+  directory. The pinned forks carry the fix (icl-utk-edu/blaspp#137,
+  icl-utk-edu/lapackpp#92), so the copy is gone. This job is the regression
+  check: it copies oneMKL and Intel OpenMP to a path with spaces and
+  parentheses, builds BLAS++ and LAPACK++ against it in a fresh dependency
+  root, and fails unless BLAS++'s exported config names that path (and, for
+  `-Backend custom`, which also passes the libraries as `LAPACK_LIBRARIES`,
+  LAPACK++'s does too). A cached build would not exercise the configure step
+  the fix lives in.
 - **The Windows guard job tests the documented *user* path, which the
   build matrix structurally cannot.** Every build leg initializes MSVC with
   an explicit `arch: x64` under `pwsh`, so none of them exercises the shell
@@ -136,14 +151,27 @@ candidates once they have a green track record.
   prepend remains in run-ci.ps1/install.ps1 only for the RandBLAS
   submodule's own test executables, until RandBLAS gains the same staging
   (planned follow-up).
-- **Every Windows dependency is pinned to an immutable ref**, and comes from
-  its canonical upstream. BLAS++ and LAPACK++ are pinned to commits rather
-  than tags only because the latest release of each, `v2025.05.28`, predates
-  the MSVC fixes this build needs (icl-utk-edu/blaspp#132,
-  icl-utk-edu/lapackpp#87, merged upstream
-  2026-08-06); they move to a tag once one carries them. A branch name would
-  be a moving target inside a cache keyed on the setup script, so a cache hit
-  could restore a different revision than a miss builds.
+- **BLAS++ and LAPACK++ come from the BallisticLA forks, pinned in one
+  file.** [`installers/dependency-pins.env`](../installers/dependency-pins.env)
+  names the [blaspp](https://github.com/BallisticLA/blaspp) and
+  [lapackpp](https://github.com/BallisticLA/lapackpp) forks and a full commit
+  hash for each, plus the tag `ballistic-2026.10.22` on those commits.
+  `install.sh`, the Windows provisioner and every workflow read it, and the
+  `pins` job keeps it honest. The forks exist because seven fixes are open as
+  upstream pull requests but not yet merged or released
+  (icl-utk-edu/blaspp#137, #141 and #142, and icl-utk-edu/lapackpp#91, #92,
+  #93 and #94). The latest upstream release, `v2025.05.28`, also predates
+  fixes already on upstream `master`, such as ILP64 OpenBLAS discovery
+  (icl-utk-edu/blaspp#129), Apple's new Accelerate interface
+  (icl-utk-edu/blaspp#134, icl-utk-edu/lapackpp#88) and the MSVC fixes this
+  build needs (icl-utk-edu/blaspp#132, icl-utk-edu/lapackpp#87). Each fork's
+  `BALLISTIC.md` lists what it carries, and issue
+  [#204](https://github.com/BallisticLA/RandLAPACK/issues/204)
+  tracks the return to an upstream release. The pins are commits, never
+  branch names, and the cache keys carry them: a branch tip moves, so a
+  cache hit could restore a different revision than a miss builds.
+- **Every other Windows dependency is pinned to an immutable ref** and comes
+  from its canonical upstream.
 
 ## Caches
 
@@ -158,15 +186,17 @@ several minutes slower than a warm one.
 | `windows-*-r<N>` (per backend + shared) | core-windows, install-windows | `..\windows-deps` |
 
 To force a rebuild against fresh upstream clones, bump the `-v`/`-r` suffix
-in the relevant key. The Windows keys use MANUAL revision literals only --
-never `hashFiles()`: that helper resolves paths relative to the workspace
+in the relevant key. The Windows keys use MANUAL revision literals (plus the
+pinned BLAS++/LAPACK++ commits) and never `hashFiles()`: that helper resolves
+paths relative to the workspace
 root, and the install-script workflow checks the repo out under
 `RandLAPACK\`, where the glob matches nothing and `hashFiles()` silently
 returns an empty string. The result was two workflows reading and writing
 *different* caches while appearing to share one. When a recipe in
 `setup.ps1` changes, bump the `-r<N>` on the affected keys in `action.yml`.
-BLAS++/LAPACK++ track upstream default branches, so a stale cache also
-means frozen upstream — bump the suffix when upstream matters.
+BLAS++/LAPACK++ are built at the commits in `installers/dependency-pins.env`,
+and every key that caches them carries those commits, so changing a pin
+rebuilds them with no suffix bump.
 
 ## Reproducing CI locally
 
