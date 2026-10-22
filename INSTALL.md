@@ -197,7 +197,7 @@ Here are the conceptual meanings in the recipe's build flags:
 
 * `-Dlapackpp_DIR=X` means `X` is the directory containing `lapackppConfig.cmake`.
     If you follow BLAS++ installation instructions from Section 5 instead of
-    Section 1, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/lapackpp`.
+    Section 2, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/lapackpp`.
   
 * `-Dblaspp_DIR=X` means `X` is the directory containing the file `blasppConfig.cmake`.
 

@@ -1,6 +1,6 @@
 # RandLAPACK's GitHub CI
 
-Five workflows run on every push and pull request. Four divide into two
+Five workflows run on every pull request and on every push to `main`. Four divide into two
 lanes per operating system: the **core** workflows hand-replicate the build
 recipe step by step (so a failure points at a specific step), and the
 **install-script** workflow runs the user-facing installers end to end (so

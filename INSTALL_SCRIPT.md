@@ -352,11 +352,10 @@ well work; it is simply untested.
 |---|---|---|---|---|---|
 | Ubuntu (latest) | gcc | OpenBLAS | LP64 | none | yes |
 | Ubuntu (latest) | gcc | OpenBLAS (`libopenblas64` only) | ILP64 | none | yes |
-| Ubuntu (latest) | gcc | oneMKL | ILP64 | none | yes |
-| Ubuntu (latest) | clang | OpenBLAS | LP64 | none | yes |
 | macOS 14/15 | Apple Clang | Accelerate (new interface) | ILP64 | none | no (see below) |
 | macOS 14/15 | Apple Clang | Accelerate (new interface), `--blas-int=lp64` | LP64 | none | no (see below) |
-| Windows | MSVC | oneMKL | ILP64 | none | yes (`/openmp:llvm`) |
+| Windows | MSVC | oneMKL | ILP64 | none | yes (`/openmp:llvm`), and a serial lane |
+| Windows | MSVC | OpenBLAS | LP64 | none | no |
 
 The installer lanes additionally cover a fresh install, an idempotent re-run,
 and dependency discovery through `BLASPP_INSTALL_DIR` and friends.
