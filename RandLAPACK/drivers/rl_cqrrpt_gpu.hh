@@ -340,6 +340,7 @@ int CQRRPT_GPU<T, RNG>::call(
 
     new_rank = k;
     if(info > 0) {
+        T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
         running_max = R_sp_diag[0];
         running_min = R_sp_diag[0];
 
@@ -347,11 +348,13 @@ int CQRRPT_GPU<T, RNG>::call(
             curr_entry = std::abs(R_sp_diag[i]);
             running_max = std::max(running_max, curr_entry);
             running_min = std::min(running_min, curr_entry);
-            if(i >= info - 1 || running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
+            if((i >= info - 1 || running_min * cond_threshold < running_max) && i > 1) {
                 new_rank = i - 1;
                 break;
             }
         }
+        // Never keep a column at or past the failed one.
+        new_rank = std::min<int64_t>(new_rank, info - 1);
     }
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, R_sp_device, k, A_device, lda, lapack_queue);
@@ -359,11 +362,16 @@ int CQRRPT_GPU<T, RNG>::call(
     if(this -> timing)
         cholqr_t_stop = steady_clock::now();
 
-    // Get the final R-factor.
+    // Get the final R-factor: R[0:new_rank, :] = R_sp[0:new_rank, 0:k] * R[0:k, :].
+    // After a failed potrf, R_sp[0:new_rank, new_rank:k] may not be a factor, so rebuild it as Q' * A_pre[:, new_rank:k].
+    if(new_rank < k)
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, k - new_rank, m, (T) 1.0, A_device, lda, &A_device[lda * new_rank], lda, (T) 0.0, &R_sp_device[k * new_rank], k, lapack_queue);
     blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, R_sp_device, k, R_device, ldr, lapack_queue);
+    if(new_rank < k)
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, new_rank, n, k - new_rank, (T) 1.0, &R_sp_device[k * new_rank], k, &R_device[new_rank], ldr, (T) 1.0, R_device, ldr, lapack_queue);
 
     // Set the rank parameter to the value comuted a posteriori.
-    this->rank = k;
+    this->rank = new_rank;
 
     if(this -> timing) {
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();

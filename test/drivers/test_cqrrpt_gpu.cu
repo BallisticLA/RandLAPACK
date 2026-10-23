@@ -386,3 +386,38 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_success_keeps_rank) {
     // CholQR loses orthogonality like u * cond^2 here; stay within 100x of the CPU driver.
     EXPECT_LE(c.err_orth, 100 * c_cpu.err_orth + 1e-12) << "CPU ||Q'Q - I|| = " << c_cpu.err_orth;
 }
+
+// After a failed potrf, CQRRPT cuts the rank a posteriori. CQRRPT_GPU must report the same
+// rank, and its first rank columns of Q and rows of R must be at least as accurate as
+// CQRRPT's: Q orthonormal and R = Q' A[:, J], up to the loss CholQR incurs on this input.
+TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
+    int64_t m = 600;
+    int64_t n = 60;
+    uint32_t seed = 7;
+    std::vector<double> A = sketch_defeating_input(m, n, 2, 2.0, seed, 1.0);
+
+    for (double tol : {std::pow(std::numeric_limits<double>::epsilon(), 0.85), 1e-6}) {
+        SCOPED_TRACE(tol);
+        std::vector<double> Q_cpu(A), R_cpu(n * n, 0.0);
+        std::vector<int64_t> J_cpu(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state_cpu(seed);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        ASSERT_EQ(CQRRPT.call(m, n, Q_cpu.data(), m, R_cpu.data(), n, J_cpu.data(), 2.0, state_cpu), 0);
+        ASSERT_LT(CQRRPT.rank, n) << "input no longer makes CholQR fail; the test does not exercise the failure path";
+
+        std::vector<double> Q(A), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.no_hqrrp = 1;
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        EXPECT_EQ(CQRRPT_GPU.rank, CQRRPT.rank);
+        auto c = factor_checks(m, n, CQRRPT_GPU.rank, A, Q, R, n, J);
+        auto c_cpu = factor_checks(m, n, CQRRPT.rank, A, Q_cpu, R_cpu, n, J_cpu);
+        ASSERT_TRUE(c.finite);
+        EXPECT_LE(c.err_orth, 100 * c_cpu.err_orth) << "CPU ||Q'Q - I|| = " << c_cpu.err_orth;
+        EXPECT_LE(c.err_proj, 100 * c_cpu.err_proj) << "CPU ||R - Q'AP|| = " << c_cpu.err_proj;
+    }
+}
