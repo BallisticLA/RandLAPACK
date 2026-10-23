@@ -353,10 +353,9 @@ int BQRRP_GPU<T, RNG>::call(
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
         block_rank = b_sz;
 
-        // Zero-out data - may not be necessary
-        cudaMemsetAsync(J_buffer_lu, (T) 0.0, std::min(d, n), strm);
-        cudaMemsetAsync(J_buffer,    (T) 0.0, n, strm);
-        cudaMemsetAsync(Work2,       (T) 0.0, n, strm);
+        // J_buffer_lu, J_buffer and Work2 need no clearing: getrf writes the pivots that
+        // LUQRCP_piv_process_gpu reads, that kernel writes J_buffer(0:cols) before anything reads it,
+        // and Work2 is read only as the sign vector D, after orhr_col_gpu writes it.
 
 
         if(this -> timing) {

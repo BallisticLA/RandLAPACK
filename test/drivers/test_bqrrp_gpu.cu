@@ -903,3 +903,114 @@ TEST_F(TestBQRRP, BQRRP_GPU_zero_block_tail) {
         }
     }
 }
+
+// BQRRP_GPU takes its pivot buffers (J_buffer, J_buffer_lu) and Work2 (the sketch's tau, then
+// orhr_col's sign vector) from cudaMallocAsync, and writes every entry it reads before reading it.
+// So its output must not depend on what the pool held: runs over a pool filled with 0x00 (as a
+// cleared buffer), 0xFF (every int64_t -1, every double NaN) and 0x3F must agree bitwise. The
+// inputs include an exactly zero trailing block, on which getrf factors a zero sketch.
+TEST_F(TestBQRRP, BQRRP_GPU_buffers_reused_pool_memory) {
+    // Skip, rather than fail, where the pool setup is unavailable; clear the CUDA error first so
+    // that no later error check in BQRRP_GPU trips over it.
+    int pools_supported = 0;
+    cudaDeviceGetAttribute(&pools_supported, cudaDevAttrMemoryPoolsSupported, 0);
+    if (!pools_supported) {
+        cudaGetLastError();
+        GTEST_SKIP() << "device 0 does not support stream-ordered memory pools";
+    }
+    cudaMemPool_t pool;
+    uint64_t threshold_old = 0;
+    if (cudaDeviceGetDefaultMemPool(&pool, 0) != cudaSuccess ||
+        cudaMemPoolGetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_old) != cudaSuccess) {
+        cudaGetLastError();
+        GTEST_SKIP() << "cannot query the default memory pool";
+    }
+    // Restores the pool for the tests that follow, however this test exits.
+    struct PoolRestore {
+        cudaMemPool_t pool;
+        uint64_t threshold;
+        ~PoolRestore() {
+            cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold);
+            cudaMemPoolTrimTo(pool, 0);
+        }
+    } pool_restore{pool, threshold_old};
+
+    uint64_t threshold_keep = UINT64_MAX;
+    if (cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_keep) != cudaSuccess) {
+        cudaGetLastError();
+        GTEST_SKIP() << "cannot raise the pool's release threshold";
+    }
+
+    // Columns r:n of A are zero.
+    struct Input { const char* name; int64_t m, n, r, b_sz; };
+    const Input inputs[] = {
+        {"full rank, clipped last block", 2000, 1000, 1000, 300},
+        {"zero trailing block",           1000,  600,  200, 100}
+    };
+    auto same_bytes = [](const auto& x, const auto& y) {
+        if (x.size() != y.size())
+            return false;
+        auto bx = reinterpret_cast<const unsigned char*>(x.data());
+        auto by = reinterpret_cast<const unsigned char*>(y.data());
+        for (size_t i = 0; i < x.size() * sizeof(x[0]); ++i)
+            if (bx[i] != by[i])
+                return false;
+        return true;
+    };
+
+    for (const auto& in : inputs) {
+        int64_t m = in.m, n = in.n, r = in.r, b_sz = in.b_sz;
+        int64_t d = 1.25 * b_sz;
+        std::vector<double> A(m * n, 0.0);
+        auto state = RandBLAS::RNGState();
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, r, RandLAPACK::gen::gaussian);
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), state);
+
+        for (auto qr_tall : {GPUSubroutines::QRTall::cholqr, GPUSubroutines::QRTall::geqrf}) {
+            std::vector<double> A_ref, tau_ref;
+            std::vector<int64_t> J_ref;
+            int64_t rank_ref = -1;
+            for (int fill : {0x00, 0xFF, 0x3F}) {
+                SCOPED_TRACE(std::string(in.name) + ", " + (qr_tall == GPUSubroutines::QRTall::cholqr ? "cholqr" : "geqrf") + ", fill " + std::to_string(fill));
+                // Leave freed stream-ordered memory holding `fill` in the pool.
+                void* dirty = nullptr;
+                size_t dirty_bytes = size_t(64) << 20;
+                if (cudaMallocAsync(&dirty, dirty_bytes, 0) != cudaSuccess) {
+                    cudaGetLastError();
+                    GTEST_SKIP() << "cannot allocate the " << (dirty_bytes >> 20) << " MiB pool block";
+                }
+                cudaMemsetAsync(dirty, fill, dirty_bytes, 0);
+                cudaFreeAsync(dirty, 0);
+                cudaDeviceSynchronize();
+
+                double norm_A = 0;
+                BQRRPTestData<double> all_data(m, n, r, d);
+                all_data.A = A;
+                norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+
+                RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+                BQRRP_GPU.qr_tall = qr_tall;
+                BQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+
+                cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(double), cudaMemcpyDeviceToHost);
+                cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(double),     cudaMemcpyDeviceToHost);
+                cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t),    cudaMemcpyDeviceToHost);
+                cudaError_t ierr = cudaGetLastError();
+                ASSERT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
+
+                if (fill == 0x00) {
+                    EXPECT_EQ(BQRRP_GPU.rank, r);
+                    A_ref    = all_data.R_full;
+                    tau_ref  = all_data.tau;
+                    J_ref    = all_data.J;
+                    rank_ref = BQRRP_GPU.rank;
+                } else {
+                    EXPECT_EQ(BQRRP_GPU.rank, rank_ref);
+                    EXPECT_TRUE(same_bytes(all_data.R_full, A_ref));
+                    EXPECT_TRUE(same_bytes(all_data.tau, tau_ref));
+                    EXPECT_TRUE(same_bytes(all_data.J, J_ref));
+                }
+            }
+        }
+    }
+}
