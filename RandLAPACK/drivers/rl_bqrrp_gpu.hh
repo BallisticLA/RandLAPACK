@@ -297,6 +297,9 @@ int BQRRP_GPU<T, RNG>::call(
     // Eventually, will be used to store R11 (computed via trmm)
     T* R_tall_qr;
     cudaMallocAsync(&R_tall_qr, b_sz_const * b_sz_const * sizeof(T), strm);
+    // The trmm forming R11 reads the strictly lower triangle of R_tall_qr, which nothing else
+    // writes; it must start at zero, and cudaMallocAsync can return reused, nonzero memory.
+    cudaMemsetAsync(R_tall_qr, 0, b_sz_const * b_sz_const * sizeof(T), strm);
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work2;
@@ -665,7 +668,7 @@ int BQRRP_GPU<T, RNG>::call(
             // Compute R11 = R11_full(1:block_rank, :) * R_sk
             // R11_full is stored in R_tall_qr space, R_sk is stored in A_sk space.
             // trmm reads all of R_tall_qr(0:block_rank, 0:b_sz); in a rank-deficient block, columns
-            // block_rank:b_sz still hold the previous iteration's R11 (or unset memory) and must be zeroed.
+            // block_rank:b_sz still hold the previous iteration's R11 and must be zeroed.
             if (block_rank < b_sz)
                 cudaMemset2DAsync(&R_tall_qr[b_sz_const * block_rank], b_sz_const * sizeof(T), 0, block_rank * sizeof(T), b_sz - block_rank, strm);
             blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_tall_qr, b_sz_const, lapack_queue);

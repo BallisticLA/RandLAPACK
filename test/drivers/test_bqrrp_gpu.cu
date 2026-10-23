@@ -522,6 +522,48 @@ TEST_F(TestBQRRP, BQRRP_GPU_wide_aspect_clipped_block) {
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
 }
 
+// BQRRP_GPU's workspace comes from cudaMallocAsync, which returns memory the caller used and
+// freed earlier when the pool keeps freed memory (a raised release threshold). CholQR reads the
+// strictly lower triangle of its R_tall_qr buffer, so BQRRP_GPU must clear that buffer itself.
+TEST_F(TestBQRRP, BQRRP_GPU_cholqr_reused_pool_memory) {
+    cudaMemPool_t pool;
+    cudaDeviceGetDefaultMemPool(&pool, 0);
+    uint64_t threshold_old = 0;
+    uint64_t threshold_keep = UINT64_MAX;
+    cudaMemPoolGetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_old);
+    cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_keep);
+    // Leave freed, nonzero stream-ordered memory in the pool.
+    void* dirty = nullptr;
+    size_t dirty_bytes = size_t(256) << 20;
+    cudaMallocAsync(&dirty, dirty_bytes, 0);
+    cudaMemsetAsync(dirty, 0x3F, dirty_bytes, 0);
+    cudaFreeAsync(dirty, 0);
+    cudaDeviceSynchronize();
+
+    int64_t m = 2000;
+    int64_t n = 1000;
+    int64_t k = n;
+    double d_factor = 1.25;
+    int64_t b_sz = 300;
+    int64_t d = d_factor * b_sz;
+    double norm_A = 0;
+    auto state = RandBLAS::RNGState();
+
+    BQRRPTestData<double> all_data(m, n, k, d);
+    RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+    BQRRP_GPU.qr_tall = GPUSubroutines::QRTall::cholqr;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+
+    norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+    test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
+
+    // Restore the pool for the tests that follow.
+    cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_old);
+    cudaMemPoolTrimTo(pool, 0);
+}
+
 // Rank-deficient inputs. The in-block rank drop stays below 128, the most the GPU
 // rank estimator inspects per block.
 // Exact rank r < b_sz: the first block is rank-deficient.
