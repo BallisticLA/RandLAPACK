@@ -189,7 +189,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
             cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
 
-            lapack::ungqr(m, n, n, all_data.Q.data(), m, all_data.tau.data());
+            lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.Q.data(), m, all_data.tau.data());
             RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
             lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.R_full.data(), m, all_data.R.data(), all_data.rank);
 
@@ -471,4 +471,3 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     cudaFree(tau_device);
     blas::device_free(d_work_geqrf_opt, lapack_queue);
 }
-#endif
