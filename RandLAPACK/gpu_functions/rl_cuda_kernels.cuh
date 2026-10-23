@@ -84,24 +84,26 @@ const T* A,
 int64_t lda,
 int64_t* rank
 ){
-    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
-    __shared__ int64_t indicator;
-    if (id == 0) {
-        indicator = n;
-        *rank = n;
+    // Runs as a single block of 128 threads that strides over all n diagonal entries. Each
+    // thread keeps the first index it finds, and the reduction below takes the smallest.
+    // The test matches the CPU driver: |A(i, i)| / |A(0, 0)| < alpha.
+    __shared__ int64_t first_small[128];
+    int64_t first = n;
+    for (int64_t i = threadIdx.x; i < n; i += blockDim.x) {
+        if (std::abs(A[i * lda + i]) / std::abs(A[0]) < alpha) {
+            first = i;
+            break;
+        }
     }
+    first_small[threadIdx.x] = first;
     __syncthreads();
-
-    // As we are looking at the elements of the diagonal of A in parallel,
-    // it is important to remember that the actual rank might be smaller 
-    // than the currently-defined one, so this should not have an early termination.
-    if((id < indicator) && (std::abs(A[id * lda + id]) / std::abs(A[0]) <= alpha)) {
-        atomicMin((int*) &indicator, (int) id);
+    for (int s = blockDim.x / 2; s > 0; s /= 2) {
+        if (threadIdx.x < s && first_small[threadIdx.x + s] < first_small[threadIdx.x])
+            first_small[threadIdx.x] = first_small[threadIdx.x + s];
+        __syncthreads();
     }
-    __syncthreads();
-    if(id == 0 && indicator != n) {
-        *rank = indicator;
-    }
+    if (threadIdx.x == 0)
+        *rank = first_small[0];
 }
 
 template <typename T>
@@ -533,9 +535,9 @@ void naive_rank_est(
     int64_t* rank_device;
     cudaMalloc(&rank_device, sizeof(int64_t));
 
+    // One block covers the whole diagonal; the kernel's shared array assumes 128 threads.
     constexpr int threadsPerBlock{128};
-    int64_t num_blocks_ger{(n + threadsPerBlock - 1) / threadsPerBlock};
-    naive_rank_est<<<num_blocks_ger, threadsPerBlock, sizeof(int64_t), stream>>>(n, alpha, A, lda, rank_device);
+    naive_rank_est<<<1, threadsPerBlock, 0, stream>>>(n, alpha, A, lda, rank_device);
 
     // It seems that these synchs are required, after all
     cudaStreamSynchronize(stream);

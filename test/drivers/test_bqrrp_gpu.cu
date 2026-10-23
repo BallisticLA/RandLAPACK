@@ -258,6 +258,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
     /// column r is detected as rank-deficient and BQRRP_GPU stops there. For both qr_tall options,
     /// checks the reported rank and the residual of A[:, J] - Q1 * R(1:r, :), over the columns up
     /// to the end of that block and, separately, over the trailing columns (that block's R12).
+    /// Also checks that the CPU driver reports the same rank for the same A.
     template <typename T, typename RNG>
     static void test_BQRRP_GPU_rank_deficient(
         int64_t m,
@@ -266,11 +267,9 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         int64_t b_sz,
         RandBLAS::RNGState<RNG> &state) {
 
-        // The block holding column r must be rank-deficient, so r must fall inside a block, and the
-        // drop must be within the first 128 diagonal entries, all the GPU rank estimator inspects.
+        // The block holding column r must be rank-deficient, so r must fall inside a block.
         ASSERT_NE(r % b_sz, 0) << "r=" << r << " must not be a multiple of b_sz=" << b_sz;
         ASSERT_LT(r, std::min(m, n)) << "r=" << r << " must be < min(m, n)=" << std::min(m, n);
-        ASSERT_LT(r % b_sz, 128) << "in-block rank r % b_sz=" << r % b_sz << " must be < 128";
 
         int64_t d = 1.25 * b_sz;
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
@@ -286,6 +285,16 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
 
         // The rank-deficient block ends at column split; R(:, split:n) is its R12.
         int64_t split = std::min(std::min(m, n), (r / b_sz + 1) * b_sz);
+
+        // Rank reported by the CPU driver for the same A, with the same tolerance.
+        std::vector<T> A_cpu(A);
+        std::vector<T> tau_cpu(n, 0.0);
+        std::vector<int64_t> J_cpu(n, 0);
+        auto state_cpu = state;
+        RandLAPACK::BQRRP<T, RNG> BQRRP_CPU(false, b_sz);
+        BQRRP_CPU.tol = 1e-10;
+        BQRRP_CPU.call(m, n, A_cpu.data(), m, (T) 1.25, tau_cpu.data(), J_cpu.data(), state_cpu);
+        EXPECT_EQ(BQRRP_CPU.rank, r);
 
         const std::vector<std::pair<const char*, GPUSubroutines::QRTall>> variants = {
             {"cholqr", GPUSubroutines::QRTall::cholqr},
@@ -320,11 +329,12 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             T res_lead  = lapack::lange(Norm::Fro, m, split, all_data.A_cpy1.data(), m) / norm_A;
             T res_trail = lapack::lange(Norm::Fro, m, n - split, &all_data.A_cpy1[m * split], m) / norm_A;
 
-            std::cout << std::setw(8) << name << ":  RANK " << std::setw(5) << BQRRP_GPU.rank << " (expected " << r << "),"
+            std::cout << std::setw(8) << name << ":  RANK " << std::setw(5) << BQRRP_GPU.rank << " (expected " << r << ", CPU " << BQRRP_CPU.rank << "),"
                       << "  REL RESIDUAL, COLS [0, " << split << "): " << std::scientific << res_lead
                       << ",  COLS [" << split << ", " << n << "): " << res_trail << "\n";
 
             EXPECT_EQ(BQRRP_GPU.rank, r);
+            EXPECT_EQ(BQRRP_GPU.rank, BQRRP_CPU.rank);
             EXPECT_LE(res_lead, atol);
             EXPECT_LE(res_trail, atol);
 
@@ -597,8 +607,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_cholqr_reused_pool_memory) {
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
 }
 
-// Rank-deficient inputs. The in-block rank drop stays below 128, the most the GPU
-// rank estimator inspects per block.
+// Rank-deficient inputs.
 // Exact rank r < b_sz: the first block is rank-deficient.
 TEST_F(TestBQRRP, BQRRP_GPU_rank_deficient_first_block) {
     auto state = RandBLAS::RNGState();
@@ -609,6 +618,21 @@ TEST_F(TestBQRRP, BQRRP_GPU_rank_deficient_first_block) {
 TEST_F(TestBQRRP, BQRRP_GPU_rank_deficient_later_block) {
     auto state = RandBLAS::RNGState();
     test_BQRRP_GPU_rank_deficient<double>(1000, 600, 160, 100, state);
+}
+
+// In-block rank 150 of b_sz = 200: the drop lies past the first 128 diagonal entries of R_sk,
+// which a 128-thread block of the GPU rank estimator covers.
+TEST_F(TestBQRRP, BQRRP_GPU_rank_deficient_deep_in_block) {
+    auto state = RandBLAS::RNGState();
+    test_BQRRP_GPU_rank_deficient<double>(1000, 600, 150, 200, state);
+}
+
+// In-block ranks 127 and 128 of the second block, on either side of that 128-entry boundary:
+// the GPU and CPU drivers must report the same rank.
+TEST_F(TestBQRRP, BQRRP_GPU_rank_deficient_cpu_agreement_at_128) {
+    auto state = RandBLAS::RNGState();
+    test_BQRRP_GPU_rank_deficient<double>(1000, 600, 327, 200, state);
+    test_BQRRP_GPU_rank_deficient<double>(1000, 600, 328, 200, state);
 }
 
 // Wide A whose clipped last block (b_sz = 100 of 250) is rank-deficient.
