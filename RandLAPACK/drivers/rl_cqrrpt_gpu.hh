@@ -74,6 +74,7 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
             oversampling = 10;
             use_cholqr = 0;
             panel_pivoting = 1;
+            rank = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -238,6 +239,15 @@ int CQRRPT_GPU<T, RNG>::call(
     if(this -> timing) {
         qrcp_t_stop = steady_clock::now();
         rank_reveal_t_start = steady_clock::now();
+    }
+
+    // Check if the input is all zeros, as CQRRPT does.
+    if (!A_hat[0]) {
+        this->rank = 0;
+        delete[] A_hat;
+        delete[] tau;
+        delete[] J_buf;
+        return 0;
     }
 
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.

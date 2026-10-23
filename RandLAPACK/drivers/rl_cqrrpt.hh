@@ -64,6 +64,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
             panel_pivoting = 1;
             orthogonalization = false;
             nnz = 2;
+            rank = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -260,6 +261,7 @@ int CQRRPT<T, RNG>::call(
 
     // Check if the input is all zeros
     if (!A_hat[0]) {
+        this->rank = 0;
         delete[] A_hat;
         delete[] tau;
         delete[] J_buf;

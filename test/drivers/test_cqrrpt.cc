@@ -545,3 +545,23 @@ TEST_F(TestCQRRPT, CQRRPT_R_contents_on_entry_ignored) {
         EXPECT_EQ(Q1, Q0);
     }
 }
+
+// On an all-zero input CQRRPT must report rank 0, whatever rank held before the call, and
+// return R as documented (zero) with A left zero.
+TEST_F(TestCQRRPT, CQRRPT_zero_input) {
+    int64_t m = 100;
+    int64_t n = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n, 0.0), R(n * n, std::numeric_limits<double>::quiet_NaN());
+    std::vector<int64_t> J(n, 0);
+
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    EXPECT_EQ(CQRRPT.rank, 0);
+    CQRRPT.nnz = 2;
+    CQRRPT.rank = -7;
+    auto state = RandBLAS::RNGState();
+    ASSERT_EQ(CQRRPT.call(m, n, A.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    EXPECT_EQ(CQRRPT.rank, 0);
+    EXPECT_EQ(R, std::vector<double>(n * n, 0.0));
+    EXPECT_EQ(A, std::vector<double>(m * n, 0.0));
+}

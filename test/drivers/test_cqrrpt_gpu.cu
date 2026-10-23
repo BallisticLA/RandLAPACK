@@ -557,3 +557,24 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_R_contents_on_entry_ignored) {
         EXPECT_EQ(Q1, Q0);
     }
 }
+
+// On an all-zero input CQRRPT_GPU must report rank 0, whatever rank held before the call, and
+// return R as documented (zero) with A left zero, as CQRRPT does.
+TEST_F(TestCQRRPT, CQRRPT_GPU_zero_input) {
+    int64_t m = 100;
+    int64_t n = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n, 0.0), R(n * n, std::numeric_limits<double>::quiet_NaN());
+    std::vector<int64_t> J(n, 0);
+
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    EXPECT_EQ(CQRRPT_GPU.rank, 0);
+    CQRRPT_GPU.nnz = 2;
+    CQRRPT_GPU.no_hqrrp = 1;
+    CQRRPT_GPU.rank = -7;
+    auto state = RandBLAS::RNGState();
+    ASSERT_EQ(CQRRPT_GPU.call(m, n, A.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    EXPECT_EQ(CQRRPT_GPU.rank, 0);
+    EXPECT_EQ(R, std::vector<double>(n * n, 0.0));
+    EXPECT_EQ(A, std::vector<double>(m * n, 0.0));
+}
