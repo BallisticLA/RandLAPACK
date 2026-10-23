@@ -1,5 +1,10 @@
 # Installing and using RandLAPACK
 
+**The fastest route is the autoinstaller**: `bash install.sh` builds
+RandLAPACK, its dependencies, and the test and benchmark executables in one
+command; see [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md). This file covers manual
+installation for fine-grained control.
+
 Sections 1 through 3 of this file describe how to perform a *basic* installation
 of RandLAPACK and its dependencies.
 
@@ -21,7 +26,7 @@ of the corresponding instructions in Section 1.
   - Clang 14 or higher (not extensively tested)
   - Intel ICPX (has known issues, see GitHub issue #91)
   - MSVC (Visual Studio 2022) on native Windows, with Ninja as the build
-    tool (both bundled with the "Desktop development with C++" workload) --
+    tool (both bundled with the "Desktop development with C++" workload);
     see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
 
 ### GPU Support (Optional)
@@ -32,9 +37,13 @@ For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
 
 #### CUDA/GCC Compatibility Matrix
 
+The table lists configurations we have verified; it is not exhaustive. The
+authoritative host-compiler caps are in each CUDA Toolkit's release notes.
+
 | CUDA Version | GCC Support | Status | Notes |
 |--------------|-------------|---------|-------|
-| **12.9.0** | **GCC 13.x ✓** | **✅ Recommended** | **Tested with GCC 13.3.0 + Driver v581.80** |
+| 13.3.0 | GCC up to 15.x ✓ | ✅ Supported | Tested with GCC 15.2 |
+| **12.9.0** | **GCC 13.x ✓** (up to 14.x) | **✅ Recommended** | **Tested with GCC 13.3.0 + Driver v581.80; nvcc rejects GCC > 14** |
 | 12.4.1 | GCC 13.x ✓ | ✅ Supported | Minimum supported version |
 | 12.2.1 | GCC 12.x ✓ | ⚠️ Limited | Use GCC ≤ 12.3.0 only |
 | 12.2.1 | GCC 13.x ✗ | ❌ Incompatible | NVCC error: "unsupported GNU version" |
@@ -63,7 +72,7 @@ Alternatively, use Homebrew OpenBLAS (`install.sh --blas=openblas`).
 ### Note on Directory Names
 On some systems, library directories are called `lib` while on others they're called `lib64`. Adjust paths accordingly in the CMake configuration commands below.
 
-We recomment installing software (including googletest, if desired) using Spack:
+We recommend installing software (including googletest, if desired) using Spack:
 https://github.com/spack/spack.git
 
 ## 1. Optional dependencies
@@ -72,7 +81,7 @@ GoogleTest is Google’s C++ testing and mocking framework.  GTest is an optiona
 dependency without which RandLAPACK regression tests will not be available. GTest
 can be installed with your favorite package manager.
 
-OpemMP is an open standard that enables code to be parallelized as it is
+OpenMP is an open standard that enables code to be parallelized as it is
 compiled. RandLAPACK (and its dependencies) detects the presence of OpenMP
 automatically and makes use of it if it's found.
 
@@ -131,7 +140,6 @@ mkdir blaspp-build
 cd blaspp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install \
-    -DCMAKE_BINARY_DIR=`pwd` \
     -Dbuild_tests=OFF \
     -Dblas_int=int64 \
     ../blaspp
@@ -151,7 +159,6 @@ cd lapackpp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
     -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
-    -DCMAKE_BINARY_DIR=`pwd` \
     -Dbuild_tests=OFF \
     ../lapackpp
 make -j2 install
@@ -171,7 +178,7 @@ RandLAPACK is configured with CMake and built with GNU make.
 The configuration and build processes are simple once its dependencies are in place. 
 
 Assuming you used the recipes from Section 2 to get RandLAPACK's dependencies,
-you can build download, build, and install RandLAPACK as follows
+you can download, build, and install RandLAPACK as follows
 (add -DRequireCUDA=ON if you need CUDA support):
 
 ```shell
@@ -182,7 +189,6 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/cmake/lapackpp/ \
     -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp/ \
     -DRandom123_DIR=`pwd`/../random123-install/include/ \
-    -DCMAKE_BINARY_DIR=`pwd` \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
     ../RandLAPACK/
 make -j install
@@ -201,6 +207,10 @@ Here are the conceptual meanings in the recipe's build flags:
   
 * `-Dblaspp_DIR=X` means `X` is the directory containing the file `blasppConfig.cmake`.
 
+* `-DRandLAPACK_BUILD_TESTS=OFF` skips the GoogleTest regression suite, which
+  is built by default when GTest is found; `-DSANITIZE_ADDRESS=ON` adds
+  AddressSanitizer instrumentation (CI uses it with Debug builds).
+
 * `-DRandom123_DIR=X` means `X` is the directory that contains a folder called ``Random123``
   that includes the Random123 header files. For example, ``X/Random123/philox.h`` needs
   to be a file on your system.
@@ -218,7 +228,7 @@ For instance, the following CMakeLists.txt demonstrates how an executable can
 be linked to the RandLAPACK library:
 
 ```cmake
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.21)
 project(myexec)
 
 find_package(blaspp REQUIRED)
@@ -257,15 +267,16 @@ you want to make a project that connects RandLAPACK and Intel MKL.
 Such a situation might arise if you want to use RandLAPACK together with
 MKL's sparse linear algebra functionality.
 
-One of the RandLAPACK developers (Riley) has run into trouble
-getting BLAS++ to link to MKL as intended.
-Here's how Riley configured his BLAS++ and LAPACK++ installations:
+RandLAPACK developers have run into trouble getting BLAS++ to link to MKL
+as intended. Here is a configuration of BLAS++ and LAPACK++ that is known
+to work:
 
 0. Install and configure MKL. You can get MKL [here](https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html?operatingsystem=linux&distributions=webdownload&options=online).
-   Once you've installed it you need to edit your `.bashrc` file.
-   Riley's bashrc file was updated to contain the line
+   Once you've installed it you need to make its libraries findable, for
+   example by adding lines like the following to your shell startup file
+   (adjust the path to your MKL installation):
    ```
-   export MAIN_MKL_LIBS="/home/riley/intel/oneapi/mkl/latest/lib/intel64"
+   export MAIN_MKL_LIBS="/path/to/intel/oneapi/mkl/latest/lib/intel64"
    export LD_LIBRARY_PATH="${MAIN_MKL_LIBS}:${LD_LIBRARY_PATH}"
    export LIBRARY_PATH="${MAIN_MKL_LIBS}:${LIBRARY_PATH}"
    ```
@@ -304,7 +315,6 @@ Here's how Riley configured his BLAS++ and LAPACK++ installations:
     cmake -DCMAKE_BUILD_TYPE=Release \
        -Dblaspp_DIR=/opt/mklpp/lib/blaspp \
        -DCMAKE_INSTALL_PREFIX=/opt/mklpp \
-       -DCMAKE_BINARY_DIR=`pwd` \
        -Dbuild_tests=OFF ..
     make -j2 install
     ```
@@ -328,10 +338,10 @@ We do that so that it's easier to infer a valid choice of directory structure fo
 ## 6. Native Windows (MSVC)
 
 RandLAPACK builds natively on Windows with MSVC (Visual Studio 2022). The
-full guide -- prerequisites, the one-command installer, BLAS/LAPACK backend
-choice (oneMKL default, OpenBLAS, bring-your-own), runtime-DLL handling, and
-how the Windows install differs from Linux/macOS -- lives in
-[INSTALL_WINDOWS.md](INSTALL_WINDOWS.md). The short version, from an
+full guide lives in [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md): prerequisites,
+the one-command installer, BLAS/LAPACK backend choice (oneMKL default,
+OpenBLAS, bring-your-own), runtime-DLL handling, and how the Windows install
+differs from Linux/macOS. The short version, from an
 "x64 Native Tools Command Prompt for VS 2022" (the plain "Developer
 PowerShell/Command Prompt for VS 2022" entries default to a 32-bit toolchain
 and will not link the x64 BLAS libraries):

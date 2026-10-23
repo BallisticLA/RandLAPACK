@@ -1,7 +1,7 @@
 # Installing RandLAPACK on native Windows
 
 This guide covers building RandLAPACK with Microsoft's Visual C++ compiler
-(MSVC) on Windows -- no WSL, no Cygwin. It assumes no prior Windows
+(MSVC) on Windows, without WSL or Cygwin. It assumes no prior Windows
 development experience. If you are on Linux or macOS, use
 [INSTALL.md](INSTALL.md) and `install.sh` instead.
 
@@ -33,7 +33,7 @@ the Visual Studio installer is still running, which looks like it finished.
 **2. Make the toolchain visible to your terminal.** This is the one real
 difference from Unix: MSVC is never on `PATH` globally, only inside a
 "developer environment" that Visual Studio sets up per session. Any of these
-gets you one, and they are equivalent — pick whichever fits how you work:
+gets you one, and they are equivalent; pick whichever fits how you work:
 
 - Open **"x64 Native Tools Command Prompt for VS 2022"** from the Start menu.
 - Or, in any Command Prompt, ask Visual Studio where it is and load it (works
@@ -44,8 +44,8 @@ gets you one, and they are equivalent — pick whichever fits how you work:
   ```
 
 - Or use any shell your editor or build tool already sets up, as long as it
-  gives you an **x64** toolchain (see section 3 — this is worth checking, the
-  obvious Start-menu entries give you a 32-bit one).
+  gives you an **x64** toolchain (see section 3; this is worth checking, because
+  the obvious Start-menu entries give you a 32-bit one).
 
 Whatever you pick, this must show a path containing `Hostx64\x64`:
 
@@ -75,7 +75,7 @@ already built.
 
 You are not expected to install a BLAS library first, unlike on Linux and
 macOS. If the installer cannot find one it says what it searched and asks
-before downloading a pinned copy into the project directory -- nothing is
+before downloading a pinned copy into the project directory; nothing is
 installed system-wide. Section 4 covers the choices.
 
 ## 2. How this differs from Linux and macOS
@@ -102,7 +102,7 @@ The practical consequence of the third row is worth internalizing: **on
 Windows you never need to edit PATH for RandLAPACK**. If an executable is
 staged, it runs; if you write your own program against RandLAPACK, either
 call the provided staging helper (section 7) or copy the DLLs next to your
-`.exe`. This "app-local deployment" is the idiomatic Windows layout -- it is
+`.exe`. This "app-local deployment" is the idiomatic Windows layout: it is
 what Visual Studio's own package manager does by default.
 
 ## 3. Prerequisites, in detail
@@ -150,8 +150,8 @@ get far down the wrong path.
 
 **If the Start-menu entry is missing or named differently** (Build Tools, a
 different edition, or a Visual Studio version other than 2022), this works
-from any Command Prompt regardless of edition or version -- it asks Visual
-Studio's own locator where it is installed:
+from any Command Prompt regardless of edition or version, because it asks
+Visual Studio's own locator where it is installed:
 
 ```bat
 for /f "usebackq delims=" %i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%i\VC\Auxiliary\Build\vcvars64.bat"
@@ -183,7 +183,7 @@ on a BLAS/LAPACK library of your choice. On Windows the installer supports:
 |---|---|---|---|
 | **oneMKL** (default) | none needed | multithreaded through Intel's OpenMP runtime; 64-bit integers (ILP64) | discovered from an existing install via `-MklRoot`, `MKLROOT`, `ONEAPI_ROOT`, or the default oneAPI location; otherwise Intel's official NuGet packages are downloaded, pinned by version and SHA256. Intel's OpenMP runtime comes from the same oneAPI install, or else from its own pinned NuGet packages (~2 MB). `-NoDownload` turns "not found" into an error |
 | **OpenBLAS** | `-Backend openblas` | solid free backend; multithreaded with its own thread pool; 32-bit integers (LP64) | official OpenBLAS release binaries, pinned and checksum-verified; the archive is self-contained and includes full LAPACK |
-| **Custom / bring-your-own** | `-Backend custom -BlasLibraries <paths>` | anything BLAS++/LAPACK++ can link -- e.g. AMD AOCL, a local ILP64 OpenBLAS build | you provide the import libraries (and their DLL directory via `-BackendBinDir`); the installer verifies them with a small link-and-run check before building anything |
+| **Custom / bring-your-own** | `-Backend custom -BlasLibraries <paths>` | anything BLAS++/LAPACK++ can link, e.g. AMD AOCL, a local ILP64 OpenBLAS build | you provide the import libraries (and their DLL directory via `-BackendBinDir`); the installer verifies them with a small link-and-run check before building anything |
 
 Library paths may contain spaces. The installer hands BLAS++ and LAPACK++ the
 libraries where they are, including a oneMKL at Intel's default location
@@ -224,18 +224,18 @@ No oneMKL found, and the download was declined.
 ```
 
 Answering no stops with those options. Questions are skipped entirely when the
-installer is not attached to a terminal -- a script, a pipeline, CI -- taking
+installer is not attached to a terminal (a script, a pipeline, CI), taking
 the default shown in brackets; `-Yes` skips them in an interactive session too.
 
 Notes for the custom path: AMD AOCL downloads sit behind a click-through
-license page, so the installer cannot fetch them -- download AOCL yourself,
+license page, so the installer cannot fetch them; download AOCL yourself,
 then point `-BlasLibraries` at its `.lib` files. The custom path is expected
 to work with any well-formed backend but is not exercised by our CI; oneMKL
 and OpenBLAS are.
 
 ## 5. What the installer downloads, and at which versions
 
-The installer never installs a compiler, CMake or Ninja -- those are yours to provide, exactly
+The installer never installs a compiler, CMake or Ninja; those are yours to provide, exactly
 as on Linux and macOS (see §3). What it *can* fetch is the BLAS/LAPACK backend and RandLAPACK's
 own build-time dependencies. Everything lands under `<ProjectDir>`, is pinned to an exact
 version, and is verified by checksum where the source publishes archives:
@@ -290,7 +290,7 @@ return to an upstream release tag. Everything else is a stable, released version
                       <ProjectDir>; nothing is installed system-wide, and
                       deleting <ProjectDir> removes it. With -Backend
                       openblas this always fails, because OpenBLAS has no
-                      canonical Windows location to discover -- use
+                      canonical Windows location to discover; use
                       -Backend custom to supply your own.
 -NoOpenMP             Build RandLAPACK's own loops serially; the BLAS
                       backend keeps its own threading. The default enables
@@ -339,8 +339,8 @@ A Windows executable that links a DLL-based library must be able to find
 those DLLs when it starts. Windows looks in the executable's own directory
 first and PATH last; there is no RPATH. RandLAPACK's build therefore copies
 every DLL an executable needs (BLAS++, LAPACK++, and the BLAS backend's
-runtime) into the directory of that executable -- tests and benchmarks work
-out of the box, from any shell, with no environment preparation.
+runtime) into the directory of that executable, so tests and benchmarks
+work out of the box, from any shell, with no environment preparation.
 
 For your own project, the installed CMake package carries the same helper:
 
@@ -381,7 +381,7 @@ oneMKL's `bin` and Intel OpenMP's) next to your `.exe`.
   thread pool that oneMKL and RandLAPACK's OpenMP code share.
 - **A download fails with a hash mismatch**: the pinned artifact changed
   upstream or the download was corrupted. Re-run once; if it persists, open
-  an issue -- do not bypass the check.
+  an issue; do not bypass the check.
 - **Corporate proxy**: the installer downloads with `curl.exe`, which honors
   the standard `HTTPS_PROXY` environment variable.
 - **First build is slow**: Windows Defender real-time scanning inspects
