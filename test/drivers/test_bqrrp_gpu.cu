@@ -501,6 +501,60 @@ TEST_F(TestBQRRP, BQRRP_GPU_vectors) {
     test_BQRRP_compare_with_CPU(d, all_data, BQRRP_GPU, BQRRP_CPU, state);
 }
 
+// Repeated BQRRP_GPU calls must not grow device memory use. cudaMemGetInfo is device wide,
+// so other processes add noise; a leak shows up in every round, noise rarely does.
+TEST_F(TestBQRRP, BQRRP_GPU_repeated_calls_no_leak) {
+    int64_t m = 64;
+    int64_t n = 16;
+    int64_t d = 32;
+    int64_t b_sz = 8;
+    int num_rounds = 3;
+    int calls_per_round = 5;
+    auto state = RandBLAS::RNGState();
+
+    std::vector<double> A(m * n), A_sk(d * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::fill_dense(D, A.data(), state);
+    // Any d-by-n matrix with A's column space serves as the sketch; take A's leading rows.
+    lapack::lacpy(MatrixType::General, d, n, A.data(), m, A_sk.data(), d);
+
+    double *A_device, *A_sk_device, *tau_device;
+    int64_t* J_device;
+    cudaMalloc(&A_device, m * n * sizeof(double));
+    cudaMalloc(&A_sk_device, d * n * sizeof(double));
+    cudaMalloc(&tau_device, n * sizeof(double));
+    cudaMalloc(&J_device, n * sizeof(int64_t));
+
+    RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+    BQRRP_GPU.qr_tall = GPUSubroutines::QRTall::cholqr;
+    auto run = [&]() {
+        cudaMemcpy(A_device, A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(A_sk_device, A_sk.data(), d * n * sizeof(double), cudaMemcpyHostToDevice);
+        return BQRRP_GPU.call(m, n, A_device, m, A_sk_device, d, tau_device, J_device);
+    };
+    auto free_mib = []() {
+        size_t free_bytes, total_bytes;
+        cudaDeviceSynchronize();
+        cudaMemGetInfo(&free_bytes, &total_bytes);
+        return (double) free_bytes / (1 << 20);
+    };
+
+    // A first call absorbs one-time allocations.
+    ASSERT_EQ(run(), 0);
+    double min_growth = std::numeric_limits<double>::infinity();
+    for (int r = 0; r < num_rounds; ++r) {
+        double before = free_mib();
+        for (int i = 0; i < calls_per_round; ++i)
+            ASSERT_EQ(run(), 0);
+        min_growth = std::min(min_growth, before - free_mib());
+    }
+    cudaFree(A_device);
+    cudaFree(A_sk_device);
+    cudaFree(tau_device);
+    cudaFree(J_device);
+    EXPECT_LE(min_growth, 32.0) << "device memory grew by at least " << min_growth << " MiB per " << calls_per_round << " calls";
+}
+
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_GPU_near_zero_input) {
     int64_t m = 1000;

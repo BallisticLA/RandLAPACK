@@ -423,7 +423,6 @@ int BQRRP_GPU<T, RNG>::call(
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         // Pivoting the trailing R and the ``current'' A.      
-        // The copy of A operation is done on a separete stream. If it was not, it would have been done here.  
         
         if(this -> timing) {
             nvtxRangePop();
@@ -535,6 +534,7 @@ int BQRRP_GPU<T, RNG>::call(
             // Freeing workspace info variables
             blas::device_free(d_info, lapack_queue);
             cudaFree(d_info_cusolver);
+            cusolverDnDestroy(cusolverH);
             blas::device_free(d_work_getrf, lapack_queue);
             blas::device_free(d_work_geqrf, lapack_queue);
 
@@ -902,6 +902,7 @@ int BQRRP_GPU<T, RNG>::call(
             // Freeing workspace info variables
             blas::device_free(d_info, lapack_queue);
             cudaFree(d_info_cusolver);
+            cusolverDnDestroy(cusolverH);
             blas::device_free(d_work_getrf, lapack_queue);
             blas::device_free(d_work_geqrf, lapack_queue);
 
