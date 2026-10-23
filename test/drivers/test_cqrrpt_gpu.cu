@@ -512,3 +512,48 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
     EXPECT_EQ(R_on, R_off);
     EXPECT_EQ(J_on, J_off);
 }
+
+// R's contents on entry must not matter: with R filled with NaN, CQRRPT_GPU must return exactly
+// the R it returns for a zeroed R, and that R is zero below the diagonal and past the rank.
+TEST_F(TestCQRRPT, CQRRPT_GPU_R_contents_on_entry_ignored) {
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    struct Input { const char* name; int64_t m, n; std::vector<double> A; uint32_t seed; };
+    std::vector<Input> inputs;
+    for (int64_t rank_A : {(int64_t) 50, (int64_t) 40}) {
+        int64_t m = 2000, n = 50;
+        std::vector<double> A(m * n, 0.0);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+        m_info.cond_num = 2;
+        m_info.rank = rank_A;
+        m_info.exponent = 2.0;
+        auto gen_state = RandBLAS::RNGState();
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), gen_state);
+        inputs.push_back({rank_A == n ? "full rank" : "rank 40", m, n, A, 0});
+    }
+    inputs.push_back({"failed potrf", 600, 60, sketch_defeating_input(600, 60, 2, 2.0, 7, 1.0), 7});
+
+    for (auto& in : inputs) {
+        SCOPED_TRACE(in.name);
+        int64_t m = in.m, n = in.n;
+        std::vector<double> Q0(in.A), R0(n * n, 0.0), Q1(in.A), R1(n * n, std::numeric_limits<double>::quiet_NaN());
+        std::vector<int64_t> J0(n, 0), J1(n, 0);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.no_hqrrp = 1;
+        RandBLAS::RNGState<r123::Philox4x32> state0(in.seed), state1(in.seed);
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q0.data(), m, R0.data(), n, J0.data(), 2.0, state0), 0);
+        int64_t rank = CQRRPT_GPU.rank;
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q1.data(), m, R1.data(), n, J1.data(), 2.0, state1), 0);
+        ASSERT_EQ(CQRRPT_GPU.rank, rank);
+
+        int64_t mismatched = 0, nonzero = 0;
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < n; ++i) {
+                mismatched += !(R1[i + j * n] == R0[i + j * n]);
+                nonzero += (i > j || i >= rank) && R1[i + j * n] != 0.0;
+            }
+        EXPECT_EQ(mismatched, 0) << "entries of R that depend on its contents on entry";
+        EXPECT_EQ(nonzero, 0) << "nonzero entries below the diagonal or past rank " << rank;
+        EXPECT_EQ(Q1, Q0);
+    }
+}

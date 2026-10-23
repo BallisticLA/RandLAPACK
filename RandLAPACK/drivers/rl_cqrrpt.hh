@@ -85,7 +85,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///
         /// @param[in] R
         ///     Represents the upper-triangular R factor of QR factorization.
-        ///     On entry, is empty and may not have any space allocated for it.
+        ///     On entry, an n-by-n buffer with leading dimension ldr >= n; its contents are ignored.
         ///
         /// @param[in] state
         ///     RNG state parameter, required for sketching operator generation.
@@ -95,8 +95,8 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///     Matrix is stored explicitly.
         ///
         /// @param[out] R
-        ///     Stores k-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        ///     Rows 0:rank hold the upper-trapezoidal R factor; all other entries
+        ///     of the n-by-n block are zero. Not formed in orthogonalization mode.
         ///
         /// @param[out] J
         ///     Stores k integer type pivot index entries.
@@ -167,6 +167,9 @@ int CQRRPT<T, RNG>::call(
     randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
     randlapack_require(!(R == nullptr && n > 0)) << "R buffer is null but n=" << n << " > 0";
     randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
+
+    // R's contents on entry are ignored: the parts the algorithm does not write are read as zeros.
+    lapack::laset(MatrixType::General, n, n, (T) 0.0, (T) 0.0, R, ldr);
 
     ///--------------------TIMING VARS--------------------/
     steady_clock::time_point saso_t_stop;
@@ -349,6 +352,8 @@ int CQRRPT<T, RNG>::call(
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, k - new_rank, m, (T) 1.0, A, lda, &A[lda * new_rank], lda, (T) 0.0, &R_sp[ldr * new_rank], ldr);
         // Get the final R-factor, undoing the preconditioning
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, A_hat, d, R_sp, ldr); 
+        // Rows past the rank hold leftovers of the Cholesky factor.
+        lapack::laset(MatrixType::General, n - new_rank, n, (T) 0.0, (T) 0.0, &R[new_rank], ldr);
     } 
     else if (new_rank != n) {
         // Complete the orthonormal set

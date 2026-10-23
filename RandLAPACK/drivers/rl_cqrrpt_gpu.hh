@@ -96,15 +96,15 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         ///
         /// @param[in] R
         ///     Represents the upper-triangular R factor of QR factorization.
-        ///     On entry, is empty and may not have any space allocated for it.
+        ///     On entry, an n-by-n buffer with leading dimension ldr >= n; its contents are ignored.
         ///
         /// @param[out] A
         ///     Overwritten by an m-by-k orthogonal Q factor.
         ///     Matrix is stored explicitly.
         ///
         /// @param[out] R
-        ///     Stores k-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        ///     Rows 0:rank hold the upper-trapezoidal R factor; all other entries
+        ///     of the n-by-n block are zero.
         ///
         /// @param[out] J
         ///     Stores k integer type pivot index entries.
@@ -161,6 +161,9 @@ int CQRRPT_GPU<T, RNG>::call(
 ){
     randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
     randlapack_require(ldr >= n) << "ldr=" << ldr << " < n=" << n << " (ldr must be >= n)";
+
+    // R's contents on entry are ignored: the parts the algorithm does not write are read as zeros.
+    lapack::laset(MatrixType::General, n, n, (T) 0.0, (T) 0.0, R, ldr);
 
     ///--------------------TIMING VARS--------------------/
     steady_clock::time_point saso_t_stop;
@@ -401,6 +404,8 @@ int CQRRPT_GPU<T, RNG>::call(
 
     cudaMemcpy2D(A, lda * sizeof(T), A_device, lda * sizeof(T), m * sizeof(T), n, cudaMemcpyDeviceToHost);
     cudaMemcpy2D(R, ldr * sizeof(T), R_device, ldr * sizeof(T), n * sizeof(T), n, cudaMemcpyDeviceToHost);
+    // Rows past the rank hold leftovers of the sketch's R factor.
+    lapack::laset(MatrixType::General, n - new_rank, n, (T) 0.0, (T) 0.0, &R[new_rank], ldr);
     
     cudaFree(A_device);
     cudaFree(R_device);
