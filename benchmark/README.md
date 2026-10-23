@@ -1,5 +1,9 @@
 # RandLAPACK benchmarks
 
+Performance-measurement harnesses for RandLAPACK's drivers and subroutines
+(the numbers behind the papers and speed regressions). Not to be confused
+with `extras/`, which extends functionality using third-party dependencies.
+
 This directory is a **standalone CMake project**: it consumes an *installed*
 RandLAPACK via `find_package`, exactly like user code does. The autoinstaller
 builds it automatically into `RandNLA-project/build/benchmark-build/`; to

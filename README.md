@@ -25,7 +25,7 @@ The installer builds RandLAPACK together with its dependencies (BLAS++,
 LAPACK++, Random123; RandBLAS comes along as a pinned git submodule) and the
 test and benchmark executables. Run `bash install.sh --help` for the options
 (GPU support, parallelism, reusing preinstalled dependencies, and more), and
-see [INSTALL.md](INSTALL.md) for manual installation and for consuming
+see [docs/INSTALL.md](docs/INSTALL.md) for manual installation and for consuming
 RandLAPACK from your own CMake project. A smoke test after installation:
 
 ```shell
@@ -35,7 +35,7 @@ ctest --test-dir ../RandNLA-project/build/RandLAPACK-build
 ## What's in the library
 
 The user-facing algorithms ("drivers"; see
-[ARCHITECTURE.md](ARCHITECTURE.md) for how the library is organized):
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the library is organized):
 
 | Driver | Problem it solves | Reference |
 |--------|-------------------|-----------|
@@ -69,9 +69,17 @@ An algorithm needs to be instantiated with its tuning parameters and
 subroutines in order to be used.
 RandLAPACK currently emphasizes that "algorithms as objects" approach.
 
-## Notes for collaborators
+## Where to go from here
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow
-(experiment branches, tests, code conventions) and
-[INSTALL.md](INSTALL.md) for installing dependencies, installing RandLAPACK
-itself, and using RandLAPACK in other projects.
+Everything beyond this page lives in two places: `docs/` for reference
+documentation, and `CONTRIBUTING.md` at the root for the development
+workflow.
+
+| You want to... | Read |
+|----------------|------|
+| Install with one command | [docs/INSTALL_SCRIPT.md](docs/INSTALL_SCRIPT.md) |
+| Install by hand, or use RandLAPACK from your CMake project | [docs/INSTALL.md](docs/INSTALL.md) |
+| Understand how the library is organized | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Contribute code | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Run or add performance benchmarks | [benchmark/README.md](benchmark/README.md) |
+| Use the Eigen/Matrix-Market integrations | [extras/README.md](extras/README.md) |
