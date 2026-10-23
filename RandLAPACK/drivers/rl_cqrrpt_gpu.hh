@@ -312,7 +312,9 @@ int CQRRPT_GPU<T, RNG>::call(
     // A_pre * R_sp = AP
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_sp_device, k, A_device, lda, lapack_queue);
 
+    // Device calls are asynchronous: when timing, wait for each step's work before stopping its timer.
     if(this -> timing) {
+        lapack_queue.sync();
         a_mod_trsm_t_stop = steady_clock::now();
         cholqr_t_start = steady_clock::now();
     }
@@ -364,8 +366,10 @@ int CQRRPT_GPU<T, RNG>::call(
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, R_sp_device, k, A_device, lda, lapack_queue);
 
-    if(this -> timing)
+    if(this -> timing) {
+        lapack_queue.sync();
         cholqr_t_stop = steady_clock::now();
+    }
 
     // Get the final R-factor: R[0:new_rank, :] = R_sp[0:new_rank, 0:k] * R[0:k, :].
     // After a failed potrf, R_sp[0:new_rank, new_rank:k] may not be a factor, so rebuild it as Q' * A_pre[:, new_rank:k].
@@ -379,6 +383,7 @@ int CQRRPT_GPU<T, RNG>::call(
     this->rank = new_rank;
 
     if(this -> timing) {
+        lapack_queue.sync();
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
         qrcp_t_dur        = duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
         rank_reveal_t_dur = duration_cast<microseconds>(rank_reveal_t_stop - rank_reveal_t_start).count();

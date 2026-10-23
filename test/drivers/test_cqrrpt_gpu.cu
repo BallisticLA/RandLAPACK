@@ -482,3 +482,68 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
         EXPECT_EQ(bad_pad, 0) << "padding entries changed";
     }
 }
+
+// With timing on, each step's time must cover its device work, not just the kernel launches.
+// The trsm step must last at least as long as the same trsm timed alone, and total must
+// include the final trsm, so the call may outlast total by less than one trsm.
+// Timing must not change the results.
+TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
+    int64_t m = 5000;
+    int64_t n = 1000;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+    std::vector<double> A(m * n);
+    RandBLAS::DenseDist D(m, n);
+    state = RandBLAS::fill_dense(D, A.data(), state);
+
+    // Reference: the preconditioning trsm (m-by-n against an n-by-n triangle), fastest of 3 runs.
+    long t_trsm = std::numeric_limits<long>::max();
+    {
+        std::vector<double> T(n * n, 0.0);
+        for (int64_t i = 0; i < n; ++i)
+            T[i + i * n] = 1.0;
+        double *A_device, *T_device;
+        cudaMalloc(&A_device, m * n * sizeof(double));
+        cudaMalloc(&T_device, n * n * sizeof(double));
+        cudaMemcpy(A_device, A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(T_device, T.data(), n * n * sizeof(double), cudaMemcpyHostToDevice);
+        lapack::Queue queue(0);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, T_device, n, A_device, m, queue);
+        queue.sync();
+        for (int rep = 0; rep < 3; ++rep) {
+            auto start = std::chrono::steady_clock::now();
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, T_device, n, A_device, m, queue);
+            queue.sync();
+            t_trsm = std::min<long>(t_trsm, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+        }
+        cudaFree(A_device);
+        cudaFree(T_device);
+    }
+
+    auto run = [&](bool timing, std::vector<double>& Q, std::vector<double>& R, std::vector<int64_t>& J, long& wall) {
+        Q = A;
+        R.assign(n * n, 0.0);
+        J.assign(n, 0);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, timing, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.no_hqrrp = 1;
+        auto s = RandBLAS::RNGState();
+        auto start = std::chrono::steady_clock::now();
+        EXPECT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, s), 0);
+        wall = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
+        return CQRRPT_GPU.times;
+    };
+    std::vector<double> Q_on, R_on, Q_off, R_off;
+    std::vector<int64_t> J_on, J_off;
+    long wall = 0;
+    run(false, Q_off, R_off, J_off, wall);
+    auto times = run(true, Q_on, R_on, J_on, wall);
+
+    // times = {saso, qrcp, rank_reveal, cholqr, a_mod_piv, a_mod_trsm, rest, total}
+    ASSERT_EQ(times.size(), 8u);
+    EXPECT_GE(times[5], t_trsm) << "trsm step " << times[5] << " us, trsm alone " << t_trsm << " us";
+    EXPECT_LT(wall - times[7], t_trsm) << "call " << wall << " us, total " << times[7] << " us, trsm alone " << t_trsm << " us";
+    EXPECT_EQ(Q_on, Q_off);
+    EXPECT_EQ(R_on, R_off);
+    EXPECT_EQ(J_on, J_off);
+}
