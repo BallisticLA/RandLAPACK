@@ -129,6 +129,7 @@ class BQRRP : public BQRRPalg<T, RNG> {
         bool timing;
         RandBLAS::RNGState<RNG> state;
 
+        // Rank l detected by the naive rank estimator; on exit, A[:, J] = Q(:, 1:l) * R(1:l, :).
         // CRITICAL: `rank` is only an **upper bound** on the numerical rank of the matrix.
         // It's perfectly valid to set rank=n for an n-by-n zero-matrix.
         int64_t rank;
@@ -491,6 +492,10 @@ int BQRRP<T, RNG>::call(
             // Alternatively, instead of trmm + copy, we could perform a single gemm.
             // Compute R11 = R11_full(1:block_rank, :) * R_sk
             // R11_full is stored in R_tall_qr space, R_sk is stored in A_sk space.
+            // trmm reads all of R_tall_qr(0:block_rank, 0:b_sz); in a rank-deficient block, columns
+            // block_rank:b_sz still hold the previous iteration's R11 and must be zeroed.
+            if (block_rank < b_sz)
+                lapack::laset(MatrixType::General, block_rank, b_sz - block_rank, (T) 0.0, (T) 0.0, &R_tall_qr[b_sz_const * block_rank], b_sz_const);
             blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_tall_qr, b_sz_const);
 
             // Need to copy R11 over form R_tall_qr into the appropriate space in A.
@@ -521,26 +526,19 @@ int BQRRP<T, RNG>::call(
 
         // Performing apply_trans_q below.
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
-        // If block_rank != b_sz_const -> last iteration, no need to find the new "current A." 
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
         // Q is defined with block_rank elementary reflectors. 
+        // If block_rank != b_sz_const (last iteration), only the top block_rank rows (R12) are needed,
+        // but Q' must still be applied to all rows: each reflector spans rows 0:rows.
         // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
         // Using QRF prevents us from using gemqrt unless matrix T was explicitly constructed.
-        if ((block_rank != b_sz_const)) {
-            if(this -> apply_trans_q == Subroutines::ApplyTransQ::gemqrt && (this -> qr_tall == Subroutines::QRTall::geqrt || this -> qr_tall == Subroutines::QRTall::cholqr)) {
-                lapack::gemqrt(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
-            } else {
-                lapack::ormqr(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
-            }
+        if(this -> apply_trans_q == Subroutines::ApplyTransQ::gemqrt && (this -> qr_tall == Subroutines::QRTall::geqrt || this -> qr_tall == Subroutines::QRTall::cholqr)) {
+            lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
         } else {
-            if(this -> apply_trans_q == Subroutines::ApplyTransQ::gemqrt && (this -> qr_tall == Subroutines::QRTall::geqrt || this -> qr_tall == Subroutines::QRTall::cholqr)) {
-                lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
-            } else {
-                lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
-            }
+            lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
         }
         
         if(this -> timing) {
@@ -571,7 +569,9 @@ int BQRRP<T, RNG>::call(
         // permutation is in-place; only the `rank` field was bogus. Tests
         // for wide A were absent in the upstream test suite, masking this.
         if((curr_sz >= std::min(m, n)) || (block_rank != b_sz_const)) {
-            this -> rank = curr_sz;
+            // All earlier blocks were full rank; this one adds block_rank, which is < b_sz
+            // if the block is rank-deficient.
+            this -> rank = curr_sz - b_sz + block_rank;
 
             if(this -> timing) {
                 total_t_stop = steady_clock::now();

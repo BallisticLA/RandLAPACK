@@ -5,6 +5,7 @@
 
 #include <RandBLAS.hh>
 #include <fstream>
+#include <tuple>
 #include <gtest/gtest.h>
 
 using Subroutines = RandLAPACK::BQRRPSubroutines;
@@ -142,6 +143,84 @@ class TestBQRRP : public ::testing::Test
             RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
 
             error_check(norm_A, all_data, atol);
+        }
+    }
+
+    /// Rank-deficient test for BQRRP:
+    /// A = G * H has exact rank r, with r not a multiple of b_sz, so the block holding
+    /// column r is detected as rank-deficient and BQRRP stops there. For every qr_tall and
+    /// apply_trans_q pair, checks the reported rank and the residual of A[:, J] - Q1 * R(1:r, :),
+    /// over the columns up to the end of that block and, separately, over the trailing columns,
+    /// whose R entries come from that block's apply_trans_q call.
+    /// A is scaled by 1e4: correct relative residuals do not change, but errors that grow
+    /// with ||A|| (such as R11 built from stale workspace) rise far above rounding.
+    template <typename T, typename RNG>
+    static void test_BQRRP_rank_deficient(
+        int64_t m,
+        int64_t n,
+        int64_t r,
+        int64_t b_sz,
+        RandBLAS::RNGState<RNG> &state) {
+
+        T d_factor = 1.25;
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
+
+        std::vector<T> G(m * r, 0.0);
+        std::vector<T> H(r * n, 0.0);
+        std::vector<T> A(m * n, 0.0);
+        RandBLAS::DenseDist DG(m, r);
+        RandBLAS::DenseDist DH(r, n);
+        state = RandBLAS::fill_dense(DG, G.data(), state);
+        state = RandBLAS::fill_dense(DH, H.data(), state);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, (T) 1e4, G.data(), m, H.data(), r, (T) 0.0, A.data(), m);
+        T norm_A = lapack::lange(Norm::Fro, m, n, A.data(), m);
+
+        // The rank-deficient block ends at column split; R(:, split:n) is its R12.
+        int64_t split = std::min(std::min(m, n), (r / b_sz + 1) * b_sz);
+
+        // geqrf provides no T factor, so BQRRP always applies its Q' through ormqr.
+        const std::vector<std::tuple<const char*, Subroutines::QRTall, Subroutines::ApplyTransQ>> variants = {
+            {"cholqr + gemqrt", Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::gemqrt},
+            {"cholqr + ormqr",  Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::ormqr},
+            {"geqrt + gemqrt",  Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::gemqrt},
+            {"geqrt + ormqr",   Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::ormqr},
+            {"geqrf + ormqr",   Subroutines::QRTall::geqrf,  Subroutines::ApplyTransQ::ormqr}
+        };
+
+        for (const auto& [name, qr_tall, apply_trans_q] : variants) {
+            SCOPED_TRACE(name);
+            std::vector<T> A_fact(A);
+            std::vector<T> A_piv(A);
+            std::vector<T> R(r * n, 0.0);
+            std::vector<T> tau(n, 0.0);
+            std::vector<int64_t> J(n, 0);
+            auto state_alg = state;
+
+            RandLAPACK::BQRRP<T, RNG> BQRRP(false, b_sz);
+            BQRRP.tol           = 1e-10;
+            BQRRP.internal_nb   = 10;
+            BQRRP.qr_tall       = qr_tall;
+            BQRRP.apply_trans_q = apply_trans_q;
+            BQRRP.call(m, n, A_fact.data(), m, d_factor, tau.data(), J.data(), state_alg);
+
+            // Build R(1:r, :) and Q1 = Q(:, 1:r) from the known rank r, so that the residual
+            // checks below do not depend on the reported rank.
+            lapack::lacpy(MatrixType::Upper, r, n, A_fact.data(), m, R.data(), r);
+            lapack::ungqr(m, r, r, A_fact.data(), m, tau.data());
+
+            // A[:, J] - Q1 * R(1:r, :)
+            RandLAPACK::util::col_swap(m, n, n, A_piv.data(), m, J.data());
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, (T) 1.0, A_fact.data(), m, R.data(), r, (T) -1.0, A_piv.data(), m);
+            T res_lead  = lapack::lange(Norm::Fro, m, split, A_piv.data(), m) / norm_A;
+            T res_trail = lapack::lange(Norm::Fro, m, n - split, &A_piv[m * split], m) / norm_A;
+
+            std::cout << std::setw(16) << name << ":  RANK " << std::setw(5) << BQRRP.rank << " (expected " << r << "),"
+                      << "  REL RESIDUAL, COLS [0, " << split << "): " << std::scientific << res_lead
+                      << ",  COLS [" << split << ", " << n << "): " << res_trail << "\n";
+
+            EXPECT_EQ(BQRRP.rank, r);
+            EXPECT_LE(res_lead, atol);
+            EXPECT_LE(res_trail, atol);
         }
     }
 };
@@ -434,4 +513,24 @@ TEST_F(TestBQRRP, BQRRP_wide_aspect) {
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+}
+
+// Exact rank r < b_sz: the first block is rank-deficient. Its R12 needs Q' applied to all
+// rows, not only the top block_rank, and the reported rank must be r, not b_sz.
+TEST_F(TestBQRRP, BQRRP_rank_deficient_first_block) {
+    auto state = RandBLAS::RNGState();
+    test_BQRRP_rank_deficient<double>(1000, 600, 150, 200, state);
+}
+
+// Rank drop inside the second block: the reported rank must count the full first block,
+// and with cholqr, R11 of the rank-deficient block must not reuse the first block's R11.
+TEST_F(TestBQRRP, BQRRP_rank_deficient_later_block) {
+    auto state = RandBLAS::RNGState();
+    test_BQRRP_rank_deficient<double>(1000, 600, 350, 200, state);
+}
+
+// Wide A whose clipped last block (b_sz = 100 of 250) is rank-deficient.
+TEST_F(TestBQRRP, BQRRP_rank_deficient_wide_clipped_block) {
+    auto state = RandBLAS::RNGState();
+    test_BQRRP_rank_deficient<double>(600, 1000, 550, 250, state);
 }

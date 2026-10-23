@@ -664,6 +664,10 @@ int BQRRP_GPU<T, RNG>::call(
             // Alternatively, instead of trmm + copy, we could perform a single gemm.
             // Compute R11 = R11_full(1:block_rank, :) * R_sk
             // R11_full is stored in R_tall_qr space, R_sk is stored in A_sk space.
+            // trmm reads all of R_tall_qr(0:block_rank, 0:b_sz); in a rank-deficient block, columns
+            // block_rank:b_sz still hold the previous iteration's R11 (or unset memory) and must be zeroed.
+            if (block_rank < b_sz)
+                cudaMemset2DAsync(&R_tall_qr[b_sz_const * block_rank], b_sz_const * sizeof(T), 0, block_rank * sizeof(T), b_sz - block_rank, strm);
             blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_tall_qr, b_sz_const, lapack_queue);
             // Need to copy R11 over form R_tall_qr into the appropriate space in A.
             // We cannot avoid this copy, since trmm() assumes R_tall_qr is a square matrix.
@@ -714,27 +718,17 @@ int BQRRP_GPU<T, RNG>::call(
             apply_transq_t_start = steady_clock::now();
         }
 
-        if (block_rank != b_sz_const) {
-            if (iter == 0) {
-                // Compute optimal workspace size
-                RandLAPACK::cuda_kernels::cusolver_ormqr_buffer_size(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
-                // Allocate workspace
-                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(T) * lwork_ormqr);
-            }
-            RandLAPACK::cuda_kernels::cusolver_ormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
-            // Synchronization required after using cusolver
-            cudaStreamSynchronize(strm);
-        } else {
-            if (iter == 0) {
-                // Compute optimal workspace size
-                RandLAPACK::cuda_kernels::cusolver_ormqr_buffer_size(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
-                // Allocate workspace
-                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(T) * lwork_ormqr);
-            }
-            RandLAPACK::cuda_kernels::cusolver_ormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
-            // Synchronization required after using cusolver
-            cudaStreamSynchronize(strm);
+        // If block_rank != b_sz_const (last iteration), only the top block_rank rows (R12) are needed,
+        // but Q' must still be applied to all rows: each reflector spans rows 0:rows.
+        if (iter == 0) {
+            // Compute optimal workspace size
+            RandLAPACK::cuda_kernels::cusolver_ormqr_buffer_size(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[curr_sz], Work1, lda, &lwork_ormqr);
+            // Allocate workspace
+            cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(T) * lwork_ormqr);
         }
+        RandLAPACK::cuda_kernels::cusolver_ormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[curr_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+        // Synchronization required after using cusolver
+        cudaStreamSynchronize(strm);
 
         if(this -> timing) {
             cudaStreamSynchronize(strm);
@@ -766,7 +760,9 @@ int BQRRP_GPU<T, RNG>::call(
         // exercised wide A (all GPU tests are tall 5000 x 2800 or square
         // 1000 x 1000), so this bug was undetected.
         if((curr_sz >= std::min(m, n)) || (block_rank != b_sz_const)) {
-            this -> rank = curr_sz;
+            // All earlier blocks were full rank; this one adds block_rank, which is < b_sz
+            // if the block is rank-deficient.
+            this -> rank = curr_sz - b_sz + block_rank;
             // Bug fix (wide A): the existing trailing-copy gating
             // `iter != maxiter - 1` is wrong for wide A at full completion.
             // It was meant to skip the copy when terminating at the very
