@@ -1,7 +1,8 @@
 # Installing and using RandLAPACK
 
-**The fastest route is the autoinstaller**: `bash install.sh` builds
-RandLAPACK, its dependencies, and the test and benchmark executables in one
+**The fastest route on Linux and macOS is the autoinstaller**:
+`bash install.sh` builds RandLAPACK, its dependencies, the extras and
+benchmark projects, and (when GoogleTest is found) the test suite in one
 command; see [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md). This file covers manual
 installation for fine-grained control.
 
@@ -40,8 +41,9 @@ For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
 
 #### CUDA/GCC Compatibility Matrix
 
-The table lists configurations we have verified; it is not exhaustive. The
-authoritative host-compiler caps are in each CUDA Toolkit's release notes.
+The table is not exhaustive. For the host compilers each CUDA release
+supports, see the Supported Compilers table in NVIDIA's CUDA Installation
+Guide for Linux.
 
 | CUDA Version | GCC Support | Status | Notes |
 |--------------|-------------|---------|-------|
@@ -210,10 +212,6 @@ Here are the conceptual meanings in the recipe's build flags:
   
 * `-Dblaspp_DIR=X` means `X` is the directory containing the file `blasppConfig.cmake`.
 
-* `-DRandLAPACK_BUILD_TESTS=OFF` skips the GoogleTest regression suite, which
-  is built by default when GTest is found; `-DSANITIZE_ADDRESS=ON` adds
-  AddressSanitizer instrumentation (CI uses it with Debug builds).
-
 * `-DRandom123_DIR=X` means `X` is the directory that contains a folder called ``Random123``
   that includes the Random123 header files. For example, ``X/Random123/philox.h`` needs
   to be a file on your system.
@@ -222,6 +220,11 @@ Here are the conceptual meanings in the recipe's build flags:
    the RandLAPACK binaries, header files, and CMake configuration files needed
    for using RandLAPACK in other projects. You should make note of the directory
    that ends up containing the file ``RandLAPACKConfig.cmake``.
+
+Two optional flags are not used in the recipe above:
+`-DRandLAPACK_BUILD_TESTS=OFF` skips the GoogleTest regression suite, which
+is built by default when GTest is found, and `-DSANITIZE_ADDRESS=ON` adds
+AddressSanitizer instrumentation (CI uses it with Debug builds).
 
 
 ## 4. Using RandLAPACK in other projects
@@ -236,7 +239,6 @@ project(myexec)
 
 find_package(blaspp REQUIRED)
 find_package(lapackpp REQUIRED)
-find_package(RandBLAS REQUIRED)
 find_package(RandLAPACK REQUIRED)
 
 add_executable(myexec ...)
@@ -247,8 +249,10 @@ carries RandBLAS, LAPACK++ and BLAS++ along as link dependencies.
 In order to build that CMake project you'd need to specify these build flags
  * `-Dblaspp_DIR=W`, where `W` contains the file `blasppConfig.cmake`.
  * `-Dlapackpp_DIR=X`, where `X` contains the file `lapackppConfig.cmake`.
- * `-DRandBLAS_DIR=Y`, where `Y` contains the file `RandBLASConfig.cmake`.
  * `-DRandLAPACK_DIR=Z`, where `Z` contains the file `RandLAPACKConfig.cmake`. 
+
+With the default submodule build, RandBLAS needs no flag: it installs under
+the same prefix as RandLAPACK, and RandLAPACK's config finds it there.
 
 
 ## 5. Tips

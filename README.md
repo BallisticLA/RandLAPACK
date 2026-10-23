@@ -23,10 +23,11 @@ bash install.sh
 
 The installer builds RandLAPACK together with its dependencies (BLAS++ and
 LAPACK++ from the BallisticLA forks, and Random123; RandBLAS comes along as a
-pinned git submodule) and the test, extras and benchmark executables. You
-bring a C++20 compiler, CMake 3.21 or later, Git, and a BLAS/LAPACK library
-(on macOS the installer uses Apple's Accelerate, so there is nothing to
-install). Run `bash install.sh --help` for the options
+pinned git submodule), the extras and benchmark projects, and the test
+suite. You bring a C++20 compiler, CMake 3.21 or later, Git, a BLAS/LAPACK
+library (on macOS 13.3 or later the installer uses Apple's Accelerate, so
+there is nothing to install), and GoogleTest for the test suite. Run
+`bash install.sh --help` for the options
 (GPU support, parallelism, reusing preinstalled dependencies, and more), and
 see [docs/INSTALL.md](docs/INSTALL.md) for manual installation and for consuming
 RandLAPACK from your own CMake project. A smoke test after installation:

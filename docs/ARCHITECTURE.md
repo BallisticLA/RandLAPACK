@@ -94,7 +94,8 @@ RandLAPACK/                     (repository root)
 The repository builds as three CMake projects, not one:
 
 1. **Core library** (root `CMakeLists.txt`): installs the headers and CMake
-   config, and builds the test suite when `RandLAPACK_BUILD_TESTS=ON`.
+   config, and builds the test suite when `RandLAPACK_BUILD_TESTS=ON` (the
+   default) and GoogleTest is found.
    RandBLAS is built from the submodule (or, for package maintainers only,
    consumed as an installed package behind the
    `RandLAPACK_EXTERNAL_RandBLAS` commit gate; see
@@ -107,8 +108,7 @@ The repository builds as three CMake projects, not one:
    while `extras/` is a holding area for functionality that currently needs
    third-party libraries (Eigen, fast_matrix_market) that core RandLAPACK
    will not depend on; see [extras/README.md](../extras/README.md) for the
-   graduation policy. (The benchmark project does borrow one extras header,
-   the matrix-file loader `extras/misc/ext_matrix_io.hh`, for its inputs.)
+   graduation policy. (Some benchmarks do borrow headers from `extras/`.)
 
 On Linux and macOS, `installers/install.sh` drives all three in order, plus
 the dependency builds; see [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md). On native
@@ -116,13 +116,16 @@ Windows, `installers/install.ps1` builds the dependencies and the core
 library and runs its tests, but not extras or benchmarks; see
 [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md).
 
-## Conventions that hold everywhere
+## Conventions
 
 - Column-major storage; `int64_t` for all dimensions, leading dimensions,
   and indices; element type is a template parameter `T` (float/double).
-- Algorithms are objects: construct with tuning parameters, then `call(...)`.
-  Outputs and workspaces are raw buffers; an output the routine allocates is
-  passed as a pointer reference (`T*&`).
+- Most drivers are objects: construct with tuning parameters, then
+  `call(...)`. A few, such as `hqrrp` and `krill_full_rpchol`, are free
+  functions.
+- New code takes outputs and workspaces as raw buffers (`T*&` for an output
+  the routine allocates, as `RSVD::call` does); some older routines, such as
+  `REVD2`, still use `std::vector`.
 - Errors: `randlapack_require(...)` throws `RandLAPACK::Error` with a
   descriptive message; new code throws rather than asserts.
 - Randomness comes exclusively from RandBLAS's counter-based generators

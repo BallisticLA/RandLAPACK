@@ -68,7 +68,7 @@ required yet; they become candidates once they have a green track record.
   (`-DBUILD_TESTS=OFF` in the core recipes). The pinned commit is already
   tested by RandBLAS's CI; rebuilding its ~450 tests in every RandLAPACK job
   roughly doubled job times. `install.sh` turns them off the same way, so
-  `install-linux` and `install-macos` skip them too; `install.ps1` does not,
+  every Linux and macOS installer lane skips them too; `install.ps1` does not,
   so `install-windows` builds and runs them, as a user's Windows install
   does.
 - **The Windows matrix is deliberately small** (CI-cost budget): the two
