@@ -216,6 +216,22 @@ __device__ void copy_gpu_device(
     }
 }
 
+// Device-side stand-ins for std::swap, std::iter_swap and std::find, which are constexpr
+// __host__ functions: nvcc rejects them in device code without --expt-relaxed-constexpr.
+template <typename T>
+__device__ void swap_gpu_device(T& a, T& b) {
+    T const tmp = a;
+    a = b;
+    b = tmp;
+}
+
+template <typename T>
+__device__ T* find_gpu_device(T* first, T* last, T value) {
+    while (first != last && *first != value)
+        ++first;
+    return first;
+}
+
 template <typename T>
 __global__ void __launch_bounds__(128) swap_gpu(
     T* a, 
@@ -248,7 +264,7 @@ __global__ void __launch_bounds__(128) LUQRCP_piv_process_gpu_global(
     __syncthreads();
     if (Idx const id = (Idx)blockDim.x * blockIdx.x + threadIdx.x; id == 0) {
         for(int i = 0; i < n; ++ i) {
-            std::swap(a[b[i] - 1], a[i]);
+            swap_gpu_device(a[b[i] - 1], a[i]);
         }
     }
 }
@@ -374,7 +390,8 @@ __global__  void __launch_bounds__(128) get_U_gpu(
 ) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n - 1) {
-        std::fill(&A[i * (lda + 1) + 1], &A[(i * lda) + m], 0.0);
+        for (int64_t j = i + 1; j < m; ++j)
+            A[i * lda + j] = 0.0;
     }
 }
 
@@ -405,10 +422,10 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel_sequential(
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
             for (int64_t l = threadIdx.x + blockDim.x * blockIdx.x; l < m; l += blockDim.x * gridDim.x) {
-                std::iter_swap(A + i * lda + l, A + j * lda + l);
+                swap_gpu_device(A[i * lda + l], A[j * lda + l]);
             }
             if (threadIdx.x == 0 && blockIdx.x == 0) {
-                std::iter_swap(curr, std::find(curr, end, i));
+                swap_gpu_device(*curr, *find_gpu_device(curr, end, i));
             }
             g.sync();
         }
@@ -466,8 +483,8 @@ __global__ void __launch_bounds__(512) vec_ell_swap_gpu(
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
             if (threadIdx.x == 0) {
-                std::iter_swap(J + i, J + j);
-                std::iter_swap(curr, std::find(curr, end, i));
+                swap_gpu_device(J[i], J[j]);
+                swap_gpu_device(*curr, *find_gpu_device(curr, end, i));
             }
             __syncthreads();
         }
