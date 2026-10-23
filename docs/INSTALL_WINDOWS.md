@@ -278,8 +278,15 @@ return to an upstream release tag. Everything else is a stable, released version
 ## 6. `install.ps1` reference
 
 ```
--ProjectDir <path>    Where dependencies/builds/installs go
-                      (default: ..\RandNLA-project next to the clone).
+-ProjectDir <path>    Where dependencies/builds/installs go (default:
+                      $env:RANDNLA_PROJECT_DIR if set, otherwise
+                      ..\RandNLA-project next to the clone).
+-Prefix <path>        Install RandLAPACK itself here instead of
+                      <ProjectDir>\install\RandLAPACK-install. Dependencies
+                      still go in the project directory.
+-ModifyEnvironment    Persist RANDNLA_PROJECT_DIR for your user account.
+                      The default touches nothing and prints the setx
+                      command instead.
 -Backend <name>       mkl (default) | openblas | custom.
 -MklRoot <path>       Use this specific oneMKL install (oneAPI layout);
                       skips discovery. Backend mkl only. Invalid paths are
@@ -347,7 +354,7 @@ For your own project, the installed CMake package carries the same helper:
 ```cmake
 find_package(RandLAPACK REQUIRED)
 add_executable(myprog main.cc)
-target_link_libraries(myprog RandLAPACK)
+target_link_libraries(myprog RandLAPACK::RandLAPACK)
 randlapack_stage_runtime_dlls(myprog)   # no-op on non-Windows platforms
 ```
 

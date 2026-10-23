@@ -28,7 +28,10 @@ available on your system:
   GCC 13, which RandBLAS's C++20 concepts need)
 * **CMake:** Version 3.21 or higher (the project's CMake floor; recent
   releases recommended)
-* **BLAS/LAPACK Library:** Intel MKL 2022 or higher recommended
+* **BLAS/LAPACK Library:** on Linux, OpenBLAS or Intel oneMKL (2022 or
+  higher; chosen by default when `MKLROOT` is set); on macOS, Apple's
+  Accelerate (macOS 13.3 or later), which needs nothing installed. Section 6
+  covers the choices.
 * **GoogleTest:** (Optional but recommended) For running RandLAPACK tests
 
 ### GPU Support Requirements (Optional)
@@ -445,7 +448,7 @@ the pinned BLAS++/LAPACK++ support (`icl-utk-edu/blaspp#134`,
 Apple's **legacy** interface (LAPACK 3.2.1, from 2009) is a different story: its
 divide-and-conquer `gesdd` returns wrong results on Apple Silicon, and RandLAPACK
 calls `gesdd` in `rl_rsvd.hh`, `rl_abrik.hh`, `rl_revd2.hh`,
-`rl_preconditioners.hh` and `rl_util.hh`. The installer therefore refuses a
+`rl_preconditioners.hh`, `rl_util.hh` and `rl_test_utils.hh`. The installer therefore refuses a
 build in which BLAS++ silently fell back to the legacy interface (checked
 against BLAS++'s generated `defines.h` right after the build, and again
 numerically by the `gesdd` conftest). On macOS older than 13.3, use

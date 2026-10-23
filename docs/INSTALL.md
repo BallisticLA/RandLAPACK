@@ -13,7 +13,9 @@ Section 4 explains how RandLAPACK can be used in other CMake projects.
 Section 5 gives detailed recommendations on configuring BLAS++ and LAPACK++
 for use with RandLAPACK.
 Its installation instructions for BLAS++ and LAPACK++ can be used in place
-of the corresponding instructions in Section 1.
+of the corresponding instructions in Section 2.
+
+Section 6 covers native Windows.
 
 *We recommend that you not bother with Section 5 the first time you build RandLAPACK.*
 
@@ -22,9 +24,10 @@ of the corresponding instructions in Section 1.
 ### Minimum Requirements
 - **CMake**: 3.21 or higher (3.31.9 recommended)
 - **C++ Compiler**: C++20 support required
-  - GCC 11 or higher
+  - GCC 13 or higher (the tested floor; RandBLAS uses C++20 concepts)
   - Clang 14 or higher (not extensively tested)
-  - Intel ICPX (has known issues, see GitHub issue #91)
+  - Intel ICPX (has known issues, see GitHub issue
+    [#91](https://github.com/BallisticLA/RandLAPACK/issues/91))
   - MSVC (Visual Studio 2022) on native Windows, with Ninja as the build
     tool (both bundled with the "Desktop development with C++" workload);
     see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
@@ -237,9 +240,11 @@ find_package(RandBLAS REQUIRED)
 find_package(RandLAPACK REQUIRED)
 
 add_executable(myexec ...)
-target_link_libraries(myexec RandLAPACK RandBLAS lapackpp blaspp ...)
+target_link_libraries(myexec RandLAPACK::RandLAPACK ...)
 ```
-In order to build that CMake project you'd need to specify a build flags
+The installed package exports the target `RandLAPACK::RandLAPACK`, which
+carries RandBLAS, LAPACK++ and BLAS++ along as link dependencies.
+In order to build that CMake project you'd need to specify these build flags
  * `-Dblaspp_DIR=W`, where `W` contains the file `blasppConfig.cmake`.
  * `-Dlapackpp_DIR=X`, where `X` contains the file `lapackppConfig.cmake`.
  * `-DRandBLAS_DIR=Y`, where `Y` contains the file `RandBLASConfig.cmake`.
@@ -329,9 +334,10 @@ when running ``cmake``.
 
 ### Installation trouble
 
-RandLAPACK has a GitHub Actions workflow to install it from scratch and run its suite of unit tests.
-If you're having trouble installing RandLAPACK, you can always refer to [that workflow file](https://github.com/BallisticLA/RandLAPACK/tree/main/.github/workflows).
-The workflow includes statements which print the working directory
+RandLAPACK's GitHub Actions workflows install it from scratch and run its suite of unit tests;
+[CI.md](CI.md) describes each lane.
+If you're having trouble installing RandLAPACK, you can always refer to [those workflow files](https://github.com/BallisticLA/RandLAPACK/tree/main/.github/workflows).
+The core workflows include statements which print the working directory
 and list the contents of that directory at various points in the installation.
 We do that so that it's easier to infer a valid choice of directory structure for building RandLAPACK.
 

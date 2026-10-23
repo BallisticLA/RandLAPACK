@@ -18,13 +18,16 @@ the thing we tell users to type is itself under test). The fifth,
 | core-windows | `windows-spaced-path` | windows-2022 | oneMKL ILP64 copied under `Program Files (x86)\Intel\oneAPI\mkl\latest`, once through `-Backend mkl -MklRoot` and once through `-Backend custom`: fresh BLAS++/LAPACK++ builds whose exported config must name that spaced path, then the test suite | no (new) |
 | dependency-pins | `pins` | ubuntu-latest | `installers/dependency-pins.env`: each commit exists at its URL, a non-empty tag points at its commit, and the pins match the RandBLAS submodule's | no (new) |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
+| install-script | `install-linux-openblas64` | ubuntu-latest | `install.sh --blas=openblas` with Debian/Ubuntu's `libopenblas64` as the only OpenBLAS: BLAS++ must come out ILP64 and link `libopenblas64`, then the test suite | no (new) |
 | install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, explicit `--blas=openblas` install | **yes** |
+| install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, then the test suite | no (new) |
 | install-script | `install-windows` | windows-2022 | `installers/install.ps1`: fresh install, idempotent re-run | no (new) |
 
 Required-check names match **job** names (`build`, `install-linux`,
 `install-macos`), not "workflow / job" display names. The Windows jobs, the
-`pins` job and the two `build-asan` jobs are deliberately not required yet;
-they become candidates once they have a green track record.
+`pins` job, the two `build-asan` jobs and the two newest installer lanes
+(`install-linux-openblas64`, `install-macos-lp64`) are deliberately not
+required yet; they become candidates once they have a green track record.
 
 ## Things that are deliberate (do not "fix" without reading this)
 
@@ -64,8 +67,10 @@ they become candidates once they have a green track record.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). The pinned commit is already
   tested by RandBLAS's CI; rebuilding its ~450 tests in every RandLAPACK job
-  roughly doubled job times. The install-script lanes keep them, preserving
-  exactly what a user's install builds.
+  roughly doubled job times. `install.sh` turns them off the same way, so
+  `install-linux` and `install-macos` skip them too; `install.ps1` does not,
+  so `install-windows` builds and runs them, as a user's Windows install
+  does.
 - **The Windows matrix is deliberately small** (CI-cost budget): the two
   mkl legs cover the default backend serial + OpenMP, and ONE openblas leg
   covers non-MKL provisioning and the LP64 build. There is no
