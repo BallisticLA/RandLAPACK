@@ -2,6 +2,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "cqrrpt_test_inputs.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -469,4 +470,34 @@ TEST_F(TestCQRRPT, CQRRPT_orthogonalization_mode_low_rank) {
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_orthogonalization(d_factor, all_data, CQRRPT, state);
+}
+
+// After a failed potrf, CQRRPT cuts the rank, and the leading rank rows of R must be built
+// from computed data. With Q (nearly) orthonormal, the truncated factorization then cannot
+// leave a residual larger than A itself. The input defeats the sketch, so CholQR fails.
+TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_R_consistent) {
+    int64_t m = 600;
+    int64_t n = 60;
+    uint32_t seed = 7;
+    std::vector<double> A = cqrrpt_test::sketch_defeating_input(m, n, 2, 2.0, seed, 1.0);
+    double norm_A = lapack::lange(Norm::Fro, m, n, A.data(), m);
+
+    for (double tol : {std::pow(std::numeric_limits<double>::epsilon(), 0.85), 1e-6}) {
+        SCOPED_TRACE(tol);
+        std::vector<double> Q(A), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        ASSERT_EQ(CQRRPT.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        int64_t r = CQRRPT.rank;
+        ASSERT_LT(r, n) << "input no longer makes CholQR fail; the test does not exercise the failure path";
+
+        // ||A[:, J] - Q_r R_r||_F / ||A||_F
+        std::vector<double> AP(A);
+        RandLAPACK::util::col_swap(m, n, n, AP.data(), m, J.data());
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
+        double err_qr = lapack::lange(Norm::Fro, m, n, AP.data(), m) / norm_A;
+        EXPECT_LE(err_qr, 1.0) << "rank " << r;
+    }
 }

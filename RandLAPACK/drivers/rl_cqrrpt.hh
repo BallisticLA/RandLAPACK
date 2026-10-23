@@ -344,7 +344,10 @@ int CQRRPT<T, RNG>::call(
         cholqr_t_stop = steady_clock::now();
 
     if (!this->orthogonalization) {
-        // Get the final R-factor -- undoing the preconditioning
+        // After a failed potrf, R_sp[0:new_rank, new_rank:k] need not be a factor: rebuild it as Q' * A_pre[:, new_rank:k].
+        if (new_rank < k)
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, k - new_rank, m, (T) 1.0, A, lda, &A[lda * new_rank], lda, (T) 0.0, &R_sp[ldr * new_rank], ldr);
+        // Get the final R-factor, undoing the preconditioning
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, A_hat, d, R_sp, ldr); 
     } 
     else if (new_rank != n) {
