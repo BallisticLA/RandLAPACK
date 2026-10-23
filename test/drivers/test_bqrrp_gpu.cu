@@ -651,19 +651,26 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
         d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
 
     int64_t curr_sz = 0;
+    // Advance a separate pointer, so that A_device can still be freed.
+    double* A_work = A_device;
     for(int iter = 0; iter < 2; ++iter) {
         //lapack::geqrf_work_size_bytes(m, k, A_device, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
         //d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
-        lapack::geqrf(m, k, A_device, lda, &tau_device[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
+        lapack::geqrf(m, k, A_work, lda, &tau_device[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
         m       -= k;
         curr_sz += k;
-        A_device = &A_device[k * lda + k];
+        A_work = &A_work[k * lda + k];
         cudaStreamSynchronize(strm);
     }
 
-    free(A);
-    free(tau);
+    delete[] A;
+    delete[] tau;
     cudaFree(A_device);
     cudaFree(tau_device);
     blas::device_free(d_work_geqrf_opt, lapack_queue);
+    blas::device_free(d_info, lapack_queue);
+
+    // Fail here, rather than leave a CUDA error pending for the next test.
+    cudaError_t ierr = cudaGetLastError();
+    EXPECT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
 }

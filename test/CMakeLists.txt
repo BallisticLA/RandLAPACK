@@ -69,6 +69,12 @@ if (GTest_FOUND)
 
         # Discover CUDA tests
         gtest_discover_tests(RandLAPACK_tests_gpu)
+        # Discovered tests run one per process. This entry runs them in one process, shuffled and
+        # twice, so a test that leaves CUDA state behind (a pending error, a bad free) fails here.
+        # It runs alone: alongside the discovered GPU tests it would double their memory peak.
+        add_test(NAME RandLAPACK_tests_gpu_shuffle_repeat
+                 COMMAND RandLAPACK_tests_gpu --gtest_shuffle --gtest_repeat=2)
+        set_tests_properties(RandLAPACK_tests_gpu_shuffle_repeat PROPERTIES RUN_SERIAL TRUE)
     endif()
 
     # Create additional tests
