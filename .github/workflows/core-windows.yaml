@@ -49,7 +49,7 @@ jobs:
           arch: x86
 
       # Windows PowerShell 5.1, not pwsh: this is what a user actually gets,
-      # and the launch line is verbatim the one INSTALL_WINDOWS.md prescribes,
+      # and the launch line is verbatim the one docs/INSTALL_WINDOWS.md prescribes,
       # so the documented invocation itself stays under test.
       - name: install.ps1 must refuse an x86 toolchain
         shell: powershell
@@ -134,3 +134,89 @@ jobs:
           $output | Select-Object -First 5 | Out-Host
           Write-Host "... ($($output.Count) lines total, exit code $exit)"
           if ($exit -ne 0) { throw "Staged executable failed with a stripped PATH (exit $exit)." }
+
+  # Standing regression proof for icl-utk-edu/blaspp#137 (issue #158): the
+  # backend libraries reach BLAS++ from a directory whose path has spaces and
+  # parentheses, as at Intel's default oneMKL location, with no space-free
+  # copies made any more. Both routes that hand BLAS++ such paths run: a
+  # oneMKL named with -MklRoot (the -Backend mkl route, which discovery at
+  # Intel's default location joins) and -Backend custom, which also names
+  # the libraries as LAPACK_LIBRARIES to cover the LAPACK++ half of the fix.
+  # Each builds BLAS++/LAPACK++ fresh into its own uncached dependency root
+  # and runs RandLAPACK's suite against them.
+  windows-spaced-path:
+    name: windows-msvc-${{ matrix.backend }}-ilp64-spaced-path
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [mkl, custom]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: initialize MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # For the pinned NuGet oneMKL and Intel OpenMP, restored from cache.
+      - name: setup native Windows dependencies
+        uses: ./.github/actions/setup-randlapack-deps-windows
+        with:
+          blas-backend: mkl
+
+      - name: copy oneMKL into a path with spaces and parentheses
+        shell: pwsh
+        run: |
+          $deps = Join-Path $env:GITHUB_WORKSPACE "..\windows-deps"
+          $mkl = (Get-ChildItem $deps -Directory -Filter "onemkl-*" | Select-Object -First 1).FullName
+          $iomp = (Get-ChildItem $deps -Directory -Filter "intel-openmp-*" | Select-Object -First 1).FullName
+          $spaced = [System.IO.Path]::GetFullPath(
+            (Join-Path $env:GITHUB_WORKSPACE "..\Program Files (x86)\Intel\oneAPI\mkl\latest"))
+          New-Item -ItemType Directory -Force -Path $spaced | Out-Null
+          foreach ($sub in @("lib", "bin", "include")) {
+            Copy-Item -Recurse -Force (Join-Path $mkl $sub) (Join-Path $spaced $sub)
+          }
+          # Intel OpenMP beside oneMKL, as a oneAPI install ships it.
+          Copy-Item (Join-Path $iomp "lib\libiomp5md.lib") (Join-Path $spaced "lib")
+          Copy-Item (Join-Path $iomp "bin\libiomp5md.dll") (Join-Path $spaced "bin")
+          Add-Content -Path $env:GITHUB_ENV -Value "SPACED_MKLROOT=$spaced"
+
+      - name: provision BLAS++/LAPACK++ against the spaced oneMKL
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE "..\windows-deps-spaced-${{ matrix.backend }}"
+          $setup = "$env:GITHUB_WORKSPACE/.github/actions/setup-randlapack-deps-windows/setup.ps1"
+          if ('${{ matrix.backend }}' -eq 'mkl') {
+            & $setup -DependencyRoot $root -Backend mkl -MklRoot $env:SPACED_MKLROOT -Yes
+          } else {
+            $lib = Join-Path $env:SPACED_MKLROOT "lib"
+            $libs = @("mkl_intel_ilp64_dll.lib", "mkl_intel_thread_dll.lib", "mkl_core_dll.lib",
+              "libiomp5md.lib") | ForEach-Object { Join-Path $lib $_ }
+            # LAPACK too, so LAPACK++ gets an explicit spaced LAPACK_LIBRARIES
+            # (its half of the fix) rather than resolving from BLAS++'s.
+            & $setup -DependencyRoot $root -Backend custom -BlasLibraries ($libs -join ";") `
+              -LapackLibraries ($libs -join ";") `
+              -BackendBinDir (Join-Path $env:SPACED_MKLROOT "bin") -BlasInt ilp64 -Yes
+          }
+          # The proof itself: BLAS++ (and, for custom, LAPACK++) was
+          # configured with, and exports, the spaced paths rather than copies.
+          $spacedLib = "Program Files (x86)/Intel/oneAPI/mkl/latest/lib/mkl_intel_ilp64_dll.lib"
+          $exported = Get-ChildItem (Join-Path $root "blaspp-*-install") -Recurse -Filter "blaspp*.cmake" |
+            Select-String -SimpleMatch $spacedLib
+          if (-not $exported) { throw "BLAS++ does not reference the oneMKL import libraries at their spaced path." }
+          if ('${{ matrix.backend }}' -eq 'custom') {
+            $exported = Get-ChildItem (Join-Path $root "lapackpp-*-install") -Recurse -Filter "lapackpp*.cmake" |
+              Select-String -SimpleMatch $spacedLib
+            if (-not $exported) { throw "LAPACK++ does not reference the spaced LAPACK_LIBRARIES." }
+          }
+
+      - name: build, install, and test RandLAPACK
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/.github/scripts/windows/run-ci.ps1" `
+            -Task Core `
+            -WorkRoot "$env:GITHUB_WORKSPACE/../RandLAPACK-windows-ci-spaced" `
+            -Backend '${{ matrix.backend }}'

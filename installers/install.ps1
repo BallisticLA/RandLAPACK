@@ -1,5 +1,5 @@
 # RandLAPACK native Windows installer -- the companion to install.sh.
-# Full guide, including how to get an x64 toolchain: INSTALL_WINDOWS.md
+# Full guide, including how to get an x64 toolchain: docs/INSTALL_WINDOWS.md
 #
 #   powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 #
@@ -77,10 +77,10 @@ function Invoke-Checked {
     }
 }
 
-# This script lives in <repo>\install\; the repository root is one level up.
+# This script lives in <repo>\installers\; the repository root is one level up.
 $sourceRoot = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path (Join-Path $sourceRoot "RandLAPACK.hh"))) {
-    throw "install.ps1 must sit in the install\ directory of a RandLAPACK clone."
+    throw "install.ps1 must sit in the installers\ directory of a RandLAPACK clone."
 }
 
 # Architecture detection is shared with setup.ps1 rather than duplicated: the

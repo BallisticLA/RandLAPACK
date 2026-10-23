@@ -1,14 +1,29 @@
 # RandLAPACK Extras
 
-Standalone project for extended functionality and tests that depend on libraries not required by core RandLAPACK (e.g., Eigen, fast_matrix_market).
+Standalone project for extended functionality and tests that depend on
+libraries not required by core RandLAPACK (e.g., Eigen, fast_matrix_market).
+
+**Why this folder exists, and why it is a holding area.** Core RandLAPACK
+deliberately depends on nothing beyond RandBLAS, BLAS++, LAPACK++, and
+Random123. Some useful functionality (solver-backed linear operators, Matrix
+Market file I/O) currently needs third-party libraries that we are not
+willing to make RandLAPACK dependencies. Such code lives here, quarantined
+behind its own build, until one of two things happens: the external
+dependency is replaced with an in-house implementation and the functionality
+graduates into RandLAPACK proper, or the functionality proves niche enough
+to stay an optional integration permanently. Nothing in `extras/` is part of
+RandLAPACK's API, and nothing in RandLAPACK may include from it.
+
+**Not to be confused with `benchmark/`**: that directory measures the
+performance of RandLAPACK itself; this one extends its functionality.
 
 ## Directory Layout
 
 ```
 extras/
 ├── linops/      Solver-based linear operators (CholSolverLinOp, LUSolverLinOp)
-├── misc/        General utilities (format conversions, diagnostics)
-├── testing/     Test-specific utilities (SPD generators, etc.)
+├── misc/        Matrix Market conversions (ext_util.hh) and the matrix-file
+│                loader BenchIO::load_matrix (ext_matrix_io.hh)
 └── test/        GTest-based regression tests for the above
 ```
 
@@ -33,7 +48,9 @@ cmake -S lib/RandLAPACK/extras/ -B build/extras-build/ \
 make -C build/extras-build/ -j$(nproc)
 ```
 
-Or use the top-level `install.sh` which handles the full build sequence automatically.
+Or run `bash install.sh` from your clone, which builds extras by default on
+Linux and macOS (`--no-extras` skips it; the Windows installer does not build
+extras). Some benchmarks also borrow headers from here.
 
 ## Matrix file input
 
