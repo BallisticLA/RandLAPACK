@@ -129,7 +129,73 @@ class TestCQRRPT : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
 
-        error_check(norm_A, all_data); 
+        error_check(norm_A, all_data);
+    }
+
+    /// Builds an m-by-n A that defeats the sketch CQRRPT draws from RNGState(seed):
+    /// S * A is a padded Kahan matrix (angle theta), while A itself is dominated by
+    /// orthonormal columns in null(S). Preconditioning by the sketch's R then leaves
+    /// a badly conditioned A_pre, so CholQR's potrf can fail.
+    static std::vector<double> sketch_defeating_input(int64_t m, int64_t n, int64_t nnz, double d_factor, uint32_t seed, double theta) {
+        int64_t d = d_factor * n;
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        RandBLAS::SparseDist DS(d, m, nnz);
+        RandBLAS::SparseSkOp<double, r123::Philox4x32> S(DS, state);
+        RandBLAS::fill_sparse(S);
+        // Full QR of S' (m-by-d): S' = [Q1 Q2] [R1; 0], so S^+ = Q1 R1^{-T} and Q2 spans null(S).
+        std::vector<double> I(m * m, 0.0), Sd(d * m, 0.0), Q(m * m, 0.0), tau(d), R1(d * d, 0.0);
+        for (int64_t i = 0; i < m; ++i)
+            I[i + i * m] = 1.0;
+        RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, m, m, 1.0, S, 0, 0, I.data(), m, 0.0, Sd.data(), d);
+        for (int64_t i = 0; i < d; ++i)
+            for (int64_t j = 0; j < m; ++j)
+                Q[j + i * m] = Sd[i + j * d];
+        lapack::geqrf(m, d, Q.data(), m, tau.data());
+        lapack::lacpy(MatrixType::Upper, d, d, Q.data(), m, R1.data(), d);
+        lapack::orgqr(m, m, d, Q.data(), m, tau.data());
+        // Kahan matrix; the diagonal tilt keeps column pivoting from reordering it.
+        std::vector<double> K(d * n, 0.0);
+        double sn = std::sin(theta), cs = std::cos(theta);
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i < j; ++i)
+                K[i + j * d] = -cs * std::pow(sn, i);
+            K[j + j * d] = std::pow(sn, j) * (1 + 1e-3 * (n - j));
+        }
+        blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, d, n, 1.0, R1.data(), d, K.data(), d);
+        std::vector<double> A(m * n, 0.0);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, d, 1.0, Q.data(), m, K.data(), d, 0.0, A.data(), m);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < m; ++i)
+                A[i + j * m] += Q[i + (d + j) * m];
+        return A;
+    }
+
+    struct FactorChecks {
+        bool finite;      // Q[:, 0:r] and R[0:r, :] contain no NaN or Inf
+        double err_orth;  // ||Q_r' Q_r - I||_F / sqrt(r)
+        double err_proj;  // ||R_r - Q_r' A[:, J]||_F / ||A||_F
+    };
+
+    /// Checks the first r columns of Q (m-by-n, ld m) and rows of R (ld ldr) against A[:, J].
+    static FactorChecks factor_checks(int64_t m, int64_t n, int64_t r, const std::vector<double>& A, const std::vector<double>& Q, const std::vector<double>& R, int64_t ldr, std::vector<int64_t>& J) {
+        FactorChecks c{true, 0.0, 0.0};
+        for (int64_t j = 0; j < r; ++j)
+            for (int64_t i = 0; i < m; ++i)
+                c.finite = c.finite && std::isfinite(Q[i + j * m]);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < r; ++i)
+                c.finite = c.finite && std::isfinite(R[i + j * ldr]);
+        if (!c.finite || r == 0)
+            return c;
+        std::vector<double> G(r * r, 0.0), AP(A), P(r * n, 0.0);
+        RandLAPACK::util::eye(r, r, G.data());
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, r, m, 1.0, Q.data(), m, -1.0, G.data(), r);
+        c.err_orth = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, r, G.data(), r) / std::sqrt((double) r);
+        RandLAPACK::util::col_swap(m, n, n, AP.data(), m, J.data());
+        lapack::lacpy(MatrixType::General, r, n, R.data(), ldr, P.data(), r);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, r, n, m, -1.0, Q.data(), m, AP.data(), m, 1.0, P.data(), r);
+        c.err_proj = lapack::lange(Norm::Fro, r, n, P.data(), r) / lapack::lange(Norm::Fro, m, n, A.data(), m);
+        return c;
     }
 };
 
@@ -258,4 +324,65 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_repeated_calls_stable) {
         num_bad += !ok;
     }
     ASSERT_EQ(num_bad, 0) << num_bad << " of " << num_trials << " calls gave a non-finite or inaccurate factorization";
+}
+
+// An input that defeats the sketch makes potrf fail inside CholQR. CQRRPT_GPU must notice
+// the failure and cut the rank, as CQRRPT does, instead of carrying NaN into Q and R.
+TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_handled) {
+    int64_t m = 600;
+    int64_t n = 60;
+    uint32_t seed = 7;
+    double tol = 1e-6;
+    std::vector<double> A = sketch_defeating_input(m, n, 2, 2.0, seed, 1.0);
+
+    // The CPU driver confirms that this input makes CholQR fail and cut the rank.
+    std::vector<double> Q_cpu(A), R_cpu(n * n, 0.0);
+    std::vector<int64_t> J_cpu(n, 0);
+    RandBLAS::RNGState<r123::Philox4x32> state_cpu(seed);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    CQRRPT.nnz = 2;
+    ASSERT_EQ(CQRRPT.call(m, n, Q_cpu.data(), m, R_cpu.data(), n, J_cpu.data(), 2.0, state_cpu), 0);
+    ASSERT_LT(CQRRPT.rank, n) << "input no longer makes CholQR fail; the test does not exercise the failure path";
+
+    std::vector<double> Q(A), R(n * n, 0.0);
+    std::vector<int64_t> J(n, 0);
+    RandBLAS::RNGState<r123::Philox4x32> state(seed);
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    CQRRPT_GPU.nnz = 2;
+    CQRRPT_GPU.no_hqrrp = 1;
+    ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    auto c = factor_checks(m, n, CQRRPT_GPU.rank, A, Q, R, n, J);
+    EXPECT_TRUE(c.finite) << "rank " << CQRRPT_GPU.rank << ": Q or R contains NaN or Inf";
+}
+
+// When potrf succeeds, CQRRPT keeps the full rank. CQRRPT_GPU must not cut the rank from the
+// Cholesky diagonal alone: a cut it then ignores leaves Q's trailing columns unorthogonalized.
+TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_success_keeps_rank) {
+    int64_t m = 200;
+    int64_t n = 20;
+    uint32_t seed = 7;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A = sketch_defeating_input(m, n, 2, 2.0, seed, 0.6);
+
+    std::vector<double> Q_cpu(A), R_cpu(n * n, 0.0);
+    std::vector<int64_t> J_cpu(n, 0);
+    RandBLAS::RNGState<r123::Philox4x32> state_cpu(seed);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    CQRRPT.nnz = 2;
+    ASSERT_EQ(CQRRPT.call(m, n, Q_cpu.data(), m, R_cpu.data(), n, J_cpu.data(), 2.0, state_cpu), 0);
+    ASSERT_EQ(CQRRPT.rank, n);
+    auto c_cpu = factor_checks(m, n, CQRRPT.rank, A, Q_cpu, R_cpu, n, J_cpu);
+
+    std::vector<double> Q(A), R(n * n, 0.0);
+    std::vector<int64_t> J(n, 0);
+    RandBLAS::RNGState<r123::Philox4x32> state(seed);
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    CQRRPT_GPU.nnz = 2;
+    CQRRPT_GPU.no_hqrrp = 1;
+    ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    EXPECT_EQ(CQRRPT_GPU.rank, n);
+    auto c = factor_checks(m, n, CQRRPT_GPU.rank, A, Q, R, n, J);
+    ASSERT_TRUE(c.finite);
+    // CholQR loses orthogonality like u * cond^2 here; stay within 100x of the CPU driver.
+    EXPECT_LE(c.err_orth, 100 * c_cpu.err_orth + 1e-12) << "CPU ||Q'Q - I|| = " << c_cpu.err_orth;
 }

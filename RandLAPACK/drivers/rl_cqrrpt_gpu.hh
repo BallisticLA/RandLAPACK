@@ -108,9 +108,8 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         /// @param[out] J
         ///     Stores k integer type pivot index entries.
         ///
-        /// @return = 0: successful exit
-        ///
-        /// @return = 1: cholesky factorization failed
+        /// @return = 0: successful exit. If the Cholesky factorization fails, the rank
+        ///     is re-estimated from the leading part of the factor, as in CQRRPT.
         ///
 
         int call(
@@ -317,10 +316,13 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A_device, lda, (T) 0.0, R_sp_device, k, lapack_queue);
     lapack::potrf(Uplo::Upper, k, R_sp_device, k, d_info, lapack_queue);
     lapack_queue.sync();
+    device_info_int info = 0;
+    cudaMemcpy(&info, d_info, sizeof(device_info_int), cudaMemcpyDeviceToHost);
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
-    // This also automatically takes care of any potentical failures in Cholesky factorization.
+    // As in CQRRPT, this happens only if potrf failed. potrf completes only the leading
+    // info - 1 columns, and cuSOLVER may leave NaN past them, so the scan stops there.
     // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
     //
@@ -337,16 +339,18 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaMemcpy2D(R_sp_diag, sizeof(T), R_sp_device, (k + 1) * sizeof(T), sizeof(T), k, cudaMemcpyDeviceToHost);
 
     new_rank = k;
-    running_max = R_sp_diag[0];
-    running_min = R_sp_diag[0];
+    if(info > 0) {
+        running_max = R_sp_diag[0];
+        running_min = R_sp_diag[0];
 
-    for(i = 0; i < k; ++i) {
-        curr_entry = std::abs(R_sp_diag[i]);
-        running_max = std::max(running_max, curr_entry);
-        running_min = std::min(running_min, curr_entry);
-        if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
-            new_rank = i - 1;
-            break;
+        for(i = 0; i < k; ++i) {
+            curr_entry = std::abs(R_sp_diag[i]);
+            running_max = std::max(running_max, curr_entry);
+            running_min = std::min(running_min, curr_entry);
+            if(i >= info - 1 || running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
+                new_rank = i - 1;
+                break;
+            }
         }
     }
 
@@ -383,6 +387,7 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaFree(A_device);
     cudaFree(R_device);
     cudaFree(R_sp_device);
+    blas::device_free(d_info, lapack_queue);
     delete[] A_hat;
     delete[] J_buf;
     delete[] R_sp;
