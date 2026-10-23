@@ -51,6 +51,13 @@ candidates once they have a green track record.
   test runs normally again. The dependency cache key carries an
   "accelerate" tag because earlier caches hold dependencies built without
   `-Dblas=accelerate`.
+- **core-linux runs its tests in parallel.** `ctest -j "$(nproc)"` for the
+  library tests, and `ctest -j 8 --repeat until-fail:5` for the extras, which
+  take about a second. `gtest_discover_tests` makes every test case its own
+  process, so test cases that share a file or a directory fail here, as they
+  do under a local `ctest -j`; serial runs never caught that. `OMP_NUM_THREADS`
+  is set low on those steps so that the parallel tests do not oversubscribe
+  the runner. The other jobs still run their tests serially.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). The pinned commit is already
   tested by RandBLAS's CI; rebuilding its ~450 tests in every RandLAPACK job

@@ -20,6 +20,7 @@
 #include "../../linops/ext_cholsolver_linop.hh"
 #include "../../linops/ext_lusolver_linop.hh"
 #include "../../misc/ext_util.hh"
+#include "../ext_scratch_dir.hh"
 #include <RandLAPACK/testing/rl_test_utils.hh>
 #include <RandBLAS/testing/comparison.hh>
 
@@ -221,9 +222,8 @@ protected:
                       ((trans_A == Op::NoTrans) ? m : k) :
                       ((trans_A == Op::NoTrans) ? k : n);
 
-        std::string filename = "/tmp/test_solver_unified_" +
-                               std::to_string(dim) + "_" +
-                               std::to_string(rand()) + ".mtx";
+        RandLAPACK_extras::testing::ScratchDir scratch;
+        std::string filename = scratch.file("A.mtx");
 
         T cond_num = 10.0;
         generate_matrix_file<Tag>(filename, dim, cond_num, state);
@@ -288,8 +288,6 @@ protected:
             C_reference.data(), m, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
-
-        std::remove(filename.c_str());
     }
 
     // Half-solve test for CholSolver: reference is L^{-1}
@@ -303,9 +301,8 @@ protected:
         T beta = 0.5;
         int64_t dim = (side == Side::Left) ? m : k;
 
-        std::string filename = "/tmp/test_chol_halfsv_" +
-                               std::to_string(dim) + "_" +
-                               std::to_string(rand()) + ".mtx";
+        RandLAPACK_extras::testing::ScratchDir scratch;
+        std::string filename = scratch.file("A.mtx");
 
         T cond_num = 10.0;
         RandLAPACK::testing::generate_spd_matrix_file<T>(filename, dim, cond_num, state);
@@ -349,8 +346,6 @@ protected:
             C_reference.data(), m, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
-
-        std::remove(filename.c_str());
     }
 
     // Half-solve test for LUSolver: reference is L^{-1} * P_r
@@ -364,9 +359,8 @@ protected:
         T beta = 0.5;
         int64_t dim = (side == Side::Left) ? m : k;
 
-        std::string filename = "/tmp/test_lu_halfsv_" +
-                               std::to_string(dim) + "_" +
-                               std::to_string(rand()) + ".mtx";
+        RandLAPACK_extras::testing::ScratchDir scratch;
+        std::string filename = scratch.file("A.mtx");
 
         T cond_num = 10.0;
         RandLAPACK::testing::generate_invertible_matrix_file<T>(filename, dim, cond_num, state);
@@ -405,8 +399,6 @@ protected:
             C_reference.data(), m, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
-
-        std::remove(filename.c_str());
     }
 };
 
