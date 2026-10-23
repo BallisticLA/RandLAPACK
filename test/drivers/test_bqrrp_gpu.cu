@@ -515,6 +515,85 @@ TEST_F(TestBQRRP, BQRRP_GPU_leading_zero_rows) {
     }
 }
 
+// Scale invariance, mirroring BQRRP_scale_invariance in test_bqrrp.cc: the same A, scaled by
+// 1e-20, 1 and 1e20, must give the same rank and a rounding-level residual, for both qr_tall
+// options. Cases: a full-rank Gaussian with the default tol, and an exact rank-400 matrix with
+// b_sz = 200 and tol = 1e-10, whose rank drop at a block boundary only the zero-block check
+// can detect.
+TEST_F(TestBQRRP, BQRRP_GPU_scale_invariance) {
+    int64_t m = 1000;
+    int64_t n = 600;
+    int64_t r = 400;
+    int64_t b_sz = 200;
+    int64_t d = 1.25 * b_sz;
+    double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::RNGState();
+
+    auto check_scales = [&](const std::vector<double>& A, double tol, int64_t expected_rank) {
+        for (double scale : {1e-20, 1.0, 1e20}) {
+            for (auto qr_tall : {GPUSubroutines::QRTall::cholqr, GPUSubroutines::QRTall::geqrf}) {
+                const char* name = qr_tall == GPUSubroutines::QRTall::geqrf ? "geqrf" : "cholqr";
+                SCOPED_TRACE(::testing::Message() << name << ", scale " << scale);
+                double norm_A = 0;
+                auto state_sk = state;
+                BQRRPTestData<double> all_data(m, n, n, d);
+                all_data.A = A;
+                blas::scal(m * n, scale, all_data.A.data(), 1);
+                norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state_sk);
+
+                RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+                BQRRP_GPU.tol     = tol;
+                BQRRP_GPU.qr_tall = qr_tall;
+                BQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+                int64_t k = BQRRP_GPU.rank;
+
+                cudaMemcpy(all_data.Q.data(),   all_data.A_device,   m * n * sizeof(double), cudaMemcpyDeviceToHost);
+                cudaMemcpy(all_data.tau.data(), all_data.tau_device, n * sizeof(double),     cudaMemcpyDeviceToHost);
+                cudaMemcpy(all_data.J.data(),   all_data.J_device,   n * sizeof(int64_t),    cudaMemcpyDeviceToHost);
+
+                // A[:, J] - Q(:, 1:k) * R(1:k, :)
+                RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+                if (k > 0) {
+                    RandLAPACK::util::upsize(k * n, all_data.R);
+                    lapack::lacpy(MatrixType::Upper, k, n, all_data.Q.data(), m, all_data.R.data(), k);
+                    lapack::ungqr(m, k, k, all_data.Q.data(), m, all_data.tau.data());
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, all_data.Q.data(), m, all_data.R.data(), k, -1.0, all_data.A_cpy1.data(), m);
+                }
+                double res = lapack::lange(Norm::Fro, m, n, all_data.A_cpy1.data(), m) / norm_A;
+
+                std::cout << std::setw(8) << name << ",  SCALE " << std::scientific << std::setprecision(0) << scale
+                          << ":  RANK " << std::setw(5) << k << " (expected " << expected_rank << "),  REL RESIDUAL "
+                          << std::setprecision(6) << res << "\n";
+
+                EXPECT_EQ(k, expected_rank);
+                EXPECT_LE(res, atol);
+
+                cudaError_t ierr = cudaGetLastError();
+                if (ierr != cudaSuccess)
+                {
+                    RandLAPACK_CUDA_ERROR("Error before BQRRP_GPU_scale_invariance returned. " << cudaGetErrorString(ierr))
+                    abort();
+                }
+            }
+        }
+    };
+
+    std::vector<double> A_full(m * n, 0.0);
+    RandBLAS::DenseDist D(m, n);
+    state = RandBLAS::fill_dense(D, A_full.data(), state);
+    check_scales(A_full, std::numeric_limits<double>::epsilon(), n);
+
+    std::vector<double> G(m * r, 0.0);
+    std::vector<double> H(r * n, 0.0);
+    std::vector<double> A_low(m * n, 0.0);
+    RandBLAS::DenseDist DG(m, r);
+    RandBLAS::DenseDist DH(r, n);
+    state = RandBLAS::fill_dense(DG, G.data(), state);
+    state = RandBLAS::fill_dense(DH, H.data(), state);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, 1.0, G.data(), m, H.data(), r, 0.0, A_low.data(), m);
+    check_scales(A_low, 1e-10, r);
+}
+
 // Wide aspect ratio (m < n).  Regression test for the wide-A correctness
 // fix: prior to the fix, the termination condition `curr_sz >= n` never
 // fired for wide A (curr_sz tops out at min(m, n) = m < n), causing the

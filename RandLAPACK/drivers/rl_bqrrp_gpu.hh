@@ -144,7 +144,9 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         // 15 entries - logs time for different portions of the algorithm
         std::vector<long> times;
 
-        // Naive rank estimation parameter;
+        // Relative tolerance of the rank decisions. A block is judged zero when no entry of its pivot
+        // column exceeds tol times the largest entry of A's first pivot column; otherwise its rank
+        // is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|, R_sk being that block's sketch R.
         T tol;
 
         // Core subroutines options, controlled by user
@@ -226,6 +228,9 @@ int BQRRP_GPU<T, RNG>::call(
     int64_t sampling_dimension = d;
     // An indicator for whether all entries in a given block are zero.
     bool block_zero = true;
+    // Largest |entry| of A's first pivot column, taken at iteration 0. The zero-block threshold
+    // is tol * col_ref, so that the decision does not depend on the scale of A.
+    T col_ref = 0;
     // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration,
     // since the rest of the matrix must be zero.
     // Is equal to block size by default, needs to be updated if the block size has changed.
@@ -448,8 +453,10 @@ int BQRRP_GPU<T, RNG>::call(
         
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
+        if (iter == 0)
+            RandLAPACK::cuda_kernels::max_abs(strm, rows, A_work, col_ref);
         block_zero = true;
-        RandLAPACK::cuda_kernels::all_of(strm, rows, std::numeric_limits<T>::epsilon(), A_work, block_zero);
+        RandLAPACK::cuda_kernels::all_of(strm, rows, this -> tol * col_ref, A_work, block_zero);
         if(block_zero){
             // Need to update the pivot vector, same as below.
             if(iter == 0) {

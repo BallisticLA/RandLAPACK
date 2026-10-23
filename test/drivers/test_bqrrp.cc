@@ -519,6 +519,84 @@ TEST_F(TestBQRRP, BQRRP_wide_aspect) {
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
+// Scale invariance: the same A, scaled by 1e-20, 1 and 1e20, must give the same rank and a
+// rounding-level residual ||A[:, J] - Q(:, 1:rank) R(1:rank, :)|| / ||A||, for every qr_tall
+// and apply_trans_q pair. Cases: a full-rank Gaussian with the default tol, and an exact
+// rank-400 matrix with b_sz = 200 and tol = 1e-10, whose rank drop at a block boundary only
+// the zero-block check can detect.
+TEST_F(TestBQRRP, BQRRP_scale_invariance) {
+    int64_t m = 1000;
+    int64_t n = 600;
+    int64_t r = 400;
+    int64_t b_sz = 200;
+    double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::RNGState();
+
+    const std::vector<std::tuple<const char*, Subroutines::QRTall, Subroutines::ApplyTransQ>> variants = {
+        {"cholqr + gemqrt", Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::gemqrt},
+        {"cholqr + ormqr",  Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::ormqr},
+        {"geqrt + gemqrt",  Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::gemqrt},
+        {"geqrt + ormqr",   Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::ormqr},
+        {"geqrf + ormqr",   Subroutines::QRTall::geqrf,  Subroutines::ApplyTransQ::ormqr}
+    };
+
+    auto check_scales = [&](const std::vector<double>& A, double tol, int64_t expected_rank) {
+        for (double scale : {1e-20, 1.0, 1e20}) {
+            std::vector<double> A_s(A);
+            blas::scal(m * n, scale, A_s.data(), 1);
+            double norm_A = lapack::lange(Norm::Fro, m, n, A_s.data(), m);
+            for (const auto& [name, qr_tall, apply_trans_q] : variants) {
+                SCOPED_TRACE(::testing::Message() << name << ", scale " << scale);
+                std::vector<double> A_fact(A_s);
+                std::vector<double> A_piv(A_s);
+                std::vector<double> tau(n, 0.0);
+                std::vector<int64_t> J(n, 0);
+                auto state_alg = state;
+
+                RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
+                BQRRP.tol           = tol;
+                BQRRP.internal_nb   = 10;
+                BQRRP.qr_tall       = qr_tall;
+                BQRRP.apply_trans_q = apply_trans_q;
+                BQRRP.call(m, n, A_fact.data(), m, 1.25, tau.data(), J.data(), state_alg);
+                int64_t k = BQRRP.rank;
+
+                // A[:, J] - Q(:, 1:k) * R(1:k, :)
+                RandLAPACK::util::col_swap(m, n, n, A_piv.data(), m, J.data());
+                if (k > 0) {
+                    std::vector<double> R(k * n, 0.0);
+                    lapack::lacpy(MatrixType::Upper, k, n, A_fact.data(), m, R.data(), k);
+                    lapack::ungqr(m, k, k, A_fact.data(), m, tau.data());
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_fact.data(), m, R.data(), k, -1.0, A_piv.data(), m);
+                }
+                double res = lapack::lange(Norm::Fro, m, n, A_piv.data(), m) / norm_A;
+
+                std::cout << std::setw(16) << name << ",  SCALE " << std::scientific << std::setprecision(0) << scale
+                          << ":  RANK " << std::setw(5) << k << " (expected " << expected_rank << "),  REL RESIDUAL "
+                          << std::setprecision(6) << res << "\n";
+
+                EXPECT_EQ(k, expected_rank);
+                EXPECT_LE(res, atol);
+            }
+        }
+    };
+
+    std::vector<double> A_full(m * n, 0.0);
+    RandBLAS::DenseDist D(m, n);
+    state = RandBLAS::fill_dense(D, A_full.data(), state);
+    check_scales(A_full, std::numeric_limits<double>::epsilon(), n);
+
+    std::vector<double> G(m * r, 0.0);
+    std::vector<double> H(r * n, 0.0);
+    std::vector<double> A_low(m * n, 0.0);
+    RandBLAS::DenseDist DG(m, r);
+    RandBLAS::DenseDist DH(r, n);
+    state = RandBLAS::fill_dense(DG, G.data(), state);
+    state = RandBLAS::fill_dense(DH, H.data(), state);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, 1.0, G.data(), m, H.data(), r, 0.0, A_low.data(), m);
+    check_scales(A_low, 1e-10, r);
+}
+
 // Exact rank r < b_sz: the first block is rank-deficient. Its R12 needs Q' applied to all
 // rows, not only the top block_rank, and the reported rank must be r, not b_sz.
 TEST_F(TestBQRRP, BQRRP_rank_deficient_first_block) {

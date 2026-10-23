@@ -71,6 +71,32 @@ bool* all_greater
 }
 
 template <typename T>
+__global__ void __launch_bounds__(128) max_abs(
+int64_t n,
+const T* A,
+T* result
+){
+    // Runs as a single block of 128 threads that strides over all n entries; a shared-memory
+    // reduction takes the largest |A[i]|. NaN entries are skipped, as std::max skips them.
+    __shared__ T largest[128];
+    T local = 0;
+    for (int64_t i = threadIdx.x; i < n; i += blockDim.x) {
+        T a = std::abs(A[i]);
+        if (a > local)
+            local = a;
+    }
+    largest[threadIdx.x] = local;
+    __syncthreads();
+    for (int s = blockDim.x / 2; s > 0; s /= 2) {
+        if (threadIdx.x < s && largest[threadIdx.x + s] > largest[threadIdx.x])
+            largest[threadIdx.x] = largest[threadIdx.x + s];
+        __syncthreads();
+    }
+    if (threadIdx.x == 0)
+        *result = largest[0];
+}
+
+template <typename T>
 __global__ void __launch_bounds__(128) naive_rank_est(
 int64_t n,
 const T alpha,
@@ -564,6 +590,30 @@ void all_of(
     cudaStreamSynchronize(stream);
     cudaFree(all_greater_device);
     check_cuda_error_nosync("Failed to launch all_greater.")
+#else
+    throw std::runtime_error("No CUDA support available.");
+#endif
+}
+
+// Largest |A[i]| over the n entries of the vector A.
+template <typename T>
+void max_abs(
+    cudaStream_t stream,
+    int64_t n,
+    const T* A,
+    T& result
+) {
+#ifdef USE_CUDA
+    T* result_device;
+    cudaMalloc(&result_device, sizeof(T));
+
+    // One block covers all n entries; the kernel's shared array assumes 128 threads.
+    constexpr int threadsPerBlock{128};
+    max_abs<<<1, threadsPerBlock, 0, stream>>>(n, A, result_device);
+    cudaStreamSynchronize(stream);
+    cudaMemcpy(&result, result_device, sizeof(T), cudaMemcpyDeviceToHost);
+    cudaFree(result_device);
+    check_cuda_error_nosync("Failed to launch max_abs.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif

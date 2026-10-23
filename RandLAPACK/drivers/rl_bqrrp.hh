@@ -138,7 +138,9 @@ class BQRRP : public BQRRPalg<T, RNG> {
         // NB for orhr_col and gemqrt
         int64_t internal_nb;
 
-        // Naive rank estimation parameter;
+        // Relative tolerance of the rank decisions. A block is judged zero when no entry of its pivot
+        // column exceeds tol times the largest entry of A's first pivot column; otherwise its rank
+        // is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|, R_sk being that block's sketch R.
         T tol;
 
         // 10 entries - logs time for different portions of the algorithm
@@ -225,6 +227,9 @@ int BQRRP<T, RNG>::call(
     int64_t sampling_dimension = d;
     // An indicator for whether all entries in a given block are zero.
     bool block_zero            = true;
+    // Largest |entry| of A's first pivot column, taken at iteration 0. The zero-block threshold
+    // is tol * col_ref, so that the decision does not depend on the scale of A.
+    T col_ref                  = 0;
     // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration,
     // since the rest of the matrix must be zero.
     // Is equal to block size by default, needs to be updated if the block size has changed.
@@ -368,9 +373,13 @@ int BQRRP<T, RNG>::call(
 
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
+        if (iter == 0) {
+            for (i = 0; i < rows; ++i)
+                col_ref = std::max(col_ref, std::abs(A_work[i]));
+        }
         block_zero = true;
         for (i = 0; i < rows; ++i) {
-            if (std::abs(A_work[i]) > std::numeric_limits<T>::epsilon()) {
+            if (std::abs(A_work[i]) > this -> tol * col_ref) {
                 block_zero = false;
                 break;
             }
