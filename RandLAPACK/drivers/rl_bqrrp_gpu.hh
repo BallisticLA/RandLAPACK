@@ -135,6 +135,10 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
     public:
         bool timing;
         RandBLAS::RNGState<RNG> state;
+        // On exit, A[:, J] = Q(:, 1:rank) * R(1:rank, :). rank = min(m, n) if no block is found
+        // rank-deficient; otherwise BQRRP_GPU stops at the first block whose estimated rank is below
+        // its size, and rank = (columns before that block) + (that rank, 0 for a zero block).
+        // The naive estimate can overestimate, so rank is only an upper bound on the numerical rank.
         int64_t rank;
         int64_t block_size;
 

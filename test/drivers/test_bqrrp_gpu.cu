@@ -266,6 +266,12 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         int64_t b_sz,
         RandBLAS::RNGState<RNG> &state) {
 
+        // The block holding column r must be rank-deficient, so r must fall inside a block, and the
+        // drop must be within the first 128 diagonal entries, all the GPU rank estimator inspects.
+        ASSERT_NE(r % b_sz, 0) << "r=" << r << " must not be a multiple of b_sz=" << b_sz;
+        ASSERT_LT(r, std::min(m, n)) << "r=" << r << " must be < min(m, n)=" << std::min(m, n);
+        ASSERT_LT(r % b_sz, 128) << "in-block rank r % b_sz=" << r % b_sz << " must be < 128";
+
         int64_t d = 1.25 * b_sz;
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
 
@@ -508,18 +514,22 @@ TEST_F(TestBQRRP, BQRRP_GPU_wide_aspect_clipped_block) {
     double d_factor = 1;
     int64_t b_sz = 250;
     int64_t d = d_factor * b_sz;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k, d);
-    RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
-    BQRRP_GPU.qr_tall = GPUSubroutines::QRTall::geqrf;
+    for (auto qr_tall : {GPUSubroutines::QRTall::geqrf, GPUSubroutines::QRTall::cholqr}) {
+        SCOPED_TRACE(qr_tall == GPUSubroutines::QRTall::geqrf ? "geqrf" : "cholqr");
+        double norm_A = 0;
+        auto state = RandBLAS::RNGState();
 
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+        BQRRPTestData<double> all_data(m, n, k, d);
+        RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+        BQRRP_GPU.qr_tall = qr_tall;
 
-    norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
-    test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+
+        norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+        test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
+    }
 }
 
 // BQRRP_GPU's workspace comes from cudaMallocAsync, which returns memory the caller used and

@@ -129,9 +129,10 @@ class BQRRP : public BQRRPalg<T, RNG> {
         bool timing;
         RandBLAS::RNGState<RNG> state;
 
-        // Rank l detected by the naive rank estimator; on exit, A[:, J] = Q(:, 1:l) * R(1:l, :).
-        // CRITICAL: `rank` is only an **upper bound** on the numerical rank of the matrix.
-        // It's perfectly valid to set rank=n for an n-by-n zero-matrix.
+        // On exit, A[:, J] = Q(:, 1:rank) * R(1:rank, :). rank = min(m, n) if no block is found
+        // rank-deficient; otherwise BQRRP stops at the first block whose estimated rank is below its
+        // size, and rank = (columns before that block) + (that rank, 0 for a zero block).
+        // The naive estimate can overestimate, so rank is only an upper bound on the numerical rank.
         int64_t rank;
         int64_t block_size;
 

@@ -162,6 +162,10 @@ class TestBQRRP : public ::testing::Test
         int64_t b_sz,
         RandBLAS::RNGState<RNG> &state) {
 
+        // The block holding column r must be rank-deficient, so r must fall inside a block.
+        ASSERT_NE(r % b_sz, 0) << "r=" << r << " must not be a multiple of b_sz=" << b_sz;
+        ASSERT_LT(r, std::min(m, n)) << "r=" << r << " must be < min(m, n)=" << std::min(m, n);
+
         T d_factor = 1.25;
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
 
