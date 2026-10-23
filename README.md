@@ -21,9 +21,12 @@ cd RandLAPACK
 bash install.sh
 ```
 
-The installer builds RandLAPACK together with its dependencies (BLAS++,
-LAPACK++, Random123; RandBLAS comes along as a pinned git submodule) and the
-test and benchmark executables. Run `bash install.sh --help` for the options
+The installer builds RandLAPACK together with its dependencies (BLAS++ and
+LAPACK++ from the BallisticLA forks, and Random123; RandBLAS comes along as a
+pinned git submodule) and the test, extras and benchmark executables. You
+bring a C++20 compiler, CMake 3.21 or later, Git, and a BLAS/LAPACK library
+(on macOS the installer uses Apple's Accelerate, so there is nothing to
+install). Run `bash install.sh --help` for the options
 (GPU support, parallelism, reusing preinstalled dependencies, and more), and
 see [docs/INSTALL.md](docs/INSTALL.md) for manual installation and for consuming
 RandLAPACK from your own CMake project. A smoke test after installation:
@@ -45,18 +48,18 @@ The user-facing algorithms ("drivers"; see
 |--------|-------------------|-----------|
 | `BQRRP` | Blocked QR with randomized column pivoting, any aspect ratio | [arXiv:2507.00976](https://arxiv.org/abs/2507.00976) |
 | `CQRRPT` | Sketch-based QR with column pivoting for tall matrices | [arXiv:2311.08316](https://arxiv.org/abs/2311.08316) |
-| `CQRRT` | Q-less randomized QR (preconditioner construction) | |
-| `RSVD` | Randomized low-rank SVD via the QB decomposition | [arXiv:2009.06392](https://arxiv.org/abs/2009.06392) |
-| `REVD2` | Randomized eigendecomposition of symmetric matrices | [arXiv:2009.06392](https://arxiv.org/abs/2009.06392) |
-| `ABRIK` | Block-Krylov iterative SVD for many accurate singular triplets | |
-| `HQRRP` | Householder QR with randomized pivoting | [arXiv:1512.02671](https://arxiv.org/abs/1512.02671) |
-| `KRILL` | Kernel ridge regression solvers | [arXiv:2302.11474](https://arxiv.org/abs/2302.11474) |
-| `RPCholesky` | Randomly pivoted Cholesky for kernel matrices | [arXiv:2207.06503](https://arxiv.org/abs/2207.06503) |
+| `CQRRT` | Unpivoted QR of tall, full-rank matrices by sketch-preconditioned Cholesky QR; `CQRRT_linops` is its Q-less variant for linear operators | [arXiv:2111.11148](https://arxiv.org/abs/2111.11148) |
+| `RSVD` | Randomized low-rank SVD via the QB decomposition | [arXiv:0909.4061](https://arxiv.org/abs/0909.4061) |
+| `REVD2` | Randomized low-rank eigendecomposition of symmetric positive semidefinite matrices | [arXiv:2110.02820](https://arxiv.org/abs/2110.02820) |
+| `ABRIK` | Block-Krylov iterative SVD for many accurate singular triplets | [arXiv:2306.12418](https://arxiv.org/abs/2306.12418) |
+| `hqrrp` | Householder QR with randomized pivoting | [arXiv:1512.02671](https://arxiv.org/abs/1512.02671) |
+| `krill_full_rpchol` | Kernel ridge regression by conjugate gradients, preconditioned with randomly pivoted Cholesky | [arXiv:2304.12465](https://arxiv.org/abs/2304.12465) |
 
-BQRRP and CQRRPT also have CUDA implementations (`*_gpu`). Drivers are
-assembled from smaller randomized building blocks (rangefinders, sketching
-wrappers, orthogonalization and stabilization routines) that are usable on
-their own; the RandNLA monograph
+BQRRP and CQRRPT also have CUDA implementations (`BQRRP_GPU`,
+`CQRRPT_GPU`). Drivers are assembled from smaller randomized building blocks
+(rangefinders, QB, block Krylov, row sketching, orthogonalization and
+stabilization routines, and randomly pivoted Cholesky, `rp_cholesky`) that
+are usable on their own; the RandNLA monograph
 ([arXiv:2302.11474](https://arxiv.org/abs/2302.11474)) is the best background
 reference for the algorithm families.
 
@@ -75,9 +78,9 @@ RandLAPACK currently emphasizes that "algorithms as objects" approach.
 
 ## Where to go from here
 
-Everything beyond this page lives in two places: `docs/` for reference
-documentation, and `CONTRIBUTING.md` at the root for the development
-workflow.
+Everything beyond this page lives in `docs/` (reference documentation),
+`CONTRIBUTING.md` at the root (the development workflow), and the READMEs of
+the two standalone projects, `benchmark/` and `extras/`.
 
 | You want to... | Read |
 |----------------|------|

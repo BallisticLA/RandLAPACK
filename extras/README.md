@@ -22,8 +22,8 @@ performance of RandLAPACK itself; this one extends its functionality.
 ```
 extras/
 ├── linops/      Solver-based linear operators (CholSolverLinOp, LUSolverLinOp)
-├── misc/        General utilities (format conversions, diagnostics)
-├── testing/     Test-specific utilities (SPD generators, etc.)
+├── misc/        Matrix Market conversions (ext_util.hh) and the matrix-file
+│                loader BenchIO::load_matrix (ext_matrix_io.hh)
 └── test/        GTest-based regression tests for the above
 ```
 
@@ -48,7 +48,10 @@ cmake -S lib/RandLAPACK/extras/ -B build/extras-build/ \
 make -C build/extras-build/ -j$(nproc)
 ```
 
-Or use the top-level `install.sh` which handles the full build sequence automatically.
+Or run `bash install.sh` from your clone, which builds extras by default on
+Linux and macOS (`--no-extras` skips it; the Windows installer does not build
+extras). The benchmark project also includes `misc/ext_matrix_io.hh` to load
+its inputs.
 
 ## Matrix file input
 

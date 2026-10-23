@@ -6,8 +6,9 @@ mechanics of contributing code.
 
 ## Getting a working setup
 
-Run `bash install.sh` from your clone (see [docs/INSTALL.md](docs/INSTALL.md) for
-manual installation). The installer builds the test suite; verify your
+Run `bash install.sh` from your clone (see [docs/INSTALL.md](docs/INSTALL.md)
+for manual installation, and
+[docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) for native Windows). The installer builds the test suite; verify your
 baseline before changing anything:
 
 ```shell
@@ -16,22 +17,25 @@ ctest --test-dir ../RandNLA-project/build/RandLAPACK-build
 
 After editing headers, rebuild and re-run the tests from that same build
 directory. Because RandLAPACK is header-only, downstream projects (extras,
-benchmarks, your own code) pick up changes only after `make install` in the
-RandLAPACK build directory.
+benchmarks, your own code) pick up changes only after an install from the
+RandLAPACK build directory (`cmake --build . --target install`, which is
+`make install` with the default generator).
 
 ## How the library fits together
 
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first, and
-[devnotes/idioms.md](devnotes/idioms.md) for
-the C++ idioms we use deliberately (duck-typed callables, caller-provided
-workspaces, and so on).
+[devnotes/idioms.md](devnotes/idioms.md) for the C++ idioms we use
+deliberately (templated callables for duck typing, C++20 concepts, zero-copy
+transpose views, and so on).
 
 Conventions enforced in review:
 
 - Column-major layout, `int64_t` dimensions and indices, element type as a
   template parameter.
-- Raw caller-provided buffers for matrix/vector outputs and workspaces; no
-  `std::vector` for anything sized by the problem.
+- Raw buffers for matrix/vector outputs and workspaces, no `std::vector` for
+  anything sized by the problem in new code. An output the routine allocates
+  or grows is passed as a pointer reference (`T*&`), as `RSVD::call` does
+  with its factors.
 - New code throws (`randlapack_require`, `RandLAPACK::Error`) rather than
   asserts, with messages that state what was violated and the offending
   values.
@@ -40,21 +44,32 @@ Conventions enforced in review:
 - The RandBLAS submodule is read-only from this repository's point of view:
   develop RandBLAS in its own clone (see
   [docs/INSTALL.md, "RandBLAS is a pinned submodule"](docs/INSTALL.md#randblas-is-a-pinned-submodule)).
+  A commit that moves the submodule also updates `RandLAPACK_RandBLAS_PIN`
+  in `CMakeLists.txt`; configuring a git checkout fails while the two
+  disagree.
+- BLAS++ and LAPACK++ are pinned in `installers/dependency-pins.env`, which
+  every installer and CI lane reads and which must match the copy in the
+  RandBLAS submodule; CI's `pins` job checks both (see
+  [docs/CI.md](docs/CI.md)).
 
 ## Tests
 
 Every behavioral change needs a test in `test/` (GoogleTest; the tree
 mirrors the source layout). Run the suite locally before opening a PR; CI
-runs it on Linux and macOS, both through the hand-written recipes and
-through `install.sh` itself, and a PR cannot merge with failing required
-checks. GPU tests (`test/**/*.cu`) only run on machines with CUDA; if your
-change touches GPU code, say in the PR whether you ran them.
+runs it on Linux, macOS and native Windows, both through hand-written build
+recipes and through the installers themselves, and a PR cannot merge while a
+required check fails ([docs/CI.md](docs/CI.md) lists the lanes and which are
+required). GPU tests (`test/**/*.cu`) only run on machines with CUDA, and CI
+has no GPU runner; if your change touches GPU code, say in the PR whether
+you ran them.
 
-A quirk worth knowing: translation units that use the GPU headers define
-`USE_CUDA` themselves (see `test/drivers/test_bqrrp_gpu.cu`), while the GPU
-*benchmark* does not; anything added to `gpu_functions/rl_cuda_kernels.cuh`
-must compile in both settings (host-callable helpers go outside the
-`#ifdef USE_CUDA` region, kernels inside).
+A rule worth knowing for GPU code: `gpu_functions/rl_cuda_kernels.cuh`
+derives `USE_CUDA` from `__CUDACC__`, so `.cu` files no longer define it
+themselves, and `RandLAPACK.hh` includes the GPU layer only when a CUDA
+compiler is processing it. Inside `rl_cuda_kernels.cuh`, kernels and their
+launches go inside the `#ifdef USE_CUDA` regions and host-callable wrappers
+outside, so the header still compiles without nvcc (the wrappers then throw
+when called).
 
 ## Experiment branches
 
@@ -76,6 +91,7 @@ the commit with a [git tag](https://en.wikibooks.org/wiki/Git/Advanced#Tags).
   messages that explain *why*, not just what.
 - Reference the issues a PR fixes (`fixes #NNN`) in the commit message or PR
   body rather than in code comments.
-- Benchmarks are compile-checked in CI but not executed; if your change is
-  performance-motivated, include measurements in the PR body (machine, BLAS
-  provider, sizes, medians over repeated runs).
+- Benchmarks are compile-checked in CI (the Linux and macOS core lanes) but
+  not executed; if your change is performance-motivated, include
+  measurements in the PR body (machine, BLAS provider, sizes, medians over
+  repeated runs).
