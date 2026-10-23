@@ -95,9 +95,11 @@ endfunction()
 include(FetchContent)
 FetchContent_Declare(
         eigen_lib
-        GIT_REPOSITORY https://gitlab.com/libeigen/eigen
-        GIT_TAG master
-        GIT_SHALLOW TRUE
+        # Pinned to Eigen master commit e2ca51a (2026-10-22). To bump: change the hash in the URL
+        # and URL_HASH (sha256sum of the downloaded archive). Needs SparseLU::toSparse().
+        URL https://gitlab.com/libeigen/eigen/-/archive/e2ca51a02b84a6f6f106039e0ebb15d479eff9b6/eigen-e2ca51a02b84a6f6f106039e0ebb15d479eff9b6.tar.gz
+        URL_HASH SHA256=aef6282955cfa57f298d8a65c3ea1c4ab2b11d4ef990bb458798b1daa7217128
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(eigen_lib)
 # Exporting Eigen target.
@@ -109,9 +111,11 @@ install(EXPORT Eigen3Targets NAMESPACE Eigen3:: DESTINATION ${CMAKE_INSTALL_LIBD
 # rules that conflict with FetchContent'd Eigen.
 FetchContent_Declare(
         spectra_lib
-        GIT_REPOSITORY https://github.com/yixuan/spectra/
-        GIT_TAG master
-        GIT_SHALLOW TRUE
+        # Pinned to Spectra commit db1d5cc (master head, 2026-10). To bump: change the
+        # hash in the URL and URL_HASH (sha256sum of the downloaded archive).
+        URL https://github.com/yixuan/spectra/archive/db1d5cc3279752ca7ea3e33da44ba2a85e4e4a95.tar.gz
+        URL_HASH SHA256=607c812d6eaef0ed5c54959189f1e4e5f21b3ea82b81306e47aa5022a86c0725
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         SOURCE_SUBDIR _disable_
 )
 FetchContent_MakeAvailable(spectra_lib)
@@ -123,9 +127,11 @@ target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
 include(FetchContent)
 FetchContent_Declare(
     fast_matrix_market
-    GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
-    GIT_TAG main
-    GIT_SHALLOW TRUE
+    # Pinned to fast_matrix_market commit b6172c9 (2026-10). To bump: change the hash
+    # in the URL and URL_HASH (sha256sum of the downloaded archive).
+    URL https://github.com/alugowski/fast_matrix_market/archive/b6172c96ef73d16b2c10917373bacec1a7583a31.tar.gz
+    URL_HASH SHA256=02dff7b419d94378bd93cec3a05cf6184f073d5a6d47c75495c71cc0987ebb31
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(
     fast_matrix_market
