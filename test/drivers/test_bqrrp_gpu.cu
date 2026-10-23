@@ -536,16 +536,43 @@ TEST_F(TestBQRRP, BQRRP_GPU_wide_aspect_clipped_block) {
 // freed earlier when the pool keeps freed memory (a raised release threshold). CholQR reads the
 // strictly lower triangle of its R_tall_qr buffer, so BQRRP_GPU must clear that buffer itself.
 TEST_F(TestBQRRP, BQRRP_GPU_cholqr_reused_pool_memory) {
+    // Skip, rather than fail, where the pool setup is unavailable; clear the CUDA error first so
+    // that no later error check in BQRRP_GPU trips over it.
+    int pools_supported = 0;
+    cudaDeviceGetAttribute(&pools_supported, cudaDevAttrMemoryPoolsSupported, 0);
+    if (!pools_supported) {
+        cudaGetLastError();
+        GTEST_SKIP() << "device 0 does not support stream-ordered memory pools";
+    }
     cudaMemPool_t pool;
-    cudaDeviceGetDefaultMemPool(&pool, 0);
     uint64_t threshold_old = 0;
+    if (cudaDeviceGetDefaultMemPool(&pool, 0) != cudaSuccess ||
+        cudaMemPoolGetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_old) != cudaSuccess) {
+        cudaGetLastError();
+        GTEST_SKIP() << "cannot query the default memory pool";
+    }
+    // Restores the pool for the tests that follow, however this test exits.
+    struct PoolRestore {
+        cudaMemPool_t pool;
+        uint64_t threshold;
+        ~PoolRestore() {
+            cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold);
+            cudaMemPoolTrimTo(pool, 0);
+        }
+    } pool_restore{pool, threshold_old};
+
     uint64_t threshold_keep = UINT64_MAX;
-    cudaMemPoolGetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_old);
-    cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_keep);
+    if (cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_keep) != cudaSuccess) {
+        cudaGetLastError();
+        GTEST_SKIP() << "cannot raise the pool's release threshold";
+    }
     // Leave freed, nonzero stream-ordered memory in the pool.
     void* dirty = nullptr;
-    size_t dirty_bytes = size_t(256) << 20;
-    cudaMallocAsync(&dirty, dirty_bytes, 0);
+    size_t dirty_bytes = size_t(64) << 20;
+    if (cudaMallocAsync(&dirty, dirty_bytes, 0) != cudaSuccess) {
+        cudaGetLastError();
+        GTEST_SKIP() << "cannot allocate the " << (dirty_bytes >> 20) << " MiB pool block";
+    }
     cudaMemsetAsync(dirty, 0x3F, dirty_bytes, 0);
     cudaFreeAsync(dirty, 0);
     cudaDeviceSynchronize();
@@ -568,10 +595,6 @@ TEST_F(TestBQRRP, BQRRP_GPU_cholqr_reused_pool_memory) {
 
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
-
-    // Restore the pool for the tests that follow.
-    cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_old);
-    cudaMemPoolTrimTo(pool, 0);
 }
 
 // Rank-deficient inputs. The in-block rank drop stays below 128, the most the GPU
