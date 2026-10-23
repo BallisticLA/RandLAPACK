@@ -21,7 +21,8 @@ RandLAPACK build directory.
 
 ## How the library fits together
 
-Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first, and `devnotes/idioms.md` for
+Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first, and
+[devnotes/idioms.md](devnotes/idioms.md) for
 the C++ idioms we use deliberately (duck-typed callables, caller-provided
 workspaces, and so on).
 
@@ -37,8 +38,8 @@ Conventions enforced in review:
 - Randomness only through `RandBLAS::RNGState` (counter-based Philox), never
   through `std::rand` or `std::mt19937`, so results stay reproducible.
 - The RandBLAS submodule is read-only from this repository's point of view:
-  develop RandBLAS in its own clone (see docs/INSTALL.md, "RandBLAS is a pinned
-  submodule").
+  develop RandBLAS in its own clone (see
+  [docs/INSTALL.md, "RandBLAS is a pinned submodule"](docs/INSTALL.md#randblas-is-a-pinned-submodule)).
 
 ## Tests
 

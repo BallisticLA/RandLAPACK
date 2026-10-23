@@ -32,6 +32,10 @@ RandLAPACK from your own CMake project. A smoke test after installation:
 ctest --test-dir ../RandNLA-project/build/RandLAPACK-build
 ```
 
+On native Windows, run `installers\install.ps1` from an x64 MSVC developer
+prompt instead; [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) gives the
+exact command and explains which prompt to open.
+
 ## What's in the library
 
 The user-facing algorithms ("drivers"; see
@@ -77,9 +81,11 @@ workflow.
 
 | You want to... | Read |
 |----------------|------|
-| Install with one command | [docs/INSTALL_SCRIPT.md](docs/INSTALL_SCRIPT.md) |
+| Install with one command on Linux or macOS | [docs/INSTALL_SCRIPT.md](docs/INSTALL_SCRIPT.md) |
+| Install on native Windows (MSVC) | [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) |
 | Install by hand, or use RandLAPACK from your CMake project | [docs/INSTALL.md](docs/INSTALL.md) |
 | Understand how the library is organized | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Contribute code | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| See what CI checks, and why | [docs/CI.md](docs/CI.md) |
 | Run or add performance benchmarks | [benchmark/README.md](benchmark/README.md) |
 | Use the Eigen/Matrix-Market integrations | [extras/README.md](extras/README.md) |

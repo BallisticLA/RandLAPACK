@@ -49,7 +49,7 @@ jobs:
           arch: x86
 
       # Windows PowerShell 5.1, not pwsh: this is what a user actually gets,
-      # and the launch line is verbatim the one INSTALL_WINDOWS.md prescribes,
+      # and the launch line is verbatim the one docs/INSTALL_WINDOWS.md prescribes,
       # so the documented invocation itself stays under test.
       - name: install.ps1 must refuse an x86 toolchain
         shell: powershell
