@@ -205,3 +205,57 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_dirty_J_rank_deficient) {
         ASSERT_EQ(all_data.rank, rank_ref);
     }
 }
+
+// Repeats CQRRPT_GPU on one input. The device CholQR mixes cuBLAS and cuSOLVER
+// calls, so a missing ordering between them shows up as an occasional NaN or
+// inaccurate factor rather than a deterministic failure. Larger inputs widen
+// the window in which an unordered potrf can overtake syrk.
+TEST_F(TestCQRRPT, CQRRPT_GPU_repeated_calls_stable) {
+    int64_t m = 3000;
+    int64_t n = 300;
+    int64_t k = 300;
+    int num_trials = 50;
+    double d_factor = 2.0;
+    double tol  = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+
+    auto gen_state = RandBLAS::RNGState();
+    std::vector<double> A_orig(m * n, 0.0);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_orig.data(), gen_state);
+    double norm_A = lapack::lange(Norm::Fro, m, n, A_orig.data(), m);
+
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    CQRRPT_GPU.nnz = 2;
+    CQRRPT_GPU.num_threads = 4;
+    CQRRPT_GPU.no_hqrrp = 1;
+
+    std::vector<double> A(m * n), A_piv(m * n), R(n * n), QtQ(n * n);
+    std::vector<int64_t> J(n);
+    int num_bad = 0;
+    for (int trial = 0; trial < num_trials; ++trial) {
+        std::copy(A_orig.begin(), A_orig.end(), A.begin());
+        std::copy(A_orig.begin(), A_orig.end(), A_piv.begin());
+        std::fill(R.begin(), R.end(), 0.0);
+        auto state = RandBLAS::RNGState();
+        CQRRPT_GPU.call(m, n, A.data(), m, R.data(), n, J.data(), d_factor, state);
+        int64_t r = CQRRPT_GPU.rank;
+
+        // ||A[:, J] - QR||_F / ||A||_F
+        RandLAPACK::util::col_swap(m, n, n, A_piv.data(), m, J.data());
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, 1.0, A.data(), m, R.data(), n, -1.0, A_piv.data(), m);
+        double err_qr = lapack::lange(Norm::Fro, m, n, A_piv.data(), m) / norm_A;
+        // ||Q'Q - I||_F / sqrt(n)
+        RandLAPACK::util::eye(r, r, QtQ.data());
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, r, m, 1.0, A.data(), m, -1.0, QtQ.data(), r);
+        double err_orth = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, r, QtQ.data(), r) / std::sqrt((double) n);
+
+        bool ok = (r == k) && std::isfinite(err_qr) && std::isfinite(err_orth) && err_qr <= atol && err_orth <= atol;
+        EXPECT_TRUE(ok) << "trial " << trial << ": rank " << r << ", ||AP - QR||/||A|| = " << err_qr << ", ||Q'Q - I||/sqrt(n) = " << err_orth;
+        num_bad += !ok;
+    }
+    ASSERT_EQ(num_bad, 0) << num_bad << " of " << num_trials << " calls gave a non-finite or inaccurate factorization";
+}
