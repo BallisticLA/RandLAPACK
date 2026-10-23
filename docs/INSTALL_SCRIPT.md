@@ -149,7 +149,7 @@ The script will:
 2. Automatically clone and build all dependencies (or reuse preinstalled
    ones, see the discovery variables below)
 3. Build RandLAPACK with appropriate configuration
-4. Build test and benchmark executables
+4. Build the test (if GoogleTest is found), extras and benchmark executables
 
 Run `bash install.sh --help` for the full option list. The main flags, each
 with an environment-variable equivalent:

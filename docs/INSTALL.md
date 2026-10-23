@@ -55,7 +55,7 @@ Guide for Linux.
 
 **Recommendation**: Use **CUDA 12.9.0 with GCC 13.3.0** for best compatibility and to avoid known issues in earlier CUDA versions (e.g., CUDA 12.4.x had Intel AMX intrinsics parsing problems with GCC 13.x).
 
-**Important**: CUDA's `nvcc` compiler has strict GCC version limits that may differ from what's documented. Always check your CUDA Toolkit's release notes for compiler compatibility. If you encounter compiler version errors, try using an older GCC version.
+**Important**: CUDA's `nvcc` compiler has strict GCC version limits that may differ from what's documented. Check the Supported Compilers table mentioned above for your CUDA release. If you encounter compiler version errors, try using an older GCC version.
 
 **Verified Working Configuration** (as of 2025-11-26):
 - CUDA 12.9.0 + GCC 13.3.0 + CMake 3.31.9 + Driver v581.80 ✅
@@ -252,7 +252,9 @@ In order to build that CMake project you'd need to specify these build flags
  * `-DRandLAPACK_DIR=Z`, where `Z` contains the file `RandLAPACKConfig.cmake`. 
 
 With the default submodule build, RandBLAS needs no flag: it installs under
-the same prefix as RandLAPACK, and RandLAPACK's config finds it there.
+the same prefix as RandLAPACK, and RandLAPACK's config finds it there. If
+RandLAPACK was built with `-DRandLAPACK_EXTERNAL_RandBLAS=ON`, also pass
+`-DRandBLAS_DIR`.
 
 
 ## 5. Tips
