@@ -421,3 +421,64 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
         EXPECT_LE(c.err_proj, 100 * c_cpu.err_proj) << "CPU ||R - Q'AP|| = " << c_cpu.err_proj;
     }
 }
+
+// Padded leading dimensions (lda > m, ldr > n) must give the same factorization as compact
+// storage and leave the padding rows untouched. Full rank sends every column of A through the
+// device; rank deficiency (sketch rank k < n) also fills R's trailing columns on the host.
+TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
+    int64_t m = 2000;
+    int64_t n = 50;
+    int64_t lda = m + 7;
+    int64_t ldr = n + 3;
+    double pad = -777.0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    for (int64_t rank_A : {n, (int64_t) 40}) {
+        SCOPED_TRACE(rank_A);
+        auto gen_state = RandBLAS::RNGState();
+        std::vector<double> A(m * n, 0.0);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+        m_info.cond_num = 2;
+        m_info.rank = rank_A;
+        m_info.exponent = 2.0;
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), gen_state);
+
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.no_hqrrp = 1;
+
+        std::vector<double> Q(A), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        auto state = RandBLAS::RNGState();
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        int64_t rank = CQRRPT_GPU.rank;
+        ASSERT_EQ(rank, rank_A);
+
+        std::vector<double> Q_pad(lda * n, pad), R_pad(ldr * n, pad);
+        lapack::lacpy(MatrixType::General, m, n, A.data(), m, Q_pad.data(), lda);
+        lapack::laset(MatrixType::General, n, n, 0.0, 0.0, R_pad.data(), ldr);
+        std::vector<int64_t> J_pad(n, 0);
+        state = RandBLAS::RNGState();
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q_pad.data(), lda, R_pad.data(), ldr, J_pad.data(), 2.0, state), 0);
+        EXPECT_EQ(CQRRPT_GPU.rank, rank);
+        EXPECT_EQ(J_pad, J);
+
+        double max_q = 0.0, max_r = 0.0, scale_r = 0.0;
+        int64_t bad_pad = 0;
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i < m; ++i)
+                max_q = std::max(max_q, std::abs(Q_pad[i + j * lda] - Q[i + j * m]));
+            for (int64_t i = m; i < lda; ++i)
+                bad_pad += Q_pad[i + j * lda] != pad;
+            for (int64_t i = 0; i < n; ++i) {
+                max_r = std::max(max_r, std::abs(R_pad[i + j * ldr] - R[i + j * n]));
+                scale_r = std::max(scale_r, std::abs(R[i + j * n]));
+            }
+            for (int64_t i = n; i < ldr; ++i)
+                bad_pad += R_pad[i + j * ldr] != pad;
+        }
+        EXPECT_LE(max_q, 1e-13) << "max |Q_pad - Q|";
+        EXPECT_LE(max_r, 1e-13 * scale_r) << "max |R_pad - R|";
+        EXPECT_EQ(bad_pad, 0) << "padding entries changed";
+    }
+}

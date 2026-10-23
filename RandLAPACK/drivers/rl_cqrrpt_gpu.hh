@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -158,6 +159,9 @@ int CQRRPT_GPU<T, RNG>::call(
     T d_factor,
     RandBLAS::RNGState<RNG> &state
 ){
+    randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
+    randlapack_require(ldr >= n) << "ldr=" << ldr << " < n=" << n << " (ldr must be >= n)";
+
     ///--------------------TIMING VARS--------------------/
     steady_clock::time_point saso_t_stop;
     steady_clock::time_point saso_t_start;
@@ -254,7 +258,7 @@ int CQRRPT_GPU<T, RNG>::call(
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, k);
     /// Extracting a k by n R representation (k by k upper-triangular, rest - general)
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R, ldr);
-    lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[n * k], ldr);
+    lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[ldr * k], ldr);
 
     if(this -> timing)
         a_mod_piv_t_start = steady_clock::now();
@@ -293,12 +297,13 @@ int CQRRPT_GPU<T, RNG>::call(
     lapack::Queue lapack_queue(0);
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
     
-    cudaMalloc(&A_device, m * n * sizeof(T));
+    cudaMalloc(&A_device, lda * n * sizeof(T));
     cudaMalloc(&R_device, ldr * n * sizeof(T));
     cudaMalloc(&R_sp_device, k * k * sizeof(T));
 
-    cudaMemcpy(A_device, A, m * n * sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(R_device, R, ldr * n * sizeof(T), cudaMemcpyHostToDevice);
+    // A and R keep their leading dimensions on the device; only rows 0:m and 0:n are copied.
+    cudaMemcpy2D(A_device, lda * sizeof(T), A, lda * sizeof(T), m * sizeof(T), n, cudaMemcpyHostToDevice);
+    cudaMemcpy2D(R_device, ldr * sizeof(T), R, ldr * sizeof(T), n * sizeof(T), n, cudaMemcpyHostToDevice);
     cudaMemcpy(R_sp_device, R_sp, k * k * sizeof(T), cudaMemcpyHostToDevice);
 
     //char name [] = "A";
@@ -389,8 +394,8 @@ int CQRRPT_GPU<T, RNG>::call(
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
 
-    cudaMemcpy(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
-    cudaMemcpy(R, R_device, ldr * n * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaMemcpy2D(A, lda * sizeof(T), A_device, lda * sizeof(T), m * sizeof(T), n, cudaMemcpyDeviceToHost);
+    cudaMemcpy2D(R, ldr * sizeof(T), R_device, ldr * sizeof(T), n * sizeof(T), n, cudaMemcpyDeviceToHost);
     
     cudaFree(A_device);
     cudaFree(R_device);
