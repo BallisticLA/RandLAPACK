@@ -643,7 +643,7 @@ int BQRRP_GPU<T, RNG>::call(
             // It would have been really nice to store T right above Q, but without using extra space,
             // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
             // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-            // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
+            // This routine is defined in LAPACK 3.9.0.
             // Q is defined with block_rank elementary reflectors.
             RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, block_rank, A_work, lda, &tau[curr_sz], Work2);  
 

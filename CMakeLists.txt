@@ -73,7 +73,7 @@ option(RandLAPACK_EXTERNAL_RandBLAS
 # The submodule pin, recorded as a variable so configure-time checks also work
 # in tarball builds (no .git directory). Update alongside every submodule
 # bump; with a git checkout present, the cross-check below enforces that.
-set(RandLAPACK_RandBLAS_PIN "1011ed071fbc324abb8b1b47d033b6f5f5e41060")
+set(RandLAPACK_RandBLAS_PIN "5a28189f5461b4fe0c2c788bcd70f79dd3f17a70")
 
 find_package(Git QUIET)
 if (Git_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")

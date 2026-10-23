@@ -52,8 +52,9 @@ is LAPACK 3.2.1 (2009): its divide-and-conquer SVD (`gesdd`) is broken on
 Apple Silicon, and it lacks routines RandLAPACK requires (`orhr_col`,
 `geqrt`, ...). **RandLAPACK supports only the new interface** (macOS 13.3+,
 LAPACK 3.12 on current SDKs): build BLAS++ with `-Dblas=accelerate` using a
-BLAS++/LAPACK++ version that carries new-Accelerate support, and the correct
-interface propagates to LAPACK++ and RandLAPACK automatically. Verify by
+BLAS++/LAPACK++ version that carries new-Accelerate support (the fork tag in
+Section 2 does), and the correct interface propagates to LAPACK++ and
+RandLAPACK automatically. Verify by
 checking that the installed `include/blas/defines.h` contains
 `ACCELERATE_NEW_LAPACK`. This is what `install.sh` does on macOS (it also
 refuses a build that silently fell back to the legacy interface).
@@ -114,10 +115,18 @@ We give recipes for installing BLAS++, LAPACK++, and Random123 below.
 Later on, we'll assume these recipes were executed from a directory
 that contains (or will contain) the ``RandLAPACK`` project directory as a subdirectory.
 
+BLAS++ and LAPACK++ come from the BallisticLA forks, which carry fixes not yet
+in an upstream release; each fork's `BALLISTIC.md` lists them, and issue
+[#204](https://github.com/BallisticLA/RandLAPACK/issues/204)
+tracks the return to upstream. The BLAS++ and LAPACK++ recipes below build
+the tag `ballistic-2026.10.22`, which marks the commits pinned in
+[`installers/dependency-pins.env`](installers/dependency-pins.env), the file
+`install.sh` and CI build from.
+
 One can compile and install BLAS++ from
-[source](https://bitbucket.org/icl/blaspp/src/master/) using CMake by running
+[source](https://github.com/BallisticLA/blaspp) using CMake by running
 ```shell
-git clone https://github.com/icl-utk-edu/blaspp.git
+git clone --branch ballistic-2026.10.22 https://github.com/BallisticLA/blaspp.git
 mkdir blaspp-build
 cd blaspp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -134,9 +143,9 @@ i.e. pointing at the BLAS vendor library's /include/ folder.
 This will ensure that CBLAS is properly encountered by CMake.
 
 One can compile and install LAPACK++ from
-[source](https://bitbucket.org/icl/lapackpp/src/master/) using CMake by running
+[source](https://github.com/BallisticLA/lapackpp) using CMake by running
 ```shell
-git clone https://github.com/icl-utk-edu/lapackpp.git
+git clone --branch ballistic-2026.10.22 https://github.com/BallisticLA/lapackpp.git
 mkdir lapackpp-build
 cd lapackpp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -188,7 +197,7 @@ Here are the conceptual meanings in the recipe's build flags:
 
 * `-Dlapackpp_DIR=X` means `X` is the directory containing `lapackppConfig.cmake`.
     If you follow BLAS++ installation instructions from Section 5 instead of
-    Section 1, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/lapackpp`.
+    Section 2, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/lapackpp`.
   
 * `-Dblaspp_DIR=X` means `X` is the directory containing the file `blasppConfig.cmake`.
 
@@ -261,9 +270,9 @@ Here's how Riley configured his BLAS++ and LAPACK++ installations:
    export LIBRARY_PATH="${MAIN_MKL_LIBS}:${LIBRARY_PATH}"
    ```
 
-1. Download BLAS++ source, create a new folder called ``build``
-   at the top level of the BLAS++ project directory, and ``cd`` into that
-   folder.
+1. Download BLAS++ source (the fork and tag from Section 2), create a new
+   folder called ``build`` at the top level of the BLAS++ project directory,
+   and ``cd`` into that folder.
 
 2. Run ``export CXX=gcc`` so that ``gcc`` is the default compiler for
    the current bash session.
@@ -286,8 +295,9 @@ Here's how Riley configured his BLAS++ and LAPACK++ installations:
 
 6. Run ``sudo make install``
 
-7. Download LAPACK++ source, create a new folder called ``build`` at the top level
-   of the LAPACK++ project directory, and ``cd`` into that folder.
+7. Download LAPACK++ source (the fork and tag from Section 2), create a new
+   folder called ``build`` at the top level of the LAPACK++ project
+   directory, and ``cd`` into that folder.
 
 8. Run the following CMake command
    ```
