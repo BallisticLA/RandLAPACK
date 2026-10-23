@@ -8,7 +8,8 @@ mechanics of contributing code.
 
 Run `bash install.sh` from your clone (see [docs/INSTALL.md](docs/INSTALL.md)
 for manual installation, and
-[docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) for native Windows). The installer builds the test suite; verify your
+[docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) for native Windows).
+With GoogleTest installed, the installer builds the test suite; verify your
 baseline before changing anything:
 
 ```shell
@@ -91,7 +92,7 @@ the commit with a [git tag](https://en.wikibooks.org/wiki/Git/Advanced#Tags).
   messages that explain *why*, not just what.
 - Reference the issues a PR fixes (`fixes #NNN`) in the commit message or PR
   body rather than in code comments.
-- Benchmarks are compile-checked in CI (the Linux and macOS core lanes) but
-  not executed; if your change is performance-motivated, include
-  measurements in the PR body (machine, BLAS provider, sizes, medians over
-  repeated runs).
+- Benchmarks are compiled in CI on Linux and macOS (by the core build jobs
+  and by the default installer lanes) but not executed; if your change is
+  performance-motivated, include measurements in the PR body (machine, BLAS
+  provider, sizes, medians over repeated runs).

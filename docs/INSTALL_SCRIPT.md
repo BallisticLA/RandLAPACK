@@ -322,7 +322,8 @@ After installation:
   given to `--prefix`). The config file lives under `lib*/cmake/RandLAPACK/`;
   RandLAPACK is header-only, so there is no library archive.
 * **Test executables:** `~/RandNLA/RandNLA-project/build/RandLAPACK-build/bin/`
-* **Extras executables:** `~/RandNLA/RandNLA-project/build/extras-build/`
+* **Extras test executable:**
+  `~/RandNLA/RandNLA-project/build/extras-build/test/RandLAPACK_extras_tests`
 * **Benchmark executables:** `~/RandNLA/RandNLA-project/build/benchmark-build/`
   (see section 7)
 

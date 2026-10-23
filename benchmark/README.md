@@ -22,17 +22,17 @@ If CMake cannot find BLAS++, LAPACK++ or Random123 through the RandLAPACK
 config, pass `-Dblaspp_DIR`, `-Dlapackpp_DIR` and `-DRandom123_DIR` as well;
 the installer builds all three under `RandNLA-project/install/`. Configuring
 also fetches Eigen, Spectra and fast_matrix_market with CMake's FetchContent,
-so the first configure needs a network connection, and the ABRIK and
-`CQRRT_linops` benchmarks read their inputs through the extras matrix loader,
-`extras/misc/ext_matrix_io.hh`.
+so the first configure needs a network connection, and some benchmarks
+borrow headers from `extras/`.
 
 The sources are grouped by driver: `bench_BQRRP/`, `bench_CQRRPT/`,
 `bench_ABRIK/`, `bench_CQRRT_linops/`, and `bench_general/`; the executables
 land flat in the build directory. The driver benchmarks print their usage
 when run without arguments, and most write their results as text files into
-an output directory given on the command line. Benchmarks are
-compile-checked in CI (the Linux and macOS core lanes) but never executed
-there; run them on quiet, pinned hardware if you intend to quote numbers.
+an output directory given on the command line. Benchmarks are compiled in
+CI on Linux and macOS (by the core build jobs and by the default installer
+lanes) but never executed there; run them on quiet, pinned hardware if you
+intend to quote numbers.
 
 ## GPU benchmarks
 

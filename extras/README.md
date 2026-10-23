@@ -50,8 +50,7 @@ make -C build/extras-build/ -j$(nproc)
 
 Or run `bash install.sh` from your clone, which builds extras by default on
 Linux and macOS (`--no-extras` skips it; the Windows installer does not build
-extras). The benchmark project also includes `misc/ext_matrix_io.hh` to load
-its inputs.
+extras). Some benchmarks also borrow headers from here.
 
 ## Matrix file input
 
