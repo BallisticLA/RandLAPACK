@@ -129,7 +129,7 @@ in an upstream release; each fork's `BALLISTIC.md` lists them, and issue
 [#204](https://github.com/BallisticLA/RandLAPACK/issues/204)
 tracks the return to upstream. The BLAS++ and LAPACK++ recipes below build
 the tag `ballistic-2026.10.22`, which marks the commits pinned in
-[`installers/dependency-pins.env`](installers/dependency-pins.env), the file
+[`installers/dependency-pins.env`](../installers/dependency-pins.env), the file
 `install.sh` and CI build from.
 
 One can compile and install BLAS++ from

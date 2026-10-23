@@ -262,7 +262,7 @@ no-oneMKL case.
 
 **Two deliberate exceptions to "pin a stable release".** BLAS++ and LAPACK++ come from the
 BallisticLA forks, pinned by full commit hash in
-[`installers/dependency-pins.env`](installers/dependency-pins.env), which also names the tag
+[`installers/dependency-pins.env`](../installers/dependency-pins.env), which also names the tag
 `ballistic-2026.10.22` on those commits. That one file is read by this installer, by `install.sh`
 on Linux and macOS, and by CI. The forks carry seven fixes that are open as upstream pull
 requests but not yet merged or released (icl-utk-edu/blaspp#137, #141 and #142, and
@@ -400,6 +400,6 @@ oneMKL's `bin` and Intel OpenMP's) next to your `.exe`.
 - **Full reset**: delete `<ProjectDir>\build` and the relevant
   `<ProjectDir>\install\*` subdirectories, then re-run the installer.
 
-CI runs the exact flows above on every pull request; `docs/CI.md` describes
+CI runs the exact flows above on every pull request; [CI.md](CI.md) describes
 the lanes, and `.github\scripts\windows\run-ci.ps1 -Task Core
 -SetupDependencies [-Backend openblas]` reproduces a CI lane locally.

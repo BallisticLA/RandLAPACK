@@ -1,5 +1,5 @@
 # RandLAPACK native Windows installer -- the companion to install.sh.
-# Full guide, including how to get an x64 toolchain: INSTALL_WINDOWS.md
+# Full guide, including how to get an x64 toolchain: docs/INSTALL_WINDOWS.md
 #
 #   powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 #

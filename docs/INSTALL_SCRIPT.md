@@ -10,7 +10,7 @@ single command.
 
 **When to use this guide:** Use this automated installation method if you want
 a quick, streamlined setup process. If you need fine-grained control over
-dependency configurations, refer to RandLAPACK's `INSTALL.md` instead.
+dependency configurations, refer to [INSTALL.md](INSTALL.md) instead.
 
 > **Windows users:** this document describes the Linux/macOS installer
 > (`install.sh`). The native Windows companion is `installers\install.ps1`,
@@ -38,7 +38,7 @@ available on your system:
     - CUDA 12.9.0: Compatible with GCC 13.x
     - CUDA 12.4.1: Compatible with GCC 13.x
     - CUDA 12.2.1: Requires GCC 12.x or older ("unsupported GNU version" otherwise)
-  - See `INSTALL.md` Section 0 for the full compatibility matrix
+  - See [INSTALL.md](INSTALL.md#0-software-requirements) Section 0 for the full compatibility matrix
   - Ensure a compatible NVIDIA driver (v580+ recommended for CUDA 12.9)
 * **CUDA Libraries:** cuBLAS and cuSOLVER (included with the CUDA Toolkit)
 
@@ -197,7 +197,7 @@ Each variable must point at an install root (the directory containing
 `lib*/cmake/<pkg>/` or, for Random123, `include/Random123/`). Dependencies
 the script itself installed on a previous run are reused automatically.
 RandBLAS is deliberately not covered: it stays a pinned git submodule (see
-`INSTALL.md`, section "RandBLAS is a pinned submodule").
+[INSTALL.md, "RandBLAS is a pinned submodule"](INSTALL.md#randblas-is-a-pinned-submodule)).
 
 ### Sharing one dependency tree with RandBLAS
 
@@ -279,7 +279,7 @@ CPU-only one.
 BLAS++ and LAPACK++ come from the BallisticLA forks
 ([blaspp](https://github.com/BallisticLA/blaspp),
 [lapackpp](https://github.com/BallisticLA/lapackpp)), at the commits pinned in
-[`installers/dependency-pins.env`](installers/dependency-pins.env) and tagged
+[`installers/dependency-pins.env`](../installers/dependency-pins.env) and tagged
 `ballistic-2026.10.22`. The forks carry fixes that are not yet in an upstream
 release; each fork's `BALLISTIC.md` lists them, and issue
 [#204](https://github.com/BallisticLA/RandLAPACK/issues/204)
@@ -341,7 +341,7 @@ CUDA if you enabled it).
 
 ### Using RandLAPACK in Your Own Projects
 
-See Section 4 of `INSTALL.md` for details on linking RandLAPACK to external
+See Section 4 of [INSTALL.md](INSTALL.md#4-using-randlapack-in-other-projects) for details on linking RandLAPACK to external
 CMake projects. The paths produced by this script are:
 
 ```
