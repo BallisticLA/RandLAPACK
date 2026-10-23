@@ -485,6 +485,36 @@ TEST_F(TestBQRRP, BQRRP_GPU_zero_input) {
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
 }
 
+// Full-rank A whose first 300 rows are zero: the zero-block check must read the whole pivot
+// column, not only the 128 entries one thread block covers, and find A nonzero.
+TEST_F(TestBQRRP, BQRRP_GPU_leading_zero_rows) {
+    int64_t m = 1000;
+    int64_t n = 600;
+    int64_t k = n;
+    int64_t zero_rows = 300;
+    double d_factor = 1.25;
+    int64_t b_sz = 200;
+    int64_t d = d_factor * b_sz;
+
+    for (auto qr_tall : {GPUSubroutines::QRTall::geqrf, GPUSubroutines::QRTall::cholqr}) {
+        SCOPED_TRACE(qr_tall == GPUSubroutines::QRTall::geqrf ? "geqrf" : "cholqr");
+        double norm_A = 0;
+        auto state = RandBLAS::RNGState();
+
+        BQRRPTestData<double> all_data(m, n, k, d);
+        RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+        BQRRP_GPU.qr_tall = qr_tall;
+
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+        lapack::laset(MatrixType::General, zero_rows, n, 0.0, 0.0, all_data.A.data(), m);
+
+        norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+        test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
+        EXPECT_EQ(BQRRP_GPU.rank, std::min(m, n));
+    }
+}
+
 // Wide aspect ratio (m < n).  Regression test for the wide-A correctness
 // fix: prior to the fix, the termination condition `curr_sz >= n` never
 // fired for wide A (curr_sz tops out at min(m, n) = m < n), causing the

@@ -58,22 +58,16 @@ const T alpha,
 const T* A,
 bool* all_greater
 ){
-    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
-    __shared__ bool indicator;
-    if (id == 0) {
-        *all_greater = true;
-        indicator = true;
+    // Runs as a single block that strides over all n entries; __syncthreads_and combines the
+    // threads' results. A thread stops at its first entry greater than alpha.
+    int all_small = 1;
+    for (int64_t i = threadIdx.x; i < n && all_small; i += blockDim.x) {
+        if (std::abs(A[i]) > alpha)
+            all_small = 0;
     }
-    __syncthreads();
-    // No need to continue checking the elements if we have already encountered one greater than alpha
-    if ((id < n) && (std::abs(A[id]) > alpha) && (*all_greater == true)) {
-        indicator = false;
-    }
-    __syncthreads();
-    
-    if(id == 0 && !indicator) {
-        *all_greater = false;
-    }
+    all_small = __syncthreads_and(all_small);
+    if (threadIdx.x == 0)
+        *all_greater = all_small;
 }
 
 template <typename T>
@@ -562,9 +556,9 @@ void all_of(
     bool* all_greater_device;
     cudaMalloc(&all_greater_device, sizeof(bool));
 
+    // One block covers all n entries.
     constexpr int threadsPerBlock{128};
-    int64_t num_blocks_ger{(n + threadsPerBlock - 1) / threadsPerBlock};
-    all_of<<<num_blocks_ger, threadsPerBlock, sizeof(bool), stream>>>(n, alpha, A, all_greater_device);
+    all_of<<<1, threadsPerBlock, 0, stream>>>(n, alpha, A, all_greater_device);
     cudaStreamSynchronize(stream);
     cudaMemcpy(&all_greater, all_greater_device, sizeof(bool), cudaMemcpyDeviceToHost);
     cudaStreamSynchronize(stream);
