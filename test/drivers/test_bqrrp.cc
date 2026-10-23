@@ -196,7 +196,8 @@ class TestBQRRP : public ::testing::Test
             std::vector<T> A_fact(A);
             std::vector<T> A_piv(A);
             std::vector<T> R(r * n, 0.0);
-            std::vector<T> tau(n, 0.0);
+            // NaN, so that any tau entry BQRRP leaves unset fails the checks below.
+            std::vector<T> tau(n, std::numeric_limits<T>::quiet_NaN());
             std::vector<int64_t> J(n, 0);
             auto state_alg = state;
 
@@ -206,6 +207,7 @@ class TestBQRRP : public ::testing::Test
             BQRRP.qr_tall       = qr_tall;
             BQRRP.apply_trans_q = apply_trans_q;
             BQRRP.call(m, n, A_fact.data(), m, d_factor, tau.data(), J.data(), state_alg);
+            check_rank_deficient_tail(m, n, BQRRP.rank, A, A_fact, tau, J, atol);
 
             // Build R(1:r, :) and Q1 = Q(:, 1:r) from the known rank r, so that the residual
             // checks below do not depend on the reported rank.
@@ -226,6 +228,60 @@ class TestBQRRP : public ::testing::Test
             EXPECT_LE(res_lead, atol);
             EXPECT_LE(res_trail, atol);
         }
+    }
+
+    /// Checks BQRRP's output past a detected rank k < min(m, n): tau(k:min(m, n)) and
+    /// A(k:m, k:n) must be exactly zero, ungqr over all min(m, n) reflectors must give a Q whose
+    /// first k columns are orthonormal, and A[:, J] = Q(:, 1:k) * R(1:k, :) must hold to rounding.
+    template <typename T>
+    static void check_rank_deficient_tail(
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        const std::vector<T> &A,
+        const std::vector<T> &A_fact,
+        const std::vector<T> &tau,
+        const std::vector<int64_t> &J,
+        T atol) {
+
+        int64_t mn = std::min(m, n);
+        ASSERT_LT(k, mn) << "the call was expected to be rank-deficient";
+
+        int64_t tau_nonzero = 0;
+        for (int64_t i = k; i < mn; ++i)
+            tau_nonzero += !(tau[i] == (T) 0.0);
+        int64_t A_tail_nonzero = 0;
+        for (int64_t j = k; j < n; ++j)
+            for (int64_t i = k; i < m; ++i)
+                A_tail_nonzero += !(A_fact[m * j + i] == (T) 0.0);
+
+        // Q from all min(m, n) reflectors, as a GEQP3 caller would form it.
+        std::vector<T> Q(A_fact.begin(), A_fact.begin() + m * mn);
+        lapack::ungqr(m, mn, mn, Q.data(), m, tau.data());
+
+        // Q(:, 1:k)' * Q(:, 1:k) - I
+        std::vector<T> I_ref(k * k, 0.0);
+        RandLAPACK::util::eye(k, k, I_ref);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, Q.data(), m, (T) -1.0, I_ref.data(), k);
+        T orth = (k == 0) ? (T) 0.0 : lapack::lansy(Norm::Fro, Uplo::Upper, k, I_ref.data(), k) / std::sqrt((T) k);
+
+        // A[:, J] - Q(:, 1:k) * R(1:k, :)
+        std::vector<T> R(k * n, 0.0);
+        lapack::lacpy(MatrixType::Upper, k, n, A_fact.data(), m, R.data(), k);
+        std::vector<T> A_piv(A);
+        std::vector<int64_t> J_cpy(J);
+        RandLAPACK::util::col_swap(m, n, n, A_piv.data(), m, J_cpy.data());
+        T norm_A = lapack::lange(Norm::Fro, m, n, A.data(), m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, (T) 1.0, Q.data(), m, R.data(), k, (T) -1.0, A_piv.data(), m);
+        T res = lapack::lange(Norm::Fro, m, n, A_piv.data(), m) / norm_A;
+
+        std::cout << "    PAST RANK " << k << ":  NONZERO tau " << tau_nonzero << ",  NONZERO A(k:, k:) " << A_tail_nonzero
+                  << ",  ||Q1'Q1 - I|| / sqrt(k) " << std::scientific << orth << ",  REL RESIDUAL " << res << "\n";
+
+        EXPECT_EQ(tau_nonzero, 0);
+        EXPECT_EQ(A_tail_nonzero, 0);
+        EXPECT_LE(orth, atol);
+        EXPECT_LE(res, atol);
     }
 };
 
@@ -615,4 +671,47 @@ TEST_F(TestBQRRP, BQRRP_rank_deficient_later_block) {
 TEST_F(TestBQRRP, BQRRP_rank_deficient_wide_clipped_block) {
     auto state = RandBLAS::RNGState();
     test_BQRRP_rank_deficient<double>(600, 1000, 550, 250, state);
+}
+
+// A = [B, 0] with B of full rank r, a multiple of b_sz: after r columns the remaining block is
+// exactly zero, so BQRRP takes its zero-block exit. Its output past r must follow the same
+// convention as a rank-deficient block's. r / b_sz = 2 and 3 mirror the GPU test.
+TEST_F(TestBQRRP, BQRRP_zero_block_tail) {
+    int64_t m = 1000;
+    int64_t n = 600;
+    int64_t b_sz = 100;
+    double d_factor = 1.25;
+    double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+
+    const std::vector<std::tuple<const char*, Subroutines::QRTall, Subroutines::ApplyTransQ>> variants = {
+        {"cholqr + gemqrt", Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::gemqrt},
+        {"cholqr + ormqr",  Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::ormqr},
+        {"geqrt + gemqrt",  Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::gemqrt},
+        {"geqrt + ormqr",   Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::ormqr},
+        {"geqrf + ormqr",   Subroutines::QRTall::geqrf,  Subroutines::ApplyTransQ::ormqr}
+    };
+
+    for (int64_t r : {200, 300}) {
+        std::vector<double> A(m * n, 0.0);
+        auto state = RandBLAS::RNGState();
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, r, RandLAPACK::gen::gaussian);
+        RandLAPACK::gen::mat_gen(m_info, A.data(), state);
+
+        for (const auto& [name, qr_tall, apply_trans_q] : variants) {
+            SCOPED_TRACE(std::string(name) + ", r = " + std::to_string(r));
+            std::vector<double> A_fact(A);
+            std::vector<double> tau(n, std::numeric_limits<double>::quiet_NaN());
+            std::vector<int64_t> J(n, 0);
+            auto state_alg = state;
+
+            RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
+            BQRRP.qr_tall       = qr_tall;
+            BQRRP.apply_trans_q = apply_trans_q;
+            BQRRP.call(m, n, A_fact.data(), m, d_factor, tau.data(), J.data(), state_alg);
+
+            std::cout << std::setw(16) << name << ":  RANK " << std::setw(5) << BQRRP.rank << " (expected " << r << ")\n";
+            EXPECT_EQ(BQRRP.rank, r);
+            check_rank_deficient_tail(m, n, BQRRP.rank, A, A_fact, tau, J, atol);
+        }
+    }
 }

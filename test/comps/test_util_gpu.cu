@@ -519,3 +519,33 @@ TEST_F(TestUtil_GPU, test_ger_gpu) {
     
     ger_gpu(alpha, all_data);
 }
+
+// In upper-triangle mode, copy_mat_gpu copies the upper-trapezoidal part of the m-by-n source,
+// rows j <= min(i, m - 1) of column i; with m < n, rows m:n of the destination stay untouched.
+TEST_F(TestUtil_GPU, test_copy_mat_gpu_upper_trapezoid) {
+    int64_t m   = 5;
+    int64_t n   = 9;
+    int64_t lda = 11;
+    std::vector<double> src(lda * n), dst(lda * n, -1.0);
+    std::iota(src.begin(), src.end(), 1.0);
+
+    double *src_device, *dst_device;
+    cudaMalloc(&src_device, lda * n * sizeof(double));
+    cudaMalloc(&dst_device, lda * n * sizeof(double));
+    cudaMemcpy(src_device, src.data(), lda * n * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(dst_device, dst.data(), lda * n * sizeof(double), cudaMemcpyHostToDevice);
+
+    cudaStream_t strm = cudaStreamPerThread;
+    RandLAPACK::cuda_kernels::copy_mat_gpu(strm, m, n, src_device, lda, dst_device, lda, true);
+    cudaStreamSynchronize(strm);
+    cudaMemcpy(dst.data(), dst_device, lda * n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaFree(src_device);
+    cudaFree(dst_device);
+
+    for (int64_t i = 0; i < n; ++i)
+        for (int64_t j = 0; j < lda; ++j)
+            EXPECT_EQ(dst[lda * i + j], (j <= i && j < m) ? src[lda * i + j] : -1.0) << "row " << j << ", column " << i;
+
+    cudaError_t ierr = cudaGetLastError();
+    EXPECT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
+}

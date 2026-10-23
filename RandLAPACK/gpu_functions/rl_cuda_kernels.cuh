@@ -543,9 +543,9 @@ __global__ void copy_mat_gpu(
     bool copy_upper_triangle
 ) {
     if (copy_upper_triangle) {
-        // Only copying the upper-triangular portion of the original
+        // Only copying the upper-trapezoidal portion of the m-by-n original
         for (int64_t i = threadIdx.x + blockDim.x * blockIdx.x; i < n; i += blockDim.x * gridDim.x) {
-            for (int64_t j = threadIdx.y + blockDim.y * blockIdx.y; j <= i; j += blockDim.y * gridDim.y) {
+            for (int64_t j = threadIdx.y + blockDim.y * blockIdx.y; j <= i && j < m; j += blockDim.y * gridDim.y) {
                 A_cpy[(ldac * i) + j] = A[(lda * i) + j];
             }
         }

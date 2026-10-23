@@ -87,6 +87,10 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         ///     A[:, J] = QR,
         /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
         /// Stores implict Q factor and explicit R factor in A's space (output formatted exactly like GEQP3).
+        /// If k < min(m, n), the output past k is what GEQP3 returns when the trailing block is exactly
+        /// zero: tau(k:min(m, n)) = 0 and A(k:m, k:n) = 0. The reflectors past k are then the identity
+        /// and R(k:min(m, n), :) is zero, so ungqr over all min(m, n) reflectors returns Q(:, 1:k) in its
+        /// first k columns.
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
@@ -513,6 +517,11 @@ int BQRRP_GPU<T, RNG>::call(
                     }
                 }
             }
+            // Past the rank, the reflectors become the identity and the trailing block of A zero.
+            if (this -> rank < std::min(m, n)) {
+                cudaMemsetAsync(&tau[this -> rank], 0, (std::min(m, n) - this -> rank) * sizeof(T), strm);
+                cudaMemset2DAsync(&A[lda * this -> rank + this -> rank], lda * sizeof(T), 0, (m - this -> rank) * sizeof(T), n - this -> rank, strm);
+            }
             lapack_queue.sync();
 
             cudaFree(A_sk_trans);
@@ -832,6 +841,11 @@ int BQRRP_GPU<T, RNG>::call(
                         blas::device_copy_matrix(m, b_sz_const, &A_copy_col_swap[lda * idx * b_sz_const], lda, &A[lda * idx * b_sz_const], lda, lapack_queue);
                     }
                 }
+            }
+            // Past the rank, the reflectors become the identity and the trailing block of A zero.
+            if (this -> rank < std::min(m, n)) {
+                cudaMemsetAsync(&tau[this -> rank], 0, (std::min(m, n) - this -> rank) * sizeof(T), strm);
+                cudaMemset2DAsync(&A[lda * this -> rank + this -> rank], lda * sizeof(T), 0, (m - this -> rank) * sizeof(T), n - this -> rank, strm);
             }
             lapack_queue.sync();
 

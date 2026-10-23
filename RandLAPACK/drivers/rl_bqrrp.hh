@@ -80,6 +80,10 @@ class BQRRP : public BQRRPalg<T, RNG> {
         ///     A[:, J] = QR,
         /// where Q and R are of size m-by-l and l-by-n, with rank_estimate(A) = l.
         /// Stores implict Q factor and explicit R factor in A's space (output formatted exactly like GEQP3).
+        /// If l < min(m, n), the output past l is what GEQP3 returns when the trailing block is exactly
+        /// zero: tau(l:min(m, n)) = 0 and A(l:m, l:n) = 0. The reflectors past l are then the identity
+        /// and R(l:min(m, n), :) is zero, so ungqr over all min(m, n) reflectors returns Q(:, 1:l) in its
+        /// first l columns.
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
@@ -395,6 +399,12 @@ int BQRRP<T, RNG>::call(
                 RandLAPACK::util::col_swap(cols, cols, &J[curr_sz], J_buffer);
             }
 
+            // Past the rank, the reflectors become the identity and the trailing block of A zero.
+            if (this -> rank < std::min(m, n)) {
+                std::fill(&tau[this -> rank], &tau[std::min(m, n)], (T) 0.0);
+                lapack::laset(MatrixType::General, m - this -> rank, n - this -> rank, (T) 0.0, (T) 0.0, &A[lda * this -> rank + this -> rank], lda);
+            }
+
             delete[] J_buffer_lu;
             delete[] J_buffer;
             delete[] A_sk_const;
@@ -581,6 +591,12 @@ int BQRRP<T, RNG>::call(
             // All earlier blocks were full rank; this one adds block_rank, which is < b_sz
             // if the block is rank-deficient.
             this -> rank = curr_sz - b_sz + block_rank;
+
+            // Past the rank, the reflectors become the identity and the trailing block of A zero.
+            if (this -> rank < std::min(m, n)) {
+                std::fill(&tau[this -> rank], &tau[std::min(m, n)], (T) 0.0);
+                lapack::laset(MatrixType::General, m - this -> rank, n - this -> rank, (T) 0.0, (T) 0.0, &A[lda * this -> rank + this -> rank], lda);
+            }
 
             if(this -> timing) {
                 total_t_stop = steady_clock::now();
