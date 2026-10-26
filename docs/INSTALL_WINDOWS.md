@@ -3,8 +3,9 @@
 This guide builds RandLAPACK with Microsoft's Visual C++ compiler (MSVC) on
 Windows, without WSL or Cygwin. It assumes no prior Windows development
 experience. On Linux or macOS, use `install.sh` instead
-([INSTALL_SCRIPT.md](INSTALL_SCRIPT.md)); [INSTALL.md](INSTALL.md#1-key-terms)
-explains the key terms (backend, BLAS++, ILP64, pin, ...).
+([INSTALL_SCRIPT.md](INSTALL_SCRIPT.md));
+[INSTALL_MANUAL.md](INSTALL_MANUAL.md#1-key-terms) explains the key terms
+(backend, BLAS++, ILP64, pin, ...).
 
 ## 1. Quick start
 
@@ -244,7 +245,8 @@ archives:
   commit hash and tag in
   [`installers/dependency-pins.env`](../installers/dependency-pins.env).
   That one file is read by this installer, by `install.sh` on Linux and
-  macOS, and by CI. [INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks)
+  macOS, and by CI.
+  [DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks)
   explains why, and lists the fixes the forks carry, among them the MSVC
   build fixes this build needs.
 - **oneMKL is downloaded only if you do not already have one.** If an
@@ -337,7 +339,8 @@ executable also needs MSVC's OpenMP runtime, `libomp140.x86_64.dll`, which
 staging does not copy. `-NoOpenMP` avoids it; CI tests OpenBLAS only that
 way.
 
-For your own project, the installed CMake package carries the same helper:
+For your own project ([USING.md](USING.md) has a complete example), the
+installed CMake package carries the same helper:
 
 ```cmake
 find_package(RandLAPACK REQUIRED)
