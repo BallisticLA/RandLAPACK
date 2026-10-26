@@ -152,6 +152,10 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         // column exceeds tol times the largest entry of A's first pivot column (a NaN entry counts as
         // exceeding it, and no block is judged zero if that first column holds an Inf); otherwise its
         // rank is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|, R_sk being that block's sketch R.
+        // The default, eps, lies below the rounding residue that a numerically rank-deficient A leaves
+        // past its rank, so the zero-block exit fires only on an exactly zero trailing block, and such
+        // an A is usually reported at full rank. To detect numerical rank, set a larger tol, such as
+        // 1e-10, or one set by the problem's noise level.
         T tol;
 
         // Core subroutines options, controlled by user
