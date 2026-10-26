@@ -1147,3 +1147,86 @@ TEST_F(TestBQRRP, BQRRP_GPU_non_finite_input) {
         }
     }
 }
+
+// Padded storage: lda = m + 7 must give the result of lda = m and leave the padding rows untouched.
+// BQRRP_GPU swaps A with an internal buffer that it then uses with leading dimension lda.
+TEST_F(TestBQRRP, BQRRP_GPU_padded_lda) {
+    struct Case { int64_t m, n, b_sz; };
+    const Case cases[] = {{64, 16, 8}, {1000, 600, 100}};
+    const double pad = -12345.0;
+
+    for (const auto& c : cases) {
+        int64_t m = c.m, n = c.n, b_sz = c.b_sz;
+        int64_t d = 1.25 * b_sz;
+        int64_t lda_pad = m + 7;
+        auto state = RandBLAS::RNGState();
+        std::vector<double> A(m * n), S(d * m), A_sk(d * n);
+        RandBLAS::DenseDist D(m, n);
+        RandBLAS::DenseDist DS(d, m);
+        state = RandBLAS::fill_dense(D, A.data(), state);
+        state = RandBLAS::fill_dense(DS, S.data(), state);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S.data(), d, A.data(), m, 0.0, A_sk.data(), d);
+
+        for (auto qr_tall : {GPUSubroutines::QRTall::cholqr, GPUSubroutines::QRTall::geqrf}) {
+            SCOPED_TRACE(::testing::Message() << m << " x " << n << ", " << (qr_tall == GPUSubroutines::QRTall::geqrf ? "geqrf" : "cholqr"));
+            // Runs BQRRP_GPU on A stored with leading dimension lda, whose padding rows hold pad.
+            auto run = [&](int64_t lda, std::vector<double>& A_out, std::vector<double>& tau, std::vector<int64_t>& J) {
+                A_out.assign(lda * n, pad);
+                lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_out.data(), lda);
+                tau.assign(n, 0.0);
+                J.assign(n, 0);
+                double *A_device, *A_sk_device, *tau_device;
+                int64_t* J_device;
+                cudaMalloc(&A_device, lda * n * sizeof(double));
+                cudaMalloc(&A_sk_device, d * n * sizeof(double));
+                cudaMalloc(&tau_device, n * sizeof(double));
+                cudaMalloc(&J_device, n * sizeof(int64_t));
+                cudaMemcpy(A_device, A_out.data(), lda * n * sizeof(double), cudaMemcpyHostToDevice);
+                cudaMemcpy(A_sk_device, A_sk.data(), d * n * sizeof(double), cudaMemcpyHostToDevice);
+                RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+                BQRRP_GPU.qr_tall = qr_tall;
+                BQRRP_GPU.call(m, n, A_device, lda, A_sk_device, d, tau_device, J_device);
+                cudaMemcpy(A_out.data(), A_device, lda * n * sizeof(double), cudaMemcpyDeviceToHost);
+                cudaMemcpy(tau.data(), tau_device, n * sizeof(double), cudaMemcpyDeviceToHost);
+                cudaMemcpy(J.data(), J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+                cudaFree(A_device);
+                cudaFree(A_sk_device);
+                cudaFree(tau_device);
+                cudaFree(J_device);
+                return BQRRP_GPU.rank;
+            };
+            std::vector<double> A_ref, tau_ref, A_pad, tau_pad;
+            std::vector<int64_t> J_ref, J_pad;
+            int64_t rank_ref = run(m, A_ref, tau_ref, J_ref);
+            int64_t rank_pad = run(lda_pad, A_pad, tau_pad, J_pad);
+            cudaError_t ierr = cudaGetLastError();
+            ASSERT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
+
+            // Largest difference from the lda = m run, relative to its largest entry, and the
+            // number of padding entries that changed.
+            double ref_max = 0, diff_max = 0;
+            int64_t pad_changed = 0;
+            for (int64_t j = 0; j < n; ++j) {
+                for (int64_t i = 0; i < m; ++i) {
+                    ref_max  = std::max(ref_max, std::abs(A_ref[m * j + i]));
+                    diff_max = std::max(diff_max, std::abs(A_pad[lda_pad * j + i] - A_ref[m * j + i]));
+                }
+                for (int64_t i = m; i < lda_pad; ++i)
+                    pad_changed += !(A_pad[lda_pad * j + i] == pad);
+            }
+            double tau_diff = 0;
+            for (int64_t i = 0; i < n; ++i)
+                tau_diff = std::max(tau_diff, std::abs(tau_pad[i] - tau_ref[i]));
+            std::cout << std::setw(4) << m << " x " << std::setw(4) << n << ",  lda " << lda_pad << ":  RANK " << rank_pad << " (lda = m: " << rank_ref << ")"
+                      << ",  MAX |A DIFF| / MAX |A| " << std::scientific << diff_max / ref_max << ",  MAX |tau DIFF| " << tau_diff
+                      << ",  CHANGED PADDING ENTRIES " << pad_changed << "\n";
+
+            double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+            EXPECT_EQ(rank_pad, rank_ref);
+            EXPECT_EQ(J_pad, J_ref);
+            EXPECT_LE(diff_max, atol * ref_max);
+            EXPECT_LE(tau_diff, atol);
+            EXPECT_EQ(pad_changed, 0);
+        }
+    }
+}

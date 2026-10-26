@@ -328,8 +328,9 @@ int BQRRP_GPU<T, RNG>::call(
     // As you will see below, we use a special strategy to avoid performing explicit copies of 
     // A_sk and J.
     // This strategy would still require using buffers of size of the original data.
+    // A_copy_col_swap trades places with A, so it shares A's leading dimension lda.
     T* A_copy_col_swap;
-    cudaMallocAsync(&A_copy_col_swap, sizeof(T) * m * n, strm);
+    cudaMallocAsync(&A_copy_col_swap, sizeof(T) * lda * n, strm);
 
     T* A_sk_copy_col_swap;
     cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
