@@ -8,9 +8,9 @@ explains the key terms (backend, BLAS++, ILP64, pin, ...).
 
 ## 1. Quick start
 
-You need a **C++ compiler, CMake, Ninja and Git**, as on Linux and macOS. The
-installer does not install them; it checks for them and, if any is missing,
-stops with a command that fixes it. You do **not** need a BLAS library: the
+You need a **C++ compiler, CMake, Ninja and Git**. The installer does not
+install them; it checks for them and, if any is missing, stops with a
+command that fixes it. You do **not** need a BLAS library: the
 installer uses an Intel oneMKL you already have, and otherwise asks before
 downloading a pinned copy into the project directory (section 4).
 
@@ -31,11 +31,13 @@ downloading a pinned copy into the project directory (section 4).
    32-bit toolchain. (Section 3 lists other ways to get the right shell.)
    Then check:
    ```
-   where cl
+   where.exe cl
    ```
    The path it prints must contain `Hostx64\x64`.
-3. **Build:**
+3. **Build.** The prompt usually starts in Visual Studio's own folder, where
+   you cannot write, so first move to a short folder of your own:
    ```bat
+   mkdir C:\src & cd /d C:\src
    git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
    cd RandLAPACK
    powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
@@ -55,13 +57,13 @@ installer does differently:
 
 | | Linux / macOS | Windows |
 |---|---|---|
-| Getting BLAS/LAPACK | you install one first (`apt install libopenblas-dev`, `brew install openblas`); the installer errors without it | no system location for libraries exists, so the installer discovers an existing oneMKL and otherwise fetches a pinned copy into the project directory. Pass `-NoDownload` for the Linux/macOS behavior |
+| Getting BLAS/LAPACK | Linux: you install one first (`apt install libopenblas-dev`), and the installer errors without it. macOS: Accelerate is built in | no system location for libraries exists, so the installer discovers an existing oneMKL and otherwise fetches a pinned copy into the project directory. Pass `-NoDownload` for the Linux/macOS behavior |
 | Where the compiler lives | `gcc`/`clang` always on PATH | MSVC (`cl.exe`) exists only inside a "Developer" shell that Visual Studio sets up per session |
 | Finding shared libraries at run time | the binary itself remembers where its libraries are (RPATH), plus system-wide loader paths | executables have no such memory; Windows searches the executable's **own directory first** and PATH **last**, so the installer copies ("stages") every needed DLL next to each executable |
 | Default BLAS backend | OpenBLAS (Linux CI), Accelerate (macOS CI) | Intel oneMKL, ILP64, multithreaded through Intel's OpenMP runtime |
 
-The practical consequence of the third row: **on Windows you never need to
-edit PATH for RandLAPACK** (section 7).
+The practical consequence of the third row: **on Windows you do not need to
+edit PATH for RandLAPACK** (section 7 has the one exception).
 
 Smaller differences:
 
@@ -72,7 +74,8 @@ Smaller differences:
   one oneMKL's threading layer uses, so a single thread pool serves both (on
   Linux, GCC's runtime plays that role).
 - GPU support is not available on native Windows.
-- The build tool is Ninja everywhere, which Visual Studio bundles.
+- The installer builds with Ninja, which Visual Studio bundles, rather than
+  make.
 
 ## 3. Prerequisites, in detail
 
@@ -129,16 +132,17 @@ Any of these gives you an x64 developer environment; they are equivalent:
 - **Any shell your editor or build tool sets up**, as long as it gives you an
   x64 toolchain.
 
-Confirm with `where cl`. The path it prints must contain `Hostx64\x64`:
+Confirm with `where.exe cl`. The path it prints must contain `Hostx64\x64`:
 
 - `INFO: Could not find files for the given pattern(s)` means a plain shell
   with no compiler;
 - a path containing `Hostx86\x86` means a 32-bit developer shell.
 
-Use `where cl` rather than `cl` alone: in the failing cases, `cl` is either
-not found or prints a usage banner, and neither reads as "wrong shell". The
-installer's preflight check catches this too, so you cannot get far down the
-wrong path.
+Use `where.exe cl` rather than `cl` alone: in the failing cases, `cl` is
+either not found or prints a usage banner, and neither reads as "wrong
+shell". (In PowerShell, plain `where` means something else, hence the
+`.exe`.) The installer's preflight check catches this too, so you cannot
+get far down the wrong path.
 
 ### Script execution policy
 
@@ -176,7 +180,7 @@ sit on a backend of your choice. On Windows the installer supports:
   (`C:\Program Files (x86)\Intel\oneAPI\mkl\latest`) and `-BlasLibraries` or
   `-LapackLibraries` paths under a folder such as `C:\Program Files`. CI
   builds against a oneMKL copied to such a path to keep this working.
-- **RandBLAS's MKL-accelerated sparse routines are not active** in the
+- **RandBLAS's oneMKL-accelerated sparse routines are not active** in the
   installer's Windows builds yet. BLAS++ marks oneMKL as MKL only when
   `mkl.h` is on the compiler's INCLUDE path while it is configured (for
   example in a oneAPI `setvars` shell), which the installer does not
@@ -184,7 +188,8 @@ sit on a backend of your choice. On Windows the installer supports:
 
 ### When no oneMKL is found
 
-The installer says what it searched and asks before downloading anything:
+The installer says what it searched and asks "Download oneMKL now? [Y/n]"
+before downloading anything. If you answer no, it stops with these options:
 
 ```
 No oneMKL found, and the download was declined.
@@ -202,10 +207,9 @@ No oneMKL found, and the download was declined.
                                           ~155 MB, into this project only
 ```
 
-Answering no stops with those options. Questions are skipped entirely when
-the installer is not attached to a terminal (a script, a pipeline, CI),
-taking the default shown in brackets; `-Yes` skips them in an interactive
-session too.
+Questions are skipped entirely when the installer is not attached to a
+terminal (a script, a pipeline, CI), taking the default shown in brackets;
+`-Yes` skips them in an interactive session too.
 
 ### Custom backends
 
@@ -278,12 +282,16 @@ archives:
                       backend keeps its own threading. The default enables
                       OpenMP through MSVC's /openmp:llvm mode, the only
                       one that accepts RandLAPACK's 64-bit loop indices; a
-                      serial build is fully functional too.
+                      serial build is fully functional too. Add -Fresh
+                      when switching an existing build either way.
 -Yes                  Skip interactive questions, taking each documented
                       default. Questions are already skipped when stdin is
                       not a terminal, so CI never needs this.
--BlasLibraries <p;p>  Backend custom: semicolon-separated .lib paths.
--LapackLibraries <p>  Backend custom: LAPACK .lib paths, if separate from BLAS.
+-BlasLibraries <p;p>  Backend custom: semicolon-separated .lib paths for
+                      BLAS and LAPACK both (the installer's link check
+                      calls a LAPACK routine).
+-LapackLibraries <p>  Backend custom: LAPACK .lib paths for LAPACK++ only,
+                      if separate; still list them in -BlasLibraries.
 -BackendBinDir <path> Backend custom: directory holding the backend's DLLs.
 -BlasInt lp64|ilp64   Backend custom: the library's integer width (default lp64).
 -BlasFortran <name>   Backend custom: BLAS++ name-mangling hint (e.g. "add").
@@ -303,7 +311,7 @@ the quick start:
 REM Default: oneMKL, discovered or downloaded.
 powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 
-REM OpenBLAS instead of MKL.
+REM OpenBLAS instead of oneMKL.
 powershell -ExecutionPolicy Bypass -File .\installers\install.ps1 -Backend openblas
 
 REM You already installed the oneAPI toolkit somewhere non-standard.
@@ -324,6 +332,11 @@ shell, with no environment preparation. This "app-local deployment" is the
 idiomatic Windows layout: Visual Studio's own package manager does the same
 by default.
 
+One exception: with `-Backend openblas` and OpenMP on (the default), each
+executable also needs MSVC's OpenMP runtime, `libomp140.x86_64.dll`, which
+staging does not copy. `-NoOpenMP` avoids it; CI tests OpenBLAS only that
+way.
+
 For your own project, the installed CMake package carries the same helper:
 
 ```cmake
@@ -333,9 +346,10 @@ target_link_libraries(myprog RandLAPACK::RandLAPACK)
 randlapack_stage_runtime_dlls(myprog)   # no-op on non-Windows platforms
 ```
 
-Without the helper, copy the DLLs next to your `.exe` yourself, from the
-backend's DLL directories. The installer prints them at the end; with oneMKL
-there are two, oneMKL's `bin` and Intel OpenMP's.
+Without the helper, copy the DLLs next to your `.exe` yourself: those in
+the `bin` folders of the BLAS++ and LAPACK++ installs, and those in the
+backend's DLL directories. The installer prints the backend's directories at
+the end; with oneMKL there are two, oneMKL's `bin` and Intel OpenMP's.
 
 ## 8. Troubleshooting
 
@@ -369,17 +383,18 @@ there are two, oneMKL's `bin` and Intel OpenMP's.
   new object file. The build is CPU-bound regardless; later runs reuse
   everything.
 - **Wrong results or crashes only inside an activated conda environment**:
-  conda ships MKL/OpenBLAS DLLs under the *same filenames* as ours and puts
-  its `Library\bin` on PATH when an environment is active. RandLAPACK's own
-  staged executables are immune (the executable's folder outranks PATH), but
-  a program of yours that relies on PATH can silently pick up conda's copies.
+  conda ships oneMKL and OpenBLAS DLLs under the *same filenames* as ours,
+  and puts its `Library\bin` on PATH when an environment is active.
+  RandLAPACK's own staged executables are immune (the executable's folder
+  outranks PATH), but a program of yours that relies on PATH can silently
+  pick up conda's copies.
   Stage your executable (section 7) and the problem disappears. To build
-  *against* a conda-provided MKL deliberately, pass
+  *against* a conda-provided oneMKL deliberately, pass
   `-MklRoot "<env>\Library"` (requires conda's `mkl-devel` package).
 - **Path-length errors deep in dependency builds**: keep the project
-  directory short (e.g. `C:\s\RandLAPACK`), or enable Windows long paths.
+  directory short (e.g. `C:\src\RandLAPACK`), or enable Windows long paths.
 - **Full reset**: delete `<ProjectDir>\build` and the relevant
   `<ProjectDir>\install\*` subdirectories, then re-run the installer.
 
-CI runs these same flows on every pull request; [CI.md](CI.md) describes the
+CI runs these same flows on pull requests; [CI.md](CI.md) describes the
 lanes and how to reproduce one locally.
