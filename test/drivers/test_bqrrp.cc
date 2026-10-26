@@ -724,3 +724,62 @@ TEST_F(TestBQRRP, BQRRP_zero_block_tail) {
         }
     }
 }
+
+// An Inf or a NaN in A must reach the output, as with GEQP3, not be erased. With an Inf in A's
+// first pivot column the zero-block threshold tol * col_ref is Inf (NaN when tol = 0), and a first
+// pivot column of NaN has no entry above any threshold; either way the first block was judged
+// zero, and BQRRP returned rank 0 with A and tau zeroed.
+TEST_F(TestBQRRP, BQRRP_non_finite_input) {
+    int64_t m = 300;
+    int64_t n = 200;
+    int64_t b_sz = 50;
+    double d_factor = 1.25;
+
+    std::vector<double> A(m * n, 0.0);
+    auto state = RandBLAS::RNGState();
+    RandBLAS::DenseDist D(m, n);
+    state = RandBLAS::fill_dense(D, A.data(), state);
+    // One Inf in column 7: its sketch column is all Inf, so the sketch's LU pivots it first.
+    std::vector<double> A_inf(A);
+    A_inf[m * 7 + 5] = std::numeric_limits<double>::infinity();
+    // Column 0 all NaN. Whether the sketch's LU pivots it first depends on how its pivot search
+    // treats NaN, so A all NaN covers a NaN first pivot column whatever that search does.
+    std::vector<double> A_nan(A);
+    std::fill(A_nan.begin(), A_nan.begin() + m, std::numeric_limits<double>::quiet_NaN());
+    std::vector<double> A_all_nan(m * n, std::numeric_limits<double>::quiet_NaN());
+
+    const std::vector<std::tuple<const char*, Subroutines::QRTall, Subroutines::ApplyTransQ>> variants = {
+        {"cholqr + gemqrt", Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::gemqrt},
+        {"cholqr + ormqr",  Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::ormqr},
+        {"geqrt + gemqrt",  Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::gemqrt},
+        {"geqrt + ormqr",   Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::ormqr},
+        {"geqrf + ormqr",   Subroutines::QRTall::geqrf,  Subroutines::ApplyTransQ::ormqr}
+    };
+
+    for (const auto& [input_name, A_in] : {std::make_pair("Inf in column 7", &A_inf), std::make_pair("column 0 NaN", &A_nan), std::make_pair("all NaN", &A_all_nan)}) {
+        for (double tol : {std::numeric_limits<double>::epsilon(), 0.0}) {
+            for (const auto& [name, qr_tall, apply_trans_q] : variants) {
+                SCOPED_TRACE(::testing::Message() << input_name << ", tol " << tol << ", " << name);
+                std::vector<double> A_fact(*A_in);
+                std::vector<double> tau(n, 0.0);
+                std::vector<int64_t> J(n, 0);
+                auto state_alg = state;
+
+                RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
+                BQRRP.tol           = tol;
+                BQRRP.qr_tall       = qr_tall;
+                BQRRP.apply_trans_q = apply_trans_q;
+                BQRRP.call(m, n, A_fact.data(), m, d_factor, tau.data(), J.data(), state_alg);
+
+                int64_t non_finite = 0;
+                for (auto a : A_fact)
+                    non_finite += !std::isfinite(a);
+                std::cout << std::setw(16) << input_name << ",  tol " << std::scientific << std::setprecision(1) << tol << ",  " << std::setw(16) << name
+                          << ":  RANK " << std::setw(4) << BQRRP.rank << ",  J[0] " << std::setw(4) << J[0] << ",  NON-FINITE ENTRIES OF A " << non_finite << "\n";
+
+                EXPECT_EQ(BQRRP.rank, std::min(m, n));
+                EXPECT_GT(non_finite, 0);
+            }
+        }
+    }
+}

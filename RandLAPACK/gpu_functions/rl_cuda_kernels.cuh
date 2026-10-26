@@ -59,10 +59,10 @@ const T* A,
 bool* all_greater
 ){
     // Runs as a single block that strides over all n entries; __syncthreads_and combines the
-    // threads' results. A thread stops at its first entry greater than alpha.
+    // threads' results. A thread stops at its first entry greater than alpha, or NaN.
     int all_small = 1;
     for (int64_t i = threadIdx.x; i < n && all_small; i += blockDim.x) {
-        if (std::abs(A[i]) > alpha)
+        if (!(std::abs(A[i]) <= alpha))
             all_small = 0;
     }
     all_small = __syncthreads_and(all_small);

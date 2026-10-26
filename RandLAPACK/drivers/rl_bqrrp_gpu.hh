@@ -149,8 +149,9 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         std::vector<long> times;
 
         // Relative tolerance of the rank decisions. A block is judged zero when no entry of its pivot
-        // column exceeds tol times the largest entry of A's first pivot column; otherwise its rank
-        // is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|, R_sk being that block's sketch R.
+        // column exceeds tol times the largest entry of A's first pivot column (a NaN entry counts as
+        // exceeding it, and no block is judged zero if that first column holds an Inf); otherwise its
+        // rank is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|, R_sk being that block's sketch R.
         T tol;
 
         // Core subroutines options, controlled by user
@@ -457,8 +458,11 @@ int BQRRP_GPU<T, RNG>::call(
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
         if (iter == 0)
             RandLAPACK::cuda_kernels::max_abs(strm, rows, A_work, col_ref);
-        block_zero = true;
-        RandLAPACK::cuda_kernels::all_of(strm, rows, this -> tol * col_ref, A_work, block_zero);
+        // all_of counts a NaN entry as nonzero. An Inf in the first pivot column makes the threshold
+        // Inf or NaN, so then no block is judged zero, and the Inf and NaN reach the output.
+        block_zero = false;
+        if (std::isfinite(col_ref))
+            RandLAPACK::cuda_kernels::all_of(strm, rows, this -> tol * col_ref, A_work, block_zero);
         if(block_zero){
             // Need to update the pivot vector, same as below.
             if(iter == 0) {

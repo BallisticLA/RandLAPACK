@@ -143,8 +143,9 @@ class BQRRP : public BQRRPalg<T, RNG> {
         int64_t internal_nb;
 
         // Relative tolerance of the rank decisions. A block is judged zero when no entry of its pivot
-        // column exceeds tol times the largest entry of A's first pivot column; otherwise its rank
-        // is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|, R_sk being that block's sketch R.
+        // column exceeds tol times the largest entry of A's first pivot column (a NaN entry counts as
+        // exceeding it, and no block is judged zero if that first column holds an Inf); otherwise its
+        // rank is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|, R_sk being that block's sketch R.
         T tol;
 
         // 10 entries - logs time for different portions of the algorithm
@@ -381,12 +382,12 @@ int BQRRP<T, RNG>::call(
             for (i = 0; i < rows; ++i)
                 col_ref = std::max(col_ref, std::abs(A_work[i]));
         }
-        block_zero = true;
-        for (i = 0; i < rows; ++i) {
-            if (std::abs(A_work[i]) > this -> tol * col_ref) {
+        // A NaN entry counts as nonzero. An Inf in the first pivot column makes the threshold Inf
+        // or NaN, so then no block is judged zero, and the Inf and NaN reach the output.
+        block_zero = std::isfinite(col_ref);
+        for (i = 0; block_zero && i < rows; ++i) {
+            if (!(std::abs(A_work[i]) <= this -> tol * col_ref))
                 block_zero = false;
-                break;
-            }
         }
         if(block_zero){
             // Zero leftover matrix, early termination
