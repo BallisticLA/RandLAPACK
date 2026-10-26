@@ -16,8 +16,8 @@ CMake project.
   CMake project.
 - Section 6: choosing and configuring the backend. Skip it on your first
   build; its BLAS++ and LAPACK++ recipes can replace those of Section 3.
-- Section 7: details (pinned versions, forks, the RandBLAS submodule, CUDA
-  versions). Section 8: troubleshooting.
+- Section 7: troubleshooting. Pinned versions, the forks, the RandBLAS
+  submodule and CUDA versions are in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 The commands in Sections 3 to 6 are for bash or zsh on Linux and macOS. On
 Windows, use `install.ps1`.
@@ -62,7 +62,8 @@ Windows, use `install.ps1`.
     Pass them to every configure; without them, RandLAPACK's own loops run
     on one thread (Accelerate still uses all cores).
   - CUDA, for GPU support. It is off by default;
-    [Section 7](#cuda-and-gcc-versions) lists what a GPU build needs.
+    [DEPENDENCIES.md](DEPENDENCIES.md#cuda-and-gcc-versions) lists what a
+    GPU build needs.
 
 On Ubuntu 24.04 and macOS, the [README](../README.md#install) gives one
 package-manager command that installs everything but CUDA. Elsewhere, we
@@ -82,7 +83,7 @@ this repository as a submodule.
 - Build BLAS++ and LAPACK++ from the BallisticLA forks, at the commits
   `install.sh` and CI build. The latest upstream release lacks fixes
   RandLAPACK relies on
-  ([Section 7](#why-blas-and-lapack-come-from-forks)).
+  ([DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks)).
 
 Run every command in this section and the next from one parent directory.
 Start by cloning RandLAPACK there and reading its dependency pins into your
@@ -111,7 +112,8 @@ git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
      (and any code that multiplies two sparse matrices) does not compile.
      Section 6 has the full oneMKL recipe.
    - `-Dgpu_backend=none` keeps BLAS++ from building CUDA support just
-     because it finds a CUDA Toolkit; for GPU support see Section 7.
+     because it finds a CUDA Toolkit; for GPU support see
+     [DEPENDENCIES.md](DEPENDENCIES.md#cuda-and-gcc-versions).
 2. **LAPACK++** ([source](https://github.com/BallisticLA/lapackpp)), against
    that BLAS++:
    ```shell
@@ -132,7 +134,7 @@ git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 
 With the dependencies of Section 3 in place, build and install RandLAPACK from
 the same parent directory (for GPU support, see
-[Section 7](#cuda-and-gcc-versions)):
+[DEPENDENCIES.md](DEPENDENCIES.md#cuda-and-gcc-versions)):
 
 ```shell
 cmake -S RandLAPACK -B RandLAPACK-build -DCMAKE_BUILD_TYPE=Release \
@@ -368,114 +370,7 @@ shows how to use your own BLAS++ and LAPACK++ builds with it. RandLAPACK's CI
 does not cover a suffixed OpenBLAS; the forks' own CI builds and tests BLAS++
 and LAPACK++ against conda-forge's.
 
-## 7. Details
-
-### Pinned versions
-
-For a given RandLAPACK revision, the installers always build the same
-dependency sources:
-
-| Dependency | Pinned to | Where the pin lives |
-|---|---|---|
-| BLAS++, LAPACK++ | the BallisticLA forks, tag `ballistic-2026.10.22` | [`installers/dependency-pins.env`](../installers/dependency-pins.env): each fork's URL, full commit hash and tag |
-| RandBLAS | one commit | the `RandBLAS` submodule, and `RandLAPACK_RandBLAS_PIN` in `CMakeLists.txt` |
-| Random123 | release `v1.14.0` | `installers/install.sh` and the Windows installer |
-| Eigen, Spectra, fast_matrix_market | the source archive of one commit, checked by SHA256 | `extras/CMakeLists.txt` and `benchmark/CMakeLists.txt` ([benchmark/README.md](../benchmark/README.md#pinned-downloads-for-maintainers)) |
-| Windows downloads (oneMKL, Intel OpenMP, OpenBLAS, GoogleTest) | exact versions, checked by SHA256 or tag | [INSTALL_WINDOWS.md, section 5](INSTALL_WINDOWS.md#5-what-the-installer-downloads-and-at-which-versions) |
-
-### Why BLAS++ and LAPACK++ come from forks
-
-RandLAPACK builds BLAS++ and LAPACK++ from the BallisticLA forks
-([blaspp](https://github.com/BallisticLA/blaspp),
-[lapackpp](https://github.com/BallisticLA/lapackpp)), not from an upstream
-release.
-
-- **What is pinned.**
-  [`installers/dependency-pins.env`](../installers/dependency-pins.env)
-  records each fork's URL, a full commit hash, and a tag on that commit.
-  `install.sh`, `install.ps1` and every CI lane read this one file, and the
-  recipe of Section 3 reads it too.
-- **Why not upstream.** The latest upstream release, `v2025.05.28`, lacks
-  fixes RandLAPACK relies on. Some are already on upstream `master`. The rest
-  are seven upstream pull requests that are open but not yet merged or
-  released, so only the forks have them.
-
-| Fix | Upstream pull requests | Where it is |
-|---|---|---|
-| Library paths that contain spaces | [blaspp#137](https://github.com/icl-utk-edu/blaspp/pull/137), [lapackpp#92](https://github.com/icl-utk-edu/lapackpp/pull/92) | forks only |
-| Re-configuring a build directory without losing the settings BLAS++ and LAPACK++ detected | [blaspp#141](https://github.com/icl-utk-edu/blaspp/pull/141), [blaspp#142](https://github.com/icl-utk-edu/blaspp/pull/142), [lapackpp#94](https://github.com/icl-utk-edu/lapackpp/pull/94) | forks only |
-| `lapack_symbol_suffix`, for symbol-suffixed LAPACK libraries | [lapackpp#91](https://github.com/icl-utk-edu/lapackpp/pull/91) | forks only |
-| `gemqrt` undefined behaviour on an empty dimension, which an icpx build turns into a crash (BQRRP makes such a call) | [lapackpp#93](https://github.com/icl-utk-edu/lapackpp/pull/93) | forks only |
-| Apple's new Accelerate interface | [blaspp#134](https://github.com/icl-utk-edu/blaspp/pull/134), [lapackpp#88](https://github.com/icl-utk-edu/lapackpp/pull/88) | upstream `master` and forks |
-| LAPACK++ compiling against Accelerate's ILP64 | [lapackpp#90](https://github.com/icl-utk-edu/lapackpp/pull/90) | upstream `master` and forks |
-| Discovery of an ILP64 OpenBLAS (`libopenblas64`), and `blas_symbol_suffix` | [blaspp#129](https://github.com/icl-utk-edu/blaspp/pull/129) | upstream `master` and forks |
-| The MSVC build fixes | [blaspp#132](https://github.com/icl-utk-edu/blaspp/pull/132), [lapackpp#87](https://github.com/icl-utk-edu/lapackpp/pull/87) | upstream `master` and forks |
-
-Each fork's `BALLISTIC.md`
-([blaspp](https://github.com/BallisticLA/blaspp/blob/main/BALLISTIC.md),
-[lapackpp](https://github.com/BallisticLA/lapackpp/blob/main/BALLISTIC.md))
-lists what it carries. Issue
-[#204](https://github.com/BallisticLA/RandLAPACK/issues/204) lists each fix
-with its upstream pull request and tracks the return to an upstream release.
-[CONTRIBUTING.md](../CONTRIBUTING.md#moving-the-blas-and-lapack-pins)
-describes how a pin is moved.
-
-### RandBLAS is a pinned submodule
-
-The RandBLAS copy inside this repository is pinned to an exact commit, and
-that pinned copy is the only RandBLAS configuration RandLAPACK is developed
-and tested against. Two rules follow:
-
-1. **Do not develop RandBLAS inside the submodule checkout.** To work on
-   RandBLAS itself, clone it separately
-   (`git clone https://github.com/BallisticLA/RandBLAS.git`) and build and
-   install it as its own project. RandLAPACK does not use an installed
-   RandBLAS, so nothing you install can leak into RandLAPACK builds: the
-   submodule stays authoritative.
-2. **Do not point RandLAPACK at your own RandBLAS working copy.** Version
-   skew between RandLAPACK and RandBLAS is not a supported configuration.
-
-The one exception is for *package maintainers* (Spack, conda-forge and
-similar), whose recipes must build RandBLAS as its own package. Configuring
-RandLAPACK with `-DRandLAPACK_EXTERNAL_RandBLAS=ON` uses an installed RandBLAS
-instead of the submodule. A configure-time check fails unless that install
-was built from exactly the commit the submodule pins, so version skew stays
-impossible.
-
-### CUDA and GCC versions
-
-GPU support is off by default. It needs:
-
-- the CUDA Toolkit, 12.4.1 or later (12.9.0 recommended), which includes
-  cuBLAS and cuSOLVER;
-- an NVIDIA driver, v580 or later recommended for CUDA 12.9.0;
-- a GCC version your CUDA release accepts: CUDA has strict GCC version
-  requirements (table below);
-- CMake 3.23 or later (3.24 or later with CUDA 13);
-- BLAS++ and LAPACK++ built with `-Dgpu_backend=cuda` instead of the `none`
-  of Section 3.
-
-Then configure RandLAPACK with `-DRequireCUDA=ON` (`--gpu` for
-`install.sh`). If CMake finds no CUDA Toolkit, it prints "CUDA not found"
-and builds without GPU support.
-
-| CUDA | GCC | Status | Notes |
-|---|---|---|---|
-| 13.3.0 | up to 15.x | Supported | Tested with GCC 15.2 |
-| **12.9.0** | **13.x** (up to 14.x) | **Recommended** | Tested with GCC 13.3.0 and driver v581.80; `nvcc` rejects GCC above 14 |
-| 12.4.1 | 13.x | Supported | Minimum supported version |
-
-The table is not exhaustive. The Supported Compilers table in NVIDIA's CUDA
-Installation Guide for Linux lists the host compilers each CUDA release
-supports, and the limits `nvcc` enforces may differ from what is documented.
-If you hit compiler version errors, try an older GCC.
-
-We recommend **CUDA 12.9.0 with GCC 13.3.0**, for best compatibility and to
-avoid known issues in earlier CUDA versions (CUDA 12.4.x, for example, had
-problems parsing Intel AMX intrinsics with GCC 13.x). Verified working as of
-2025-11-26: CUDA 12.9.0, GCC 13.3.0, CMake 3.31.9 and driver v581.80.
-
-## 8. Troubleshooting
+## 7. Troubleshooting
 
 - **Common error messages** and their fixes are in
   [INSTALL_SCRIPT.md, section 7](INSTALL_SCRIPT.md#7-when-something-goes-wrong);
