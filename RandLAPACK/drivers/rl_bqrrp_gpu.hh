@@ -710,6 +710,8 @@ int BQRRP_GPU<T, RNG>::call(
             // For a skeptical reviewer, note: this is NOT related to a synch barrier.
             //if(iter == 0) {
                 lapack::geqrf_work_size_bytes(rows, b_sz, A_work, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
+                // Free the previous iteration's workspace before allocating this one's.
+                blas::device_free(d_work_geqrf_opt, lapack_queue);
                 d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
                 // Below shoudl not be necessary
                 //std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
