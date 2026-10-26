@@ -1,82 +1,52 @@
 # Installing RandLAPACK on native Windows
 
-This guide covers building RandLAPACK with Microsoft's Visual C++ compiler
-(MSVC) on Windows, without WSL or Cygwin. It assumes no prior Windows
-development experience. If you are on Linux or macOS, use
-[INSTALL.md](INSTALL.md) and `install.sh` instead.
+This guide builds RandLAPACK with Microsoft's Visual C++ compiler (MSVC) on
+Windows, without WSL or Cygwin. It assumes no prior Windows development
+experience. On Linux or macOS, use `install.sh` instead
+([INSTALL_SCRIPT.md](INSTALL_SCRIPT.md)); [INSTALL.md](INSTALL.md#1-key-terms)
+explains the key terms (backend, BLAS++, ILP64, pin, ...).
 
 ## 1. Quick start
 
-RandLAPACK expects the same things on Windows as on Linux and macOS: a **C++
-compiler, CMake, Ninja and Git**, available in whatever terminal you choose to
-work in. The installer does not supply them and will not install them for you;
-it checks for them and stops with a fix-it command if any are missing.
+You need a **C++ compiler, CMake, Ninja and Git**, as on Linux and macOS. The
+installer does not install them; it checks for them and, if any is missing,
+stops with a command that fixes it. You do **not** need a BLAS library: the
+installer uses an Intel oneMKL you already have, and otherwise asks before
+downloading a pinned copy into the project directory (section 4).
 
-If you already have those, skip to step 3.
+1. **Get a toolchain**, unless you have one (this is one way; use your own
+   if you prefer). Visual Studio's C++ workload provides MSVC, the Windows
+   SDK, CMake and Ninja together:
+   ```powershell
+   winget install --id Git.Git --exact
 
-**1. Get a toolchain** (one way; use your own if you prefer). Visual Studio's
-C++ workload provides MSVC, the Windows SDK, CMake and Ninja together:
+   winget install --id Microsoft.VisualStudio.2022.BuildTools --exact `
+     --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+   ```
+   Section 3 explains these options and the alternatives.
+2. **Open an x64 developer shell.** MSVC is never on `PATH` globally, only
+   inside a "developer environment" that Visual Studio sets up per session.
+   Open **"x64 Native Tools Command Prompt for VS 2022"** from the Start
+   menu, not "Developer PowerShell/Command Prompt for VS 2022": those give a
+   32-bit toolchain. (Section 3 lists other ways to get the right shell.)
+   Then check:
+   ```
+   where cl
+   ```
+   The path it prints must contain `Hostx64\x64`.
+3. **Build:**
+   ```bat
+   git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
+   cd RandLAPACK
+   powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
+   ```
+   `-ExecutionPolicy Bypass` lets this one script run although Windows
+   blocks PowerShell scripts by default (section 3).
 
-```powershell
-winget install --id Git.Git --exact
-
-winget install --id Microsoft.VisualStudio.2022.BuildTools --exact `
-  --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-```
-
-Build Tools is the compiler without the IDE; `--id Microsoft.VisualStudio.2022.Community`
-with `--add Microsoft.VisualStudio.Workload.NativeDesktop` works equally well.
-`--includeRecommended` is what pulls in "C++ CMake tools for Windows", which
-supplies CMake and Ninja. `--wait` matters too: without it winget returns while
-the Visual Studio installer is still running, which looks like it finished.
-
-**2. Make the toolchain visible to your terminal.** This is the one real
-difference from Unix: MSVC is never on `PATH` globally, only inside a
-"developer environment" that Visual Studio sets up per session. Any of these
-gets you one, and they are equivalent; pick whichever fits how you work:
-
-- Open **"x64 Native Tools Command Prompt for VS 2022"** from the Start menu.
-- Or, in any Command Prompt, ask Visual Studio where it is and load it (works
-  for any edition or version):
-
-  ```bat
-  for /f "usebackq delims=" %i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%i\VC\Auxiliary\Build\vcvars64.bat"
-  ```
-
-- Or use any shell your editor or build tool already sets up, as long as it
-  gives you an **x64** toolchain (see section 3; this is worth checking, because
-  the obvious Start-menu entries give you a 32-bit one).
-
-Whatever you pick, this must show a path containing `Hostx64\x64`:
-
-```
-where cl
-```
-
-**3. Build:**
-
-```bat
-git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
-cd RandLAPACK
-powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
-```
-
-Two details in that last line, both deliberate. It is a `cmd` prompt, so the
-PowerShell script is launched rather than typed directly. And Windows blocks
-PowerShell scripts by default (`Restricted` policy on a fresh machine), so
-`-ExecutionPolicy Bypass` lets this one script run without permanently
-loosening a machine-wide security setting.
-
-That is the whole install. The script uses an Intel oneMKL you already have,
-and otherwise downloads a pinned copy for you, then builds the remaining
-dependencies, builds RandLAPACK, and runs its test suite. Everything lands in
-a sibling `RandNLA-project\` directory; re-running the script reuses what is
-already built.
-
-You are not expected to install a BLAS library first, unlike on Linux and
-macOS. If the installer cannot find one it says what it searched and asks
-before downloading a pinned copy into the project directory; nothing is
-installed system-wide. Section 4 covers the choices.
+That is the whole install. The script finds or downloads oneMKL, builds the
+remaining dependencies, builds RandLAPACK, and runs its test suite.
+Everything lands in a sibling `RandNLA-project\` directory; re-running the
+script reuses what is already built.
 
 ## 2. How this differs from Linux and macOS
 
@@ -90,85 +60,95 @@ installer does differently:
 | Finding shared libraries at run time | the binary itself remembers where its libraries are (RPATH), plus system-wide loader paths | executables have no such memory; Windows searches the executable's **own directory first** and PATH **last**, so the installer copies ("stages") every needed DLL next to each executable |
 | Default BLAS backend | OpenBLAS (Linux CI), Accelerate (macOS CI) | Intel oneMKL, ILP64, multithreaded through Intel's OpenMP runtime |
 
-A few smaller differences: OpenMP with MSVC needs the `/openmp:llvm` mode
-(the only MSVC mode that accepts RandLAPACK's 64-bit loop indices), which the
-build selects automatically; with oneMKL, RandLAPACK's OpenMP code runs on
-Intel's OpenMP runtime, the one oneMKL's threading layer uses, so a single
-thread pool serves both (on Linux, GCC's runtime plays that role); and GPU
-support is not available on native Windows. The build tool is Ninja
-everywhere, which Visual Studio bundles.
+The practical consequence of the third row: **on Windows you never need to
+edit PATH for RandLAPACK** (section 7).
 
-The practical consequence of the third row is worth internalizing: **on
-Windows you never need to edit PATH for RandLAPACK**. If an executable is
-staged, it runs; if you write your own program against RandLAPACK, either
-call the provided staging helper (section 7) or copy the DLLs next to your
-`.exe`. This "app-local deployment" is the idiomatic Windows layout: it is
-what Visual Studio's own package manager does by default.
+Smaller differences:
+
+- OpenMP with MSVC needs the `/openmp:llvm` mode, the only MSVC mode that
+  accepts RandLAPACK's 64-bit loop indices. The build selects it
+  automatically.
+- With oneMKL, RandLAPACK's OpenMP code runs on Intel's OpenMP runtime, the
+  one oneMKL's threading layer uses, so a single thread pool serves both (on
+  Linux, GCC's runtime plays that role).
+- GPU support is not available on native Windows.
+- The build tool is Ninja everywhere, which Visual Studio bundles.
 
 ## 3. Prerequisites, in detail
 
 You provide these; the installer does not:
 
-- **A C++ compiler.** MSVC, from Visual Studio 2022 or its Build Tools, with
+- **A C++ compiler:** MSVC, from Visual Studio 2022 or its Build Tools, with
   the **"Desktop development with C++"** workload.
 - **CMake and Ninja.** Both ship with that workload's "C++ CMake tools for
   Windows" component, so a separate install is usually unnecessary. Your own
   copies are fine if they are on `PATH`.
 - **Git** (any recent version).
-- A network connection for the first run, to fetch the BLAS/LAPACK backend and
-  build dependencies (see section 5). Roughly 200 MB for the default backend.
+- **A network connection** for the first run, to fetch the BLAS/LAPACK
+  backend and build dependencies (section 5): roughly 200 MB for the default
+  backend.
 
-The installer checks all of this up front and prints a fix-it command for
-anything missing.
+### About the winget commands
+
+- Build Tools is the compiler without the IDE.
+  `--id Microsoft.VisualStudio.2022.Community` with
+  `--add Microsoft.VisualStudio.Workload.NativeDesktop` works equally well.
+- `--includeRecommended` is what pulls in "C++ CMake tools for Windows",
+  which supplies CMake and Ninja.
+- `--wait` matters: without it, winget returns while the Visual Studio
+  installer is still running, which looks like it finished.
+
+### Starting from the right shell
 
 Two mistakes account for nearly every failed Windows install, and both are
 about *which shell you start from*:
 
-1. **A regular PowerShell.** `cl.exe`, `cmake` and `ninja` are on `PATH` only
-   inside a Visual Studio developer environment, which is set up per session.
-2. **A developer shell of the wrong architecture.** This is easy to hit
-   because the obvious Start-menu entries are the wrong ones: **"Developer
-   PowerShell for VS 2022"** and **"Developer Command Prompt for VS 2022"**
-   both default to a **32-bit (x86)** toolchain. RandLAPACK and every BLAS
-   backend here are 64-bit, and a 32-bit linker cannot use an x64 import
-   library. Note that shell bitness is not a usable signal: "Developer Command
-   Prompt" is itself a 64-bit process and still selects x86 tools.
+1. **A regular PowerShell.** `cl.exe`, `cmake` and `ninja` are on `PATH`
+   only inside a Visual Studio developer environment, which is set up per
+   session.
+2. **A developer shell of the wrong architecture.** This is easy to hit,
+   because the obvious Start-menu entries are the wrong ones:
+   **"Developer PowerShell for VS 2022"** and **"Developer Command Prompt for
+   VS 2022"** both default to a **32-bit (x86)** toolchain. RandLAPACK and
+   every backend here are 64-bit, and a 32-bit linker cannot use an x64
+   import library. Shell bitness is no help: "Developer Command Prompt" is
+   itself a 64-bit process and still selects x86 tools.
 
-Confirm you are in the right place with:
+Any of these gives you an x64 developer environment; they are equivalent:
 
-```
-where cl
-```
+- **"x64 Native Tools Command Prompt for VS 2022"** from the Start menu.
+- **From any Command Prompt**, ask Visual Studio where it is installed and
+  load it. This works for any edition or version (Build Tools, another
+  edition, a Visual Studio other than 2022), so use it if the Start-menu
+  entry is missing or named differently:
+  ```bat
+  for /f "usebackq delims=" %i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%i\VC\Auxiliary\Build\vcvars64.bat"
+  ```
+  The `-products *` matters: without it, `vswhere` reports only full Visual
+  Studio editions and silently finds nothing on a Build Tools install.
+- **Any shell your editor or build tool sets up**, as long as it gives you an
+  x64 toolchain.
 
-The path it prints must contain `Hostx64\x64`. If it prints
-`INFO: Could not find files for the given pattern(s)`, you are in a plain
-shell with no compiler; if it contains `Hostx86\x86`, you are in a 32-bit
-developer shell. Use `where cl` rather than running `cl` alone: in the failing
-cases `cl` either is not found or prints a usage banner, and neither reads as
-"wrong shell". The installer's preflight check catches this too, so you cannot
-get far down the wrong path.
+Confirm with `where cl`. The path it prints must contain `Hostx64\x64`:
 
-**If the Start-menu entry is missing or named differently** (Build Tools, a
-different edition, or a Visual Studio version other than 2022), this works
-from any Command Prompt regardless of edition or version, because it asks
-Visual Studio's own locator where it is installed:
+- `INFO: Could not find files for the given pattern(s)` means a plain shell
+  with no compiler;
+- a path containing `Hostx86\x86` means a 32-bit developer shell.
 
-```bat
-for /f "usebackq delims=" %i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%i\VC\Auxiliary\Build\vcvars64.bat"
-```
-
-The `-products *` matters: without it `vswhere` reports only full Visual
-Studio editions and silently finds nothing on a Build Tools install.
+Use `where cl` rather than `cl` alone: in the failing cases, `cl` is either
+not found or prints a usage banner, and neither reads as "wrong shell". The
+installer's preflight check catches this too, so you cannot get far down the
+wrong path.
 
 ### Script execution policy
 
-Windows refuses to run PowerShell scripts at all under its default
-`Restricted` policy, with "running scripts is disabled on this system". The
-quick start sidesteps this per-invocation with `-ExecutionPolicy Bypass`,
-which is the smallest hammer: it applies to that one process and changes
-nothing about the machine. If you would rather allow local scripts
-permanently, this is the conventional setting, and it affects only your own
-account:
+Under its default `Restricted` policy, Windows refuses to run PowerShell
+scripts at all ("running scripts is disabled on this system"). The quick
+start runs from a `cmd` prompt, so it launches the PowerShell script through
+`powershell` rather than typing it directly, and adds
+`-ExecutionPolicy Bypass`. That is the smallest hammer: it applies to that one
+process and changes nothing about the machine. To allow local scripts
+permanently, this conventional setting affects only your own account:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -176,32 +156,31 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## 4. Choosing a BLAS/LAPACK backend
 
-RandLAPACK does all its heavy arithmetic through BLAS++/LAPACK++, which sit
-on a BLAS/LAPACK library of your choice. On Windows the installer supports:
+RandLAPACK does all its heavy arithmetic through BLAS++ and LAPACK++, which
+sit on a backend of your choice. On Windows the installer supports:
 
 | Backend | Flag | What you get | How it is obtained |
 |---|---|---|---|
 | **oneMKL** (default) | none needed | multithreaded through Intel's OpenMP runtime; 64-bit integers (ILP64) | discovered from an existing install via `-MklRoot`, `MKLROOT`, `ONEAPI_ROOT`, or the default oneAPI location; otherwise Intel's official NuGet packages are downloaded, pinned by version and SHA256. Intel's OpenMP runtime comes from the same oneAPI install, or else from its own pinned NuGet packages (~2 MB). `-NoDownload` turns "not found" into an error |
 | **OpenBLAS** | `-Backend openblas` | solid free backend; multithreaded with its own thread pool; 32-bit integers (LP64) | official OpenBLAS release binaries, pinned and checksum-verified; the archive is self-contained and includes full LAPACK |
-| **Custom / bring-your-own** | `-Backend custom -BlasLibraries <paths>` | anything BLAS++/LAPACK++ can link, e.g. AMD AOCL, a local ILP64 OpenBLAS build | you provide the import libraries (and their DLL directory via `-BackendBinDir`); the installer verifies them with a small link-and-run check before building anything |
+| **Custom** (bring your own) | `-Backend custom -BlasLibraries <paths>` | anything BLAS++/LAPACK++ can link, e.g. AMD AOCL, a local ILP64 OpenBLAS build | you provide the import libraries (and their DLL directory via `-BackendBinDir`); the installer verifies them with a small link-and-run check before building anything |
 
-Library paths may contain spaces. The installer hands BLAS++ and LAPACK++ the
-libraries where they are, including a oneMKL at Intel's default location
-(`C:\Program Files (x86)\Intel\oneAPI\mkl\latest`) and `-BlasLibraries` or
-`-LapackLibraries` paths under a folder such as `C:\Program Files`. CI builds
-against a oneMKL copied to such a path to keep this working.
-
-**ILP64 and LP64** describe the integer width a BLAS library uses for matrix
-dimensions: 64-bit and 32-bit respectively. Mixing libraries built for
-different widths breaks silently, which is why the installer keeps the width
-consistent for you. Beyond that, the practical difference is that LP64 caps
-every single matrix dimension at 2^31 - 1 (about 2.1 billion).
-
-RandBLAS's MKL-accelerated sparse routines are not active in the
-installer's Windows builds yet: BLAS++ marks oneMKL as MKL only when `mkl.h`
-is on the compiler's INCLUDE path while it is configured (for example in a
-oneAPI `setvars` shell), which the installer does not arrange, so RandBLAS
-uses its portable sparse code.
+- **Integer width.** ILP64 and LP64 mean 64-bit and 32-bit integers for
+  matrix dimensions. Mixing libraries built for different widths breaks
+  silently, so the installer keeps the width consistent for you. Beyond
+  that, LP64 caps every single matrix dimension at 2^31 - 1 (about 2.1
+  billion); [INSTALL_SCRIPT.md, section 6.3](INSTALL_SCRIPT.md#63-does-lp64-limit-randlapack)
+  has more.
+- **Paths with spaces work.** The installer hands BLAS++ and LAPACK++ the
+  libraries where they are, including a oneMKL at Intel's default location
+  (`C:\Program Files (x86)\Intel\oneAPI\mkl\latest`) and `-BlasLibraries` or
+  `-LapackLibraries` paths under a folder such as `C:\Program Files`. CI
+  builds against a oneMKL copied to such a path to keep this working.
+- **RandBLAS's MKL-accelerated sparse routines are not active** in the
+  installer's Windows builds yet. BLAS++ marks oneMKL as MKL only when
+  `mkl.h` is on the compiler's INCLUDE path while it is configured (for
+  example in a oneAPI `setvars` shell), which the installer does not
+  arrange, so RandBLAS uses its portable sparse code.
 
 ### When no oneMKL is found
 
@@ -223,22 +202,25 @@ No oneMKL found, and the download was declined.
                                           ~155 MB, into this project only
 ```
 
-Answering no stops with those options. Questions are skipped entirely when the
-installer is not attached to a terminal (a script, a pipeline, CI), taking
-the default shown in brackets; `-Yes` skips them in an interactive session too.
+Answering no stops with those options. Questions are skipped entirely when
+the installer is not attached to a terminal (a script, a pipeline, CI),
+taking the default shown in brackets; `-Yes` skips them in an interactive
+session too.
 
-Notes for the custom path: AMD AOCL downloads sit behind a click-through
-license page, so the installer cannot fetch them; download AOCL yourself,
-then point `-BlasLibraries` at its `.lib` files. The custom path is expected
-to work with any well-formed backend but is not exercised by our CI; oneMKL
-and OpenBLAS are.
+### Custom backends
+
+AMD AOCL downloads sit behind a click-through license page, so the installer
+cannot fetch them: download AOCL yourself, then point `-BlasLibraries` at its
+`.lib` files (example in section 6). The custom path is expected to work with
+any well-formed backend but is not exercised by our CI; oneMKL and OpenBLAS
+are.
 
 ## 5. What the installer downloads, and at which versions
 
-The installer never installs a compiler, CMake or Ninja; those are yours to provide, exactly
-as on Linux and macOS (see §3). What it *can* fetch is the BLAS/LAPACK backend and RandLAPACK's
-own build-time dependencies. Everything lands under `<ProjectDir>`, is pinned to an exact
-version, and is verified by checksum where the source publishes archives:
+Besides the BLAS/LAPACK backend, the installer can fetch RandLAPACK's own
+build-time dependencies. Everything lands under `<ProjectDir>`, is pinned to
+an exact version, and is verified by checksum where the source publishes
+archives:
 
 | Component | Version | Source | Verified by |
 |---|---|---|---|
@@ -250,30 +232,24 @@ version, and is verified by checksum where the source publishes archives:
 | BLAS++ | tag `ballistic-2026.10.22` | [BallisticLA/blaspp](https://github.com/BallisticLA/blaspp), a fork of icl-utk-edu/blaspp | git commit |
 | LAPACK++ | tag `ballistic-2026.10.22` | [BallisticLA/lapackpp](https://github.com/BallisticLA/lapackpp), a fork of icl-utk-edu/lapackpp | git commit |
 
-All but BLAS++ and LAPACK++ are fetched from the project's canonical upstream; those two come
-from forks, as explained below. Every one is pinned to an immutable reference, so a given
-RandLAPACK revision always builds the same dependency versions.
-
-**oneMKL is only downloaded if you do not already have one.** If an existing oneAPI is
-discovered (§4), the installer uses *your* version, whatever that is, together with the Intel
-OpenMP runtime from the same install; only if that install has no Intel OpenMP beside it is the
-pinned Intel OpenMP (~2 MB) fetched alone. The oneMKL version above therefore applies only to the
-no-oneMKL case.
-
-**Two deliberate exceptions to "pin a stable release".** BLAS++ and LAPACK++ come from the
-BallisticLA forks, pinned by full commit hash in
-[`installers/dependency-pins.env`](../installers/dependency-pins.env), which also names the tag
-`ballistic-2026.10.22` on those commits. That one file is read by this installer, by `install.sh`
-on Linux and macOS, and by CI. The forks carry seven fixes that are open as upstream pull
-requests but not yet merged or released (icl-utk-edu/blaspp#137, #141 and #142, and
-icl-utk-edu/lapackpp#91, #92, #93 and #94); each fork's `BALLISTIC.md`
-([blaspp](https://github.com/BallisticLA/blaspp/blob/main/BALLISTIC.md),
-[lapackpp](https://github.com/BallisticLA/lapackpp/blob/main/BALLISTIC.md)) lists what it
-carries. Upstream's latest release, `v2025.05.28`, also predates fixes already on upstream
-`master`, among them the two MSVC fixes this build needs (icl-utk-edu/blaspp#132 and
-icl-utk-edu/lapackpp#87). Issue
-[#204](https://github.com/BallisticLA/RandLAPACK/issues/204) tracks the
-return to an upstream release tag. Everything else is a stable, released version.
+- **Every component is pinned to an immutable reference**, so a given
+  RandLAPACK revision always builds the same dependency versions. All are
+  stable, released versions from the project's canonical upstream, except
+  BLAS++ and LAPACK++.
+- **BLAS++ and LAPACK++ come from the BallisticLA forks**, pinned by full
+  commit hash in
+  [`installers/dependency-pins.env`](../installers/dependency-pins.env),
+  which also names the tag `ballistic-2026.10.22` on those commits. That one
+  file is read by this installer, by `install.sh` on Linux and macOS, and by
+  CI. [INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains
+  why, and lists the fixes the forks carry, among them the MSVC build fixes
+  this build needs.
+- **oneMKL is downloaded only if you do not already have one.** If an
+  existing oneAPI is discovered (section 4), the installer uses *your*
+  version, whatever that is, together with the Intel OpenMP runtime from the
+  same install. Only if that install has no Intel OpenMP beside it is the
+  pinned Intel OpenMP (~2 MB) fetched alone. The oneMKL version above
+  therefore applies only when no oneMKL is found.
 
 ## 6. `install.ps1` reference
 
@@ -342,12 +318,14 @@ Worked examples:
 
 ## 7. Runtime DLLs: what "staging" means
 
-A Windows executable that links a DLL-based library must be able to find
-those DLLs when it starts. Windows looks in the executable's own directory
-first and PATH last; there is no RPATH. RandLAPACK's build therefore copies
-every DLL an executable needs (BLAS++, LAPACK++, and the BLAS backend's
-runtime) into the directory of that executable, so tests and benchmarks
-work out of the box, from any shell, with no environment preparation.
+A Windows executable that links a DLL-based library must find those DLLs
+when it starts. Windows looks in the executable's own directory first and in
+PATH last; there is no RPATH. RandLAPACK's build therefore copies every DLL
+an executable needs (BLAS++, LAPACK++, and the backend's runtime) into that
+executable's directory. Tests and benchmarks work out of the box, from any
+shell, with no environment preparation. This "app-local deployment" is the
+idiomatic Windows layout: Visual Studio's own package manager does the same
+by default.
 
 For your own project, the installed CMake package carries the same helper:
 
@@ -358,55 +336,55 @@ target_link_libraries(myprog RandLAPACK::RandLAPACK)
 randlapack_stage_runtime_dlls(myprog)   # no-op on non-Windows platforms
 ```
 
-If you prefer not to use the helper, copy the DLLs from the backend's DLL
-directories (the installer prints them at the end; with oneMKL there are two,
-oneMKL's `bin` and Intel OpenMP's) next to your `.exe`.
+Without the helper, copy the DLLs next to your `.exe` yourself, from the
+backend's DLL directories. The installer prints them at the end; with oneMKL
+there are two, oneMKL's `bin` and Intel OpenMP's.
 
 ## 8. Troubleshooting
 
 - **"running scripts is disabled on this system"**: Windows' default
-  PowerShell execution policy. Launch it as the quick start does
-  (`powershell -ExecutionPolicy Bypass -File .\installers\install.ps1`), or see
-  "Script execution policy" in section 3.
+  PowerShell execution policy. Launch the installer as the quick start does
+  (`powershell -ExecutionPolicy Bypass -File .\installers\install.ps1`), or
+  see "Script execution policy" in section 3.
 - **"cl.exe is not on PATH"**: you are in a regular shell. Open "x64 Native
   Tools Command Prompt for VS 2022" and re-run. If Visual Studio is missing
   entirely, the preflight message includes the winget install command.
 - **"cl.exe targets x86"**: you are in a developer shell of the wrong
-  architecture (see section 3). Open "x64 Native Tools Command Prompt for VS
+  architecture (section 3). Open "x64 Native Tools Command Prompt for VS
   2022" instead. If an earlier run already got as far as building
   dependencies, delete the `RandNLA-project` directory before retrying:
-  dependencies are reused when present, and the ones configured by the 32-bit
-  compiler will keep failing no matter which shell you re-run from.
+  dependencies are reused when present, and the ones configured by the
+  32-bit compiler will keep failing no matter which shell you re-run from.
 - **"BLAS library not found" from BLAS++, with oneMKL clearly installed**:
   almost always the 32-bit shell above, on a version of the installer that
   predates the preflight check. The x86 linker rejects the x64 import
   library, and BLAS++ can only report that its probe did not link.
-- **Tests run far slower with `ctest -j N`**: with oneMKL each test
-  process starts a full set of threads (one per core), so N processes
-  oversubscribe the machine. Run `ctest` without `-j`, or set
-  `OMP_NUM_THREADS` to a small number for parallel test runs; it sizes the
-  thread pool that oneMKL and RandLAPACK's OpenMP code share.
+- **Tests run far slower with `ctest -j N`**: with oneMKL, each test process
+  starts a full set of threads (one per core), so N processes oversubscribe
+  the machine. Run `ctest` without `-j`, or set `OMP_NUM_THREADS` to a small
+  number for parallel test runs; it sizes the thread pool that oneMKL and
+  RandLAPACK's OpenMP code share.
 - **A download fails with a hash mismatch**: the pinned artifact changed
   upstream or the download was corrupted. Re-run once; if it persists, open
-  an issue; do not bypass the check.
+  an issue. Do not bypass the check.
 - **Corporate proxy**: the installer downloads with `curl.exe`, which honors
   the standard `HTTPS_PROXY` environment variable.
-- **First build is slow**: Windows Defender real-time scanning inspects
-  every new object file. The build is CPU-bound regardless; subsequent
-  reruns reuse everything.
+- **First build is slow**: Windows Defender real-time scanning inspects every
+  new object file. The build is CPU-bound regardless; later runs reuse
+  everything.
 - **Wrong results or crashes only inside an activated conda environment**:
   conda ships MKL/OpenBLAS DLLs under the *same filenames* as ours and puts
   its `Library\bin` on PATH when an environment is active. RandLAPACK's own
-  staged executables are immune (the exe's folder outranks PATH), but a
-  program of yours that relies on PATH can silently pick up conda's copies.
-  Stage your executable (section 7) and the problem disappears. To
-  deliberately build *against* a conda-provided MKL instead, pass
+  staged executables are immune (the executable's folder outranks PATH), but
+  a program of yours that relies on PATH can silently pick up conda's copies.
+  Stage your executable (section 7) and the problem disappears. To build
+  *against* a conda-provided MKL deliberately, pass
   `-MklRoot "<env>\Library"` (requires conda's `mkl-devel` package).
 - **Path-length errors deep in dependency builds**: keep the project
   directory short (e.g. `C:\s\RandLAPACK`), or enable Windows long paths.
 - **Full reset**: delete `<ProjectDir>\build` and the relevant
   `<ProjectDir>\install\*` subdirectories, then re-run the installer.
 
-CI runs the exact flows above on every pull request; [CI.md](CI.md) describes
-the lanes, and `.github\scripts\windows\run-ci.ps1 -Task Core
--SetupDependencies [-Backend openblas]` reproduces a CI lane locally.
+CI runs these same flows on every pull request; [CI.md](CI.md) describes the
+lanes, and `.github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies
+[-Backend openblas]` reproduces a CI lane locally.
