@@ -31,9 +31,9 @@ RandLAPACK through `find_package`, exactly as user code does.
   - On macOS with Homebrew's `libomp`, add the OpenMP settings at the end of
     [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects).
 
-The first configure needs a network connection: it fetches Eigen, Spectra
-and fast_matrix_market with CMake's FetchContent. Some benchmarks also borrow
-headers from `extras/`.
+The project needs CMake 3.24 or later. Its first configure needs a network
+connection: it fetches Eigen, Spectra and fast_matrix_market with CMake's
+FetchContent. Some benchmarks also borrow headers from `extras/`.
 
 ## Running
 
@@ -42,7 +42,8 @@ headers from `extras/`.
   executables land flat in the build directory.
 - The driver benchmarks print their usage when run without arguments. Most
   write their results as text files into an output directory given on the
-  command line.
+  command line. Create it first, and end its name with `/` (for example
+  `results/`): several drivers append the file name to it directly.
 - The ABRIK drivers copy the environment variable `RANDLAPACK_GIT_COMMIT`
   into the header of every CSV file they write (`unknown` when it is unset).
   Export the commit you built from, so that each result file names its build.
