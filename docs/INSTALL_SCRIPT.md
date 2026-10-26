@@ -4,8 +4,9 @@
 dependencies (BLAS++, LAPACK++, Random123), the `extras/` and `benchmark/`
 projects, and, when GoogleTest is found, the test suite. On native Windows use
 `installers\install.ps1` instead ([INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)).
-To build each piece by hand, see [INSTALL.md](INSTALL.md), which also
-explains the [key terms](INSTALL.md#1-key-terms) used here.
+To build each piece by hand (an advanced, riskier option), see
+[INSTALL_MANUAL.md](INSTALL_MANUAL.md), which also explains the
+[key terms](INSTALL_MANUAL.md#1-key-terms) used here.
 
 The script lives at `installers/install.sh`; a small wrapper at the
 repository root keeps `bash install.sh` working.
@@ -28,7 +29,7 @@ repository root keeps `bash install.sh` working.
    OMP_NUM_THREADS=1 ctest --test-dir ~/RandNLA/RandNLA-project/build/RandLAPACK-build -j 4
    ```
    The suite should pass, typically in a minute or two
-   ([INSTALL.md, section 4](INSTALL.md#4-building-and-installing-randlapack)
+   ([INSTALL_MANUAL.md, section 4](INSTALL_MANUAL.md#4-building-and-installing-randlapack)
    explains the settings). If you set `RANDNLA_PROJECT_DIR`, the build
    directory is under it instead; the installer's final summary prints it.
 
@@ -51,7 +52,7 @@ Good to know:
 - **A backend**, the BLAS/LAPACK library that does the arithmetic:
   - on Linux, OpenBLAS or Intel oneMKL 2022 or later. oneMKL is chosen by
     default when `MKLROOT` is set, which loading oneAPI's environment does
-    ([INSTALL.md, "Intel oneMKL"](INSTALL.md#intel-onemkl-recommended));
+    ([INSTALL_MANUAL.md, "Intel oneMKL"](INSTALL_MANUAL.md#intel-onemkl-recommended));
   - on macOS, Apple's Accelerate (macOS 13.3 or later), which needs nothing
     installed.
 
@@ -59,7 +60,7 @@ Good to know:
 - **GoogleTest** (optional but recommended). Without it, no tests are built.
 - **For GPU support (optional):** the CUDA Toolkit, an NVIDIA driver and a
   GCC version your CUDA release accepts, as listed in
-  [INSTALL.md, "CUDA and GCC versions"](INSTALL.md#cuda-and-gcc-versions).
+  [DEPENDENCIES.md, "CUDA and GCC versions"](DEPENDENCIES.md#cuda-and-gcc-versions).
   - **Known issue:** in the current version the GPU benchmark does not
     compile, so a GPU build also needs `--no-benchmarks`. That covers
     `--gpu`, answering yes to the installer's GPU question, and an unattended
@@ -146,7 +147,7 @@ Each variable names an install root: the directory containing
 `lib*/cmake/<pkg>/` or, for Random123, `include/Random123/`. Dependencies the
 script installed on an earlier run are reused automatically. RandBLAS is not
 covered, on purpose: it stays a pinned submodule (see
-[INSTALL.md, "RandBLAS is a pinned submodule"](INSTALL.md#randblas-is-a-pinned-submodule)).
+[DEPENDENCIES.md, "RandBLAS is a pinned submodule"](DEPENDENCIES.md#randblas-is-a-pinned-submodule)).
 
 ### Sharing one dependency tree with RandBLAS
 
@@ -246,20 +247,10 @@ and CUDA if you enabled it).
 
 ### Using RandLAPACK in your own CMake project
 
-[INSTALL.md, section 5](INSTALL.md#5-using-randlapack-in-other-projects)
-shows the `CMakeLists.txt`. With this script's layout, your project needs
-one flag:
-
-```
--DRandLAPACK_DIR=$HOME/RandNLA/RandNLA-project/install/RandLAPACK-install/lib/cmake/RandLAPACK
-```
-
-On some platforms `lib` is `lib64`; the installer's final summary prints the
-exact `RandLAPACK_DIR` for your machine.
-[INSTALL.md, section 5](INSTALL.md#5-using-randlapack-in-other-projects)
-also covers two cases that need more: oneMKL, whose environment must be
-loaded in every shell that builds or runs your program, and macOS with
-Homebrew's `libomp`.
+[USING.md](USING.md) shows how, with a minimal example program. Your
+project needs one flag, `-DRandLAPACK_DIR`, and the installer's final
+summary prints its value for your machine. USING.md also covers oneMKL's
+environment and macOS with Homebrew's `libomp`.
 
 ## 5. What the script does
 
@@ -294,15 +285,16 @@ silently reusing a CPU-only one.
 **Where BLAS++ and LAPACK++ come from.** The BallisticLA forks, at the
 commits (and tag) pinned in
 [`installers/dependency-pins.env`](../installers/dependency-pins.env).
-[INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains why.
+[DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks) explains why.
 
 ## 6. Integer width, backends, and tested configurations
 
 ### 6.1 What we test
 
-[CI.md](CI.md) lists the configurations CI builds and tests, on Linux,
-macOS and Windows. A configuration not listed there may well work; it is
-simply untested. No CI job uses a GPU, so `--gpu` is tested locally only.
+[DEPENDENCIES.md](DEPENDENCIES.md#tested-setups) lists the setups where
+RandLAPACK has been tested, in CI and locally, and [CI.md](CI.md) describes
+the CI lanes. A setup not listed there may well work; it is simply
+untested. No CI job uses a GPU, so `--gpu` is tested locally only.
 
 ### 6.2 Which integer width you get, and why
 
@@ -314,7 +306,7 @@ genuinely provide it:
 |---|---|---|
 | `mkl` | ILP64 | `mkl_intel_ilp64` is a separate library, so requesting it actually selects it |
 | `openblas` | LP64 with a warning, or ILP64 when `libopenblas64` is the only OpenBLAS installed | BLAS++ tries plain `-lopenblas` first; see below |
-| `accelerate` | ILP64 | Apple's new interface (macOS 13.3 or later) ships ILP64 in the framework, and the pinned BLAS++ and LAPACK++ support it ([INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks)). Older macOS lacks the new interface entirely, and the installer refuses the legacy one (section 6.4) |
+| `accelerate` | ILP64 | Apple's new interface (macOS 13.3 or later) ships ILP64 in the framework, and the pinned BLAS++ and LAPACK++ support it ([DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks)). Older macOS lacks the new interface entirely, and the installer refuses the legacy one (section 6.4) |
 | `custom` | whatever you pass | you named the library, so its width is yours to state |
 
 **Why OpenBLAS usually gives LP64.** The pinned BLAS++ looks for plain
@@ -340,7 +332,7 @@ bash install.sh --blas=custom --blas-int=ilp64 \
 **An OpenBLAS whose symbols carry a suffix**, such as conda-forge's
 `libopenblas64_` (`dgemm_64_`), needs BLAS++'s `blas_symbol_suffix` option,
 which the installer does not set. Build BLAS++ and LAPACK++ by hand
-([INSTALL.md, "ILP64 OpenBLAS"](INSTALL.md#ilp64-openblas)) and point the
+([INSTALL_MANUAL.md, "ILP64 OpenBLAS"](INSTALL_MANUAL.md#ilp64-openblas)) and point the
 installer at them with `BLASPP_INSTALL_DIR` and `LAPACKPP_INSTALL_DIR`
 ([section 3](#reusing-preinstalled-dependencies-discovery)).
 
@@ -361,7 +353,7 @@ The macOS default is Accelerate, through Apple's **new** interface (macOS
 13.3 or later), which the pinned BLAS++ and LAPACK++ support. No Homebrew
 BLAS is needed. RandLAPACK does not support Apple's legacy interface, whose
 `gesdd` returns wrong results on Apple Silicon;
-[INSTALL.md, "Apple Accelerate"](INSTALL.md#apple-accelerate-macos) gives the
+[INSTALL_MANUAL.md, "Apple Accelerate"](INSTALL_MANUAL.md#apple-accelerate-macos) gives the
 details.
 
 - **ILP64 by default.** The installer builds BLAS++ with `-Dblas_int=int64`,
@@ -391,8 +383,8 @@ details.
 | "static assertion failed: ... index type must match MKL_INT size" | BLAS++ was built LP64 against oneMKL. Rebuild it ILP64: `--blas-int=ilp64` (the default with `--blas=mkl`), or `-Dblas_int=int64` by hand. |
 | "Could not find a package configuration file provided by "blaspp"" (or `lapackpp`, `RandLAPACK`) | The `<package>_DIR` flag names the wrong directory. It must contain `<package>Config.cmake`, sometimes under `lib64` rather than `lib`. |
 | `ctest` reports "No tests were found" | GoogleTest was not found when RandLAPACK was configured. Install it and re-run the installer. |
-| "unsupported GNU version" from `nvcc` | Your GCC is too new for your CUDA release; see the [compatibility table](INSTALL.md#cuda-and-gcc-versions). |
-| "Could NOT find OpenMP", configuring your own project on macOS | See the macOS note at the end of [INSTALL.md, section 5](INSTALL.md#5-using-randlapack-in-other-projects). |
+| "unsupported GNU version" from `nvcc` | Your GCC is too new for your CUDA release; see the [compatibility table](DEPENDENCIES.md#cuda-and-gcc-versions). |
+| "Could NOT find OpenMP", configuring your own project on macOS | See [USING.md, "macOS with Homebrew's `libomp`"](USING.md#macos-with-homebrews-libomp). |
 
 - **For a manual build**, see also
-  [INSTALL.md, section 8](INSTALL.md#8-troubleshooting).
+  [INSTALL_MANUAL.md, section 7](INSTALL_MANUAL.md#7-troubleshooting).
