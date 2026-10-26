@@ -40,9 +40,6 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
 
-# Include compiler flags (needed for both CUDA and non-CUDA builds)
-include(compiler_flags)
-
 # Configure the build
 enable_testing()
 
