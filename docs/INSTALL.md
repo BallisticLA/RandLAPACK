@@ -1,210 +1,117 @@
 # Installing and using RandLAPACK
 
-**The fastest route on Linux and macOS is the autoinstaller**:
-`bash install.sh` builds RandLAPACK, its dependencies, the extras and
-benchmark projects, and (when GoogleTest is found) the test suite in one
-command; see [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md). This file covers manual
-installation for fine-grained control.
+**Most people should use an installer.** It builds RandLAPACK and all of its
+dependencies with one command:
 
-Sections 1 through 3 of this file describe how to perform a *basic* installation
-of RandLAPACK and its dependencies.
+| Your machine | Command | Guide |
+|---|---|---|
+| Linux or macOS | `bash install.sh` | [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md) |
+| Native Windows (MSVC) | `installers\install.ps1` | [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) |
 
-Section 4 explains how RandLAPACK can be used in other CMake projects.
+This guide covers the rest: building each piece by hand when you want control
+over how the dependencies are configured, and using RandLAPACK from your own
+CMake project.
 
-Section 5 gives detailed recommendations on configuring BLAS++ and LAPACK++
-for use with RandLAPACK.
-Its installation instructions for BLAS++ and LAPACK++ can be used in place
-of the corresponding instructions in Section 2.
+- Sections 2 to 4: a basic manual build. Section 5: using it from another
+  CMake project.
+- Section 6: choosing and configuring the backend. Skip it on your first
+  build; its BLAS++ and LAPACK++ recipes can replace those of Section 3.
+- Section 7: details (forks and pins, the RandBLAS submodule, CUDA
+  versions). Section 8: troubleshooting.
 
-Section 6 covers native Windows.
+## 1. Key terms
 
-*We recommend that you not bother with Section 5 the first time you build RandLAPACK.*
+| Term | Meaning |
+|---|---|
+| **BLAS, LAPACK** | Standard interfaces for dense linear algebra. BLAS covers basic operations such as matrix multiplication; LAPACK builds factorizations, linear solvers and the SVD on top of BLAS. |
+| **Backend** | The library that implements BLAS and LAPACK on your machine: Intel oneMKL (`mkl` in build flags), OpenBLAS, Apple Accelerate (part of macOS) or AMD AOCL. |
+| **BLAS++, LAPACK++** | C++ wrappers around BLAS and LAPACK (upstream: [icl-utk-edu/blaspp](https://github.com/icl-utk-edu/blaspp) and [icl-utk-edu/lapackpp](https://github.com/icl-utk-edu/lapackpp)). They hide the differences between backends and are templated on the numeric type. RandLAPACK does its dense linear algebra through them. |
+| **LP64, ILP64** | The integer width a backend uses for matrix dimensions and indices: 32-bit (LP64) or 64-bit (ILP64). BLAS++, LAPACK++ and the backend must agree on it. |
+| **Upstream, fork** | Upstream is a project's original repository. A fork is a copy of it under BallisticLA, where we carry fixes that upstream has not released yet. |
+| **Pin, tag** | A pin fixes a dependency to one exact git commit, so every build compiles the same source. A tag is a readable name for one commit. |
+| **Submodule** | A git repository included in another at one fixed commit. RandBLAS is a submodule of RandLAPACK; `git clone --recursive` fetches it. |
+| **`<package>_DIR`** | A CMake flag naming the directory that contains `<package>Config.cmake`, so that CMake can find an installed package. |
 
-## 0. Software requirements
+## 2. Requirements
 
-### Minimum Requirements
-- **CMake**: 3.21 or higher (3.31.9 recommended)
-- **C++ Compiler**: C++20 support required
-  - GCC 13 or higher (the tested floor; RandBLAS uses C++20 concepts)
-  - Clang 14 or higher (not extensively tested)
-  - Intel ICPX (not extensively tested). Build LAPACK++ from the fork tag in
-    Section 2: an icpx-built upstream LAPACK++ crashes in `gemqrt`
+- **CMake** 3.21 or later (3.31.9 recommended).
+- **A C++20 compiler**, one of:
+  - GCC 13 or later: the tested floor, because RandBLAS uses C++20 concepts.
+  - Clang 14 or later (not extensively tested).
+  - Intel icpx (not extensively tested). Build LAPACK++ from the fork tag of
+    Section 3: an icpx-built upstream LAPACK++ crashes in `gemqrt`
     ([#202](https://github.com/BallisticLA/RandLAPACK/issues/202)), and the
     tag carries the fix.
-  - MSVC (Visual Studio 2022) on native Windows, with Ninja as the build
-    tool (both bundled with the "Desktop development with C++" workload);
-    see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
+  - MSVC (Visual Studio 2022) on native Windows, with Ninja as the build tool;
+    both come with the "Desktop development with C++" workload. See
+    [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md).
+- **A backend** (Section 6). On macOS 13.3 or later, Apple Accelerate is
+  built in.
+- **Optional:**
+  - GoogleTest, Google's C++ testing framework. Without it, RandLAPACK's
+    regression tests are not built. Any package manager provides it.
+  - OpenMP, for multithreaded loops. RandLAPACK and its dependencies detect
+    it and use it automatically.
+  - CUDA, for GPU support. It is off by default; `-DRequireCUDA=ON` enables
+    it. Section 7 lists the CUDA, GCC and driver versions.
 
-### GPU Support (Optional)
-For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
-- **CUDA Toolkit**: 12.9.0 recommended (minimum 12.4.1)
-- **NVIDIA Driver**: v580+ recommended for CUDA 12.9.0
-- **GCC Compatibility**: CUDA has strict GCC version requirements
+We recommend [Spack](https://github.com/spack/spack) for installing these,
+GoogleTest included. On some systems library directories are called `lib64`
+rather than `lib`; adjust the paths in the commands below.
 
-#### CUDA/GCC Compatibility Matrix
+## 3. Building the dependencies
 
-The table is not exhaustive. For the host compilers each CUDA release
-supports, see the Supported Compilers table in NVIDIA's CUDA Installation
-Guide for Linux.
+RandLAPACK needs BLAS++, LAPACK++ and Random123 (header-only random number
+generators). RandBLAS, which depends on BLAS++ and Random123 too, comes inside
+this repository as a submodule.
 
-| CUDA Version | GCC Support | Status | Notes |
-|--------------|-------------|---------|-------|
-| 13.3.0 | GCC up to 15.x ✓ | ✅ Supported | Tested with GCC 15.2 |
-| **12.9.0** | **GCC 13.x ✓** (up to 14.x) | **✅ Recommended** | **Tested with GCC 13.3.0 + Driver v581.80; nvcc rejects GCC > 14** |
-| 12.4.1 | GCC 13.x ✓ | ✅ Supported | Minimum supported version |
-| 12.2.1 | GCC 12.x ✓ | ⚠️ Limited | Use GCC ≤ 12.3.0 only |
-| 12.2.1 | GCC 13.x ✗ | ❌ Incompatible | NVCC error: "unsupported GNU version" |
+- BLAS++ and LAPACK++ can be built with GNU make or with CMake.
+  **RandLAPACK requires the CMake-installed versions.**
+- Build BLAS++ and LAPACK++ from the BallisticLA forks at the tag
+  `ballistic-2026.10.22`, the commits `install.sh` and CI build. The latest
+  upstream release lacks fixes RandLAPACK relies on
+  ([Section 7](#why-blas-and-lapack-come-from-forks)).
+- Run these recipes, and the one in Section 4, from one parent directory.
+  The RandLAPACK clone goes there too.
 
-**Recommendation**: Use **CUDA 12.9.0 with GCC 13.3.0** for best compatibility and to avoid known issues in earlier CUDA versions (e.g., CUDA 12.4.x had Intel AMX intrinsics parsing problems with GCC 13.x).
+1. **BLAS++** ([source](https://github.com/BallisticLA/blaspp)).
+   `-Dblas_int=int64` asks for ILP64; `-Dblas_int=int32` gives LP64.
+   ```shell
+   git clone --branch ballistic-2026.10.22 https://github.com/BallisticLA/blaspp.git
+   mkdir blaspp-build
+   cd blaspp-build
+   cmake -DCMAKE_BUILD_TYPE=Release \
+       -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install \
+       -Dbuild_tests=OFF \
+       -Dblas_int=int64 \
+       ../blaspp
+   make -j2 install
+   ```
+2. **LAPACK++** ([source](https://github.com/BallisticLA/lapackpp)), against
+   that BLAS++:
+   ```shell
+   git clone --branch ballistic-2026.10.22 https://github.com/BallisticLA/lapackpp.git
+   mkdir lapackpp-build
+   cd lapackpp-build
+   cmake -DCMAKE_BUILD_TYPE=Release \
+       -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
+       -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
+       -Dbuild_tests=OFF \
+       ../lapackpp
+   make -j2 install
+   ```
+3. **Random123** ([source](https://github.com/DEShawResearch/random123)):
+   ```shell
+   git clone https://github.com/DEShawResearch/random123.git
+   cd random123/
+   make prefix=`pwd`/../random123-install install-include
+   ```
 
-**Important**: CUDA's `nvcc` compiler has strict GCC version limits that may differ from what's documented. Check the Supported Compilers table mentioned above for your CUDA release. If you encounter compiler version errors, try using an older GCC version.
+## 4. Building and installing RandLAPACK
 
-**Verified Working Configuration** (as of 2025-11-26):
-- CUDA 12.9.0 + GCC 13.3.0 + CMake 3.31.9 + Driver v581.80 ✅
-
-### macOS: Apple Accelerate requirements
-Apple ships two LAPACK implementations inside Accelerate. The legacy default
-is LAPACK 3.2.1 (2009): its divide-and-conquer SVD (`gesdd`) is broken on
-Apple Silicon, and it lacks routines RandLAPACK requires (`orhr_col`,
-`geqrt`, ...). **RandLAPACK supports only the new interface** (macOS 13.3+,
-LAPACK 3.12 on current SDKs): build BLAS++ with `-Dblas=accelerate` using a
-BLAS++/LAPACK++ version that carries new-Accelerate support (the fork tag in
-Section 2 does), and the correct interface propagates to LAPACK++ and
-RandLAPACK automatically. Verify by
-checking that the installed `include/blas/defines.h` contains
-`ACCELERATE_NEW_LAPACK`. This is what `install.sh` does on macOS (it also
-refuses a build that silently fell back to the legacy interface).
-Alternatively, use Homebrew OpenBLAS (`install.sh --blas=openblas`).
-
-The new interface also provides ILP64 (64-bit BLAS integers), and
-`install.sh` uses it by default on macOS: it builds BLAS++ with
-`-Dblas_int=int64`, and falls back to LP64 with a warning only if that
-configure fails. Pass `--blas-int=lp64` for an LP64 build. By hand, add
-`-Dblas_int=int64` or `-Dblas_int=int32` to the BLAS++ command; LAPACK++ takes
-its integer width from BLAS++.
-
-### Note on Directory Names
-On some systems, library directories are called `lib` while on others they're called `lib64`. Adjust paths accordingly in the CMake configuration commands below.
-
-We recommend installing software (including googletest, if desired) using Spack:
-https://github.com/spack/spack.git
-
-## 1. Optional dependencies
-
-GoogleTest is Google’s C++ testing and mocking framework.  GTest is an optional
-dependency without which RandLAPACK regression tests will not be available. GTest
-can be installed with your favorite package manager.
-
-OpenMP is an open standard that enables code to be parallelized as it is
-compiled. RandLAPACK (and its dependencies) detects the presence of OpenMP
-automatically and makes use of it if it's found.
-
-CUDA support can be enabled using -DRequireCUDA=ON flag.
-It is disabled by default.
-
-## 2. Required Dependencies: BLAS++, LAPACK++, and Random123.
-
-BLAS++ and LAPACK++ are C++ wrappers for BLAS and LAPACK libraries.
-They provide a portability layer and numeric type templating.
-While these libraries can be built by GNU make, they also have a CMake
-build system, *and RandLAPACK requires that they be installed via CMake.*
-
-RandLAPACK's git repository includes a C++ project called *RandBLAS* as a git submodule.
-RandBLAS has BLAS++ and Random123 as dependencies.
-
-### RandBLAS is a pinned submodule
-
-The RandBLAS copy inside this repository is pinned to an exact commit, and
-that pinned copy is the only RandBLAS configuration RandLAPACK is developed
-and tested against. Two rules follow:
-
-1. **Do not develop RandBLAS inside the submodule checkout.** If you want to
-   work on RandBLAS itself, clone it separately
-   (`git clone https://github.com/BallisticLA/RandBLAS.git`) and build and
-   install it as its own project. An installed RandBLAS is not consumed by
-   RandLAPACK, and nothing you install can leak into RandLAPACK builds: the
-   submodule stays authoritative.
-2. **Do not point RandLAPACK at your own RandBLAS working copy.** Version
-   skew between RandLAPACK and RandBLAS is not a supported configuration.
-
-The one sanctioned exception is for *package maintainers* (Spack,
-conda-forge, and similar), whose recipes must build RandBLAS as its own
-package: configuring RandLAPACK with `-DRandLAPACK_EXTERNAL_RandBLAS=ON`
-consumes an installed RandBLAS instead of the submodule, and a configure-time
-gate hard-fails unless that install was built from exactly the commit the
-submodule pins, so skew remains impossible by construction.
-
-We give recipes for installing BLAS++, LAPACK++, and Random123 below.
-Later on, we'll assume these recipes were executed from a directory
-that contains (or will contain) the ``RandLAPACK`` project directory as a subdirectory.
-
-BLAS++ and LAPACK++ come from the BallisticLA forks, which carry fixes not yet
-in an upstream release; each fork's `BALLISTIC.md` lists them, and issue
-[#204](https://github.com/BallisticLA/RandLAPACK/issues/204)
-tracks the return to upstream. The BLAS++ and LAPACK++ recipes below build
-the tag `ballistic-2026.10.22`, which marks the commits pinned in
-[`installers/dependency-pins.env`](../installers/dependency-pins.env), the file
-`install.sh` and CI build from.
-
-If you build BLAS++ and LAPACK++ yourself, build that tag. The latest upstream
-release, `v2025.05.28`, lacks fixes RandLAPACK relies on. Upstream `master` has
-some of them: Apple's new Accelerate interface, discovery of an ILP64
-OpenBLAS, and the MSVC build fixes. Only the forks have the rest: library
-paths that contain spaces, re-configuring a build directory without losing
-BLAS++'s and LAPACK++'s detected settings, `lapack_symbol_suffix` for
-symbol-suffixed LAPACK libraries, and the `gemqrt` fix without which an
-icpx-built LAPACK++ crashes. Issue
-[#204](https://github.com/BallisticLA/RandLAPACK/issues/204) lists each fix
-with its upstream pull request.
-
-One can compile and install BLAS++ from
-[source](https://github.com/BallisticLA/blaspp) using CMake by running
-```shell
-git clone --branch ballistic-2026.10.22 https://github.com/BallisticLA/blaspp.git
-mkdir blaspp-build
-cd blaspp-build
-cmake -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install \
-    -Dbuild_tests=OFF \
-    -Dblas_int=int64 \
-    ../blaspp
-make -j2 install
-```
-
-If you wish for BLAS++ tester to be built, make sure that the CPATH is set properly,
-i.e. pointing at the BLAS vendor library's /include/ folder.
-This will ensure that CBLAS is properly encountered by CMake.
-
-One can compile and install LAPACK++ from
-[source](https://github.com/BallisticLA/lapackpp) using CMake by running
-```shell
-git clone --branch ballistic-2026.10.22 https://github.com/BallisticLA/lapackpp.git
-mkdir lapackpp-build
-cd lapackpp-build
-cmake -DCMAKE_BUILD_TYPE=Release \
-    -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
-    -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
-    -Dbuild_tests=OFF \
-    ../lapackpp
-make -j2 install
-```
-
-One can install Random123 from
-[source](https://github.com/DEShawResearch/random123) by running
-```shell
-git clone https://github.com/DEShawResearch/random123.git
-cd random123/
-make prefix=`pwd`/../random123-install install-include
-```
-
-## 3. Building and installing RandLAPACK
-
-RandLAPACK is configured with CMake and built with GNU make.
-The configuration and build processes are simple once its dependencies are in place. 
-
-Assuming you used the recipes from Section 2 to get RandLAPACK's dependencies,
-you can download, build, and install RandLAPACK as follows
-(add -DRequireCUDA=ON if you need CUDA support):
+RandLAPACK is configured with CMake and built with GNU make. With the
+dependencies of Section 3 in place, download, build and install it (add
+`-DRequireCUDA=ON` for GPU support):
 
 ```shell
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
@@ -218,42 +125,37 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     ../RandLAPACK/
 make -j install
 ```
-You can run all tests with
+
+Then run all tests from the same directory:
+
 ```shell
 ctest
 ```
-All tests should complete reasonably quickly. Benchmarks are kept separate in the `benchmark/` directory and are not run by `ctest`.
 
-Here are the conceptual meanings in the recipe's build flags:
+They complete reasonably quickly. Benchmarks live in `benchmark/`, and
+`ctest` does not run them.
 
-* `-Dlapackpp_DIR=X` means `X` is the directory containing `lapackppConfig.cmake`.
-    If you follow BLAS++ installation instructions from Section 5 instead of
-    Section 2, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/cmake/lapackpp`.
-  
-* `-Dblaspp_DIR=X` means `X` is the directory containing the file `blasppConfig.cmake`.
+What the flags in the recipe mean:
 
-* `-DRandom123_DIR=X` means `X` is the directory that contains a folder called ``Random123``
-  that includes the Random123 header files. For example, ``X/Random123/philox.h`` needs
-  to be a file on your system.
+| Flag | Meaning |
+|---|---|
+| `-Dblaspp_DIR=X` | `X` contains `blasppConfig.cmake`. |
+| `-Dlapackpp_DIR=X` | `X` contains `lapackppConfig.cmake`. After the oneMKL recipe of Section 6 it is `/opt/mklpp/lib/cmake/lapackpp`. |
+| `-DRandom123_DIR=X` | `X` contains a folder `Random123` with the Random123 headers: `X/Random123/philox.h` must exist. |
+| `-DCMAKE_INSTALL_PREFIX=X` | Subdirectories of `X` receive RandLAPACK's headers and the CMake configuration files other projects use. Note the directory that ends up holding `RandLAPACKConfig.cmake`; Section 5 needs it. |
 
-* `-DCMAKE_INSTALL_PREFIX=X` means subdirectories within `X` will contain
-   the RandLAPACK binaries, header files, and CMake configuration files needed
-   for using RandLAPACK in other projects. You should make note of the directory
-   that ends up containing the file ``RandLAPACKConfig.cmake``.
+Optional flags the recipe does not use:
 
-Three optional flags are not used in the recipe above:
-`-DRandLAPACK_BUILD_TESTS=OFF` skips the GoogleTest regression suite, which
-is built by default when GTest is found; `-DBUILD_TESTS=OFF` skips the
-RandBLAS submodule's own tests, as `install.sh` and the CI recipes do; and
-`-DSANITIZE_ADDRESS=ON` adds AddressSanitizer instrumentation (CI uses it
-with Debug builds).
+| Flag | Effect |
+|---|---|
+| `-DRandLAPACK_BUILD_TESTS=OFF` | Skips the GoogleTest regression suite, which is built by default when GoogleTest is found. |
+| `-DBUILD_TESTS=OFF` | Skips the RandBLAS submodule's own tests, as `install.sh` and the CI recipes do. |
+| `-DSANITIZE_ADDRESS=ON` | Adds AddressSanitizer instrumentation (CI uses it with Debug builds). |
 
+## 5. Using RandLAPACK in other projects
 
-## 4. Using RandLAPACK in other projects
-
-Once RandLAPACK has been compiled and installed it can be used like any other CMake project.
-For instance, the following CMakeLists.txt demonstrates how an executable can
-be linked to the RandLAPACK library:
+An installed RandLAPACK works like any other CMake package. This
+`CMakeLists.txt` links an executable to it:
 
 ```cmake
 cmake_minimum_required(VERSION 3.21)
@@ -266,151 +168,246 @@ find_package(RandLAPACK REQUIRED)
 add_executable(myexec ...)
 target_link_libraries(myexec RandLAPACK::RandLAPACK ...)
 ```
-The installed package exports the target `RandLAPACK::RandLAPACK`, which
-carries RandBLAS, LAPACK++ and BLAS++ along as link dependencies.
-In order to build that CMake project you'd need to specify these build flags
- * `-Dblaspp_DIR=W`, where `W` contains the file `blasppConfig.cmake`.
- * `-Dlapackpp_DIR=X`, where `X` contains the file `lapackppConfig.cmake`.
- * `-DRandLAPACK_DIR=Z`, where `Z` contains the file `RandLAPACKConfig.cmake`. 
 
-With the default submodule build, RandBLAS needs no flag: it installs under
+The exported target `RandLAPACK::RandLAPACK` brings RandBLAS, LAPACK++ and
+BLAS++ along as link dependencies. Configure the project with:
+
+- `-Dblaspp_DIR=W`, where `W` contains `blasppConfig.cmake`;
+- `-Dlapackpp_DIR=X`, where `X` contains `lapackppConfig.cmake`;
+- `-DRandLAPACK_DIR=Z`, where `Z` contains `RandLAPACKConfig.cmake`.
+
+RandBLAS needs no flag with the default submodule build: it installs under
 the same prefix as RandLAPACK, and RandLAPACK's config finds it there. If
 RandLAPACK was built with `-DRandLAPACK_EXTERNAL_RandBLAS=ON`, also pass
 `-DRandBLAS_DIR`.
 
+After `install.sh`, the exact paths are in
+[INSTALL_SCRIPT.md, section 5](INSTALL_SCRIPT.md#5-working-with-the-installed-project). On
+Windows, also see
+[INSTALL_WINDOWS.md, section 7](INSTALL_WINDOWS.md#7-runtime-dlls-what-staging-means)
+for the runtime DLLs.
 
-## 5. Tips
+## 6. Choosing and configuring the backend
 
-### Pay attention to the BLAS++ configuration
+On Linux, use Intel oneMKL (recommended) or OpenBLAS. On macOS, use Apple
+Accelerate, or Homebrew OpenBLAS. On Windows, the installer defaults to
+oneMKL
+([INSTALL_WINDOWS.md, section 4](INSTALL_WINDOWS.md#4-choosing-a-blaslapack-backend)).
 
-The performance of RandLAPACK depends heavily on how its dependencies are configured.
-Its most sensitive dependency is BLAS++.
-If performance matters to you then you should inspect the
-information that's printed to screen when you run ``cmake`` for the BLAS++ installation.
-Save that information somewhere while you're setting up your RandLAPACK
-development environment.
+RandLAPACK's performance depends heavily on how its dependencies are
+configured, and BLAS++ is the most sensitive one. If performance matters,
+read what `cmake` prints when you configure BLAS++ (it names the exact BLAS
+libraries BLAS++ links) and save it while you set up.
 
-### Recommended BLAS++ and LAPACK++ configuration
+### Intel oneMKL (recommended)
 
-We recommend you install BLAS++ and LAPACK++ so they link to Intel MKL
-version 2022 or higher.
-That version of MKL will come with CMake configuration files.
-Those configuration files are extremely useful if
-you want to make a project that connects RandLAPACK and Intel MKL.
-Such a situation might arise if you want to use RandLAPACK together with
-MKL's sparse linear algebra functionality.
+We recommend building BLAS++ and LAPACK++ against Intel oneMKL 2022 or later.
+That version ships CMake configuration files, which are very useful if a
+project of yours combines RandLAPACK with oneMKL, for example to use oneMKL's
+sparse linear algebra.
 
-RandLAPACK developers have run into trouble getting BLAS++ to link to MKL
-as intended. Here is a configuration of BLAS++ and LAPACK++ that is known
-to work:
+Getting BLAS++ to link oneMKL as intended can be tricky. This configuration
+is known to work:
 
-0. Install and configure MKL. You can get MKL [here](https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html?operatingsystem=linux&distributions=webdownload&options=online).
-   Once you've installed it you need to make its libraries findable, for
-   example by adding lines like the following to your shell startup file
-   (adjust the path to your MKL installation):
+1. Install oneMKL ([download](https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html?operatingsystem=linux&distributions=webdownload&options=online))
+   and make its libraries findable, for example with lines like these in your
+   shell startup file (adjust the path to your installation):
    ```
    export MAIN_MKL_LIBS="/path/to/intel/oneapi/mkl/latest/lib/intel64"
    export LD_LIBRARY_PATH="${MAIN_MKL_LIBS}:${LD_LIBRARY_PATH}"
    export LIBRARY_PATH="${MAIN_MKL_LIBS}:${LIBRARY_PATH}"
    ```
-
-1. Download BLAS++ source (the fork and tag from Section 2), create a new
-   folder called ``build`` at the top level of the BLAS++ project directory,
-   and ``cd`` into that folder.
-
-2. Run ``export CXX=g++`` so that ``g++`` is the default compiler for
-   the current bash session.
-
-3. Decide a common prefix for where you'll put BLAS++ and LAPACK++
-   installation files. We recommend ``/opt/mklpp``.
-
-4. Run the following CMake command 
-    ```
-    cmake -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/opt/mklpp \
-        -Dblas=mkl \
-        -Dblas_int=int64 \
-        -Dbuild_tests=OFF ..
-    ```
-   Save the output of that command somewhere. It contains information
-   on the precise BLAS libraries linked to BLAS++.
-
-5. Run ``cmake --build .``
-
-6. Run ``sudo make install``
-
-7. Download LAPACK++ source (the fork and tag from Section 2), create a new
-   folder called ``build`` at the top level of the LAPACK++ project
-   directory, and ``cd`` into that folder.
-
-8. Run the following CMake command
+2. Get the BLAS++ source (the fork and tag of Section 3), create a folder
+   `build` at its top level, and `cd` into it.
+3. Run `export CXX=g++`, so that `g++` is the compiler for this shell session.
+4. Choose one install prefix for both BLAS++ and LAPACK++. We recommend
+   `/opt/mklpp`.
+5. Configure BLAS++, and save the output:
    ```
-    cmake -DCMAKE_BUILD_TYPE=Release \
-       -Dblaspp_DIR=/opt/mklpp/lib/cmake/blaspp \
+   cmake -DCMAKE_BUILD_TYPE=Release \
        -DCMAKE_INSTALL_PREFIX=/opt/mklpp \
+       -Dblas=mkl \
+       -Dblas_int=int64 \
        -Dbuild_tests=OFF ..
-    make -j2 install
-    ```
+   ```
+6. Run `cmake --build .`
+7. Run `sudo make install`
+8. Get the LAPACK++ source (the fork and tag of Section 3), create a folder
+   `build` at its top level, and `cd` into it.
+9. Configure, build and install LAPACK++:
+   ```
+   cmake -DCMAKE_BUILD_TYPE=Release \
+      -Dblaspp_DIR=/opt/mklpp/lib/cmake/blaspp \
+      -DCMAKE_INSTALL_PREFIX=/opt/mklpp \
+      -Dbuild_tests=OFF ..
+   make -j2 install
+   ```
 
-You can then link to BLAS++ and LAPACK++ in other CMake projects
-just by including ``find_package(blaspp REQUIRED)`` and ``find_package(lapackpp REQUIRED)``
-in your ``CMakeLists.txt`` file, and then passing build flags
+Other CMake projects then find both through `find_package(blaspp REQUIRED)`
+and `find_package(lapackpp REQUIRED)` in their `CMakeLists.txt`, configured
+with:
+
 ```
 -Dblaspp_DIR=/opt/mklpp/lib/cmake/blaspp -Dlapackpp_DIR=/opt/mklpp/lib/cmake/lapackpp
 ```
-when running ``cmake``.
+
+### Apple Accelerate (macOS)
+
+Accelerate is part of macOS, so there is nothing to install. It contains two
+LAPACK implementations, and **RandLAPACK supports only the new one** (macOS
+13.3 or later, selected through `ACCELERATE_NEW_LAPACK`; LAPACK 3.12 on
+current SDKs).
+
+- The legacy default is LAPACK 3.2.1, from 2009. Its divide-and-conquer SVD
+  (`gesdd`) returns wrong results on Apple Silicon, and it lacks routines
+  RandLAPACK requires, such as `orhr_col` and `geqrt` (BQRRP and HQRRP use
+  them). RandLAPACK calls `gesdd` in `rl_rsvd.hh`, `rl_abrik.hh`,
+  `rl_revd2.hh`, `rl_preconditioners.hh`, `rl_util.hh` and
+  `rl_test_utils.hh`.
+- The new interface fixes both, and also provides ILP64.
+
+To build against the new interface:
+
+1. Build BLAS++ with `-Dblas=accelerate`, from a BLAS++/LAPACK++ version that
+   supports the new interface (the fork tag of Section 3 does). Add
+   `-Dblas_int=int64` for ILP64 or `-Dblas_int=int32` for LP64. The interface
+   carries over to LAPACK++ and RandLAPACK automatically, and LAPACK++ takes
+   its integer width from BLAS++.
+2. Check that the installed `include/blas/defines.h` contains
+   `ACCELERATE_NEW_LAPACK`.
+
+`install.sh` does this on macOS, with ILP64 by default
+([INSTALL_SCRIPT.md, section 6.4](INSTALL_SCRIPT.md#64-macos-accelerate-through-apples-new-interface-only)).
+On macOS older than 13.3, or if you prefer it, use Homebrew OpenBLAS
+(`brew install openblas`, then `install.sh --blas=openblas`).
 
 ### ILP64 OpenBLAS
 
-The ILP64 (64-bit integer) builds of OpenBLAS come under other library
-names, and BLAS++ has to be told which kind you have. Both cases below build
-BLAS++ and LAPACK++ from the fork tag of Section 2.
+The ILP64 builds of OpenBLAS come under other library names, and BLAS++ has
+to be told which kind you have. Both cases build BLAS++ and LAPACK++ from the
+fork tag of Section 3.
 
-* **Unsuffixed, as Debian/Ubuntu's `libopenblas64`** (package
-  `libopenblas64-dev`; the symbols are the usual `dgemm_`). Add
-  `-Dblas=openblas -Dblas_int=int64` to the BLAS++ command. BLAS++ then finds
-  `-lopenblas64`, but only when no LP64 `libopenblas` is installed beside it,
-  because it tries `-lopenblas` first;
+- **Unsuffixed, such as Debian/Ubuntu's `libopenblas64`** (package
+  `libopenblas64-dev`; the symbols have the usual names, such as `dgemm_`).
+  Add `-Dblas=openblas -Dblas_int=int64` to the BLAS++ command. BLAS++ then
+  finds `-lopenblas64`, but only when no LP64 `libopenblas` is installed
+  beside it, because it tries `-lopenblas` first.
   [INSTALL_SCRIPT.md, section 6.2](INSTALL_SCRIPT.md#62-which-integer-width-you-get-and-why)
   explains why, and how to name the library when both are installed.
-* **Symbol-suffixed, as conda-forge's `libopenblas64_`** (OpenBLAS built with
-  `INTERFACE64=1 SYMBOLSUFFIX=64_`, whose symbols are `dgemm_64_`). Add
-  `-Dblas=openblas -Dblas_int=int64 -Dblas_symbol_suffix=64_` to the BLAS++
-  command, and name the library with `-DBLAS_LIBRARIES=<dir>/libopenblas64_.so`
-  unless its directory is on the linker's search path. LAPACK++ needs no
-  extra flag: its `lapack_symbol_suffix` option, when left empty, takes
-  BLAS++'s suffix. Set it only for a LAPACK library whose suffix differs from
-  the BLAS library's.
+- **Symbol-suffixed, such as conda-forge's `libopenblas64_`** (OpenBLAS built
+  with `INTERFACE64=1 SYMBOLSUFFIX=64_`, so the symbols are named like
+  `dgemm_64_`). Add `-Dblas=openblas -Dblas_int=int64 -Dblas_symbol_suffix=64_`
+  to the BLAS++ command, and name the library with
+  `-DBLAS_LIBRARIES=<dir>/libopenblas64_.so` unless its directory is on the
+  linker's search path. LAPACK++ needs no extra flag: its
+  `lapack_symbol_suffix` option, when left empty, takes BLAS++'s suffix. Set
+  it only for a LAPACK library whose suffix differs from the BLAS library's.
 
-`install.sh` has no option for a symbol suffix. Build BLAS++ and LAPACK++ by
-hand and point the installer at them with `BLASPP_INSTALL_DIR` and
-`LAPACKPP_INSTALL_DIR` (see
-[INSTALL_SCRIPT.md](INSTALL_SCRIPT.md#reusing-preinstalled-dependencies-discovery)).
-RandLAPACK's CI does not cover a suffixed OpenBLAS; the forks' own CI builds
-and tests BLAS++ and LAPACK++ against conda-forge's.
+`install.sh` has no option for a symbol suffix; section 6.2 of
+[INSTALL_SCRIPT.md](INSTALL_SCRIPT.md#62-which-integer-width-you-get-and-why)
+shows how to use your own BLAS++ and LAPACK++ builds with it. RandLAPACK's CI
+does not cover a suffixed OpenBLAS; the forks' own CI builds and tests BLAS++
+and LAPACK++ against conda-forge's.
 
-### Installation trouble
+## 7. Details
 
-RandLAPACK's GitHub Actions workflows install it from scratch and run its suite of unit tests;
-[CI.md](CI.md) describes each lane.
-If you're having trouble installing RandLAPACK, you can always refer to [those workflow files](https://github.com/BallisticLA/RandLAPACK/tree/main/.github/workflows).
-The core workflows include statements which print the working directory
-and list the contents of that directory at various points in the installation.
-We do that so that it's easier to infer a valid choice of directory structure for building RandLAPACK.
+### Why BLAS++ and LAPACK++ come from forks
 
-## 6. Native Windows (MSVC)
+RandLAPACK builds BLAS++ and LAPACK++ from the BallisticLA forks
+([blaspp](https://github.com/BallisticLA/blaspp),
+[lapackpp](https://github.com/BallisticLA/lapackpp)), not from an upstream
+release.
 
-RandLAPACK builds natively on Windows with MSVC (Visual Studio 2022). The
-full guide lives in [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md): prerequisites,
-the one-command installer, BLAS/LAPACK backend choice (oneMKL default,
-OpenBLAS, bring-your-own), runtime-DLL handling, and how the Windows install
-differs from Linux/macOS. The short version, from an
-"x64 Native Tools Command Prompt for VS 2022" (the plain "Developer
-PowerShell/Command Prompt for VS 2022" entries default to a 32-bit toolchain
-and will not link the x64 BLAS libraries):
+- **What is pinned.**
+  [`installers/dependency-pins.env`](../installers/dependency-pins.env)
+  records each fork's URL and a full commit hash, plus the tag
+  `ballistic-2026.10.22` on those commits. `install.sh`, `install.ps1` and
+  every CI lane read this one file. If you build BLAS++ and LAPACK++
+  yourself, build that tag.
+- **Why not upstream.** The latest upstream release, `v2025.05.28`, lacks
+  fixes RandLAPACK relies on. Some are already on upstream `master`. The rest
+  are seven upstream pull requests that are open but not yet merged or
+  released, so only the forks have them.
 
-```bat
-git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
-cd RandLAPACK
-powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
-```
+| Fix | Upstream pull requests | Where it is |
+|---|---|---|
+| Library paths that contain spaces | icl-utk-edu/blaspp#137, icl-utk-edu/lapackpp#92 | forks only |
+| Re-configuring a build directory without losing the settings BLAS++ and LAPACK++ detected | icl-utk-edu/blaspp#141 and #142, icl-utk-edu/lapackpp#94 | forks only |
+| `lapack_symbol_suffix`, for symbol-suffixed LAPACK libraries | icl-utk-edu/lapackpp#91 | forks only |
+| The `gemqrt` fix, without which an icpx-built LAPACK++ crashes | icl-utk-edu/lapackpp#93 | forks only |
+| Apple's new Accelerate interface | icl-utk-edu/blaspp#134, icl-utk-edu/lapackpp#88 | upstream `master` and forks |
+| LAPACK++ compiling against Accelerate's ILP64 | icl-utk-edu/lapackpp#90 | upstream `master` and forks |
+| Discovery of an ILP64 OpenBLAS (`libopenblas64`), and `blas_symbol_suffix` | icl-utk-edu/blaspp#129 | upstream `master` and forks |
+| The MSVC build fixes | icl-utk-edu/blaspp#132, icl-utk-edu/lapackpp#87 | upstream `master` and forks |
+
+Each fork's `BALLISTIC.md`
+([blaspp](https://github.com/BallisticLA/blaspp/blob/main/BALLISTIC.md),
+[lapackpp](https://github.com/BallisticLA/lapackpp/blob/main/BALLISTIC.md))
+lists what it carries. Issue
+[#204](https://github.com/BallisticLA/RandLAPACK/issues/204) lists each fix
+with its upstream pull request and tracks the return to an upstream release.
+[CONTRIBUTING.md](../CONTRIBUTING.md)
+describes how a pin is moved.
+
+### RandBLAS is a pinned submodule
+
+The RandBLAS copy inside this repository is pinned to an exact commit, and
+that pinned copy is the only RandBLAS configuration RandLAPACK is developed
+and tested against. Two rules follow:
+
+1. **Do not develop RandBLAS inside the submodule checkout.** To work on
+   RandBLAS itself, clone it separately
+   (`git clone https://github.com/BallisticLA/RandBLAS.git`) and build and
+   install it as its own project. RandLAPACK does not use an installed
+   RandBLAS, so nothing you install can leak into RandLAPACK builds: the
+   submodule stays authoritative.
+2. **Do not point RandLAPACK at your own RandBLAS working copy.** Version
+   skew between RandLAPACK and RandBLAS is not a supported configuration.
+
+The one exception is for *package maintainers* (Spack, conda-forge and
+similar), whose recipes must build RandBLAS as its own package. Configuring
+RandLAPACK with `-DRandLAPACK_EXTERNAL_RandBLAS=ON` uses an installed RandBLAS
+instead of the submodule. A configure-time check fails unless that install
+was built from exactly the commit the submodule pins, so version skew stays
+impossible.
+
+### CUDA and GCC versions
+
+GPU support needs:
+
+- the CUDA Toolkit, 12.4.1 or later (12.9.0 recommended);
+- an NVIDIA driver, v580 or later recommended for CUDA 12.9.0;
+- a GCC version your CUDA release accepts: CUDA has strict GCC version
+  requirements.
+
+| CUDA | GCC | Status | Notes |
+|---|---|---|---|
+| 13.3.0 | up to 15.x | Supported | Tested with GCC 15.2 |
+| **12.9.0** | **13.x** (up to 14.x) | **Recommended** | Tested with GCC 13.3.0 and driver v581.80; `nvcc` rejects GCC above 14 |
+| 12.4.1 | 13.x | Supported | Minimum supported version |
+| 12.2.1 | 12.x | Limited | GCC 12.3.0 or older only |
+| 12.2.1 | 13.x | Incompatible | `nvcc` error: "unsupported GNU version" |
+
+The table is not exhaustive. The Supported Compilers table in NVIDIA's CUDA
+Installation Guide for Linux lists the host compilers each CUDA release
+supports, and the limits `nvcc` enforces may differ from what is documented.
+If you hit compiler version errors, try an older GCC.
+
+We recommend **CUDA 12.9.0 with GCC 13.3.0**, for best compatibility and to
+avoid known issues in earlier CUDA versions (CUDA 12.4.x, for example, had
+problems parsing Intel AMX intrinsics with GCC 13.x). Verified working as of
+2025-11-26: CUDA 12.9.0, GCC 13.3.0, CMake 3.31.9 and driver v581.80.
+
+## 8. Troubleshooting
+
+- **Compare with CI.** RandLAPACK's GitHub Actions workflows install it from
+  scratch and run its unit tests; [CI.md](CI.md) describes each lane. The
+  [workflow files](https://github.com/BallisticLA/RandLAPACK/tree/main/.github/workflows)
+  are a working reference. The core workflows print the working directory
+  and list its contents at several points, so you can copy a directory
+  layout that works.
+- **Building BLAS++'s own tester.** The recipes above turn it off
+  (`-Dbuild_tests=OFF`). If you want it, set `CPATH` to the backend's
+  `include/` folder, so that CMake finds CBLAS.
+- **CUDA rejects your compiler.** See the table in
+  [Section 7](#cuda-and-gcc-versions).

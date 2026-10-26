@@ -41,7 +41,7 @@ available on your system:
     - CUDA 12.9.0: Compatible with GCC 13.x
     - CUDA 12.4.1: Compatible with GCC 13.x
     - CUDA 12.2.1: Requires GCC 12.x or older ("unsupported GNU version" otherwise)
-  - See [INSTALL.md](INSTALL.md#0-software-requirements) Section 0 for the full compatibility matrix
+  - See [INSTALL.md](INSTALL.md#cuda-and-gcc-versions) for the full compatibility matrix
   - Ensure a compatible NVIDIA driver (v580+ recommended for CUDA 12.9)
 * **CUDA Libraries:** cuBLAS and cuSOLVER (included with the CUDA Toolkit)
 
@@ -349,7 +349,7 @@ CUDA if you enabled it).
 
 ### Using RandLAPACK in Your Own Projects
 
-See Section 4 of [INSTALL.md](INSTALL.md#4-using-randlapack-in-other-projects) for details on linking RandLAPACK to external
+See Section 5 of [INSTALL.md](INSTALL.md#5-using-randlapack-in-other-projects) for details on linking RandLAPACK to external
 CMake projects. The paths produced by this script are:
 
 ```
