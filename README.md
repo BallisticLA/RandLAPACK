@@ -4,16 +4,17 @@
 
 # RandLAPACK
 
-RandLAPACK provides high-performance randomized algorithms for linear algebra
-problems such as least squares, (kernel) ridge regression, low-rank
-approximation, and matrix factorizations.
-RandLAPACK's API is not yet stable; we're actively working on changing that.
+RandLAPACK is a C++ library of high-performance randomized algorithms for
+linear algebra problems such as least squares, (kernel) ridge regression,
+low-rank approximation, and matrix factorizations. Its API is not yet stable;
+we are actively working on changing that.
 
-Please swing by [**our Discord server**](https://discord.gg/R4qj8Er9YW) if you
-have questions about RandLAPACK or would like to get involved in its
-development.
+Questions, or want to get involved in development? Join
+[**our Discord server**](https://discord.gg/R4qj8Er9YW).
 
-## Quickstart
+## Install
+
+**Linux and macOS:**
 
 ```shell
 git clone https://github.com/BallisticLA/RandLAPACK.git
@@ -21,29 +22,46 @@ cd RandLAPACK
 bash install.sh
 ```
 
-The installer builds RandLAPACK together with its dependencies (BLAS++ and
-LAPACK++ from the BallisticLA forks, and Random123; RandBLAS comes along as a
-pinned git submodule), the extras and benchmark projects, and the test
-suite. You bring a C++20 compiler, CMake 3.21 or later, Git, a BLAS/LAPACK
-library (on macOS 13.3 or later the installer uses Apple's Accelerate, so
-there is nothing to install), and GoogleTest for the test suite. Run
-`bash install.sh --help` for the options
-(GPU support, parallelism, reusing preinstalled dependencies, and more), and
-see [docs/INSTALL.md](docs/INSTALL.md) for manual installation and for consuming
-RandLAPACK from your own CMake project. A smoke test after installation:
+Then check the install by running the test suite:
 
 ```shell
 ctest --test-dir ../RandNLA-project/build/RandLAPACK-build
 ```
 
-On native Windows, run `installers\install.ps1` from an x64 MSVC developer
-prompt instead; [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) gives the
-exact command and explains which prompt to open.
+**Native Windows**, from an "x64 Native Tools Command Prompt for VS 2022"
+([INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) explains which prompt to open,
+and why):
+
+```bat
+git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
+cd RandLAPACK
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
+```
+
+**What you need first** (on Linux and macOS):
+
+- a C++20 compiler, CMake 3.21 or later, and Git;
+- a BLAS/LAPACK library, the standard low-level linear algebra routines
+  (OpenBLAS or Intel oneMKL on Linux; on macOS 13.3 or later the installer
+  uses Apple's built-in Accelerate, so there is nothing to install);
+- GoogleTest, for the test suite.
+
+**What the installer builds:** RandLAPACK, its dependencies, the extras and
+benchmark projects, and the test suite. The dependencies are BLAS++ and
+LAPACK++ (C++ wrappers for BLAS and LAPACK, built from the BallisticLA
+forks), Random123, and RandBLAS, which comes inside this repository as a
+pinned git submodule (another git repository included at one fixed commit). Run `bash install.sh --help`
+for the options: GPU support, parallelism, reusing preinstalled dependencies,
+and more.
+
+To build by hand, or to use RandLAPACK from your own CMake project, see
+[docs/INSTALL.md](docs/INSTALL.md).
 
 ## What's in the library
 
-The user-facing algorithms ("drivers"; see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the library is organized):
+The user-facing algorithms, called "drivers"
+([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the library is
+organized):
 
 | Driver | Problem it solves | Reference |
 |--------|-------------------|-----------|
@@ -56,32 +74,28 @@ The user-facing algorithms ("drivers"; see
 | `hqrrp` | Householder QR with randomized pivoting | [arXiv:1512.02671](https://arxiv.org/abs/1512.02671) |
 | `krill_full_rpchol` | Kernel ridge regression by conjugate gradients, preconditioned with randomly pivoted Cholesky | [arXiv:2304.12465](https://arxiv.org/abs/2304.12465) |
 
-BQRRP and CQRRPT also have CUDA implementations (`BQRRP_GPU`,
-`CQRRPT_GPU`). Drivers are assembled from smaller randomized building blocks
-(rangefinders, QB, block Krylov, row sketching, orthogonalization and
-stabilization routines, and randomly pivoted Cholesky, `rp_cholesky`) that
-are usable on their own; the RandNLA monograph
-([arXiv:2302.11474](https://arxiv.org/abs/2302.11474)) is the best background
-reference for the algorithm families.
+- BQRRP and CQRRPT also have CUDA (GPU) implementations, `BQRRP_GPU` and
+  `CQRRPT_GPU`.
+- The drivers are assembled from smaller randomized building blocks that you
+  can also use on their own: rangefinders, QB, block Krylov, row sketching,
+  orthogonalization and stabilization routines, and randomly pivoted Cholesky
+  (`rp_cholesky`).
+- The RandNLA monograph ([arXiv:2302.11474](https://arxiv.org/abs/2302.11474))
+  is the best background reference for these algorithm families.
 
 ## Related libraries
 
 RandLAPACK depends on [RandBLAS](https://github.com/BallisticLA/RandBLAS),
 which we are also developing.
 
-Before starting on RandLAPACK we implemented several high-level RandNLA
-algorithms in Matlab ([MARLA](https://github.com/BallisticLA/marla)) and
-Python ([PARLA](https://github.com/BallisticLA/parla)).
-In the latter library we took an approach where *algorithms are objects.*
-An algorithm needs to be instantiated with its tuning parameters and
-subroutines in order to be used.
-RandLAPACK currently emphasizes that "algorithms as objects" approach.
+Before RandLAPACK, we implemented several high-level RandNLA algorithms in
+MATLAB ([MARLA](https://github.com/BallisticLA/marla)) and Python
+([PARLA](https://github.com/BallisticLA/parla)). PARLA treats *algorithms as
+objects*: you instantiate an algorithm with its tuning parameters and
+subroutines before using it. RandLAPACK currently emphasizes the same
+approach.
 
 ## Where to go from here
-
-Everything beyond this page lives in `docs/` (reference documentation),
-`CONTRIBUTING.md` at the root (the development workflow), and the READMEs of
-the two standalone projects, `benchmark/` and `extras/`.
 
 | You want to... | Read |
 |----------------|------|
