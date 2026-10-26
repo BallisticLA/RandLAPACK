@@ -346,7 +346,7 @@ Each fork's `BALLISTIC.md`
 lists what it carries. Issue
 [#204](https://github.com/BallisticLA/RandLAPACK/issues/204) lists each fix
 with its upstream pull request and tracks the return to an upstream release.
-[CONTRIBUTING.md](../CONTRIBUTING.md)
+[CONTRIBUTING.md](../CONTRIBUTING.md#moving-the-blas-and-lapack-pins)
 describes how a pin is moved.
 
 ### RandBLAS is a pinned submodule
