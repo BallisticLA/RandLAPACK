@@ -18,11 +18,18 @@ RandLAPACK through `find_package`, exactly as user code does.
   cmake -S benchmark -B benchmark-build \
     -DCMAKE_BUILD_TYPE=Release \
     -DRandLAPACK_DIR=/path/to/RandLAPACK-install/lib/cmake/RandLAPACK
-  cmake --build benchmark-build -j
+  cmake --build benchmark-build -j 4
   ```
-  If CMake cannot find BLAS++, LAPACK++ or Random123 through the RandLAPACK
-  config, also pass `-Dblaspp_DIR`, `-Dlapackpp_DIR` and `-DRandom123_DIR`;
-  the installer builds all three under `RandNLA-project/install/`.
+  - If CMake cannot find BLAS++, LAPACK++ or Random123 through the
+    RandLAPACK config, also pass `-Dblaspp_DIR`, `-Dlapackpp_DIR` and
+    `-DRandom123_DIR`; the installer builds all three under
+    `RandNLA-project/install/`.
+  - If RandLAPACK was built without GPU support but the machine has a CUDA
+    Toolkit, add `-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=TRUE`, as
+    `install.sh` does. Otherwise the project tries to build the GPU benchmark
+    and fails.
+  - On macOS with Homebrew's `libomp`, add the OpenMP settings at the end of
+    [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects).
 
 The first configure needs a network connection: it fetches Eigen, Spectra
 and fast_matrix_market with CMake's FetchContent. Some benchmarks also borrow
@@ -49,6 +56,10 @@ Prerequisites: RandLAPACK installed with CUDA support (`--gpu` in the
 installer, or `-DRequireCUDA=ON` manually), the CUDA Toolkit, and a GPU. The
 benchmark project builds the GPU benchmark only when CMake finds the CUDA
 Toolkit.
+
+**Known issue:** in the current version the GPU benchmark does not compile,
+so a GPU install has to skip this project for now
+([INSTALL_SCRIPT.md, section 2](../docs/INSTALL_SCRIPT.md#2-requirements)).
 
 ### BQRRP GPU benchmark
 
