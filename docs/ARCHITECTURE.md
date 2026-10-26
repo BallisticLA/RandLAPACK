@@ -15,8 +15,9 @@ This is the map for reading or extending the library. For installation see
   primitives of **RandBLAS**, which ships inside this repository as a pinned
   git submodule.
 - Dense linear algebra goes through the **BLAS++** and **LAPACK++** wrapper
-  libraries, so any BLAS/LAPACK backend (MKL, OpenBLAS, AOCL, Accelerate) can
-  sit underneath. Both wrappers are built from the BallisticLA forks at the
+  libraries, so any BLAS/LAPACK backend (oneMKL, OpenBLAS, AOCL,
+  Accelerate) can sit underneath. Both wrappers are built from the
+  BallisticLA forks at the
   commits pinned in
   [`installers/dependency-pins.env`](../installers/dependency-pins.env)
   ([INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains
@@ -42,7 +43,7 @@ flowchart TD
     C --> BPP[BLAS++]
     RB --> BPP
     LPP --> BPP
-    BPP --> BLAS[(BLAS/LAPACK backend:<br/>MKL, OpenBLAS, AOCL, Accelerate)]
+    BPP --> BLAS[(BLAS/LAPACK backend:<br/>oneMKL, OpenBLAS, AOCL, Accelerate)]
     GPU --> CUDALIBS[(cuBLAS, cuSOLVER)]
 ```
 
