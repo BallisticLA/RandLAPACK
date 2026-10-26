@@ -4,21 +4,23 @@ This is the map for reading or extending the library. For installation see
 [INSTALL.md](INSTALL.md); for the contribution workflow see
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-## The one-paragraph version
+## In short
 
-RandLAPACK is a header-only C++20 template library. User code includes a
-single umbrella header, `RandLAPACK.hh`, and calls **drivers**: complete
-randomized algorithms (randomized SVD, QR with column pivoting, kernel ridge
-regression solvers, ...). Drivers are assembled from **computational
-routines** (rangefinders, QB, block Krylov, orthogonalization,
-stabilization) and from the sketching primitives of **RandBLAS**, which ships
-inside this repository as a pinned git submodule. Dense linear algebra goes
-through the **BLAS++** and **LAPACK++** wrapper libraries, so any BLAS/LAPACK
-provider (MKL, OpenBLAS, AOCL, Accelerate) can sit underneath; both wrappers
-are built from the BallisticLA forks at the commits pinned in
-[`installers/dependency-pins.env`](../installers/dependency-pins.env).
-Matrices are column-major, dimensions are `int64_t`, and every public entry
-point is templated on the element type.
+- RandLAPACK is a header-only C++20 template library. User code includes a
+  single umbrella header, `RandLAPACK.hh`.
+- User code calls **drivers**: complete randomized algorithms (randomized
+  SVD, QR with column pivoting, kernel ridge regression solvers, ...).
+- Drivers are assembled from **computational routines** (rangefinders, QB,
+  block Krylov, orthogonalization, stabilization) and from the sketching
+  primitives of **RandBLAS**, which ships inside this repository as a pinned
+  git submodule.
+- Dense linear algebra goes through the **BLAS++** and **LAPACK++** wrapper
+  libraries, so any BLAS/LAPACK backend (MKL, OpenBLAS, AOCL, Accelerate) can
+  sit underneath. Both wrappers are built from the BallisticLA forks at the
+  commits pinned in
+  [`installers/dependency-pins.env`](../installers/dependency-pins.env)
+  ([INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains
+  why).
 
 ```mermaid
 flowchart TD
@@ -40,7 +42,7 @@ flowchart TD
     C --> BPP[BLAS++]
     RB --> BPP
     LPP --> BPP
-    BPP --> BLAS[(BLAS/LAPACK provider:<br/>MKL, OpenBLAS, AOCL, Accelerate)]
+    BPP --> BLAS[(BLAS/LAPACK backend:<br/>MKL, OpenBLAS, AOCL, Accelerate)]
     GPU --> CUDALIBS[(cuBLAS, cuSOLVER)]
 ```
 
@@ -93,51 +95,66 @@ RandLAPACK/                     (repository root)
 
 The repository builds as three CMake projects, not one:
 
-1. **Core library** (root `CMakeLists.txt`): installs the headers and CMake
-   config, and builds the test suite when `RandLAPACK_BUILD_TESTS=ON` (the
-   default) and GoogleTest is found.
-   RandBLAS is built from the submodule (or, for package maintainers only,
-   consumed as an installed package behind the
-   `RandLAPACK_EXTERNAL_RandBLAS` commit gate; see
+1. **Core library** (root `CMakeLists.txt`). It installs the headers and
+   CMake config, and builds the test suite when `RandLAPACK_BUILD_TESTS=ON`
+   (the default) and GoogleTest is found. RandBLAS is built from the
+   submodule (or, for package maintainers only, used as an installed package
+   behind the `RandLAPACK_EXTERNAL_RandBLAS` commit gate; see
    [INSTALL.md](INSTALL.md#randblas-is-a-pinned-submodule)).
-2. **extras/** and 3. **benchmark/**: separate downstream projects that
-   consume the *installed* RandLAPACK via `find_package`, exactly like user
-   code does. This keeps them honest as consumers and keeps their extra
-   dependencies out of the library build. Their purposes differ: `benchmark/`
-   measures RandLAPACK's performance (the harnesses behind the papers),
-   while `extras/` is a holding area for functionality that currently needs
+2. **benchmark/** measures RandLAPACK's performance (the harnesses behind
+   the papers). Some benchmarks borrow headers from `extras/`.
+3. **extras/** is a holding area for functionality that currently needs
    third-party libraries (Eigen, fast_matrix_market) that core RandLAPACK
-   will not depend on; see [extras/README.md](../extras/README.md) for the
-   graduation policy. (Some benchmarks do borrow headers from `extras/`.)
+   will not depend on; [extras/README.md](../extras/README.md) gives the
+   graduation policy.
 
-On Linux and macOS, `installers/install.sh` drives all three in order, plus
-the dependency builds; see [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md). On native
+`benchmark/` and `extras/` are separate downstream projects. They use the
+*installed* RandLAPACK through `find_package`, exactly as user code does,
+which keeps them honest as consumers and keeps their extra dependencies out
+of the library build.
+
+On Linux and macOS, `installers/install.sh` builds all three in order, plus
+the dependencies; see [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md). On native
 Windows, `installers/install.ps1` builds the dependencies and the core
 library and runs its tests, but not extras or benchmarks; see
 [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md).
 
 ## Conventions
 
-- Column-major storage; `int64_t` for all dimensions, leading dimensions,
-  and indices; element type is a template parameter `T` (float/double).
-- Most drivers are objects: construct with tuning parameters, then
-  `call(...)`. A few, such as `hqrrp` and `krill_full_rpchol`, are free
-  functions.
-- New code takes outputs and workspaces as raw buffers (`T*&` for an output
-  the routine allocates, as `RSVD::call` does); some older routines, such as
-  `REVD2`, still use `std::vector`.
-- Errors: `randlapack_require(...)` throws `RandLAPACK::Error` with a
-  descriptive message; new code throws rather than asserts.
-- Randomness comes exclusively from RandBLAS's counter-based generators
-  (`RandBLAS::RNGState`), which makes every randomized routine reproducible
-  from a seed, independent of threading.
-- GPU code lives in `gpu_functions/` and `drivers/*_gpu.hh`. The umbrella
-  header includes it only when a CUDA compiler is processing the file
-  (`#if defined(__CUDACC__)`), so `.cu` translation units get the GPU drivers
-  and host-only `.cc` files build without the CUDA toolkit on the include
-  path. CUDA support is opt-in (`-DRequireCUDA=ON`) and not available on
-  native Windows.
+Review enforces the layout, buffer, error and randomness rules for new code.
 
-See [devnotes/idioms.md](../devnotes/idioms.md) for a catalog of the C++
-idioms (templated callables for duck typing, C++20 concepts, type-erased
-ownership, zero-copy transpose views) with rationale and examples.
+- **Layout and types.** Column-major storage; `int64_t` for all dimensions,
+  leading dimensions and indices; the element type is a template parameter
+  `T` (float/double).
+- **Drivers are objects.** Most are constructed with their tuning
+  parameters, then run with `call(...)`. A few, such as `hqrrp` and
+  `krill_full_rpchol`, are free functions.
+- **Buffers.** Outputs and workspaces are raw buffers. New code uses no
+  `std::vector` for anything sized by the problem, and passes an output the
+  routine allocates or grows as a pointer reference (`T*&`), as `RSVD::call`
+  does with its factors. Some older routines, such as `REVD2`, still use
+  `std::vector`.
+- **Errors.** New code throws rather than asserts: `randlapack_require(...)`
+  throws `RandLAPACK::Error`, with a message that states what was violated
+  and the offending values.
+- **Randomness** comes only from RandBLAS's counter-based (Philox)
+  generators, through `RandBLAS::RNGState`, never from `std::rand` or
+  `std::mt19937`. Every randomized routine is therefore reproducible from a
+  seed, independent of threading.
+- **GPU code** lives in `gpu_functions/` and `drivers/*_gpu.hh`. CUDA support
+  is opt-in (`-DRequireCUDA=ON`) and not available on native Windows.
+  - The umbrella header includes the GPU layer only when a CUDA compiler is
+    processing the file (`#if defined(__CUDACC__)`). `.cu` translation units
+    therefore get the GPU drivers, and host-only `.cc` files build without
+    the CUDA toolkit on the include path.
+  - `gpu_functions/rl_cuda_kernels.cuh` derives `USE_CUDA` from
+    `__CUDACC__`, so `.cu` files do not define it themselves.
+  - Inside `rl_cuda_kernels.cuh`, kernels and their launches go inside the
+    `#ifdef USE_CUDA` regions and host-callable wrappers outside, so the
+    header still compiles without nvcc (the wrappers then throw when
+    called).
+
+[devnotes/idioms.md](../devnotes/idioms.md) catalogs the C++ idioms we use
+deliberately (templated callables for duck typing, C++20 concepts,
+type-erased ownership, zero-copy transpose views), with rationale and
+examples.
