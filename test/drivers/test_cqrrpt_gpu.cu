@@ -352,16 +352,32 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_success_keeps_rank) {
     EXPECT_LE(c.err_orth, 100 * c_cpu.err_orth + 1e-12) << "CPU ||Q'Q - I|| = " << c_cpu.err_orth;
 }
 
-// After a failed potrf, CQRRPT cuts the rank a posteriori. CQRRPT_GPU must report the same
-// rank, and its first rank columns of Q and rows of R must be at least as accurate as
-// CQRRPT's: Q orthonormal and R = Q' A[:, J], up to the loss CholQR incurs on this input.
+// After a failed potrf, CQRRPT cuts the rank a posteriori.
+// - At tol = u^0.85 and 1e-12 the ratio test cuts it (at 15 and 24) well before the failed
+//   column (about 45), with the ratios at least 4% from the threshold. There CQRRPT_GPU must
+//   report CQRRPT's rank, with Q and R at least as accurate as CQRRPT's.
+// - At tol = 1e-6 the cut falls at the failed column, which depends on rounding in potrf, so
+//   the factors need only be finite and bounded: CholQR loses orthogonality to O(1) here.
 TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
     int64_t m = 600;
     int64_t n = 60;
     uint32_t seed = 7;
     std::vector<double> A = sketch_defeating_input(m, n, 2, 2.0, seed, 1.0);
 
-    for (double tol : {std::pow(std::numeric_limits<double>::epsilon(), 0.85), 1e-6}) {
+    auto run_gpu = [&](double tol, std::vector<double>& Q, std::vector<double>& R, std::vector<int64_t>& J) {
+        Q = A;
+        R.assign(n * n, 0.0);
+        J.assign(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.no_hqrrp = 1;
+        EXPECT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        return CQRRPT_GPU.rank;
+    };
+
+    int64_t ratio_rank = 0;
+    for (double tol : {std::pow(std::numeric_limits<double>::epsilon(), 0.85), 1e-12}) {
         SCOPED_TRACE(tol);
         std::vector<double> Q_cpu(A), R_cpu(n * n, 0.0);
         std::vector<int64_t> J_cpu(n, 0);
@@ -371,20 +387,31 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
         ASSERT_EQ(CQRRPT.call(m, n, Q_cpu.data(), m, R_cpu.data(), n, J_cpu.data(), 2.0, state_cpu), 0);
         ASSERT_LT(CQRRPT.rank, n) << "input no longer makes CholQR fail; the test does not exercise the failure path";
 
-        std::vector<double> Q(A), R(n * n, 0.0);
-        std::vector<int64_t> J(n, 0);
-        RandBLAS::RNGState<r123::Philox4x32> state(seed);
-        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
-        CQRRPT_GPU.nnz = 2;
-        CQRRPT_GPU.no_hqrrp = 1;
-        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
-        EXPECT_EQ(CQRRPT_GPU.rank, CQRRPT.rank);
-        auto c = factor_checks(m, n, CQRRPT_GPU.rank, A, Q, R, n, J);
+        std::vector<double> Q, R;
+        std::vector<int64_t> J;
+        int64_t rank = run_gpu(tol, Q, R, J);
+        EXPECT_EQ(rank, CQRRPT.rank);
+        auto c = factor_checks(m, n, rank, A, Q, R, n, J);
         auto c_cpu = factor_checks(m, n, CQRRPT.rank, A, Q_cpu, R_cpu, n, J_cpu);
         ASSERT_TRUE(c.finite);
         EXPECT_LE(c.err_orth, 100 * c_cpu.err_orth) << "CPU ||Q'Q - I|| = " << c_cpu.err_orth;
         EXPECT_LE(c.err_proj, 100 * c_cpu.err_proj) << "CPU ||R - Q'AP|| = " << c_cpu.err_proj;
+        ratio_rank = std::max(ratio_rank, rank);
     }
+
+    // The cut at the failed column guarantees no accuracy (||Q'Q - I|| reaches 2 here), so the
+    // bounds only reject the NaN of keeping columns past it, or the ||R - Q'AP|| >= 60 of taking
+    // the coupling block from potrf's partial update.
+    SCOPED_TRACE(1e-6);
+    std::vector<double> Q, R;
+    std::vector<int64_t> J;
+    int64_t rank = run_gpu(1e-6, Q, R, J);
+    EXPECT_GT(rank, ratio_rank) << "the cut at the failed column must come after the ratio test's cuts";
+    EXPECT_LT(rank, n) << "potrf failed, so the rank must be cut";
+    auto c = factor_checks(m, n, rank, A, Q, R, n, J);
+    ASSERT_TRUE(c.finite) << "rank " << rank << ": Q or R contains NaN or Inf";
+    EXPECT_LE(c.err_orth, 10.0) << "rank " << rank;
+    EXPECT_LE(c.err_proj, 10.0) << "rank " << rank;
 }
 
 // Padded leading dimensions (lda > m, ldr > n) must give the same factorization as compact
