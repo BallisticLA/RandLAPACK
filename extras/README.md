@@ -36,6 +36,11 @@ Extras automatically fetch these external libraries via CMake FetchContent:
 
 **No manual dependency installation required!** CMake will download them during configuration.
 
+Both are pinned to the source archive of one exact commit, checked against a
+SHA256 (`URL` and `URL_HASH` in `extras/CMakeLists.txt`). `benchmark/` pins the
+same two archives, and a bump changes both files together; see
+[benchmark/README.md](../benchmark/README.md).
+
 ## Building
 
 This is a standalone CMake project. It requires RandLAPACK to be installed first:
@@ -47,6 +52,9 @@ cmake -S lib/RandLAPACK/extras/ -B build/extras-build/ \
     -DRandLAPACK_DIR=install/RandLAPACK-install/lib/cmake/RandLAPACK/
 make -C build/extras-build/ -j$(nproc)
 ```
+
+The tests are built when GoogleTest is found; `-DBUILD_TESTING=OFF` skips
+them.
 
 Or run `bash install.sh` from your clone, which builds extras by default on
 Linux and macOS (`--no-extras` skips it; the Windows installer does not build

@@ -25,11 +25,24 @@ also fetches Eigen, Spectra and fast_matrix_market with CMake's FetchContent,
 so the first configure needs a network connection, and some benchmarks
 borrow headers from `extras/`.
 
+The three are pinned: each is downloaded as the source archive of one exact
+commit and checked against a SHA256 (`URL` and `URL_HASH` in
+`benchmark/CMakeLists.txt`), not cloned from a moving branch, so every build
+compiles the same sources. Eigen's pin is a commit on its `master` branch. To
+bump a pin, put the new commit in the `URL` and the `sha256sum` of the new
+archive in `URL_HASH`. `extras/CMakeLists.txt` pins Eigen and
+fast_matrix_market too, and the two files must name the same archives: the
+installer configures both projects with one shared FetchContent download
+directory.
+
 The sources are grouped by driver: `bench_BQRRP/`, `bench_CQRRPT/`,
 `bench_ABRIK/`, `bench_CQRRT_linops/`, and `bench_general/`; the executables
 land flat in the build directory. The driver benchmarks print their usage
 when run without arguments, and most write their results as text files into
-an output directory given on the command line. Benchmarks are compiled in
+an output directory given on the command line. The ABRIK drivers copy the
+environment variable `RANDLAPACK_GIT_COMMIT` into the header of every CSV
+file they write (`unknown` when it is unset), so export the commit you built
+from to make each result file name its build. Benchmarks are compiled in
 CI on Linux and macOS (by the core build jobs and by the default installer
 lanes) but never executed there; run them on quiet, pinned hardware if you
 intend to quote numbers.
