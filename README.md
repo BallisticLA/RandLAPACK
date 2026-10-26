@@ -50,7 +50,7 @@ The user-facing algorithms ("drivers"; see
 | `BQRRP` | Blocked QR with randomized column pivoting, any aspect ratio | [arXiv:2507.00976](https://arxiv.org/abs/2507.00976) |
 | `CQRRPT` | Sketch-based QR with column pivoting for tall matrices | [arXiv:2311.08316](https://arxiv.org/abs/2311.08316) |
 | `CQRRT` | Unpivoted QR of tall, full-rank matrices by sketch-preconditioned Cholesky QR; `CQRRT_linops` is its Q-less variant for linear operators | [arXiv:2111.11148](https://arxiv.org/abs/2111.11148) |
-| `RSVD` | Randomized low-rank SVD via the QB decomposition | [arXiv:0909.4061](https://arxiv.org/abs/0909.4061) |
+| `RSVD` | Randomized low-rank SVD via the QB decomposition, of a dense matrix or any linear operator (sparse or implicit) | [arXiv:0909.4061](https://arxiv.org/abs/0909.4061) |
 | `REVD2` | Randomized low-rank eigendecomposition of symmetric positive semidefinite matrices | [arXiv:2110.02820](https://arxiv.org/abs/2110.02820) |
 | `ABRIK` | Block-Krylov iterative SVD for many accurate singular triplets | [arXiv:2306.12418](https://arxiv.org/abs/2306.12418) |
 | `hqrrp` | Householder QR with randomized pivoting | [arXiv:1512.02671](https://arxiv.org/abs/1512.02671) |
