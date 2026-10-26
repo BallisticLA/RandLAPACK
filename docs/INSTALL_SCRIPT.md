@@ -292,7 +292,7 @@ commits (and tag) pinned in
 [`installers/dependency-pins.env`](../installers/dependency-pins.env).
 [DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks) explains why.
 
-## 6. Integer width, backends, and tested configurations
+## 6. Integer width, backends, and tested setups
 
 ### 6.1 What we test
 
