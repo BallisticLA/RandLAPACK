@@ -33,7 +33,8 @@ extras/
 
 ## Building
 
-This is a standalone CMake project that uses an *installed* RandLAPACK.
+This is a standalone CMake project that uses an *installed* RandLAPACK. It
+needs CMake 3.24 or later.
 
 - **With the installer.** `bash install.sh` builds extras by default on Linux
   and macOS (`--no-extras` skips it), into
