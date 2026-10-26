@@ -70,7 +70,8 @@ installer one.
 
 - **core-macos builds BLAS++ with `-Dblas=accelerate` and hard-fails if
   Apple's new Accelerate interface is not selected.** The legacy interface
-  returns wrong SVDs ([INSTALL.md, "Apple Accelerate"](INSTALL.md#apple-accelerate-macos)
+  returns wrong SVDs
+  ([INSTALL_MANUAL.md, "Apple Accelerate"](INSTALL_MANUAL.md#apple-accelerate-macos)
   explains). Both core-macos jobs therefore `grep` for
   `ACCELERATE_NEW_LAPACK` in the installed `defines.h` and fail loudly
   rather than let a silent fallback to the legacy interface back in.
@@ -199,8 +200,8 @@ installer one.
   hash for each, plus a tag on those commits.
   `install.sh`, `setup.ps1` and every workflow read it, and the
   `pins` job keeps it honest.
-  [INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains why
-  the forks exist and lists the fixes they carry.
+  [DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks)
+  explains why the forks exist and lists the fixes they carry.
 - **The pins are commits, never branch names, and the cache keys carry
   them.** A branch tip moves, so a cache hit could restore a different
   revision than a miss builds.
