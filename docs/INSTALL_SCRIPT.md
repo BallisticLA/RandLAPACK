@@ -156,8 +156,8 @@ with an environment-variable equivalent:
 
 ```
 --blas=BACKEND        auto | openblas | mkl | accelerate | custom
-                      (default: auto -- Accelerate on macOS, MKL on Linux when
-                      MKLROOT is set, otherwise OpenBLAS)
+                      (default: auto, which picks Accelerate on macOS, MKL
+                      on Linux when MKLROOT is set, otherwise OpenBLAS)
 --blas-int=WIDTH      ilp64 | lp64 (default: ilp64 where the backend can
                       provide it; see section 6)
 --blas-libraries=L    link line for --blas=custom, used for BLAS and LAPACK
@@ -167,8 +167,9 @@ with an environment-variable equivalent:
 --prefix=DIR          install RandLAPACK itself here instead of
                       <project-dir>/install/RandLAPACK-install
 -j, --jobs N          parallel build jobs (default: number of cores)
-    --fresh           clear build directories first (default: reuse them,
-                      so re-running is an incremental rebuild)
+    --fresh           clear the build directories and rebuild the
+                      dependencies the script built itself (default: reuse
+                      what matches, so re-running is an incremental rebuild)
     --no-extras       skip the extras project
     --no-benchmarks   skip the benchmark project
     --no-openmp       configure without OpenMP
@@ -245,12 +246,12 @@ the last lines of the log. There is no need to tee the output yourself.
 
 The `install.sh` script performs the following steps automatically:
 
-1. **Creates the project structure** shown in section 1, and initialises the
+1. **Checks the toolchain** (compiler, CMake 3.21+, Git), reporting everything
+   missing at once rather than failing on the first item.
+
+2. **Creates the project structure** shown in section 1, and initialises the
    RandBLAS submodule. RandBLAS stays a pinned submodule and is not installed
    separately; its own installer exists for people who want RandBLAS alone.
-
-2. **Checks the toolchain** (compiler, CMake 3.21+, Git), reporting everything
-   missing at once rather than failing on the first item.
 
 3. **Builds BLAS++** at a pinned commit, with the selected backend and integer
    width, then **reads back the width it actually built** (section 6).
@@ -271,7 +272,10 @@ The `install.sh` script performs the following steps automatically:
    Only executing something finds that.
 
 7. **Builds the extras and benchmark projects**, unless `--no-extras` or
-   `--no-benchmarks`.
+   `--no-benchmarks`. Their first configure downloads Eigen,
+   fast_matrix_market and (for the benchmarks) Spectra, each a pinned,
+   checksummed archive, into `<project-dir>/build/fetchcontent-cache/`, which
+   the two projects share; `--fresh` deletes it with the rest of `build/`.
 
 Every dependency is fetched at an immutable ref and stamped with its
 provenance, so it is reused only when it came from the same source *in the same
@@ -373,20 +377,23 @@ well work; it is simply untested.
 |---|---|---|---|---|---|
 | Ubuntu (latest) | gcc | OpenBLAS | LP64 | none | yes |
 | Ubuntu (latest) | gcc | OpenBLAS (`libopenblas64` only) | ILP64 | none | yes |
-| macOS 14/15 | Apple Clang | Accelerate (new interface) | ILP64 | none | no (see below) |
-| macOS 14/15 | Apple Clang | Accelerate (new interface), `--blas-int=lp64` | LP64 | none | no (see below) |
+| macOS (`macos-latest`) | Apple Clang | Accelerate (new interface) | ILP64 | none | yes, Homebrew `libomp` |
+| macOS (`macos-latest`) | Apple Clang | Accelerate (new interface), `--blas-int=lp64` | LP64 | none | yes, Homebrew `libomp`; no in core-macos |
+| macOS (`macos-latest`) | Apple Clang | Homebrew OpenBLAS (`--blas=openblas`) | LP64 | none | yes, Homebrew `libomp` |
 | Windows | MSVC | oneMKL | ILP64 | none | yes (`/openmp:llvm`), and a serial lane |
 | Windows | MSVC | OpenBLAS | LP64 | none | no |
 
-The installer lanes additionally cover a fresh install, an idempotent re-run,
-and dependency discovery through `BLASPP_INSTALL_DIR` and friends.
+The installer lanes additionally cover a fresh install and an idempotent
+re-run, and on Linux dependency discovery through `BLASPP_INSTALL_DIR` and
+friends.
 
 Compiler floor: **gcc >= 13**, because RandBLAS (vendored as a submodule) uses
 C++20 concepts. CMake 3.21 or later on every platform. Apple Clang ships no
 OpenMP runtime, so a macOS build is single-threaded unless you install
 Homebrew's `libomp`, which the installer will use when present.
 
-CUDA builds are not covered by CI (there is no GPU runner), so `--gpu` is
+No CI job builds or runs the CUDA code
+([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)), so `--gpu` is
 exercised locally only. CUDA 12.9 with gcc 13.3 is the reference combination.
 
 ### 6.2 Which integer width you get, and why
@@ -420,6 +427,12 @@ explicitly:
 bash install.sh --blas=custom --blas-int=ilp64 \
   --blas-libraries=/usr/lib/x86_64-linux-gnu/libopenblas64.so
 ```
+
+An OpenBLAS whose symbols carry a suffix, such as conda-forge's
+`libopenblas64_` (`dgemm_64_`), needs BLAS++'s `blas_symbol_suffix` option,
+which the installer does not set. Build BLAS++ and LAPACK++ by hand
+([INSTALL.md, "ILP64 OpenBLAS"](INSTALL.md#ilp64-openblas)) and point the
+installer at them with `BLASPP_INSTALL_DIR` and `LAPACKPP_INSTALL_DIR`.
 
 ### 6.3 Does LP64 limit RandLAPACK?
 
