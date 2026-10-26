@@ -21,7 +21,10 @@ namespace RandLAPACK {
 
 /// BK (Block Krylov) is the computational routine underlying the ABRIK driver.
 /// It builds left and right Krylov subspaces (X_ev, Y_od) and band matrices (R, S)
-/// via block Krylov iterations with double reorthogonalization.
+/// via block Krylov iterations. Each new block is projected against its basis once before its
+/// QR and, on the columns the rank test keeps, once more after it: a variant of BCGSI+ (block
+/// classical Gram-Schmidt with reorthogonalization) that leaves the projection coefficients of
+/// the first pass unchanged.
 ///
 /// The ABRIK driver calls BK to obtain these factored intermediates, then performs
 /// SVD on R or S and reconstructs the final U, Sigma, V.
@@ -31,30 +34,32 @@ namespace RandLAPACK {
 /// Deficient blocks and refills. After each block's QR inside the loop (the prologue block is
 /// accepted as is), the relative rank test util::block_numerical_rank decides how much of the
 /// block to keep: the shortest leading prefix such that the rest of the triangular factor has
-/// Frobenius norm at most tau*||A||_F. The rejected columns' entries in the diagonal band
-/// block are zeroed. With refill_dead_columns on (the default), the rejected slots of the new
-/// basis block are then refilled with Gaussian columns, projected twice against every accepted
-/// column on that side and the block's kept prefix, and orthonormalized by Householder QR. The
-/// run thus continues where the Krylov space closed early (the identity, a singular value
-/// repeated more than k times, I + P with P a projector) instead of stopping short. Refills
-/// never touch the operator, so each iteration still applies A exactly once. The room is n for
-/// the right basis and min(m, n) for the left. On an m > n input the left refills are Gaussian
-/// in R^m and may carry directions outside the range of A, so the left basis can pass n
-/// columns before the saturation guard ends the run; the band argument below is unaffected.
+/// Frobenius norm at most tau*||A||_F. The kept prefix is projected against the basis a second
+/// time and refactored, and the new triangular factor multiplies its entries in the diagonal
+/// band block; the rejected columns' entries there are zeroed. With refill_dead_columns on (the
+/// default), the rejected slots of the new basis block are then refilled with Gaussian columns,
+/// projected twice against every accepted column on that side and the block's kept prefix, and
+/// orthonormalized by Householder QR. The run thus continues where the Krylov space closed
+/// early (the identity, a singular value repeated more than k times, I + P with P a projector)
+/// instead of stopping short. Refills never touch the operator, so each iteration still applies
+/// A exactly once. The room is n for the right basis and min(m, n) for the left. On an m > n
+/// input the left refills are Gaussian in R^m and may carry directions outside the range of A,
+/// so the left basis can pass n columns before the saturation guard ends the run; the band
+/// argument below is unaffected.
 ///
-/// The probe. The next block on the other side is built from the refilled block, so it
-/// measures the refills' images: the trailing rows (odd iteration) or columns (even) of its
-/// diagonal band block. A full-width next block confirms them. A deficient one switches
-/// refilling off for the rest of the run (refills_exhausted), whether or not the refills'
-/// images are alive; if those images are themselves at most tau*||A||_F, the refills lie in
-/// the numerical null space and are retracted, which is a counter change because refills are
-/// the last columns of their block. A failed CQRRT factorization retracts the source block's
-/// refills unconditionally, switches refilling off, and ends the run as rank_deficient. A
-/// dead block that nothing refills ends the run: rank_deficient when refilling is off or
-/// exhausted, saturated when only the room ran out. Refills that no iteration has probed,
-/// those in the newest block when the run stops, stay in the basis and in the saved resume
-/// state, so resume() restores and probes them, but they are never reported in end_rows or
-/// end_cols.
+/// The probe. The next block on the other side is built from the refilled block, so it measures
+/// the refills' images: the trailing rows (odd iteration) or columns (even) of its diagonal
+/// band block, as its first QR leaves it. A full-width next block confirms them. A deficient
+/// one switches refilling off for the rest of the run (refills_exhausted), whether or not the
+/// refills' images are alive; if those images are themselves at most tau*||A||_F, the refills
+/// lie in the numerical null space and are retracted, which is a counter change because refills
+/// are the last columns of their block. A failed CQRRT factorization, of a block or of its kept
+/// prefix, retracts the source block's refills unconditionally, switches refilling off, and
+/// ends the run as rank_deficient. A dead block that nothing refills ends the run:
+/// rank_deficient when refilling is off or exhausted, saturated when only the room ran out.
+/// Refills that no iteration has probed, those in the newest block when the run stops, stay in
+/// the basis and in the saved resume state, so resume() restores and probes them, but they are
+/// never reported in end_rows or end_cols.
 ///
 /// The band argument. Write X_a and Y_c for the a-th left and c-th right blocks (X_1 from the
 /// prologue, Y_a built from X_a, X_{a+1} from Y_a). R stores X_a' A Y_c for c <= a and S
@@ -106,8 +111,8 @@ class BK {
         /// Relative threshold for the numerical-rank criterion: the trailing block is
         /// judged against tau*||A||_F. This criterion does not provide the conditioning
         /// guarantee of Balabanov Thm 5.6; see util::block_numerical_rank in rl_util.hh.
-        /// Mirrors CQRRPT's user-facing `eps` (rl_cqrrpt.hh:120). Zero means "derive a
-        /// default from the problem size", which is done inside call_impl where n is known.
+        /// Mirrors CQRRPT's user-facing `eps`. Zero means "derive a default from the problem
+        /// size", which is done inside call_impl where n is known.
         T tau;
         /// Columns the rank criterion kept in the newest block, refills excluded; zero when the
         /// run ended on a dead block or a failed CQRRT. Diagnostic only: end_rows/end_cols are
@@ -158,7 +163,7 @@ class BK {
             tol = ep;
             max_krylov_iters = INT_MAX;
             // These three are outputs, but they were left uninitialized, so reading a
-            // termination reason before the first call() was undefined behaviour -- and
+            // termination reason before the first call() was undefined behaviour, and
             // reading it is exactly what a test asserting on termination does.
             num_krylov_iters = 0;
             norm_R_end = 0;
@@ -379,12 +384,12 @@ class BK {
                 // out-of-bounds READ: the band buffers are sized n*k and (n+k)*k, while the
                 // rank-deficiency probes index R_ii[(n + 1) * (k - 1)] and
                 // S_ii[((n + k) + 1) * (k - 1)]. With n = 5 and k = 10 the first of those
-                // is R[54] against a 50-element allocation. ABRIK only ever checked k > 0
-                // (rl_abrik.hh:188, :209), so nothing upstream caught it either. ungqr(n, k,
-                // k, ...) at the explicit-QR step would also be an invalid LAPACK call.
+                // is R[54] against a 50-element allocation. ABRIK only ever checked k > 0,
+                // so nothing upstream caught it either. ungqr(n, k, k, ...) at the
+                // explicit-QR step would also be an invalid LAPACK call.
                 //
-                // randlapack_require is not NDEBUG-gated (rl_exceptions.hh:97-98), so these
-                // hold in Release and are testable with EXPECT_THROW.
+                // randlapack_require is not NDEBUG-gated (see the macro in rl_exceptions.hh),
+                // so these hold in Release and are testable with EXPECT_THROW.
                 randlapack_require(m > 0) << "BK: m=" << m << " must be > 0";
                 randlapack_require(n > 0) << "BK: n=" << n << " must be > 0";
                 randlapack_require(k > 0) << "BK: block size k=" << k << " must be > 0";
@@ -561,6 +566,13 @@ class BK {
                     return -1;
                 };
 
+                // B (rows x cols, ld rows) -= basis * (basis' * B), basis rows x c; G: scratch,
+                // ldg >= c.
+                auto project_out = [&](int64_t rows, const T* basis, int64_t c, T* B, int64_t cols, T* G, int64_t ldg) {
+                    blas::gemm(Layout::ColMajor, Op::Trans,   Op::NoTrans, c, cols, rows,  1.0, basis, rows, B, rows, 0.0, G, ldg);
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, rows, cols, c, -1.0, basis, rows, G, ldg, 1.0, B, rows);
+                };
+
                 // Refill rejected slots of a block with Gaussian directions orthonormal to the
                 // accepted basis. dst: rows x n_ref slot inside the block (ld = rows); basis:
                 // rows x c accepted-plus-kept columns, contiguous with dst; G: scratch, ldg >= c.
@@ -575,11 +587,10 @@ class BK {
                         sketching_t_dur  += duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
                         reorth_t_start    = steady_clock::now();
                     }
-                    // Two projection passes, as for the Krylov blocks.
-                    for (int pass = 0; pass < 2 && c > 0; ++pass) {
-                        blas::gemm(Layout::ColMajor, Op::Trans,   Op::NoTrans, c, n_ref, rows,  1.0, basis, rows, dst, rows, 0.0, G, ldg);
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, rows, n_ref, c, -1.0, basis, rows, G, ldg, 1.0, dst, rows);
-                    }
+                    // Two projection passes, both before the QR: a projected Gaussian block has
+                    // no small diagonal entry to magnify the first pass's leftover.
+                    for (int pass = 0; pass < 2 && c > 0; ++pass)
+                        project_out(rows, basis, c, dst, n_ref, G, ldg);
                     if(this -> timing) {
                         reorth_t_stop  = steady_clock::now();
                         reorth_t_dur  += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
@@ -610,8 +621,9 @@ class BK {
                 //    Hence norm_R > sqrt(1 - tol^2)||M||_F is equivalent to the relative bound
                 //    ||M - hat(M)||_F <= tol * ||M||_F, obtained without any SVD. norm_R is
                 //    recomputed only on odd iterations (where R is the current triangular factor).
-                //    Exact in exact arithmetic; holds to working precision thanks to the double
-                //    reorthogonalization in the qr_add steps.
+                //    Exact in exact arithmetic; holds to working precision while both bases stay
+                //    orthonormal. The second projection, after each block's QR, removes the
+                //    leftover that the QR magnifies in a kept column with little new direction.
                 // 2. Rank deficiency: stop if the numerical-rank criterion retains no
                 //    columns of the new block and no refill can take their place. A positive
                 //    reduced width narrows the next block instead. See the per-branch checks.
@@ -635,6 +647,65 @@ class BK {
                     CQRRT->nnz = 2;
                     R_11_trans = ( T * ) calloc( k * k, sizeof( T ) );
                 }
+
+                // Second projection of the kept prefix B (rows x r) against the basis (rows x c):
+                // the QR magnified the first pass's leftover in a kept column with little new
+                // direction. Refactor B; its factor F updates the kept band entries, R_ii(:, 1:r) *=
+                // F' (R_ii holds the factor transposed) or S_ii(1:r, :) = F * S_ii(1:r, :).
+                // Nonzero means CQRRT failed.
+                auto reproject_kept = [&](int64_t rows, const T* basis, int64_t c, T* B, int64_t r,
+                                          T* G, int64_t ldg, T* band, int64_t ldband, int64_t w,
+                                          bool band_transposed) -> int {
+                    if(this -> timing)
+                        reorth_t_start = steady_clock::now();
+                    project_out(rows, basis, c, B, r, G, ldg);
+                    if(this -> timing) {
+                        reorth_t_stop  = steady_clock::now();
+                        reorth_t_dur  += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
+                        qr_t_start     = steady_clock::now();
+                    }
+                    const bool use_cqrrt = (this -> qr_exp == Subroutines::QR_explicit::cqrrt);
+                    const T* F;
+                    int64_t ldf;
+                    if (use_cqrrt) {
+                        std::fill(R_11_trans, R_11_trans + k * k, (T)0.0);
+                        if (CQRRT -> call(rows, r, B, rows, R_11_trans, k, d_factor, state) != 0)
+                            return 1;
+                        F = R_11_trans; ldf = k;
+                    } else {
+                        lapack::geqrf(rows, r, B, rows, tau);
+                        F = B; ldf = rows;
+                    }
+                    if (band_transposed)
+                        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::Trans,   Diag::NonUnit, w, r, 1.0, F, ldf, band, ldband);
+                    else
+                        blas::trmm(Layout::ColMajor, Side::Left,  Uplo::Upper, Op::NoTrans, Diag::NonUnit, r, w, 1.0, F, ldf, band, ldband);
+                    if(this -> timing) {
+                        qr_t_stop  = steady_clock::now();
+                        qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                    }
+                    if (!use_cqrrt) {
+                        if(this -> timing)
+                            ungqr_t_start = steady_clock::now();
+                        lapack::ungqr(rows, r, r, B, rows, tau);
+                        if(this -> timing) {
+                            ungqr_t_stop  = steady_clock::now();
+                            ungqr_t_dur  += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                        }
+                    }
+                    return 0;
+                };
+
+                // A failed CQRRT factorization, of a block or of its kept prefix, leaves the block
+                // unusable and ends the run as rank_deficient: retract the source block's refills
+                // (source_cols counts them) and switch refilling off. The caller breaks.
+                auto end_on_failed_qr = [&](int64_t &source_cols) {
+                    source_cols -= pending_refills;
+                    pending_refills = 0;
+                    this->refills_exhausted = true;
+                    this->final_block_width = 0;
+                    this->termination_reason = BKTermination::rank_deficient;
+                };
 
                 if (!resuming) {
                     // Fresh start: sketch generation, first GEMM, first QR
@@ -758,16 +829,14 @@ class BK {
                             reorth_t_start  = steady_clock::now();
                         }
 
+                        // One projection before the QR. The second one acts on the kept columns
+                        // after the rank test below, where it can remove what the QR magnified.
                         if (y_cols > 0) {
                             // R_i' = Y_i' * Y_od
                             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, w, y_cols, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);
 
                             // Y_i = Y_i - Y_od * R_i
                             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, w, y_cols, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
-
-                            // Reorthogonalization
-                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, w, y_cols, n, 1.0, Y_i, n, Y_od, n, 0.0, Y_orth_buf, k);
-                            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, w, y_cols, -1.0, Y_od, n, Y_orth_buf, k, 1.0, Y_i, n);
                         }
 
                         if(this -> timing) {
@@ -792,15 +861,9 @@ class BK {
                             if (cq_status != 0) {
                                 // A zero diagonal in the sketched factor makes CQRRT return with
                                 // the block intact; a potrf failure returns after the
-                                // preconditioning trsm has overwritten it. Either way no finished
-                                // factor says which columns were healthy, so no probe can be read
-                                // and refilling would fabricate: retract the source X block's
-                                // refills and stop.
-                                x_cols -= pending_refills;
-                                pending_refills = 0;
-                                this->refills_exhausted = true;
-                                this->final_block_width = 0;
-                                this->termination_reason = BKTermination::rank_deficient;
+                                // preconditioning trsm has overwritten it. Either way no factor
+                                // says which columns were healthy, so refilling would fabricate.
+                                end_on_failed_qr(x_cols);
                                 break;
                             }
                             // Copy R_ii over to R's (in transposed format).
@@ -845,11 +908,11 @@ class BK {
                         {
                             int64_t r_blk = util::block_numerical_rank<T>(w, R_ii, n, norm_A, tau_eff);
 
-                            // (1) Probe, measured BEFORE the zeroing below. The source X block's
-                            // last pending_refills columns are refills, and R_ii holds the factor
-                            // transposed, so their images are its trailing ROWS (all w columns).
-                            // A full-width block has already confirmed them; only a deficient one
-                            // needs the measurement.
+                            // (1) Probe, measured BEFORE the refactorization and zeroing below. The
+                            // source X block's last pending_refills columns are refills, and R_ii
+                            // holds the factor transposed, so their images are its trailing ROWS
+                            // (all w columns). A full-width block has already confirmed them; only
+                            // a deficient one needs the measurement.
                             const bool probing = (pending_refills > 0 && r_blk < w);
                             bool null_refills  = false;
                             if (probing) {
@@ -860,8 +923,21 @@ class BK {
                                 null_refills = (r_blk == 0) || (std::sqrt(acc) <= tau_eff * norm_A);
                             }
 
+                            // (2) Second projection of the kept columns, then their refactorization;
+                            // the new factor multiplies their columns of R_ii. Skipped at the first
+                            // Y block: with no basis, refactoring orthonormal columns changes only
+                            // their signs. Failure here is defensive: CQRRT fails only if some
+                            // combination of the kept columns lies in the basis's span to working
+                            // precision.
+                            if (r_blk > 0 && y_cols > 0) {
+                                if (reproject_kept(n, Y_od, y_cols, Y_i, r_blk, Y_orth_buf, n, R_ii, n, w, true) != 0) {
+                                    end_on_failed_qr(x_cols);
+                                    break;
+                                }
+                            }
+
                             if (r_blk < w) {
-                                // (2) Zero the REJECTED COLUMNS of the diagonal block. The true
+                                // (3) Zero the REJECTED COLUMNS of the diagonal block. The true
                                 // value there, for whichever refill or later Y column occupies
                                 // the slot, is bounded by tau*||A||_F, exactly the order the
                                 // criterion just declared negligible (see the band argument at
@@ -881,7 +957,7 @@ class BK {
                                         R_ii[i + j * n] = T(0);
                             }
 
-                            // (3) Probe outcome. Dead images put the refills in the numerical
+                            // (4) Probe outcome. Dead images put the refills in the numerical
                             // null space of A^T, so retract them; they are the last X columns,
                             // which makes that a counter change. Dead or not, a deficient probe
                             // switches refilling off for the rest of the run.
@@ -892,10 +968,10 @@ class BK {
                             }
                             pending_refills = 0;
 
-                            // (4) REFILL the rejected slots with random directions orthogonal to
+                            // (5) REFILL the rejected slots with random directions orthogonal to
                             // every accepted Y column and the kept prefix, so the run continues
                             // where the Krylov space closed early. Y lives in R^n, hence the room.
-                            // The band entries for the refills stay the zeros written in (2).
+                            // The band entries for the refills stay the zeros written in (3).
                             int64_t n_ref = 0;
                             const int64_t room = n - (y_cols + r_blk);
                             if (r_blk < w && this->refill_dead_columns && !this->refills_exhausted) {
@@ -906,7 +982,7 @@ class BK {
                                 }
                             }
 
-                            // (5) A dead block that nothing refills is terminal: saturated when
+                            // (6) A dead block that nothing refills is terminal: saturated when
                             // refilling is on and only the room ran out, rank_deficient otherwise.
                             if (r_blk == 0 && n_ref == 0) {
                                 this->final_block_width = 0;
@@ -916,7 +992,7 @@ class BK {
                                 break;
                             }
 
-                            // (6) PRUNE AND NARROW, then refill: keep the healthy prefix, append
+                            // (7) PRUNE AND NARROW, then refill: keep the healthy prefix, append
                             // the refills after it, and carry on rather than stopping with the
                             // right basis short. w_last carries the width to the next iteration,
                             // which is what makes the block widths variable.
@@ -980,15 +1056,9 @@ class BK {
                             reorth_t_start  = steady_clock::now();
                         }
 
-                        // S_i = X_ev' * X_i
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, x_cols, w, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
-
-                        //X_i = X_i - X_ev * S_i;
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, w, x_cols, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
-
-                        // Reorthogonalization
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, x_cols, w, m, 1.0, X_ev, m, X_i, m, 0.0, X_orth_buf, n + k);
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, w, x_cols, -1.0, X_ev, m, X_orth_buf, n + k, 1.0, X_i, m);
+                        // One projection before the QR, S_i = X_ev' X_i and X_i -= X_ev S_i; the
+                        // second follows the rank test, as in the odd branch.
+                        project_out(m, X_ev, x_cols, X_i, w, S_i, n + k);
 
                         if(this -> timing) {
                             reorth_t_stop  = steady_clock::now();
@@ -1019,13 +1089,7 @@ class BK {
                             // block becomes reachable.
                             int cq_status_ev = CQRRT -> call(m, w, X_i, m, S_ii, n + k, d_factor, state);
                             if (cq_status_ev != 0) {
-                                // As in the odd branch: which columns were healthy is unknown, so
-                                // refilling would fabricate. Retract the source Y block's refills.
-                                y_cols -= pending_refills;
-                                pending_refills = 0;
-                                this -> refills_exhausted = true;
-                                this -> final_block_width = 0;
-                                this -> termination_reason = BKTermination::rank_deficient;
+                                end_on_failed_qr(y_cols);
                                 break;
                             }
 
@@ -1071,9 +1135,10 @@ class BK {
                         {
                             int64_t r_blk = util::block_numerical_rank<T>(w, S_ii, n + k, norm_A, tau_eff);
 
-                            // (1) Probe, measured BEFORE the zeroing below; the mirror of the odd
-                            // branch. S_ii is upper triangular, so the images of the source Y
-                            // block's trailing refills are its trailing COLUMNS (all w rows).
+                            // (1) Probe, measured BEFORE the refactorization and zeroing below; the
+                            // mirror of the odd branch. S_ii is upper triangular, so the images of
+                            // the source Y block's trailing refills are its trailing COLUMNS (all
+                            // w rows).
                             const bool probing = (pending_refills > 0 && r_blk < w);
                             bool null_refills  = false;
                             if (probing) {
@@ -1084,8 +1149,18 @@ class BK {
                                 null_refills = (r_blk == 0) || (std::sqrt(acc) <= tau_eff * norm_A);
                             }
 
+                            // (2) Second projection and refactorization of the kept columns; the
+                            // new factor multiplies their rows of S_ii. X_ev always holds the
+                            // prologue block, so there is always a basis to project against.
+                            if (r_blk > 0) {
+                                if (reproject_kept(m, X_ev, x_cols, X_i, r_blk, X_orth_buf, n + k, S_ii, n + k, w, false) != 0) {
+                                    end_on_failed_qr(y_cols);
+                                    break;
+                                }
+                            }
+
                             if (r_blk < w) {
-                                // (2) Zero the REJECTED ROWS of the diagonal block; see the odd
+                                // (3) Zero the REJECTED ROWS of the diagonal block; see the odd
                                 // branch for the bound on the true value there and why this is
                                 // not a no-op. Rows rather than columns because S_ii is written
                                 // upper-triangular by lacpy, where R_ii is lower.
@@ -1094,7 +1169,7 @@ class BK {
                                         S_ii[i + j * (n + k)] = T(0);
                             }
 
-                            // (3) Probe outcome; see the odd branch. Here the refills are the last
+                            // (4) Probe outcome; see the odd branch. Here the refills are the last
                             // Y columns, so retraction is y_cols -= pending_refills.
                             if (probing) {
                                 if (null_refills)
@@ -1103,7 +1178,7 @@ class BK {
                             }
                             pending_refills = 0;
 
-                            // (4) REFILL on the left side; see the odd branch. X lives in R^m, so
+                            // (5) REFILL on the left side; see the odd branch. X lives in R^m, so
                             // at most m orthonormal columns exist, and the saturation guard ends
                             // the run once x_cols passes n, so refills past column n would only
                             // trip it unprobed. Hence the room is min(m, n).
@@ -1117,7 +1192,7 @@ class BK {
                                 }
                             }
 
-                            // (5) Terminal, as in the odd branch.
+                            // (6) Terminal, as in the odd branch.
                             if (r_blk == 0 && n_ref == 0) {
                                 this->final_block_width = 0;
                                 this->termination_reason =
@@ -1126,7 +1201,7 @@ class BK {
                                 break;
                             }
 
-                            // (6) PRUNE AND NARROW on the left side, then refill; see the odd
+                            // (7) PRUNE AND NARROW on the left side, then refill; see the odd
                             // branch. THIS is the half that fixes the shortfall. The left basis
                             // runs a block ahead of the right, so it reaches the numerical rank
                             // first; stopping here is what stranded the right basis up to k
@@ -1149,12 +1224,13 @@ class BK {
                     // This is only changed on odd iters.
                     //
                     // Uplo::Lower, not Upper. R is written by
-                    // util::transposition(0, k, Y_i, n, R_ii, n, /*copy_upper_triangle=*/1),
-                    // which sets AT(i,j) = A(j,i) for j <= i (rl_util.hh:313-317), so the
-                    // stored buffer is LOWER triangular. Asking lantr for the upper triangle
-                    // returned the diagonal and the exact zeros above it, making norm_R equal
-                    // ||diag(R)||_F -- a severe undercount against
-                    // threshold = sqrt(1 - tol^2) * ||A||_F. The consequence was that
+                    // util::transposition(0, w, Y_i, n, R_ii, n, /*copy_upper_triangle=*/1),
+                    // which sets AT(i,j) = A(j,i) for j <= i, so the stored buffer is LOWER
+                    // triangular; the second projection's trmm multiplies its kept columns from
+                    // the right by F', the transpose of an upper triangular factor, which keeps
+                    // it lower. Asking lantr for the upper triangle returned the diagonal and the
+                    // exact zeros above it, making norm_R equal ||diag(R)||_F, a severe undercount
+                    // against threshold = sqrt(1 - tol^2) * ||A||_F. The consequence was that
                     // norm_converged almost never fired and rank_deficient silently absorbed
                     // terminations belonging to this criterion: before this fix
                     // ABRIK_adaptive_norm_converged itself terminated as rank_deficient.
@@ -1215,9 +1291,9 @@ class BK {
                     // Until now this job was being done implicitly by the rank-deficiency
                     // exit, which is why removing that exit on 2026-07-29 broke nine tests
                     // that have nothing to do with rank deficiency: every non-adaptive test
-                    // is budgeted to exactly the saturation count (test_abrik.cc:189) and
-                    // relied on it to stop. Making the guard explicit is what allows the
-                    // rank criterion to be changed safely.
+                    // is budgeted to exactly the saturation count (test_abrik.cc's
+                    // test_ABRIK_general) and relied on it to stop. Making the guard explicit
+                    // is what allows the rank criterion to be changed safely.
                     //
                     // Ordered after norm_converged so that genuinely exhausting the
                     // Frobenius content still reports as such rather than as saturation.

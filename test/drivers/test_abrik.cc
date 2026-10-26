@@ -150,11 +150,11 @@ class TestABRIK : public ::testing::Test
     //
     // residual_error_comp above is the two-sided UNNORMALIZED residual: it divides by
     // nothing, so a returned triplet whose sigma is ~0 satisfies it vacuously (the doc
-    // comment at rl_svd_residual.hh:73-75 says so explicitly). It also aggregates into a
+    // comment of svd_residual in rl_svd_residual.hh says so explicitly). It also aggregates into a
     // single Frobenius norm over a LEADING subset, so junk in the tail is invisible twice
     // over. Neither property is a problem for measuring convergence, which is what that
     // helper was written for, but both make it blind to a basis column that carries no
-    // operator content -- which is the whole subject of a rank-deficiency suite.
+    // operator content, which is the whole subject of a rank-deficiency suite.
     //
     // A fabricated direction cannot pass a two-sided normalized test, so this count is the
     // honest measure of delivered content, and the most the algorithm may claim.
@@ -224,17 +224,17 @@ class TestABRIK : public ::testing::Test
         // i.e. the two-sided UNNORMALIZED residual over a LEADING SUBSET (custom_rank of
         // the delivered triplets). Both properties make it blind to the failure mode this
         // suite exists to catch: unnormalized accepts a triplet with sigma ~ 0 vacuously
-        // (rl_svd_residual.hh:73-75), and a leading subset never looks at the tail, which
-        // is where a rank-deficient block deposits its junk columns.
+        // (see svd_residual in rl_svd_residual.hh), and a leading subset never looks at the
+        // tail, which is where a rank-deficient block deposits its junk columns.
         //
         // It was also calibrated against behaviour that only occurred because
-        // norm_converged was dead. With rl_bk.hh:716 measuring the wrong triangle, every
+        // norm_converged was dead. With rl_bk.hh's lantr call measuring the wrong triangle, every
         // one of these tests ran to max_krylov_iters and extracted through the even/S path.
         // With the criterion restored they stop one iteration earlier, at correctly
         // detected saturation, and extract through the odd/R path. Verified at BK level
         // (TestBK.BK_band_equals_XtAY_abrik_basic_config): at that point both bases are
         // orthonormal to 6e-16 and the band reproduces X'AY to 7e-16, so the factorization
-        // is sound -- but the reconstructed triplets sit near 1e-10 relative rather than
+        // is sound, but the reconstructed triplets sit near 1e-10 relative rather than
         // 1e-15. Re-asserting the old absolute number would only be pinning an artifact.
         //
         // So: assert what actually matters. (1) every delivered triplet is a real triplet,
@@ -650,7 +650,7 @@ TEST_F(TestABRIK, ABRIK_regime_T2_exact_rank_not_multiple_of_block) {
     EXPECT_EQ(cert, 25) << "exact rank 25 at block size 10 must certify all 25";
 }
 
-// T3: exact rank 40 with b_sz 10, the control for T2 -- deficiency lands exactly on a block
+// T3: exact rank 40 with b_sz 10, the control for T2: deficiency lands exactly on a block
 // boundary, so a whole-block discard and a prefix commit agree here.
 TEST_F(TestABRIK, ABRIK_regime_T3_exact_rank_multiple_of_block) {
     std::vector<double> s(40);
@@ -659,7 +659,7 @@ TEST_F(TestABRIK, ABRIK_regime_T3_exact_rank_multiple_of_block) {
     EXPECT_EQ(cert, 40);
 }
 
-// T4: full rank on paper, but 15 directions sit below sqrt(eps) -- numerically dead without
+// T4: full rank on paper, but 15 directions sit below sqrt(eps), numerically dead without
 // being absent. The old code also delivered zero certified triplets here.
 TEST_F(TestABRIK, ABRIK_regime_T4_numerically_dead_tail) {
     int64_t n = 200;
@@ -930,13 +930,10 @@ TEST_F(TestABRIK, ABRIK_identity_option_off_decision_is_scale_invariant) {
 /// invariant, so the leading triplets stopped converging at all, which is why the loss was
 /// total (0 to 7 certified) rather than proportional.
 ///
-/// It now asserts r of r at every rank, with ONE documented exception. Rank 39 certifies 0
-/// under the default tau, for a reason that is threshold sensitivity rather than stranding:
-/// see TestBK.BK_rank_39_is_a_tau_sensitivity_not_a_shortfall, which shows it completes
-/// symmetrically at tau = 1e-12. Rank 39 measured 39 claimed / 0 certified before
-/// continuation too, so it is a pre-existing issue this work neither caused nor fixed, and
-/// it is left asserted at its measured value so that fixing it shows up as a loud failure
-/// here.
+/// It now asserts r of r at every rank. Rank 39 certified 0 until the second projection moved
+/// after the block QR: the default tau may keep a left column that carries no new direction, and
+/// only a projection after the QR keeps that column orthogonal to the basis (see
+/// TestBK.BK_rank_39_kept_columns_without_new_direction_stay_orthogonal).
 TEST_F(TestABRIK, ABRIK_rank_sweep_certifies_full_rank) {
     printf("SWEEP  rank | claimed certified available\n");
     for (int64_t r = 20; r <= 40; ++r) {
@@ -945,16 +942,7 @@ TEST_F(TestABRIK, ABRIK_rank_sweep_certifies_full_rank) {
         char label[64];
         snprintf(label, sizeof(label), "rank %ld", (long)r);
         int64_t cert = run_regime(label, 200, 200, 10, s, r, 40);
-        // The invariant that must hold at every rank regardless.
-        EXPECT_LE(cert, r) << "certified more triplets than exist at rank " << r;
-        if (r == 39) {
-            EXPECT_EQ(cert, 0)
-                << "rank 39 is the known tau-sensitivity case; if this now certifies, the "
-                   "default tau or the reorthogonalisation changed and both this assertion "
-                   "and BK_rank_39_is_a_tau_sensitivity_not_a_shortfall should be revisited";
-        } else {
-            EXPECT_EQ(cert, r) << "rank " << r << " must certify all " << r;
-        }
+        EXPECT_EQ(cert, r) << "rank " << r << " must certify all " << r;
     }
 }
 
