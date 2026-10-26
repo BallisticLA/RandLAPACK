@@ -311,8 +311,8 @@ the quick start:
 REM Default: oneMKL, discovered or downloaded.
 powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 
-REM OpenBLAS instead of oneMKL.
-powershell -ExecutionPolicy Bypass -File .\installers\install.ps1 -Backend openblas
+REM OpenBLAS instead of oneMKL (the CI-tested form; see section 7 on OpenMP).
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1 -Backend openblas -NoOpenMP
 
 REM You already installed the oneAPI toolkit somewhere non-standard.
 powershell -ExecutionPolicy Bypass -File .\installers\install.ps1 -MklRoot "D:\intel\oneAPI\mkl\latest"
@@ -392,7 +392,8 @@ the end; with oneMKL there are two, oneMKL's `bin` and Intel OpenMP's.
   *against* a conda-provided oneMKL deliberately, pass
   `-MklRoot "<env>\Library"` (requires conda's `mkl-devel` package).
 - **Path-length errors deep in dependency builds**: keep the project
-  directory short (e.g. `C:\src\RandLAPACK`), or enable Windows long paths.
+  directory short (the default `C:\src\RandNLA-project` after the quick start),
+  or enable Windows long paths.
 - **Full reset**: delete `<ProjectDir>\build` and the relevant
   `<ProjectDir>\install\*` subdirectories, then re-run the installer.
 

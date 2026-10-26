@@ -48,6 +48,10 @@ needs CMake 3.24 or later.
   ```
   - Give `RandLAPACK_DIR` as an absolute path. After `install.sh` it is
     `<project-dir>/install/RandLAPACK-install/lib/cmake/RandLAPACK`.
+  - With oneMKL, load its environment first (`source <oneapi>/setvars.sh`;
+    [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects)).
+  - If the machine has a CUDA Toolkit whose `nvcc` rejects your compiler, add
+    `-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=TRUE`.
   - On macOS with Homebrew's `libomp`, add the OpenMP settings at the end of
     [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects).
 

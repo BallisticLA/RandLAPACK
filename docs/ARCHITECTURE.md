@@ -154,8 +154,8 @@ Review enforces the layout, buffer, error and randomness rules for new code.
     `__CUDACC__`, so `.cu` files do not define it themselves.
   - Inside `rl_cuda_kernels.cuh`, kernels and their launches go inside the
     `#ifdef USE_CUDA` regions and host-callable wrappers outside, so the
-    header still compiles without nvcc (the wrappers then throw when
-    called).
+    header still compiles without nvcc when the CUDA headers are available
+    (the wrappers then throw when called).
 
 [devnotes/idioms.md](../devnotes/idioms.md) catalogs the C++ idioms we use
 deliberately (templated callables for duck typing, C++20 concepts,

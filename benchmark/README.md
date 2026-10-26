@@ -28,6 +28,8 @@ RandLAPACK through `find_package`, exactly as user code does.
     Toolkit, add `-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=TRUE`, as
     `install.sh` does. Otherwise the project tries to build the GPU benchmark
     and fails.
+  - With oneMKL, load its environment first (`source <oneapi>/setvars.sh`;
+    [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects)).
   - On macOS with Homebrew's `libomp`, add the OpenMP settings at the end of
     [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects).
 

@@ -38,7 +38,7 @@ Windows, use `install.ps1`.
 ## 2. Requirements
 
 - **CMake** 3.21 or later, and 3.24 or later for the `extras/` and
-  `benchmark/` projects (3.31.9 recommended).
+  `benchmark/` projects (3.31 recommended).
 - **A C++20 compiler**, one of:
   - GCC 13 or later, the tested floor. GCC 11 and 12 do not compile the
     current version.
@@ -131,7 +131,8 @@ git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 ## 4. Building and installing RandLAPACK
 
 With the dependencies of Section 3 in place, build and install RandLAPACK from
-the same parent directory (add `-DRequireCUDA=ON` for GPU support):
+the same parent directory (for GPU support, see
+[Section 7](#cuda-and-gcc-versions)):
 
 ```shell
 cmake -S RandLAPACK -B RandLAPACK-build -DCMAKE_BUILD_TYPE=Release \
@@ -237,7 +238,7 @@ for the runtime DLLs.
 **macOS with Homebrew's `libomp`.** A RandLAPACK built with that OpenMP
 requires your project to find it too, and Apple Clang does not find it
 without help. If your configure stops at "Could NOT find OpenMP", set what
-`install.sh` sets for every project it configures (its OpenMP block). This is
+`install.sh` sets for every project it configures. This is
 a copy of the installer's settings, not a separately tested recipe:
 
 ```shell
