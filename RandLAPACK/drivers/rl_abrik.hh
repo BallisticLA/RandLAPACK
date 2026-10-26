@@ -263,6 +263,13 @@ class ABRIK {
                 long get_factors_t_dur = 0;
                 long driver_alloc_t_dur = 0;
                 long total_t_dur = 0;
+                // BK restarts its timers on every call and resume, so sum them over the adaptive
+                // retries; layout of BK::times.
+                long bk_t[10] = {0};
+                auto accumulate_bk_times = [&]() {
+                    if (this->timing && bk_obj.times.size() == 10)
+                        for (int i = 0; i < 10; ++i) bk_t[i] += bk_obj.times[i];
+                };
 
                 if(this -> timing)
                     total_t_start = steady_clock::now();
@@ -317,6 +324,7 @@ class ABRIK {
                 bk_obj.max_krylov_iters = this->max_krylov_iters;
                 int status = bk_obj.call(A, k, X_ev, Y_od, R, S,
                                          end_rows, end_cols, final_iter_is_odd, state);
+                accumulate_bk_times();
 
                 // Read back BK outputs
                 read_back_from_bk();
@@ -493,6 +501,7 @@ class ABRIK {
                         bk_obj.max_krylov_iters + 1);
                     status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
                                            end_rows, end_cols, final_iter_is_odd, state);
+                    accumulate_bk_times();
 
                     read_back_from_bk();
 
@@ -527,7 +536,7 @@ class ABRIK {
 
                     // BK times: [0]=alloc, [1]=ungqr, [2]=reorth, [3]=qr, [4]=gemm_A,
                     //           [5]=main_loop, [6]=sketching, [7]=r_cpy, [8]=s_cpy, [9]=norm
-                    auto& bt = bk_obj.times;
+                    const long* bt = bk_t;
                     long allocation_t_dur = bt[0] + driver_alloc_t_dur;
                     long ungqr_t_dur      = bt[1];
                     long reorth_t_dur     = bt[2];

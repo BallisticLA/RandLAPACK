@@ -500,6 +500,8 @@ class BK {
 
                     // Grow buffers if the new max_krylov_iters requires more space
                     // than was allocated in the previous call.
+                    if(this -> timing)
+                        allocation_t_start = steady_clock::now();
                     if (prealloc) {
                         if (max_X_cols > alloc_X_cols) {
                             X_ev = ( T * ) realloc(X_ev, m * max_X_cols * sizeof( T ));
@@ -525,6 +527,10 @@ class BK {
                             std::fill(&S[(n + k) * alloc_Y_cols], &S[(n + k) * max_Y_cols], T(0));
                             alloc_Y_cols = max_Y_cols;
                         }
+                    }
+                    if(this -> timing) {
+                        allocation_t_stop  = steady_clock::now();
+                        allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
                     }
 
                     // Advance past the completed iteration so the while-loop starts at the next one.
@@ -719,6 +725,8 @@ class BK {
                         // regrouped by index space (odd owns Y_od and R, even owns X_ev and S),
                         // so it has to happen before the write rather than an iteration early.
                         if (!prealloc && y_cols + w > alloc_Y_cols) {
+                            if(this -> timing)
+                                allocation_t_start = steady_clock::now();
                             int64_t want = y_cols + w;
                             T* Y_new = ( T * ) realloc(Y_od, n * want * sizeof( T ));
                             T* R_new = ( T * ) realloc(R,    n * want * sizeof( T ));
@@ -728,6 +736,10 @@ class BK {
                             std::fill(&Y_od[n * alloc_Y_cols], &Y_od[n * want], T(0));
                             std::fill(&R[n * alloc_Y_cols],    &R[n * want],    T(0));
                             alloc_Y_cols = want;
+                            if(this -> timing) {
+                                allocation_t_stop  = steady_clock::now();
+                                allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                            }
                         }
 
                         X_i  = &X_ev[m * x_row];
@@ -743,14 +755,6 @@ class BK {
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
                             gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
-                            allocation_t_start  = steady_clock::now();
-                        }
-
-
-
-                        if(this -> timing) {
-                            allocation_t_stop  = steady_clock::now();
-                            allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
                             reorth_t_start  = steady_clock::now();
                         }
 
@@ -925,7 +929,7 @@ class BK {
                         }
 
                         // Buffer growth and pointer derivation both happen at the top of the
-                        // branch now, so there is nothing to advance here.
+                        // branch, where the growth is timed as allocation.
                     }
                     else {
                         // EVEN: build an X block from the last accepted Y block, write the S band.
@@ -942,6 +946,8 @@ class BK {
                         // because that bounds its ROW extent (S_ii sits at row x_cols), and
                         // x_cols >= y_cols always, so it also covers S's y_col column offset.
                         if (!prealloc && x_cols + w > alloc_X_cols) {
+                            if(this -> timing)
+                                allocation_t_start = steady_clock::now();
                             int64_t want = x_cols + w;
                             T* X_new = ( T * ) realloc(X_ev, m * want * sizeof( T ));
                             T* S_new = ( T * ) realloc(S,    (n + k) * want * sizeof( T ));
@@ -951,6 +957,10 @@ class BK {
                             std::fill(&X_ev[m * alloc_X_cols], &X_ev[m * want], T(0));
                             std::fill(&S[(n + k) * alloc_X_cols], &S[(n + k) * want], T(0));
                             alloc_X_cols = want;
+                            if(this -> timing) {
+                                allocation_t_stop  = steady_clock::now();
+                                allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                            }
                         }
 
                         Y_i  = &Y_od[n * y_col];
@@ -967,13 +977,6 @@ class BK {
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
                             gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
-                            allocation_t_start  = steady_clock::now();
-                        }
-
-
-                        if(this -> timing) {
-                            allocation_t_stop  = steady_clock::now();
-                            allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
                             reorth_t_start  = steady_clock::now();
                         }
 
@@ -1137,15 +1140,7 @@ class BK {
                         }
 
                         // Buffer growth and pointer derivation both happen at the top of the
-                        // branch now, so there is nothing to advance here.
-
-                        // This window opens after the A product, so it also counts the reorth, QR
-                        // and refill time timed above: a double count inherited from the window
-                        // layout and left as is.
-                        if(this -> timing) {
-                            allocation_t_stop  = steady_clock::now();
-                            allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-                        }
+                        // branch, where the growth is timed as allocation.
                     }
 
                     if(this -> timing)

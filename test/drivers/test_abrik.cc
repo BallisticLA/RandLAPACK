@@ -1307,3 +1307,47 @@ TEST_F(TestABRIK, ABRIK_call_with_checkpoints_traces_a_single_run) {
                      RandLAPACK::Error);
     }
 }
+
+// Timing bookkeeping. Disjoint component windows inside the total leave t_rest, the remainder
+// rl_abrik.hh defines, nonnegative; a window closed twice counts other windows' work again and
+// lowers t_rest by that amount. Both QR options, with a preallocated budget, with buffer growth
+// (unbounded budget), and adaptive (resumes that grow the buffers), on an exact-rank input.
+TEST_F(TestABRIK, ABRIK_timing_rest_is_nonnegative) {
+    using QR = RandLAPACK::BKSubroutines::QR_explicit;
+    const int64_t m = 400, n = 400, b_sz = 8, rank = 60;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> s(rank);
+    for (int i = 0; i < rank; ++i) s[i] = std::pow(10.0, -3.0 * i / (rank - 1));
+
+    for (QR qr : {QR::geqrf_ungqr, QR::cqrrt}) {
+        for (const char* mode : {"preallocated", "growing", "adaptive"}) {
+            const bool adaptive = (std::string(mode) == "adaptive");
+            SCOPED_TRACE(std::string(qr == QR::cqrrt ? "cqrrt, " : "geqrf_ungqr, ") + mode);
+            auto state = RandBLAS::RNGState();
+            ABRIKTestData<double> all_data(m, n);
+            build_from_spectrum(m, n, s, all_data.A, state);
+
+            RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, true, tol);
+            ABRIK.qr_exp = qr;
+            ABRIK.adaptive = adaptive;
+            ABRIK.max_krylov_iters = adaptive ? 2 : (std::string(mode) == "growing" ? INT_MAX : 16);
+            ASSERT_EQ(ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state), 0);
+
+            // [0] alloc, [1] get_factors, [2] ungqr, [3] reorth, [4] qr, [5] gemm_A, [6] main_loop,
+            // [7] sketching, [8] r_cpy, [9] s_cpy, [10] norm, [11] t_rest, [12] total.
+            ASSERT_EQ(ABRIK.times.size(), 13u) << "timing vector layout changed";
+            const auto& t = ABRIK.times;
+            printf("TIMING %s %-12s iters=%d alloc=%ld reorth=%ld qr=%ld t_rest=%ld total=%ld\n",
+                   qr == QR::cqrrt ? "cqrrt" : "geqrf", mode, ABRIK.num_krylov_iters,
+                   t[0], t[3], t[4], t[11], t[12]);
+            fflush(stdout);
+            if (adaptive)
+                EXPECT_GT(ABRIK.num_krylov_iters, 2) << "the adaptive leg no longer resumes";
+            else
+                EXPECT_GE(ABRIK.refilled_blocks, (int64_t) 1)
+                    << "the input no longer exercises the refill windows";
+            EXPECT_GT(t[12], 0);
+            EXPECT_GE(t[11], 0) << "t_rest is negative: a timing window was closed twice";
+        }
+    }
+}
