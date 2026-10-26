@@ -7,6 +7,9 @@
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
+#if defined(RandBLAS_HAS_OpenMP)
+#include <omp.h>
+#endif
 
 using Subroutines = RandLAPACK::CQRRPTSubroutines;
 
@@ -501,6 +504,45 @@ TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_R_consistent) {
         EXPECT_LE(err_qr, 1.0) << "rank " << r;
     }
 }
+
+#if defined(RandBLAS_HAS_OpenMP)
+// After a failed potrf, the Cholesky diagonal at and past the failed column is not part of a
+// factor, and its values depend on how potrf divides its work among threads. The rank scan must
+// stop at the failed column, so the rank does not depend on the thread count. On this input potrf
+// fails at column 45, and at these tolerances the ratio test does not cut before it, so a scan
+// that read the failed pivot gave 43 or 44 by thread count. A BLAS not threaded by OpenMP may
+// ignore the thread count set here.
+TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_rank_independent_of_threads) {
+    int64_t m = 600;
+    int64_t n = 60;
+    uint32_t seed = 7;
+    std::vector<double> A = cqrrpt_test::sketch_defeating_input(m, n, 2, 2.0, seed, 1.0);
+    const int saved_dynamic = omp_get_dynamic();
+    const int saved_threads = omp_get_max_threads();
+    omp_set_dynamic(0);
+
+    for (double tol : {1e-3, 3e-4, 1e-6}) {
+        SCOPED_TRACE(tol);
+        std::vector<int64_t> ranks;
+        for (int threads : {1, 2, 4, 8}) {
+            omp_set_num_threads(threads);
+            std::vector<double> Q(A), R(n * n, 0.0);
+            std::vector<int64_t> J(n, 0);
+            RandBLAS::RNGState<r123::Philox4x32> state(seed);
+            RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+            CQRRPT.nnz = 2;
+            EXPECT_EQ(CQRRPT.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+            ranks.push_back(CQRRPT.rank);
+        }
+        std::cout << "tol " << std::scientific << std::setprecision(1) << tol << ":  RANK AT 1, 2, 4, 8 THREADS "
+                  << ranks[0] << ", " << ranks[1] << ", " << ranks[2] << ", " << ranks[3] << "\n";
+        EXPECT_LT(ranks[0], n) << "input no longer makes CholQR fail; the test does not exercise the failure path";
+        EXPECT_EQ(ranks, std::vector<int64_t>(ranks.size(), ranks[0])) << "rank at 1, 2, 4 and 8 threads";
+    }
+    omp_set_num_threads(saved_threads);
+    omp_set_dynamic(saved_dynamic);
+}
+#endif
 
 // A full-rank m-by-2 A whose count sketch (nnz = 1) is diag(2, 1): column 0 is 2 s_r0 e_r0 + 2C z
 // and column 1 is s_r1 e_r1 + C z, with z in null(S). Then A_pre = [s_r0 e_r0 + C z, s_r1 e_r1 + C z]

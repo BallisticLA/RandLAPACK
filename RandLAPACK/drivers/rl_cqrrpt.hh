@@ -322,6 +322,8 @@ int CQRRPT<T, RNG>::call(
 
         // Re-estimate rank after we have the R-factor form Cholesky QR.
         // The strategy here is the same as in naive rank estimation.
+        // potrf completes only the leading info - 1 columns; the diagonal at and past the failed
+        // one depends on how potrf divides its work, so the scan stops there, as in CQRRPT_GPU.
         // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
         // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
         running_max = R_sp[0];
@@ -332,13 +334,12 @@ int CQRRPT<T, RNG>::call(
             curr_entry = std::abs(R_sp[i * ldr + i]);
             running_max = std::max(running_max, curr_entry);
             running_min = std::min(running_min, curr_entry);
-            if((running_min * cond_threshold < running_max) && i > 1) {
+            if(((i >= info - 1) || (running_min * cond_threshold < running_max)) && i > 1) {
                 new_rank = i - 1;
                 break;
             }
         }
-        // Never keep a column at or past the failed one: potrf factors only the leading info - 1,
-        // and the scan cannot cut before i = 2.
+        // Never keep a column at or past the failed one: the scan cannot cut before i = 2.
         new_rank = std::min<int64_t>(new_rank, info - 1);
     }
 
