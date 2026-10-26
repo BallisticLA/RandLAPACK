@@ -29,9 +29,9 @@ RandLAPACK through `find_package`, exactly as user code does.
     `install.sh` does. Otherwise the project tries to build the GPU benchmark
     and fails.
   - With oneMKL, load its environment first (`source <oneapi>/setvars.sh`;
-    [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects)).
-  - On macOS with Homebrew's `libomp`, add the OpenMP settings at the end of
-    [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects).
+    [USING.md](../docs/USING.md#building-it)).
+  - On macOS with Homebrew's `libomp`, add the OpenMP settings of
+    [USING.md](../docs/USING.md#macos-with-homebrews-libomp).
 
 The project needs CMake 3.24 or later. Its first configure needs a network
 connection: it fetches Eigen, Spectra and fast_matrix_market with CMake's
