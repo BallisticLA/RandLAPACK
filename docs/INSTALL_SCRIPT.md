@@ -29,9 +29,10 @@ repository root keeps `bash install.sh` working.
    ```shell
    OMP_NUM_THREADS=1 ctest --test-dir ~/RandNLA/RandNLA-project/build/RandLAPACK-build -j 4
    ```
-   This runs four single-threaded tests at a time, and the suite should
+   This runs four tests at a time, each limited to one OpenMP thread
+   (Accelerate on macOS still threads internally), and the suite should
    pass, typically in a minute or two. Plain `ctest` runs one test at a
-   time, each using every core, and can take far longer, especially on a
+   time, each with many threads, and can take far longer, especially on a
    busy machine. If you set `RANDNLA_PROJECT_DIR`, the build directory is
    under it instead; the installer's final summary prints it.
 
