@@ -22,6 +22,34 @@ double precision.
 Questions, or want to get involved in development? Join
 [**our Discord server**](https://discord.gg/R4qj8Er9YW).
 
+## What's in the library
+
+The user-facing algorithms, called "drivers"
+([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the library is
+organized):
+
+| Driver | Problem it solves | Reference |
+|--------|-------------------|-----------|
+| `BQRRP` | Blocked QR with randomized column pivoting, any aspect ratio | [arXiv:2507.00976](https://arxiv.org/abs/2507.00976) |
+| `CQRRPT` | Sketch-based QR with column pivoting for tall matrices | [arXiv:2311.08316](https://arxiv.org/abs/2311.08316) |
+| `CQRRT` | Unpivoted QR of tall, full-rank matrices by sketch-preconditioned Cholesky QR; `CQRRT_linops` is its Q-less variant for linear operators | [arXiv:2111.11148](https://arxiv.org/abs/2111.11148) |
+| `RSVD` | Randomized low-rank SVD via the QB decomposition, of a dense matrix or any linear operator (sparse or implicit) | [arXiv:0909.4061](https://arxiv.org/abs/0909.4061) |
+| `REVD2` | Randomized low-rank eigendecomposition of symmetric positive semidefinite matrices | [arXiv:2110.02820](https://arxiv.org/abs/2110.02820) |
+| `ABRIK` | Block-Krylov iterative SVD for many accurate singular triplets | [arXiv:2306.12418](https://arxiv.org/abs/2306.12418) |
+| `hqrrp` | Householder QR with randomized pivoting | [arXiv:1512.02671](https://arxiv.org/abs/1512.02671) |
+| `krill_full_rpchol` | Kernel ridge regression by conjugate gradients, preconditioned with randomly pivoted Cholesky | [arXiv:2304.12465](https://arxiv.org/abs/2304.12465) |
+
+- BQRRP and CQRRPT also have CUDA (GPU) implementations, `BQRRP_GPU` and
+  `CQRRPT_GPU`.
+- `CholQR_linops` and `sCholQR3_linops` are deterministic Cholesky QR
+  baselines for linear operators, for comparison with `CQRRT_linops`.
+- The drivers are assembled from smaller randomized building blocks that you
+  can also use on their own: rangefinders, QB, block Krylov, row sketching,
+  orthogonalization and stabilization routines, and randomly pivoted Cholesky
+  (`rp_cholesky`).
+- The RandNLA monograph ([arXiv:2302.11474](https://arxiv.org/abs/2302.11474))
+  is the best background reference for these algorithm families.
+
 ## Install
 
 ### Linux and macOS
@@ -91,43 +119,6 @@ not build the extras or benchmark projects.
 
 [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md#tested-setups) lists the hardware
 and software setups where RandLAPACK has been tested.
-
-## What's in the library
-
-The user-facing algorithms, called "drivers"
-([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the library is
-organized):
-
-| Driver | Problem it solves | Reference |
-|--------|-------------------|-----------|
-| `BQRRP` | Blocked QR with randomized column pivoting, any aspect ratio | [arXiv:2507.00976](https://arxiv.org/abs/2507.00976) |
-| `CQRRPT` | Sketch-based QR with column pivoting for tall matrices | [arXiv:2311.08316](https://arxiv.org/abs/2311.08316) |
-| `CQRRT` | Unpivoted QR of tall, full-rank matrices by sketch-preconditioned Cholesky QR; `CQRRT_linops` is its Q-less variant for linear operators | [arXiv:2111.11148](https://arxiv.org/abs/2111.11148) |
-| `RSVD` | Randomized low-rank SVD via the QB decomposition, of a dense matrix or any linear operator (sparse or implicit) | [arXiv:0909.4061](https://arxiv.org/abs/0909.4061) |
-| `REVD2` | Randomized low-rank eigendecomposition of symmetric positive semidefinite matrices | [arXiv:2110.02820](https://arxiv.org/abs/2110.02820) |
-| `ABRIK` | Block-Krylov iterative SVD for many accurate singular triplets | [arXiv:2306.12418](https://arxiv.org/abs/2306.12418) |
-| `hqrrp` | Householder QR with randomized pivoting | [arXiv:1512.02671](https://arxiv.org/abs/1512.02671) |
-| `krill_full_rpchol` | Kernel ridge regression by conjugate gradients, preconditioned with randomly pivoted Cholesky | [arXiv:2304.12465](https://arxiv.org/abs/2304.12465) |
-
-- BQRRP and CQRRPT also have CUDA (GPU) implementations, `BQRRP_GPU` and
-  `CQRRPT_GPU`.
-- `CholQR_linops` and `sCholQR3_linops` are deterministic Cholesky QR
-  baselines for linear operators, for comparison with `CQRRT_linops`.
-- The drivers are assembled from smaller randomized building blocks that you
-  can also use on their own: rangefinders, QB, block Krylov, row sketching,
-  orthogonalization and stabilization routines, and randomly pivoted Cholesky
-  (`rp_cholesky`).
-- The RandNLA monograph ([arXiv:2302.11474](https://arxiv.org/abs/2302.11474))
-  is the best background reference for these algorithm families.
-
-## Related libraries
-
-Before RandLAPACK, we implemented several high-level RandNLA algorithms in
-MATLAB ([MARLA](https://github.com/BallisticLA/marla)) and Python
-([PARLA](https://github.com/BallisticLA/parla)). PARLA treats *algorithms as
-objects*: you instantiate an algorithm with its tuning parameters and
-subroutines before using it. RandLAPACK currently emphasizes the same
-approach.
 
 ## Where to go from here
 
