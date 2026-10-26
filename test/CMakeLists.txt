@@ -67,14 +67,15 @@ if (GTest_FOUND)
         target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
         randlapack_stage_runtime_dlls(RandLAPACK_tests_gpu)
 
-        # Discover CUDA tests
-        gtest_discover_tests(RandLAPACK_tests_gpu)
+        # Discover CUDA tests. Every GPU entry holds the lock "gpu", so under ctest -j no two run at
+        # once: the leak checks read device-wide free memory, which another GPU test would change.
+        gtest_discover_tests(RandLAPACK_tests_gpu PROPERTIES RESOURCE_LOCK gpu)
         # Discovered tests run one per process. This entry runs them in one process, shuffled and
         # twice, so a test that leaves CUDA state behind (a pending error, a bad free) fails here.
         # It runs alone: alongside the discovered GPU tests it would double their memory peak.
         add_test(NAME RandLAPACK_tests_gpu_shuffle_repeat
                  COMMAND RandLAPACK_tests_gpu --gtest_shuffle --gtest_repeat=2)
-        set_tests_properties(RandLAPACK_tests_gpu_shuffle_repeat PROPERTIES RUN_SERIAL TRUE)
+        set_tests_properties(RandLAPACK_tests_gpu_shuffle_repeat PROPERTIES RUN_SERIAL TRUE RESOURCE_LOCK gpu)
 
         # A program built with per-thread default streams. Its own executable: the drivers are
         # header templates, so one shared with legacy-stream sources could link either version.
@@ -83,7 +84,7 @@ if (GTest_FOUND)
         target_compile_options(RandLAPACK_tests_gpu_ptds PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>)
         target_link_libraries(RandLAPACK_tests_gpu_ptds RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
         randlapack_stage_runtime_dlls(RandLAPACK_tests_gpu_ptds)
-        gtest_discover_tests(RandLAPACK_tests_gpu_ptds)
+        gtest_discover_tests(RandLAPACK_tests_gpu_ptds PROPERTIES RESOURCE_LOCK gpu)
     endif()
 
     # Create additional tests

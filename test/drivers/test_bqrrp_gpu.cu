@@ -501,8 +501,9 @@ TEST_F(TestBQRRP, BQRRP_GPU_vectors) {
     test_BQRRP_compare_with_CPU(d, all_data, BQRRP_GPU, BQRRP_CPU, state);
 }
 
-// Repeated BQRRP_GPU calls must not grow device memory use. cudaMemGetInfo is device wide,
-// so other processes add noise; a leak shows up in every round, noise rarely does.
+// Repeated BQRRP_GPU calls must not grow device memory use. cudaMemGetInfo is device wide, so
+// this check assumes no other process allocates on the GPU meanwhile (ctest runs the GPU tests
+// one at a time); a leak shows up in every round, occasional noise rarely does.
 // The geqrf case also allocates a geqrf workspace per iteration, about 10 MiB per call in all;
 // keeping them would grow memory by about 160 MiB per round of 16 calls, five times the bound.
 TEST_F(TestBQRRP, BQRRP_GPU_repeated_calls_no_leak) {
@@ -1233,8 +1234,8 @@ TEST_F(TestBQRRP, BQRRP_GPU_padded_lda) {
 
 // An empty A (0 x 16 or 16 x 0) has nothing to factor: BQRRP_GPU must set rank 0 and J to the
 // identity, which is what GEQP3 returns for an empty matrix, and keep no device memory. The bound
-// is the one of BQRRP_GPU_repeated_calls_no_leak; a call that keeps its cuSOLVER handle alone
-// exceeds it.
+// is the one of BQRRP_GPU_repeated_calls_no_leak, with its assumption that no other process
+// allocates on the GPU meanwhile; a call that keeps its cuSOLVER handle alone exceeds it.
 TEST_F(TestBQRRP, BQRRP_GPU_empty_input) {
     int64_t b_sz = 8;
     int64_t d = 10;
