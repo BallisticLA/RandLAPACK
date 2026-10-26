@@ -33,7 +33,7 @@ Last updated: 2026-10-26.
 | x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | oneMKL 2026.1, ILP64 | off | by hand, also with oneMKL under a path with spaces | CI [core-windows] `build-windows` and `windows-spaced-path`; 2026-10-26 |
 | x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | OpenBLAS 0.3.34, LP64 | off | by hand | CI [core-windows] `build-windows`; 2026-10-26 |
 | x86-64 (Intel Core Ultra 9 386H) | Ubuntu 26.04 under WSL2 | GCC 15.2.0 | oneMKL 2026.0, ILP64 | on | installer (`--blas=mkl`); by hand (the recipe in [INSTALL_MANUAL.md](INSTALL_MANUAL.md)) | local; 2026-10-26 |
-| x86-64 (Intel Core Ultra 9 386H), NVIDIA GeForce RTX 5070 Ti Laptop GPU | Ubuntu 26.04 under WSL2 | GCC 15.2.0, CUDA 13.3 | oneMKL 2026.0, ILP64 | on | tests only, CPU and GPU (see below) | local; 2026-10-22 |
+| x86-64 (Intel Core Ultra 9 386H), NVIDIA GeForce RTX 5070 Ti Laptop GPU | Ubuntu 26.04 under WSL2 | GCC 15.2.0, CUDA 13.3 | oneMKL 2026.0, ILP64 | on | by hand (developer build; see below) | local; 2026-10-22 |
 
 Other setups may work, but are untested; report results on
 [our Discord server](https://discord.gg/R4qj8Er9YW) or in a
@@ -49,8 +49,14 @@ Other setups may work, but are untested; report results on
   each lane.
 - **GPU.** No CI job builds or runs the GPU code
   ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). The GPU row
-  is a local developer build whose BLAS++ and LAPACK++ predate the current
-  pins.
+  is a local developer build of a RandLAPACK revision from before the pin
+  move ([#174](https://github.com/BallisticLA/RandLAPACK/pull/174)), with
+  older BLAS++ and LAPACK++; its CPU and GPU tests passed. Two GPU issues
+  are open against that code:
+  [#213](https://github.com/BallisticLA/RandLAPACK/issues/213) (an abort in
+  shuffled or repeated test runs) and
+  [#214](https://github.com/BallisticLA/RandLAPACK/issues/214)
+  (intermittent CQRRPT_GPU results).
 
 [core-linux]: https://github.com/BallisticLA/RandLAPACK/actions/runs/40406849472
 [core-macos]: https://github.com/BallisticLA/RandLAPACK/actions/runs/40406849581
