@@ -471,11 +471,9 @@ int BQRRP_GPU<T, RNG>::call(
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
         if (iter == 0)
             RandLAPACK::cuda_kernels::max_abs(strm, rows, A_work, col_ref);
-        // all_of counts a NaN entry as nonzero. An Inf in the first pivot column makes the threshold
-        // Inf or NaN, so then no block is judged zero, and the Inf and NaN reach the output.
-        block_zero = false;
-        if (std::isfinite(col_ref))
-            RandLAPACK::cuda_kernels::all_of(strm, rows, this -> tol * col_ref, A_work, block_zero);
+        // A NaN entry counts as nonzero, and an Inf in the first pivot column (col_ref Inf) judges
+        // no block zero, so the Inf and NaN reach the output.
+        block_zero = RandLAPACK::cuda_kernels::block_is_zero(strm, rows, this -> tol, col_ref, A_work);
         if(block_zero){
             // Need to update the pivot vector, same as below.
             if(iter == 0) {

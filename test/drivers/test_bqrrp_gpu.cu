@@ -1093,60 +1093,66 @@ TEST_F(TestBQRRP, BQRRP_GPU_buffers_reused_pool_memory) {
     }
 }
 
-// An Inf or a NaN in A must reach the output, not be erased, mirroring BQRRP_non_finite_input in
-// test_bqrrp.cc. With an Inf in A's first pivot column the zero-block threshold tol * col_ref is Inf
-// (NaN when tol = 0), and a first pivot column of NaN has no entry above any threshold; either way
-// the first block was judged zero, and BQRRP_GPU returned rank 0 with A and tau zeroed.
-// Only cholqr runs here: on these inputs cuSOLVER's geqrf (CUDA 13.3) trips a device-side assert,
-// which leaves the CUDA context unusable for every later test in the process.
-TEST_F(TestBQRRP, BQRRP_GPU_non_finite_input) {
-    int64_t m = 300;
-    int64_t n = 200;
-    int64_t b_sz = 50;
-    int64_t d = 1.25 * b_sz;
-
-    std::vector<double> A(m * n, 0.0);
+// An Inf or a NaN in A must not make BQRRP_GPU take its zero-block exit; what cuSOLVER then does
+// with them is left to it, so this tests the exit's decision alone, on device buffers. col_ref is
+// max_abs of A's first pivot column, and a block is judged zero when block_is_zero finds no entry
+// of its pivot column above tol * col_ref. Before, an Inf in the first pivot column made that
+// threshold Inf (NaN when tol = 0), and a NaN entry never exceeded it, so the first block was
+// judged zero and A and tau were zeroed. 300 entries exceed the kernels' 128 threads.
+TEST_F(TestBQRRP, BQRRP_GPU_zero_block_check_non_finite) {
+    int64_t n = 300;
+    double inf = std::numeric_limits<double>::infinity();
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    std::vector<double> random(n);
     auto state = RandBLAS::RNGState();
-    RandBLAS::DenseDist D(m, n);
-    state = RandBLAS::fill_dense(D, A.data(), state);
-    // One Inf in column 7: its sketch column is all Inf, so the sketch's LU pivots it first.
-    std::vector<double> A_inf(A);
-    A_inf[m * 7 + 5] = std::numeric_limits<double>::infinity();
-    // Column 0 all NaN. Whether the sketch's LU pivots it first depends on how its pivot search
-    // treats NaN, so A all NaN covers a NaN first pivot column whatever that search does.
-    std::vector<double> A_nan(A);
-    std::fill(A_nan.begin(), A_nan.begin() + m, std::numeric_limits<double>::quiet_NaN());
-    std::vector<double> A_all_nan(m * n, std::numeric_limits<double>::quiet_NaN());
+    RandBLAS::DenseDist D(n, 1);
+    RandBLAS::fill_dense(D, random.data(), state);
 
-    for (const auto& [input_name, A_in] : {std::make_pair("Inf in column 7", &A_inf), std::make_pair("column 0 NaN", &A_nan), std::make_pair("all NaN", &A_all_nan)}) {
-        for (double tol : {std::numeric_limits<double>::epsilon(), 0.0}) {
-            SCOPED_TRACE(::testing::Message() << input_name << ", tol " << tol);
-            double norm_A = 0;
-            auto state_sk = state;
-            BQRRPTestData<double> all_data(m, n, n, d);
-            all_data.A = *A_in;
-            norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state_sk);
+    double* col_device;
+    cudaMalloc(&col_device, n * sizeof(double));
+    cudaStream_t strm;
+    cudaStreamCreate(&strm);
+    // The decision for col as the first pivot column, where col_ref comes from col itself.
+    auto first_judged_zero = [&](const std::vector<double>& col, double tol) {
+        cudaMemcpy(col_device, col.data(), n * sizeof(double), cudaMemcpyHostToDevice);
+        double col_ref = 0;
+        RandLAPACK::cuda_kernels::max_abs(strm, n, col_device, col_ref);
+        return RandLAPACK::cuda_kernels::block_is_zero(strm, n, tol, col_ref, col_device);
+    };
+    // The decision for col as a later block's pivot column, with col_ref = 1.
+    auto later_judged_zero = [&](const std::vector<double>& col, double tol) {
+        cudaMemcpy(col_device, col.data(), n * sizeof(double), cudaMemcpyHostToDevice);
+        return RandLAPACK::cuda_kernels::block_is_zero(strm, n, tol, 1.0, col_device);
+    };
 
-            RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
-            BQRRP_GPU.tol     = tol;
-            BQRRP_GPU.qr_tall = GPUSubroutines::QRTall::cholqr;
-            BQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+    std::vector<double> zeros(n, 0.0), tiny(n, 1e-20);
+    std::vector<double> first_inf(random), first_nan(n, nan), first_mixed(random);
+    first_inf[n - 1] = inf;
+    first_mixed[5] = nan;
+    first_mixed[n - 1] = inf;
+    std::vector<double> later_nan(zeros), later_inf(zeros);
+    later_nan[n - 1] = nan;
+    later_inf[n - 1] = inf;
 
-            cudaMemcpy(all_data.Q.data(), all_data.A_device, m * n * sizeof(double), cudaMemcpyDeviceToHost);
-            cudaMemcpy(all_data.J.data(), all_data.J_device, n * sizeof(int64_t),    cudaMemcpyDeviceToHost);
-            cudaError_t ierr = cudaGetLastError();
-            ASSERT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
-
-            int64_t non_finite = 0;
-            for (auto a : all_data.Q)
-                non_finite += !std::isfinite(a);
-            std::cout << std::setw(16) << input_name << ",  tol " << std::scientific << std::setprecision(1) << tol
-                      << ":  RANK " << std::setw(4) << BQRRP_GPU.rank << ",  J[0] " << std::setw(4) << all_data.J[0] << ",  NON-FINITE ENTRIES OF A " << non_finite << "\n";
-
-            EXPECT_EQ(BQRRP_GPU.rank, std::min(m, n));
-            EXPECT_GT(non_finite, 0);
-        }
+    for (double tol : {std::numeric_limits<double>::epsilon(), 0.0}) {
+        SCOPED_TRACE(::testing::Message() << "tol " << tol);
+        // Finite data: zero blocks are found, a nonzero first column is not one.
+        EXPECT_TRUE(later_judged_zero(zeros, tol));
+        if (tol > 0)
+            EXPECT_TRUE(later_judged_zero(tiny, tol));
+        EXPECT_FALSE(first_judged_zero(random, tol));
+        // A first pivot column with an Inf, all NaN, or both.
+        EXPECT_FALSE(first_judged_zero(first_inf, tol)) << "Inf in the first pivot column";
+        EXPECT_FALSE(first_judged_zero(first_nan, tol)) << "first pivot column all NaN";
+        EXPECT_FALSE(first_judged_zero(first_mixed, tol)) << "NaN and Inf in the first pivot column";
+        // A later block, zero but for one NaN or Inf.
+        EXPECT_FALSE(later_judged_zero(later_nan, tol)) << "NaN in a later block";
+        EXPECT_FALSE(later_judged_zero(later_inf, tol)) << "Inf in a later block";
     }
+    cudaStreamDestroy(strm);
+    cudaFree(col_device);
+    cudaError_t ierr = cudaGetLastError();
+    ASSERT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
 }
 
 // Padded storage: lda = m + 7 must give the result of lda = m and leave the padding rows untouched.

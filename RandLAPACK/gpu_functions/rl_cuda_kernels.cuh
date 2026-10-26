@@ -641,6 +641,22 @@ void max_abs(
 #endif
 }
 
+// BQRRP_GPU's zero-block test: whether every |A[i]| of the n entries is at most tol * col_ref.
+// A NaN entry counts as exceeding it, and a col_ref that is Inf or NaN judges no block zero.
+template <typename T>
+bool block_is_zero(
+    cudaStream_t stream,
+    int64_t n,
+    const T tol,
+    const T col_ref,
+    const T* A
+) {
+    bool block_zero = false;
+    if (std::isfinite(col_ref))
+        all_of(stream, n, tol * col_ref, A, block_zero);
+    return block_zero;
+}
+
 template <typename T>
 void ger_gpu(
     cudaStream_t stream, 
