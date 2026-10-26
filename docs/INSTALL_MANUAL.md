@@ -58,9 +58,10 @@ Windows, use `install.ps1`.
     regression tests are not built. Any package manager provides it.
   - OpenMP, for multithreaded loops. RandLAPACK and its dependencies detect
     it and use it automatically, except on macOS: Apple Clang finds
-    Homebrew's `libomp` only with the settings at the end of Section 5.
-    Pass them to every configure; without them, RandLAPACK's own loops run
-    on one thread (Accelerate still uses all cores).
+    Homebrew's `libomp` only with
+    [these settings](USING.md#macos-with-homebrews-libomp). Pass them to
+    every configure; without them, RandLAPACK's own loops run on one thread
+    (Accelerate still uses all cores).
   - CUDA, for GPU support. It is off by default;
     [DEPENDENCIES.md](DEPENDENCIES.md#cuda-and-gcc-versions) lists what a
     GPU build needs.
@@ -180,79 +181,18 @@ The `extras/` project has a third test switch of its own,
 
 ## 5. Using RandLAPACK in other projects
 
-An installed RandLAPACK works like any other CMake package. This
-`CMakeLists.txt` and `main.cc` build a program that factors a random matrix
-with the `CQRRPT` driver (QR with column pivoting of a tall matrix):
+[USING.md](USING.md) shows how to use an installed RandLAPACK from your own
+CMake project, with a minimal example program. After the recipe of Section
+4, point `RandLAPACK_DIR` at your own install prefix:
 
-```cmake
-cmake_minimum_required(VERSION 3.21)
-project(myexec)
-
-find_package(RandLAPACK REQUIRED)
-
-add_executable(myexec main.cc)
-target_link_libraries(myexec RandLAPACK::RandLAPACK)
+```
+-DRandLAPACK_DIR=<parent>/RandLAPACK-install/lib/cmake/RandLAPACK
 ```
 
-```cpp
-#include <RandLAPACK.hh>
-#include <cmath>
-#include <cstdio>
-#include <limits>
-#include <vector>
-
-int main() {
-    int64_t m = 1000, n = 50;
-    std::vector<double> A(m * n), R(n * n);
-    std::vector<int64_t> J(n);
-    RandBLAS::RNGState<> state(0);
-    state = RandBLAS::fill_dense(RandBLAS::DenseDist(m, n), A.data(), state);
-
-    // Pivoted QR, A[:, J] = Q R, with a sketch of 2n rows. A is overwritten by Q.
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    RandLAPACK::CQRRPT<double> cqrrpt(false, tol);
-    cqrrpt.call(m, n, A.data(), m, R.data(), n, J.data(), 2.0, state);
-    std::printf("rank %lld\n", (long long) cqrrpt.rank);
-}
-```
-
-Matrices are column-major arrays. `RandBLAS::fill_dense` fills `A` with
-random numbers, and the program prints `rank 50`.
-
-The exported target `RandLAPACK::RandLAPACK` brings RandBLAS, LAPACK++ and
-BLAS++ along as link dependencies. Configure the project with
-`-DRandLAPACK_DIR=Z`, where `Z` contains `RandLAPACKConfig.cmake`. That
-config records where RandLAPACK found BLAS++, LAPACK++, Random123 and
-RandBLAS, so they need no flags of their own. If RandLAPACK was built with
-`-DRandLAPACK_EXTERNAL_RandBLAS=ON`, also pass `-DRandBLAS_DIR`.
-
-**With oneMKL**, load its environment (`source <oneapi>/setvars.sh`) in
-every shell where you build or run a program that uses RandLAPACK. BLAS++
-records oneMKL by library name only, so the linker and the loader find it
-through that environment.
-
-After `install.sh`, the exact path is in
-[INSTALL_SCRIPT.md, section 4](INSTALL_SCRIPT.md#4-after-the-install). On
-Windows, also see
-[INSTALL_WINDOWS.md, section 7](INSTALL_WINDOWS.md#7-runtime-dlls-what-staging-means)
-for the runtime DLLs.
-
-**macOS with Homebrew's `libomp`.** A RandLAPACK built with that OpenMP
-requires your project to find it too, and Apple Clang does not find it
-without help. If your configure stops at "Could NOT find OpenMP", set what
-`install.sh` sets for every project it configures. This is
-a copy of the installer's settings, not a separately tested recipe:
-
-```shell
-LIBOMP=$(brew --prefix)/opt/libomp
-export CFLAGS="-Xpreprocessor -fopenmp -I$LIBOMP/include"
-export CXXFLAGS="-isystem $(xcrun --show-sdk-path)/usr/include/c++/v1 $CFLAGS"
-export LDFLAGS="-L$LIBOMP/lib"
-cmake ... -DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_LIB_NAMES=omp \
-    -DOpenMP_omp_LIBRARY=$LIBOMP/lib/libomp.dylib \
-    "-DOpenMP_C_FLAGS=-Xpreprocessor;-fopenmp" \
-    "-DOpenMP_CXX_FLAGS=-Xpreprocessor;-fopenmp"
-```
+Here `<parent>` is the directory you ran Sections 3 and 4 from, as an
+absolute path (`lib64` instead of `lib` on some systems). If you built
+RandLAPACK with `-DRandLAPACK_EXTERNAL_RandBLAS=ON`, also pass
+`-DRandBLAS_DIR`.
 
 ## 6. Choosing and configuring the backend
 
