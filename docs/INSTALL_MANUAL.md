@@ -6,9 +6,10 @@
 >
 > By hand, you must keep the integer width, OpenMP, CUDA and the oneMKL
 > environment consistent across BLAS++, LAPACK++, RandBLAS and RandLAPACK
-> yourself. Some mistakes fail silently: for example, a BLAS++ built without
-> `BLAS_HAVE_MKL` silently disables RandBLAS's oneMKL sparse support. The
-> installers keep all of this consistent for you, and CI tests them.
+> yourself. Some mistakes fail silently: for example, on macOS a configure
+> without the Homebrew `libomp` settings reports only "Could NOT find
+> OpenMP" and builds anyway, so RandLAPACK's own loops run on one thread.
+> The installers keep all of this consistent for you, and CI tests them.
 
 | Your machine | Installer command | Guide |
 |---|---|---|
