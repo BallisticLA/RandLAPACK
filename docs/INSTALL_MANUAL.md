@@ -1,19 +1,24 @@
-# Installing and using RandLAPACK
+# Installing RandLAPACK by hand
 
-**Most people should use an installer.** It builds RandLAPACK and all of its
-dependencies with one command:
+> **Advanced, riskier option.** Most people should use an installer; the
+> [README](../README.md#install) shows how. This guide is for advanced users
+> who need control that the installers do not give.
+>
+> By hand, you must keep the integer width, OpenMP, CUDA and the oneMKL
+> environment consistent across BLAS++, LAPACK++, RandBLAS and RandLAPACK
+> yourself. Some mistakes fail silently: for example, a BLAS++ built without
+> `BLAS_HAVE_MKL` silently disables RandBLAS's oneMKL sparse support. The
+> installers keep all of this consistent for you, and CI tests them.
 
-| Your machine | Command | Guide |
+| Your machine | Installer command | Guide |
 |---|---|---|
 | Linux or macOS | `bash install.sh` | [INSTALL_SCRIPT.md](INSTALL_SCRIPT.md) |
 | Native Windows (MSVC) | `powershell -ExecutionPolicy Bypass -File .\installers\install.ps1` | [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) |
 
-This guide covers the rest: building each piece by hand when you want control
-over how the dependencies are configured, and using RandLAPACK from your own
-CMake project.
+This guide builds each piece by hand:
 
 - Sections 2 to 4: a basic manual build. Section 5: using it from another
-  CMake project.
+  CMake project ([USING.md](USING.md) has the details).
 - Section 6: choosing and configuring the backend. Skip it on your first
   build; its BLAS++ and LAPACK++ recipes can replace those of Section 3.
 - Section 7: troubleshooting. Pinned versions, the forks, the RandBLAS
