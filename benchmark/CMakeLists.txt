@@ -199,6 +199,7 @@ add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_accuracy_analysis        CXX_SOURCES bench_ABRIK/ABRIK_accuracy_analysis.cc        LINK_LIBS ${Benchmark_libs_matrix_io})
 add_benchmark(NAME ABRIK_adaptive_hard            CXX_SOURCES bench_ABRIK/ABRIK_adaptive_hard.cc            LINK_LIBS ${Benchmark_libs_matrix_io})
+add_benchmark(NAME ABRIK_orth_pilot               CXX_SOURCES bench_ABRIK/ABRIK_orth_pilot.cc               LINK_LIBS ${Benchmark_libs})
 
 # GPU benchmarks (if CUDA is available)
 if (HAVE_CUDA)
