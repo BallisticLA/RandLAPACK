@@ -172,3 +172,25 @@ TEST_F(TestCQRRT, CQRRT_large_full_rank) {
 
     test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
 }
+
+// A single column at d_factor = 1.25 gives a one-row sketch, fewer rows than the default two
+// nonzeros per column of the sparse sketching operator.
+TEST_F(TestCQRRT, CQRRT_single_column) {
+    int64_t m = 100;
+    int64_t n = 1;
+    double d_factor = 1.25;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRTTestData<double> all_data(m, n, n);
+    RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
+    CQRRT.nnz = 2;
+
+    RandBLAS::DenseDist D(m, n);
+    state = RandBLAS::fill_dense(D, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+
+    test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
+}
