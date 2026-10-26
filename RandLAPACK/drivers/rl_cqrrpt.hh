@@ -316,12 +316,12 @@ int CQRRPT<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A, lda, (T) 0.0, R_sp, ldr);
-    if(lapack::potrf(Uplo::Upper, k, R_sp, ldr)) {
+    int64_t info = lapack::potrf(Uplo::Upper, k, R_sp, ldr);
+    if(info > 0) {
         // Perform aposteriori rank estimation of CholQR failed?
 
         // Re-estimate rank after we have the R-factor form Cholesky QR.
         // The strategy here is the same as in naive rank estimation.
-        // This also automatically takes care of any potential failures in Cholesky factorization.
         // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
         // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
         running_max = R_sp[0];
@@ -337,6 +337,9 @@ int CQRRPT<T, RNG>::call(
                 break;
             }
         }
+        // Never keep a column at or past the failed one: potrf factors only the leading info - 1,
+        // and the scan cannot cut before i = 2.
+        new_rank = std::min<int64_t>(new_rank, info - 1);
     }
 
     // Set the rank parameter to the value computed a posteriori.

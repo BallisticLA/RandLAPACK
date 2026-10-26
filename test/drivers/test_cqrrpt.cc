@@ -502,6 +502,102 @@ TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_R_consistent) {
     }
 }
 
+// A full-rank m-by-2 A whose count sketch (nnz = 1) is diag(2, 1): column 0 is 2 s_r0 e_r0 + 2C z
+// and column 1 is s_r1 e_r1 + C z, with z in null(S). Then A_pre = [s_r0 e_r0 + C z, s_r1 e_r1 + C z]
+// exactly. With C = 2^27 and ||z||^2 = 4 its Gram matrix rounds to 2^56 [1 1; 1 1], so potrf fails
+// at column 2, exactly and on any BLAS. With k = 2 the ratio scan, which starts at i = 2, cannot
+// cut the rank: CQRRPT must still drop the failed column.
+TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_k2_drops_failed_column) {
+    int64_t m = 32;
+    int64_t n = 2;
+    int64_t d = 4;
+    uint32_t seed = 3;
+    double C = std::ldexp(1.0, 27);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    // The sketch CQRRPT draws: each column of S has one entry, +-1, in row bucket[i].
+    RandBLAS::RNGState<r123::Philox4x32> sk_state(seed);
+    RandBLAS::SparseDist DS(d, m, 1);
+    RandBLAS::SparseSkOp<double, r123::Philox4x32> S(DS, sk_state);
+    RandBLAS::fill_sparse(S);
+    std::vector<double> I(m * m, 0.0), Sd(d * m, 0.0);
+    for (int64_t i = 0; i < m; ++i)
+        I[i + i * m] = 1.0;
+    RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, m, m, 1.0, S, 0, 0, I.data(), m, 0.0, Sd.data(), d);
+    std::vector<int64_t> bucket(m, -1);
+    std::vector<double> sign(m, 0.0);
+    for (int64_t i = 0; i < m; ++i)
+        for (int64_t b = 0; b < d; ++b)
+            if (Sd[b + i * d] != 0.0) {
+                bucket[i] = b;
+                sign[i] = Sd[b + i * d];
+            }
+
+    // r0 in bucket 0, r1 in bucket 1, and z = sum over two pairs (i, j) sharing a bucket of
+    // s_i e_i - s_j e_j, so S z = 0.
+    int64_t r0 = -1, r1 = -1;
+    for (int64_t i = 0; i < m; ++i) {
+        if (r0 < 0 && bucket[i] == 0)
+            r0 = i;
+        else if (r1 < 0 && bucket[i] == 1)
+            r1 = i;
+    }
+    ASSERT_GE(r0, 0);
+    ASSERT_GE(r1, 0);
+    std::vector<double> z(m, 0.0);
+    std::vector<bool> used(m, false);
+    used[r0] = used[r1] = true;
+    int pairs = 0;
+    for (int64_t i = 0; i < m && pairs < 2; ++i)
+        for (int64_t j = i + 1; j < m && !used[i]; ++j)
+            if (!used[j] && bucket[j] == bucket[i]) {
+                z[i] = sign[i];
+                z[j] = -sign[j];
+                used[i] = used[j] = true;
+                ++pairs;
+            }
+    ASSERT_EQ(pairs, 2);
+
+    std::vector<double> A(m * n, 0.0);
+    for (int64_t i = 0; i < m; ++i) {
+        A[i] = 2 * C * z[i];
+        A[i + m] = C * z[i];
+    }
+    A[r0] = 2 * sign[r0];
+    A[r1 + m] = sign[r1];
+
+    std::vector<double> Q(A), R(n * n, 0.0);
+    std::vector<int64_t> J(n, 0);
+    RandBLAS::RNGState<r123::Philox4x32> state(seed);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    CQRRPT.nnz = 1;
+    CQRRPT.qrcp = Subroutines::QRCP::geqp3;
+    ASSERT_EQ(CQRRPT.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    ASSERT_EQ(J, (std::vector<int64_t>{1, 2})) << "the sketch's QRCP must not pivot";
+    EXPECT_EQ(CQRRPT.rank, 1);
+
+    // Q(:, 0:rank) orthonormal, and A[:, J] = Q R up to the dropped direction, of relative size 2e-9.
+    int64_t r = CQRRPT.rank;
+    bool finite = true;
+    for (int64_t j = 0; j < r; ++j)
+        for (int64_t i = 0; i < m; ++i)
+            finite = finite && std::isfinite(Q[i + j * m]);
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < r; ++i)
+            finite = finite && std::isfinite(R[i + j * n]);
+    ASSERT_TRUE(finite) << "rank " << r << ": Q or R contains NaN or Inf";
+    std::vector<double> G(r * r, 0.0);
+    RandLAPACK::util::eye(r, r, G.data());
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, r, m, 1.0, Q.data(), m, -1.0, G.data(), r);
+    double err_orth = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, r, G.data(), r);
+    EXPECT_LE(err_orth, 10 * std::numeric_limits<double>::epsilon()) << "rank " << r;
+    std::vector<double> AP(A);
+    RandLAPACK::util::col_swap(m, n, n, AP.data(), m, J.data());
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
+    double err_qr = lapack::lange(Norm::Fro, m, n, AP.data(), m) / lapack::lange(Norm::Fro, m, n, A.data(), m);
+    EXPECT_LE(err_qr, 1e-8) << "rank " << r;
+}
+
 // R's contents on entry must not matter: with R filled with NaN, CQRRPT must return exactly
 // the R it returns for a zeroed R, and that R is zero below the diagonal and past the rank.
 TEST_F(TestCQRRPT, CQRRPT_R_contents_on_entry_ignored) {
