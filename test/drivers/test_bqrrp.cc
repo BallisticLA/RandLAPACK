@@ -327,6 +327,8 @@ TEST_F(TestBQRRP, BQRRP_full_rank_block_change) {
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
+// Exact rank 100 inside the first block of 200. At the default tol = eps the rounding residue past
+// the rank counts as rank, so tol = 1e-10, above that residue, makes BQRRP stop at the rank.
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_low_rank) {
     int64_t m = 5000;
@@ -340,6 +342,7 @@ TEST_F(TestBQRRP, BQRRP_low_rank) {
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
+    BQRRP.tol     = 1e-10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -349,6 +352,7 @@ TEST_F(TestBQRRP, BQRRP_low_rank) {
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    EXPECT_EQ(BQRRP.rank, k);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
