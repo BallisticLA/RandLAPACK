@@ -261,6 +261,15 @@ configuration* — backend, integer width and GPU setting all count. Switching
 `--no-gpu` to `--gpu` therefore rebuilds BLAS++ rather than silently reusing a
 CPU-only one.
 
+BLAS++ and LAPACK++ come from the BallisticLA forks
+([blaspp](https://github.com/BallisticLA/blaspp),
+[lapackpp](https://github.com/BallisticLA/lapackpp)), at the commits pinned in
+[`installers/dependency-pins.env`](installers/dependency-pins.env) and tagged
+`ballistic-2026.10.22`. The forks carry fixes that are not yet in an upstream
+release; each fork's `BALLISTIC.md` lists them, and issue
+[#204](https://github.com/BallisticLA/RandLAPACK/issues/204)
+tracks the return to upstream.
+
 ## 4. Verifying the Installation
 
 ### Running Tests
@@ -342,10 +351,11 @@ well work; it is simply untested.
 | OS | Compiler | BLAS backend | Integer width | GPU | OpenMP |
 |---|---|---|---|---|---|
 | Ubuntu (latest) | gcc | OpenBLAS | LP64 | none | yes |
-| Ubuntu (latest) | gcc | oneMKL | ILP64 | none | yes |
-| Ubuntu (latest) | clang | OpenBLAS | LP64 | none | yes |
-| macOS 14/15 | Apple Clang | Accelerate (new interface) | LP64 (see 6.2) | none | no (see below) |
-| Windows | MSVC | oneMKL | ILP64 | none | yes (`/openmp:llvm`) |
+| Ubuntu (latest) | gcc | OpenBLAS (`libopenblas64` only) | ILP64 | none | yes |
+| macOS 14/15 | Apple Clang | Accelerate (new interface) | ILP64 | none | no (see below) |
+| macOS 14/15 | Apple Clang | Accelerate (new interface), `--blas-int=lp64` | LP64 | none | no (see below) |
+| Windows | MSVC | oneMKL | ILP64 | none | yes (`/openmp:llvm`), and a serial lane |
+| Windows | MSVC | OpenBLAS | LP64 | none | no |
 
 The installer lanes additionally cover a fresh install, an idempotent re-run,
 and dependency discovery through `BLASPP_INSTALL_DIR` and friends.
@@ -367,20 +377,23 @@ backend can genuinely provide it:
 | `--blas=` | Width you get | Why |
 |---|---|---|
 | `mkl` | ILP64 | `mkl_intel_ilp64` is a separate library, so requesting it actually selects it |
-| `openblas` | LP64, with a warning | there is only `-lopenblas`, so the request selects nothing |
-| `accelerate` | LP64, for now | Apple's new interface does ship ILP64 and BLAS++ can select it (`icl-utk-edu/blaspp#134`), but LAPACK++ does not compile in that configuration yet (`icl-utk-edu/lapackpp#89`); tracked in issue #173 |
+| `openblas` | LP64 with a warning, or ILP64 when `libopenblas64` is the only OpenBLAS installed | BLAS++ tries plain `-lopenblas` first; see below |
+| `accelerate` | ILP64 | Apple's new interface (macOS >= 13.3) ships ILP64 in the framework; BLAS++ selects it (`icl-utk-edu/blaspp#134`) and LAPACK++ compiles against it (`icl-utk-edu/lapackpp#90`). Older macOS lacks the new interface entirely, and the installer refuses the legacy one (see 6.4) |
 | `custom` | whatever you pass | you named the library, so its width is yours to state |
 
-The OpenBLAS row deserves explaining, because it is counter-intuitive. BLAS++
-probes `int32` before `int64`, and `blas_int` only filters which *library names*
-to consider. With one candidate name, a plain LP64 OpenBLAS passes the `int32`
-probe and is accepted — so a successful `blas_int=int64` configure proves
-nothing. The installer therefore reads the width back out of BLAS++'s generated
+The OpenBLAS row deserves explaining, because it is counter-intuitive. The
+pinned BLAS++ looks for plain `-lopenblas` first and for the ILP64
+`-lopenblas64` second (`icl-utk-edu/blaspp#129`). Its `int64` BLAS probe cannot
+tell the widths apart, so an LP64 `libopenblas` passes it by accident; the
+LAPACK probe then catches the mismatch and fails the whole configure, before
+`-lopenblas64` is ever tried. The installer then falls back to LP64 and says
+so. With `libopenblas64` as the only OpenBLAS installed (on Debian/Ubuntu,
+`libopenblas64-dev` without `libopenblas-dev`), `--blas=openblas` gives ILP64.
+Either way the installer reads the width back out of BLAS++'s generated
 `blas/defines.h` after building, and reports what was actually produced.
 
-ILP64 OpenBLAS **does** exist (`libopenblas64`, from Debian/Ubuntu's
-`libopenblas64-dev` or Fedora's `openblas64`); BLAS++ just never looks for it.
-Until that is fixed upstream, name it explicitly:
+With both installed, or with an ILP64 OpenBLAS under another name, name it
+explicitly:
 
 ```shell
 bash install.sh --blas=custom --blas-int=ilp64 \

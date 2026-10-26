@@ -1,0 +1,40 @@
+# Checks installers/dependency-pins.env, which every build lane reads:
+#   - against the remotes it names: each *_REF must be fetchable from its
+#     *_URL, and a non-empty *_TAG must point at its *_REF there;
+#   - against the RandBLAS submodule's copy, which must pin the same BLAS++
+#     and LAPACK++. RandLAPACK builds RandBLAS from that submodule, so two
+#     different pins would mean testing one pair and shipping another. Bump
+#     the pins in RandBLAS first, then the submodule and this repository's
+#     file together.
+name: dependency-pins
+on:
+  pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+  workflow_dispatch:
+  # Only main. A branch with an open pull request is already covered by the
+  # pull_request event above, and firing on both ran every job twice per
+  # commit -- same SHA, same result.
+  push:
+    branches:
+      - main
+
+# One run per ref at a time. Superseding is only safe for pull requests: on
+# main we want every commit validated, not just the newest.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: the pins resolve at their URLs
+        run: bash .github/scripts/dependency-pins.sh lint installers/dependency-pins.env
+
+      - name: the pins match the RandBLAS submodule's
+        run: bash .github/scripts/dependency-pins.sh match installers/dependency-pins.env RandBLAS/installers/dependency-pins.env

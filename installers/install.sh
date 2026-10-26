@@ -38,7 +38,7 @@ Backend selection:
                         when MKLROOT is set, otherwise OpenBLAS)
   --blas-int=WIDTH      ilp64 | lp64. Defaults to ilp64 wherever the backend
                         can actually provide it, falling back to lp64 with a
-                        warning. Accelerate is lp64 for now (issue #173).
+                        warning. Accelerate needs macOS 13.3 or newer.
   --blas-libraries=L    Link line for --blas=custom, used for both BLAS and
                         LAPACK, e.g. "/opt/aocl/lib/libflame.so;/opt/aocl/lib/libblis.so"
 
@@ -463,10 +463,16 @@ clone_pinned() {  # <url> <dest> <ref>
     local url="$1" dest="$2" ref="$3"
     rm -rf "$dest"
     mkdir -p "$dest"
-    git -C "$dest" init --quiet
-    git -C "$dest" remote add origin "$url"
-    git -C "$dest" fetch --quiet --depth 1 origin "$ref"
-    git -C "$dest" checkout --quiet FETCH_HEAD
+    # Chained explicitly: run_step calls this inside an `if`, where set -e is
+    # off, so an unchained failed fetch would still reach write_stamp.
+    git -C "$dest" init --quiet &&
+        git -C "$dest" remote add origin "$url" &&
+        git -C "$dest" fetch --quiet --depth 1 origin "$ref" &&
+        git -C "$dest" checkout --quiet FETCH_HEAD || return 1
+    # A full commit hash must come back as itself: proof the fetch got it.
+    if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+        [[ "$(git -C "$dest" rev-parse HEAD)" == "$ref" ]] || return 1
+    fi
     write_stamp "$dest" "$url@$ref"
 }
 
@@ -474,19 +480,23 @@ source_is_current() { stamp_matches "$1" "$2@$3"; }
 
 #==============================================================================
 # Dependency pins. Immutable refs only: a tag or a full commit hash, never a
-# branch name. These match the refs this repository's own Windows provisioner
-# already validated, so the two halves of the project stop disagreeing about
-# what they build.
+# branch name. BLAS++ and LAPACK++ come from installers/dependency-pins.env,
+# the one file every build lane reads (this script, the Windows provisioner
+# and CI), so no two of them can disagree about what they build.
 #==============================================================================
-BLASPP_URL="https://github.com/icl-utk-edu/blaspp.git"
-# The commit that merged new-Apple-Accelerate support (blaspp PR #134,
-# 2026-08-27); also contains the MSVC portability fix (PR #132). Not in a
-# release yet -- the latest tag, v2025.05.28, predates both.
-BLASPP_REF="2d8d4e937ac46fffab33d4174a4fc7659726dbda"
-LAPACKPP_URL="https://github.com/icl-utk-edu/lapackpp.git"
-# The commit that merged the LAPACK++ half of new-Accelerate support
-# (lapackpp PR #88, 2026-08-27).
-LAPACKPP_REF="b9439cf3c26d1655d88e7f510ae8b4f82fbeb687"
+PINS_FILE="$SCRIPT_DIR/dependency-pins.env"
+[[ -f "$PINS_FILE" ]] || die "Missing $PINS_FILE; this clone looks incomplete."
+# Sourced, carriage returns stripped first: a checkout that ignored
+# .gitattributes has CRLF endings, which would put a \r into every value. eval
+# rather than `source <(...)`, which bash 3.2 (macOS) reads as empty.
+eval "$(tr -d '\r' < "$PINS_FILE")"
+for pin in BLASPP_REF LAPACKPP_REF; do
+    [[ "${!pin:-}" =~ ^[0-9a-f]{40}$ ]] \
+        || die "$PINS_FILE: $pin must be a full 40-character commit hash, not '${!pin:-}'."
+done
+for pin in BLASPP_URL LAPACKPP_URL; do
+    [[ -n "${!pin:-}" ]] || die "$PINS_FILE: $pin is empty."
+done
 RANDOM123_URL="https://github.com/DEShawResearch/Random123.git"
 RANDOM123_REF="v1.14.0"
 
@@ -534,27 +544,18 @@ fi
 # disagreement is NOT guarded and shows up as an absurd workspace size or a run
 # that never finishes. The conftest below is what catches that.
 #
-# Accelerate: Apple's new interface (macOS >= 13.3) does carry ILP64, and the
-# pinned BLAS++ can select it (icl-utk-edu/blaspp#134) -- but LAPACK++ does
-# not COMPILE in that configuration (its lapack_int becomes Apple's `long`
-# while the wrappers assume int64_t; upstream icl-utk-edu/lapackpp#89), and
-# RandLAPACK always needs LAPACK++. Constrained to LP64 until the upstream
-# fix lands; tracked in issue #173.
+# Accelerate: Apple's new interface (macOS >= 13.3) carries ILP64, selected
+# by ACCELERATE_LAPACK_ILP64; the pinned BLAS++ wires blas_int=int64 to it
+# (icl-utk-edu/blaspp#134) and the pinned LAPACK++ compiles against it
+# (icl-utk-edu/lapackpp#90, which fixed lapackpp#89 and closes issue #173).
+# Older macOS has no new interface at either width, and the check after the
+# BLAS++ build refuses the legacy one (see "Accelerate must be Apple's NEW
+# interface" below).
 WIDTH_ORDER=()
-case "$BLAS_BACKEND" in
-    accelerate)
-        if [[ "$BLAS_INT_CHOICE" == "ilp64" ]]; then
-            die "--blas-int=ilp64 with Accelerate is blocked for now: LAPACK++ does not compile against Accelerate ILP64 (upstream icl-utk-edu/lapackpp#89; tracked in issue #173). Use --blas=openblas or --blas=mkl for ILP64."
-        fi
-        WIDTH_ORDER=(int32)
-        ;;
-    *)
-        case "$BLAS_INT_CHOICE" in
-            ilp64) WIDTH_ORDER=(int64) ;;
-            lp64)  WIDTH_ORDER=(int32) ;;
-            auto)  WIDTH_ORDER=(int64 int32) ;;
-        esac
-        ;;
+case "$BLAS_INT_CHOICE" in
+    ilp64) WIDTH_ORDER=(int64) ;;
+    lp64)  WIDTH_ORDER=(int32) ;;
+    auto)  WIDTH_ORDER=(int64 int32) ;;
 esac
 
 # blaspp's own backend selector; its matcher accepts "apple" or "accelerate".
@@ -705,7 +706,8 @@ fi
 # cannot stand in for a CPU-only one -- without it, switching --gpu to --no-gpu
 # silently reuses the wrong artifact.
 BLASPP_STAMP_BASE="$BLASPP_URL@$BLASPP_REF backend=$BLAS_BACKEND libs=$BLAS_LIBRARIES_ARG gpu=$RANDNLA_PROJECT_GPU_AVAIL"
-LAPACKPP_STAMP_BASE="$LAPACKPP_URL@$LAPACKPP_REF backend=$BLAS_BACKEND libs=$BLAS_LIBRARIES_ARG gpu=$RANDNLA_PROJECT_GPU_AVAIL"
+# LAPACK++ is built against BLAS++, so its stamp carries the BLAS++ pin too.
+LAPACKPP_STAMP_BASE="$LAPACKPP_URL@$LAPACKPP_REF blaspp=$BLASPP_URL@$BLASPP_REF backend=$BLAS_BACKEND libs=$BLAS_LIBRARIES_ARG gpu=$RANDNLA_PROJECT_GPU_AVAIL"
 RANDOM123_STAMP="$RANDOM123_URL@$RANDOM123_REF"
 
 #==============================================================================
@@ -811,15 +813,15 @@ if (( BUILD_BLASPP )); then
                 -j "$JOBS" --target install
 
         # The width actually built, read back from BLAS++'s own generated header
-        # rather than inferred from which configure attempt succeeded. Those can
-        # differ: BLAS++ probes int32 before int64, while blas_int only filters
-        # which *library names* to consider. For MKL that is enough, because
-        # mkl_intel_lp64 and mkl_intel_ilp64 are different libraries. For
-        # OpenBLAS there is only -lopenblas, so asking for int64 and getting a
-        # successful configure tells us nothing -- an LP64 OpenBLAS passes the
-        # int32 probe and is accepted. Trusting the request here would stamp an
-        # LP64 install as ILP64, and every later run would reuse it believing
-        # it had ILP64.
+        # rather than inferred from which configure attempt succeeded. BLAS++
+        # decides by probing, and blas_int only narrows which library names and
+        # widths it tries. Its int64 BLAS probe cannot tell the widths apart --
+        # an LP64 OpenBLAS passes it, and only the LAPACK probe after it
+        # rejects the pairing -- so the request alone proves nothing. For MKL
+        # the names already settle it (mkl_intel_lp64 and mkl_intel_ilp64 are
+        # different libraries). Trusting the request here could stamp an LP64
+        # install as ILP64, and every later run would reuse it believing it
+        # had ILP64.
         if grep -q '^#define BLAS_ILP64' "$BLASPP_INSTALL/include/blas/defines.h" 2>/dev/null; then
             BLAS_INT_BUILT="int64"
         else
@@ -842,7 +844,19 @@ if (( BUILD_BLASPP )); then
         BLAS_INT_RESOLVED="$BLAS_INT_BUILT"
 
         if [[ "$BLAS_INT_RESOLVED" == "int32" && "${WIDTH_ORDER[0]}" == "int64" ]]; then
-            record_warning "No ILP64 $BLAS_BACKEND was available, so BLAS++ was built LP64 (32-bit BLAS integers). RandLAPACK works either way -- BLAS++ and LAPACK++ throw rather than truncate if a dimension exceeds the range -- but individual matrix dimensions are then capped at 2^31. BLAS++ only ever looks for plain -lopenblas, so an ILP64 OpenBLAS has to be named explicitly with --blas=custom --blas-libraries=... --blas-int=ilp64."
+            # BLAS++ (as pinned, icl-utk-edu/blaspp#129) also looks for the
+            # ILP64 -lopenblas64, but only after plain -lopenblas: an LP64
+            # libopenblas passes its int64 BLAS probe by accident, then fails
+            # the LAPACK probe, which ends the configure before -lopenblas64
+            # is ever tried.
+            WIDTH_HINT=""
+            if [[ "$BLAS_BACKEND" == "openblas" && "$UNAME_S" == "Darwin" ]]; then
+                # Homebrew's OpenBLAS is named explicitly, so nothing is searched.
+                WIDTH_HINT=" An ILP64 OpenBLAS has to be named explicitly with --blas=custom --blas-libraries=... --blas-int=ilp64."
+            elif [[ "$BLAS_BACKEND" == "openblas" ]]; then
+                WIDTH_HINT=" BLAS++ finds an ILP64 OpenBLAS (libopenblas64, e.g. from Debian/Ubuntu's libopenblas64-dev) only when no LP64 libopenblas is installed beside it; otherwise name it explicitly with --blas=custom --blas-libraries=... --blas-int=ilp64."
+            fi
+            record_warning "No ILP64 $BLAS_BACKEND was available, so BLAS++ was built LP64 (32-bit BLAS integers). RandLAPACK works either way -- BLAS++ and LAPACK++ throw rather than truncate if a dimension exceeds the range -- but individual matrix dimensions are then capped at 2^31.$WIDTH_HINT"
         fi
 
         write_stamp "$BLASPP_INSTALL" "$BLASPP_STAMP_BASE width=$BLAS_INT_RESOLVED"
@@ -869,7 +883,7 @@ if (( BUILD_LAPACKPP )); then
             local build="$RANDNLA_PROJECT_DIR/build/lapackpp-build"
             rm -rf "$build"; mkdir -p "$build"
             if ! source_is_current "$LAPACKPP_SRC" "$LAPACKPP_URL" "$LAPACKPP_REF"; then
-                clone_pinned "$LAPACKPP_URL" "$LAPACKPP_SRC" "$LAPACKPP_REF"
+                clone_pinned "$LAPACKPP_URL" "$LAPACKPP_SRC" "$LAPACKPP_REF" || return 1
             fi
             cmake -S "$LAPACKPP_SRC" -B "$build" \
                 -DCMAKE_BUILD_TYPE=Release \

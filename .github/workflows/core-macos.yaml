@@ -25,10 +25,12 @@ concurrency:
 # SDKs) -- the legacy default is LAPACK 3.2.1 from 2009, with a broken
 # divide-and-conquer gesdd and none of the routines BQRRP/HQRRP need. The
 # defines.h check makes a silent fallback to the legacy interface a hard
-# failure. Requires blaspp/lapackpp masters at or past icl-utk-edu/blaspp#134
-# and icl-utk-edu/lapackpp#88 (both merged 2026-08-27). The cache key carries
-# an "accelerate" tag because earlier caches hold dependencies built without
-# -Dblas=accelerate.
+# failure. Requires the pinned BLAS++/LAPACK++ to be at or past
+# icl-utk-edu/blaspp#134 and icl-utk-edu/lapackpp#88 (both merged
+# 2026-08-27). The cache key carries an "accelerate" tag because earlier
+# caches hold dependencies built without -Dblas=accelerate, and the pinned
+# commit hashes so that changing a pin rebuilds them.
+# Cache paths start from runner.workspace; see core-linux.yaml for why.
 
 jobs:
   build:
@@ -48,21 +50,28 @@ jobs:
           set -x
           brew install googletest
 
+      - name: read dependency pins
+        id: pins
+        run: bash .github/scripts/dependency-pins.sh export installers/dependency-pins.env
+
       - name: cache dependencies
         id: deps-cache
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/../blaspp-install
-            ${{ github.workspace }}/../lapackpp-install
-            ${{ github.workspace }}/../Random123-install
-          key: core-deps-${{ runner.os }}-accelerate-v1
+            ${{ runner.workspace }}/blaspp-install
+            ${{ runner.workspace }}/lapackpp-install
+            ${{ runner.workspace }}/Random123-install
+          key: core-deps-${{ runner.os }}-accelerate-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++ (new Accelerate)
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          BLASPP_URL: ${{ steps.pins.outputs.BLASPP_URL }}
+          BLASPP_REF: ${{ steps.pins.outputs.BLASPP_REF }}
         run: |
           cd ..
-          git clone https://github.com/icl-utk-edu/blaspp.git
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$BLASPP_URL" "$BLASPP_REF" blaspp
           mkdir blaspp-build
           cd blaspp-build
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
@@ -81,9 +90,12 @@ jobs:
 
       - name: install LAPACK++
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          LAPACKPP_URL: ${{ steps.pins.outputs.LAPACKPP_URL }}
+          LAPACKPP_REF: ${{ steps.pins.outputs.LAPACKPP_REF }}
         run: |
           cd ..
-          git clone https://github.com/icl-utk-edu/lapackpp.git
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$LAPACKPP_URL" "$LAPACKPP_REF" lapackpp
           mkdir lapackpp-build
           cd lapackpp-build
           cmake -DCMAKE_BUILD_TYPE=Release \
@@ -148,21 +160,28 @@ jobs:
           set -x
           brew install googletest
 
+      - name: read dependency pins
+        id: pins
+        run: bash .github/scripts/dependency-pins.sh export installers/dependency-pins.env
+
       - name: cache dependencies
         id: deps-cache
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/../blaspp-install
-            ${{ github.workspace }}/../lapackpp-install
-            ${{ github.workspace }}/../Random123-install
-          key: core-deps-${{ runner.os }}-accelerate-v1
+            ${{ runner.workspace }}/blaspp-install
+            ${{ runner.workspace }}/lapackpp-install
+            ${{ runner.workspace }}/Random123-install
+          key: core-deps-${{ runner.os }}-accelerate-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++ (new Accelerate)
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          BLASPP_URL: ${{ steps.pins.outputs.BLASPP_URL }}
+          BLASPP_REF: ${{ steps.pins.outputs.BLASPP_REF }}
         run: |
           cd ..
-          git clone https://github.com/icl-utk-edu/blaspp.git
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$BLASPP_URL" "$BLASPP_REF" blaspp
           mkdir blaspp-build
           cd blaspp-build
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
@@ -181,9 +200,12 @@ jobs:
 
       - name: install LAPACK++
         if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          LAPACKPP_URL: ${{ steps.pins.outputs.LAPACKPP_URL }}
+          LAPACKPP_REF: ${{ steps.pins.outputs.LAPACKPP_REF }}
         run: |
           cd ..
-          git clone https://github.com/icl-utk-edu/lapackpp.git
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$LAPACKPP_URL" "$LAPACKPP_REF" lapackpp
           mkdir lapackpp-build
           cd lapackpp-build
           cmake -DCMAKE_BUILD_TYPE=Release \

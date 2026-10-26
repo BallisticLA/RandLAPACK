@@ -22,8 +22,20 @@ inputs:
 runs:
   using: composite
   steps:
+    # The BLAS++/LAPACK++ commits from installers/dependency-pins.env, found
+    # relative to this action so both checkout layouts (the repo root, and
+    # RandLAPACK\ in install-script) read the same file. Their hashes go into
+    # the BLAS++/LAPACK++ cache keys below, so changing a pin rebuilds both.
+    - name: read dependency pins
+      id: pins
+      shell: pwsh
+      run: |
+        . "$env:GITHUB_ACTION_PATH/../../scripts/windows/dependency-pins.ps1"
+        Export-DependencyPins "$env:GITHUB_ACTION_PATH/../../../installers/dependency-pins.env"
+
     # Cache keys use MANUAL revision literals (-r<N>), bumped here whenever
-    # the corresponding recipe in setup.ps1 changes. Do NOT key on
+    # the corresponding recipe in setup.ps1 changes, plus the pinned commit
+    # hashes from the step above. Do NOT key on
     # hashFiles(): it resolves paths relative to GITHUB_WORKSPACE, and the
     # install-script workflow checks this repo out under RandLAPACK\, where
     # the glob matches nothing and hashFiles() silently returns "" -- the two
@@ -34,11 +46,15 @@ runs:
     # that never exists. That fails quietly in the worst way -- every MKL leg
     # re-downloaded 155 MB and then saved a cache entry for a missing path, so
     # the cache could never hit and nothing ever reported an error.
+    # Paths start from runner.workspace, the checkout's parent: actions/cache
+    # refuses to save a path containing ".." ("Invalid pattern ... Relative
+    # pathing '.' and '..' is not allowed"), so the old github.workspace\..\
+    # spelling restored caches that were never saved.
     - name: cache oneMKL (NuGet)
       if: inputs.blas-backend == 'mkl'
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\onemkl-2026.1.0.226
+        path: ${{ runner.workspace }}\windows-deps\onemkl-2026.1.0.226
         key: windows-nuget-intel-mkl-2026.1.0.226-r1
 
     # Intel OpenMP for oneMKL's threading layer; the version in `path` must
@@ -47,47 +63,48 @@ runs:
       if: inputs.blas-backend == 'mkl'
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\intel-openmp-2026.1.0.239
+        path: ${{ runner.workspace }}\windows-deps\intel-openmp-2026.1.0.239
         key: windows-nuget-intel-openmp-2026.1.0.239-r1
 
     - name: cache OpenBLAS (release binaries)
       if: inputs.blas-backend == 'openblas'
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\openblas-0.3.34
+        path: ${{ runner.workspace }}\windows-deps\openblas-0.3.34
         key: windows-openblas-0.3.34-r1
 
     - name: cache GoogleTest
       if: inputs.sanitize-address != 'true'
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\googletest-install
+        path: ${{ runner.workspace }}\windows-deps\googletest-install
         key: windows-msvc-googletest-1.18.0-ninja-r1
 
     - name: cache GoogleTest (ASan)
       if: inputs.sanitize-address == 'true'
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\googletest-asan-install
+        path: ${{ runner.workspace }}\windows-deps\googletest-asan-install
         key: windows-msvc-googletest-asan-1.18.0-ninja-r1
 
     - name: cache Random123
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\Random123-install
+        path: ${{ runner.workspace }}\windows-deps\Random123-install
         key: windows-random123-1.14.0-r1
 
     - name: cache BLAS++
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\blaspp-${{ inputs.blas-backend }}-install
-        key: windows-msvc-blaspp-upstream-2d8d4e9-${{ inputs.blas-backend }}-ninja-r3
+        path: ${{ runner.workspace }}\windows-deps\blaspp-${{ inputs.blas-backend }}-install
+        key: windows-msvc-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-${{ inputs.blas-backend }}-ninja-r4
 
+    # LAPACK++ is built against BLAS++, so its key carries both pins.
     - name: cache LAPACK++
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}\..\windows-deps\lapackpp-${{ inputs.blas-backend }}-install
-        key: windows-msvc-lapackpp-upstream-b9439cf-${{ inputs.blas-backend }}-ninja-r3
+        path: ${{ runner.workspace }}\windows-deps\lapackpp-${{ inputs.blas-backend }}-install
+        key: windows-msvc-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-${{ inputs.blas-backend }}-ninja-r4
 
     - name: build missing dependencies
       shell: pwsh

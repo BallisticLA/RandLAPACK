@@ -48,9 +48,11 @@ include(FetchContent)
 message(STATUS "Fetching Eigen library...")
 FetchContent_Declare(
     eigen_lib
-    GIT_REPOSITORY https://gitlab.com/libeigen/eigen
-    GIT_TAG master
-    GIT_SHALLOW TRUE
+    # Pinned to Eigen master commit e2ca51a (2026-10-22). To bump: change the hash in the URL
+    # and URL_HASH (sha256sum of the downloaded archive). Needs SparseLU::toSparse().
+    URL https://gitlab.com/libeigen/eigen/-/archive/e2ca51a02b84a6f6f106039e0ebb15d479eff9b6/eigen-e2ca51a02b84a6f6f106039e0ebb15d479eff9b6.tar.gz
+    URL_HASH SHA256=aef6282955cfa57f298d8a65c3ea1c4ab2b11d4ef990bb458798b1daa7217128
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(eigen_lib)
 
@@ -58,9 +60,11 @@ FetchContent_MakeAvailable(eigen_lib)
 message(STATUS "Fetching fast_matrix_market library...")
 FetchContent_Declare(
     fast_matrix_market
-    GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
-    GIT_TAG main
-    GIT_SHALLOW TRUE
+    # Pinned to fast_matrix_market commit b6172c9 (2026-10). To bump: change the hash
+    # in the URL and URL_HASH (sha256sum of the downloaded archive).
+    URL https://github.com/alugowski/fast_matrix_market/archive/b6172c96ef73d16b2c10917373bacec1a7583a31.tar.gz
+    URL_HASH SHA256=02dff7b419d94378bd93cec3a05cf6184f073d5a6d47c75495c71cc0987ebb31
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(fast_matrix_market)
 
