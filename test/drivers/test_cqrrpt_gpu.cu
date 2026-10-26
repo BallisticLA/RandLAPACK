@@ -416,6 +416,54 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
     EXPECT_LE(c.err_proj, 10.0) << "rank " << rank;
 }
 
+// With tol <= u the ratio threshold sqrt(tol/u) is at most 1, so the scan's ratio test holds from
+// its first entry. When potrf succeeds there is no scan, and the rank is the sketch's. When it
+// fails, the scan cuts at its first allowed index, i = 2, so the rank is 1, as in CQRRPT; it must
+// not cut at i = 0, which gives rank -1.
+TEST_F(TestCQRRPT, CQRRPT_GPU_tol_at_most_unit_roundoff) {
+    double tol = std::numeric_limits<double>::epsilon() / 2;
+    struct Input { const char* name; int64_t m, n; std::vector<double> A; uint32_t seed; int64_t rank; };
+    std::vector<Input> inputs;
+    {
+        int64_t m = 2000, n = 50;
+        std::vector<double> A(m * n, 0.0);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+        m_info.cond_num = 2;
+        m_info.rank = n;
+        m_info.exponent = 2.0;
+        auto gen_state = RandBLAS::RNGState();
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), gen_state);
+        inputs.push_back({"potrf succeeds", m, n, A, 0, n});
+    }
+    inputs.push_back({"potrf fails", 600, 60, sketch_defeating_input(600, 60, 2, 2.0, 7, 1.0), 7, 1});
+
+    for (auto& in : inputs) {
+        SCOPED_TRACE(in.name);
+        int64_t m = in.m, n = in.n;
+        std::vector<double> Q_cpu(in.A), R_cpu(n * n, 0.0);
+        std::vector<int64_t> J_cpu(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state_cpu(in.seed);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        ASSERT_EQ(CQRRPT.call(m, n, Q_cpu.data(), m, R_cpu.data(), n, J_cpu.data(), 2.0, state_cpu), 0);
+        ASSERT_EQ(CQRRPT.rank, in.rank);
+
+        std::vector<double> Q(in.A), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state(in.seed);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.no_hqrrp = 1;
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        EXPECT_EQ(CQRRPT_GPU.rank, in.rank);
+        auto c = factor_checks(m, n, CQRRPT_GPU.rank, in.A, Q, R, n, J);
+        auto c_cpu = factor_checks(m, n, CQRRPT.rank, in.A, Q_cpu, R_cpu, n, J_cpu);
+        ASSERT_TRUE(c.finite);
+        EXPECT_LE(c.err_orth, 100 * c_cpu.err_orth + 1e-14) << "CPU ||Q'Q - I|| = " << c_cpu.err_orth;
+        EXPECT_LE(c.err_proj, 100 * c_cpu.err_proj + 1e-14) << "CPU ||R - Q'AP|| = " << c_cpu.err_proj;
+    }
+}
+
 // Padded leading dimensions (lda > m, ldr > n) must give the same factorization as compact
 // storage and leave the padding rows untouched. Full rank sends every column of A through the
 // device; rank deficiency (sketch rank k < n) also fills R's trailing columns on the host.
