@@ -36,19 +36,23 @@ extras/
 This is a standalone CMake project that uses an *installed* RandLAPACK.
 
 - **With the installer.** `bash install.sh` builds extras by default on Linux
-  and macOS (`--no-extras` skips it). The Windows installer does not build
+  and macOS (`--no-extras` skips it), into
+  `RandNLA-project/build/extras-build/`. The Windows installer does not build
   extras.
-- **By hand**, after RandLAPACK is installed, from the `RandNLA-project`
-  root:
+- **By hand**, against an existing install, from the repository root:
   ```bash
-  cmake -S lib/RandLAPACK/extras/ -B build/extras-build/ \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DRandLAPACK_DIR=install/RandLAPACK-install/lib/cmake/RandLAPACK/
-  make -C build/extras-build/ -j$(nproc)
+  cmake -S extras -B extras-build -DCMAKE_BUILD_TYPE=Release \
+      -DRandLAPACK_DIR=/path/to/RandLAPACK-install/lib/cmake/RandLAPACK
+  cmake --build extras-build -j 4
   ```
+  - Give `RandLAPACK_DIR` as an absolute path. After `install.sh` it is
+    `<project-dir>/install/RandLAPACK-install/lib/cmake/RandLAPACK`.
+  - On macOS with Homebrew's `libomp`, add the OpenMP settings at the end of
+    [INSTALL.md, section 5](../docs/INSTALL.md#5-using-randlapack-in-other-projects).
 
 The tests are built when GoogleTest is found; `-DBUILD_TESTING=OFF` skips
-them.
+them. Run them with `ctest --test-dir extras-build`, or after `install.sh`
+with `ctest --test-dir <project-dir>/build/extras-build`.
 
 **No manual dependency installation is needed.** CMake downloads these
 during configuration, with FetchContent:
