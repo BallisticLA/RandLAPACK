@@ -21,17 +21,17 @@ you need the details.
 
 Last updated: 2026-10-26.
 
-| Hardware | OS | Compiler | Backend, integer width | OpenMP | Tested | How, when |
+| Hardware | OS | Compiler | Backend, integer width | OpenMP | Built with | Where, when |
 |---|---|---|---|---|---|---|
-| x86-64 | Ubuntu 24.04.5 | GCC 13.3.0 | OpenBLAS 0.3.26, LP64 | on | installer; by hand (Release, and Debug + ASan) | CI `install-linux`, core-linux `build` and `build-asan`; 2026-10-26 |
-| x86-64 | Ubuntu 24.04.5 | GCC 13.3.0 | OpenBLAS 0.3.26 (`libopenblas64`), ILP64 | on | installer | CI `install-linux-openblas64`; 2026-10-26 |
-| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, ILP64 | on (Homebrew `libomp`) | installer | CI `install-macos`; 2026-10-26 |
-| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, LP64 | on (Homebrew `libomp`) | installer | CI `install-macos-lp64`; 2026-10-26 |
-| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, LP64 | off | by hand (Release, and Debug + ASan) | CI core-macos `build` and `build-asan`; 2026-10-26 |
-| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Homebrew OpenBLAS 0.3.34, LP64 | on (Homebrew `libomp`) | installer (`--blas=openblas`) | CI `install-macos`; 2026-10-26 |
-| x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | oneMKL 2026.1, ILP64 | on | installer; by hand | CI `install-windows`, core-windows `build-windows`; 2026-10-26 |
-| x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | oneMKL 2026.1, ILP64 | off | by hand, also with oneMKL under a path with spaces | CI core-windows `build-windows` and `windows-spaced-path`; 2026-10-26 |
-| x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | OpenBLAS 0.3.34, LP64 | off | by hand | CI core-windows `build-windows`; 2026-10-26 |
+| x86-64 | Ubuntu 24.04.5 | GCC 13.3.0 | OpenBLAS 0.3.26, LP64 | on | installer; by hand (Release, and Debug + ASan) | CI [install-script] `install-linux`, [core-linux] `build` and `build-asan`; 2026-10-26 |
+| x86-64 | Ubuntu 24.04.5 | GCC 13.3.0 | OpenBLAS 0.3.26 (`libopenblas64`), ILP64 | on | installer | CI [install-script] `install-linux-openblas64`; 2026-10-26 |
+| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, ILP64 | on (Homebrew `libomp`) | installer | CI [install-script] `install-macos`; 2026-10-26 |
+| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, LP64 | on (Homebrew `libomp`) | installer | CI [install-script] `install-macos-lp64`; 2026-10-26 |
+| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, LP64 | off | by hand (Release, and Debug + ASan) | CI [core-macos] `build` and `build-asan`; 2026-10-26 |
+| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Homebrew OpenBLAS 0.3.34, LP64 | on (Homebrew `libomp`) | installer (`--blas=openblas`) | CI [install-script] `install-macos`; 2026-10-26 |
+| x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | oneMKL 2026.1, ILP64 | on | installer; by hand | CI [install-script] `install-windows`, [core-windows] `build-windows`; 2026-10-26 |
+| x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | oneMKL 2026.1, ILP64 | off | by hand, also with oneMKL under a path with spaces | CI [core-windows] `build-windows` and `windows-spaced-path`; 2026-10-26 |
+| x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | OpenBLAS 0.3.34, LP64 | off | by hand | CI [core-windows] `build-windows`; 2026-10-26 |
 | x86-64 (Intel Core Ultra 9 386H) | Ubuntu 26.04 under WSL2 | GCC 15.2.0 | oneMKL 2026.0, ILP64 | on | installer (`--blas=mkl`); by hand (the recipe in [INSTALL_MANUAL.md](INSTALL_MANUAL.md)) | local; 2026-10-26 |
 | x86-64 (Intel Core Ultra 9 386H), NVIDIA GeForce RTX 5070 Ti Laptop GPU | Ubuntu 26.04 under WSL2 | GCC 15.2.0, CUDA 13.3 | oneMKL 2026.0, ILP64 | on | tests only, CPU and GPU (see below) | local; 2026-10-22 |
 
@@ -39,17 +39,23 @@ Other setups may work, but are untested; report results on
 [our Discord server](https://discord.gg/R4qj8Er9YW) or in a
 [GitHub issue](https://github.com/BallisticLA/RandLAPACK/issues).
 
-- **Tested** means that RandLAPACK's full test suite passed. "Installer"
-  means `install.sh` or `install.ps1` ([README](../README.md#install));
-  "by hand" means a step-by-step CMake build, as in
-  [INSTALL_MANUAL.md](INSTALL_MANUAL.md) or CI's core lanes. ASan is
-  AddressSanitizer, a memory-error checker.
-- **CI** rows ran on GitHub's hosted runners; [CI.md](CI.md) describes each
-  lane.
+- **In every row, RandLAPACK's full test suite passed.** In "Built with",
+  "installer" means `install.sh` or `install.ps1`
+  ([README](../README.md#install)), and "by hand" means a step-by-step
+  CMake build, as in [INSTALL_MANUAL.md](INSTALL_MANUAL.md) or CI's core
+  lanes. ASan is AddressSanitizer, a memory-error checker.
+- **CI** rows ran on GitHub's hosted runners. Each workflow name links to
+  its run, where every job's log can be checked; [CI.md](CI.md) describes
+  each lane.
 - **GPU.** No CI job builds or runs the GPU code
   ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). The GPU row
   is a local developer build whose BLAS++ and LAPACK++ predate the current
   pins.
+
+[core-linux]: https://github.com/BallisticLA/RandLAPACK/actions/runs/40406849472
+[core-macos]: https://github.com/BallisticLA/RandLAPACK/actions/runs/40406849581
+[core-windows]: https://github.com/BallisticLA/RandLAPACK/actions/runs/40406849425
+[install-script]: https://github.com/BallisticLA/RandLAPACK/actions/runs/40406849467
 
 ## Pinned versions
 
