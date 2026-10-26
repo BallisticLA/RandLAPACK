@@ -1230,3 +1230,60 @@ TEST_F(TestBQRRP, BQRRP_GPU_padded_lda) {
         }
     }
 }
+
+// An empty A (0 x 16 or 16 x 0) has nothing to factor: BQRRP_GPU must set rank 0 and J to the
+// identity, which is what GEQP3 returns for an empty matrix, and keep no device memory. The bound
+// is the one of BQRRP_GPU_repeated_calls_no_leak; a call that keeps its cuSOLVER handle alone
+// exceeds it.
+TEST_F(TestBQRRP, BQRRP_GPU_empty_input) {
+    int64_t b_sz = 8;
+    int64_t d = 10;
+    int num_rounds = 2;
+    int calls_per_round = 3;
+    auto free_mib = []() {
+        size_t free_bytes, total_bytes;
+        cudaDeviceSynchronize();
+        cudaMemGetInfo(&free_bytes, &total_bytes);
+        return (double) free_bytes / (1 << 20);
+    };
+
+    for (auto [m, n] : {std::pair<int64_t, int64_t>{0, 16}, std::pair<int64_t, int64_t>{16, 0}}) {
+        SCOPED_TRACE(::testing::Message() << m << " x " << n);
+        double *A_device, *A_sk_device, *tau_device;
+        int64_t* J_device;
+        cudaMalloc(&A_device, std::max<int64_t>(m * n, 1) * sizeof(double));
+        cudaMalloc(&A_sk_device, std::max<int64_t>(d * n, 1) * sizeof(double));
+        cudaMalloc(&tau_device, std::max<int64_t>(n, 1) * sizeof(double));
+        cudaMalloc(&J_device, std::max<int64_t>(n, 1) * sizeof(int64_t));
+        cudaMemset(J_device, 0, std::max<int64_t>(n, 1) * sizeof(int64_t));
+
+        RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+        BQRRP_GPU.rank = -7;
+        auto run = [&]() {
+            return BQRRP_GPU.call(m, n, A_device, std::max<int64_t>(m, 1), A_sk_device, d, tau_device, J_device);
+        };
+        EXPECT_EQ(run(), 0);
+        EXPECT_EQ(BQRRP_GPU.rank, 0);
+        std::vector<int64_t> J(n, 0);
+        cudaMemcpy(J.data(), J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+        for (int64_t j = 0; j < n; ++j)
+            EXPECT_EQ(J[j], j + 1) << "j = " << j;
+
+        double min_growth = std::numeric_limits<double>::infinity();
+        for (int r = 0; r < num_rounds; ++r) {
+            double before = free_mib();
+            for (int i = 0; i < calls_per_round; ++i)
+                run();
+            min_growth = std::min(min_growth, before - free_mib());
+        }
+        cudaFree(A_device);
+        cudaFree(A_sk_device);
+        cudaFree(tau_device);
+        cudaFree(J_device);
+        cudaError_t ierr = cudaGetLastError();
+        ASSERT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
+        std::cout << std::setw(2) << m << " x " << std::setw(2) << n << ":  RANK " << BQRRP_GPU.rank
+                  << ",  SMALLEST GROWTH PER ROUND " << min_growth << " MiB\n";
+        EXPECT_LE(min_growth, 32.0) << "device memory grew by at least " << min_growth << " MiB per " << calls_per_round << " calls";
+    }
+}

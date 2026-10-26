@@ -181,6 +181,14 @@ int BQRRP<T, RNG>::call(
     randlapack_require(!(tau == nullptr && n > 0)) << "tau buffer is null but n=" << n << " > 0";
     randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
 
+    // An empty A has nothing to factor. Return before allocating anything, with the identity
+    // pivots that GEQP3 returns for an empty matrix.
+    if (std::min(m, n) == 0) {
+        this -> rank = 0;
+        std::iota(J, J + n, (int64_t) 1);
+        return 0;
+    }
+
     //-------TIMING VARS--------/
     steady_clock::time_point preallocation_t_start;
     steady_clock::time_point preallocation_t_stop;

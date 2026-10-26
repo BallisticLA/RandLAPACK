@@ -787,3 +787,22 @@ TEST_F(TestBQRRP, BQRRP_non_finite_input) {
         }
     }
 }
+
+// An empty A (0 x 16 or 16 x 0) has nothing to factor: BQRRP must set rank 0, and J to the identity,
+// which is what GEQP3 returns for an empty matrix.
+TEST_F(TestBQRRP, BQRRP_empty_input) {
+    for (auto [m, n] : {std::pair<int64_t, int64_t>{0, 16}, std::pair<int64_t, int64_t>{16, 0}}) {
+        SCOPED_TRACE(::testing::Message() << m << " x " << n);
+        std::vector<double> A(std::max<int64_t>(m * n, 1), 0.0);
+        std::vector<double> tau(std::max<int64_t>(n, 1), 0.0);
+        std::vector<int64_t> J(std::max<int64_t>(n, 1), 0);
+        auto state = RandBLAS::RNGState();
+
+        RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, 8);
+        BQRRP.rank = -7;
+        EXPECT_EQ(BQRRP.call(m, n, A.data(), std::max<int64_t>(m, 1), 1.25, tau.data(), J.data(), state), 0);
+        EXPECT_EQ(BQRRP.rank, 0);
+        for (int64_t j = 0; j < n; ++j)
+            EXPECT_EQ(J[j], j + 1) << "j = " << j;
+    }
+}

@@ -170,6 +170,18 @@ int BQRRP_GPU<T, RNG>::call(
     T* tau,
     int64_t* J
 ){
+    // An empty A has nothing to factor. Return before allocating anything or creating the
+    // cuSOLVER handle, with the identity pivots that GEQP3 returns for an empty matrix. With no
+    // LU pivots to apply, LUQRCP_piv_process_gpu writes J = 1, ..., n.
+    if (std::min(m, n) == 0) {
+        this -> rank = 0;
+        if (n > 0) {
+            RandLAPACK::cuda_kernels::LUQRCP_piv_process_gpu(cudaStreamPerThread, (int64_t) 0, n, J, (int64_t*) nullptr);
+            cudaStreamSynchronize(cudaStreamPerThread);
+        }
+        return 0;
+    }
+
     steady_clock::time_point preallocation_t_start;
     steady_clock::time_point preallocation_t_stop;
     steady_clock::time_point qrcp_wide_t_start;
