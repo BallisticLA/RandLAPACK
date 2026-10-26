@@ -5,8 +5,9 @@ dependencies (BLAS++, LAPACK++, Random123), the `extras/` and `benchmark/`
 projects, and, when GoogleTest is found, the test suite. On native Windows use
 `installers\install.ps1` instead ([INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)).
 To build each piece by hand (an advanced, riskier option), see
-[INSTALL_MANUAL.md](INSTALL_MANUAL.md), which also explains the
-[key terms](INSTALL_MANUAL.md#1-key-terms) used here.
+[INSTALL_MANUAL.md](INSTALL_MANUAL.md).
+[DEPENDENCIES.md](DEPENDENCIES.md#key-terms) explains the key terms used
+here.
 
 The script lives at `installers/install.sh`; a small wrapper at the
 repository root keeps `bash install.sh` working.

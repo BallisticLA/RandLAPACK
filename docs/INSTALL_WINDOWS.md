@@ -4,7 +4,7 @@ This guide builds RandLAPACK with Microsoft's Visual C++ compiler (MSVC) on
 Windows, without WSL or Cygwin. It assumes no prior Windows development
 experience. On Linux or macOS, use `install.sh` instead
 ([INSTALL_SCRIPT.md](INSTALL_SCRIPT.md));
-[INSTALL_MANUAL.md](INSTALL_MANUAL.md#1-key-terms) explains the key terms
+[DEPENDENCIES.md](DEPENDENCIES.md#key-terms) explains the key terms
 (backend, BLAS++, ILP64, pin, ...).
 
 ## 1. Quick start
