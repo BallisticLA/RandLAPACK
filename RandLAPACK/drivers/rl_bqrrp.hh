@@ -251,7 +251,7 @@ int BQRRP<T, RNG>::call(
     int64_t internal_nb        = this -> internal_nb;
 
     //*********************************POINTERS TO A BEGIN*********************************
-    // LDA for all of the below is m
+    // LDA for all of the below is lda
 
     // Pointer to the beginning of the original space of A.
     // Pointer to the beginning of A's "work zone," 
@@ -324,7 +324,7 @@ int BQRRP<T, RNG>::call(
     T* S = new T[d * m]();
     RandBLAS::DenseDist D(d, m);
     state = RandBLAS::fill_dense(D, S, state);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T) 1.0, S, d, A, m, (T) 0.0, A_sk, d);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T) 1.0, S, d, A, lda, (T) 0.0, A_sk, d);
     delete[] S;
 
     if(this -> timing) {

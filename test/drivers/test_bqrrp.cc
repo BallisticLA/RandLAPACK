@@ -4,6 +4,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
+#include <cstring>
 #include <fstream>
 #include <tuple>
 #include <gtest/gtest.h>
@@ -804,5 +805,79 @@ TEST_F(TestBQRRP, BQRRP_empty_input) {
         EXPECT_EQ(BQRRP.rank, 0);
         for (int64_t j = 0; j < n; ++j)
             EXPECT_EQ(J[j], j + 1) << "j = " << j;
+    }
+}
+
+// Padded storage: lda = m + 7 must give the result of lda = m bitwise, for every qr_tall,
+// apply_trans_q and qrcp_wide choice, and leave the padding rows untouched. Shapes: tall, and wide
+// with a clipped last block.
+TEST_F(TestBQRRP, BQRRP_padded_lda) {
+    struct Case { int64_t m, n, b_sz; };
+    const Case cases[] = {{300, 200, 50}, {200, 300, 64}};
+    const double pad = -12345.0;
+    const std::vector<std::tuple<const char*, Subroutines::QRTall, Subroutines::ApplyTransQ>> variants = {
+        {"cholqr + gemqrt", Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::gemqrt},
+        {"cholqr + ormqr",  Subroutines::QRTall::cholqr, Subroutines::ApplyTransQ::ormqr},
+        {"geqrt + gemqrt",  Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::gemqrt},
+        {"geqrt + ormqr",   Subroutines::QRTall::geqrt,  Subroutines::ApplyTransQ::ormqr},
+        {"geqrf + ormqr",   Subroutines::QRTall::geqrf,  Subroutines::ApplyTransQ::ormqr}
+    };
+
+    for (const auto& c : cases) {
+        int64_t m = c.m, n = c.n, b_sz = c.b_sz;
+        int64_t lda_pad = m + 7;
+        std::vector<double> A(m * n);
+        auto state = RandBLAS::RNGState();
+        RandBLAS::DenseDist D(m, n);
+        state = RandBLAS::fill_dense(D, A.data(), state);
+
+        for (auto qrcp_wide : {Subroutines::QRCPWide::luqr, Subroutines::QRCPWide::geqp3}) {
+            for (const auto& [name, qr_tall, apply_trans_q] : variants) {
+                SCOPED_TRACE(::testing::Message() << m << " x " << n << ", " << name << ", " << (qrcp_wide == Subroutines::QRCPWide::luqr ? "luqr" : "geqp3"));
+                // Runs BQRRP on A stored with leading dimension lda, whose padding rows hold pad.
+                auto run = [&](int64_t lda, std::vector<double>& A_out, std::vector<double>& tau, std::vector<int64_t>& J) {
+                    A_out.assign(lda * n, pad);
+                    lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_out.data(), lda);
+                    tau.assign(n, 0.0);
+                    J.assign(n, 0);
+                    auto state_alg = state;
+                    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
+                    BQRRP.internal_nb   = 10;
+                    BQRRP.qr_tall       = qr_tall;
+                    BQRRP.apply_trans_q = apply_trans_q;
+                    BQRRP.qrcp_wide     = qrcp_wide;
+                    BQRRP.call(m, n, A_out.data(), lda, 1.25, tau.data(), J.data(), state_alg);
+                    return BQRRP.rank;
+                };
+                std::vector<double> A_ref, tau_ref, A_pad, tau_pad;
+                std::vector<int64_t> J_ref, J_pad;
+                int64_t rank_ref = run(m, A_ref, tau_ref, J_ref);
+                int64_t rank_pad = run(lda_pad, A_pad, tau_pad, J_pad);
+
+                int64_t A_differ = 0;
+                int64_t pad_changed = 0;
+                for (int64_t j = 0; j < n; ++j) {
+                    for (int64_t i = 0; i < m; ++i)
+                        A_differ += std::memcmp(&A_pad[lda_pad * j + i], &A_ref[m * j + i], sizeof(double)) != 0;
+                    for (int64_t i = m; i < lda_pad; ++i)
+                        pad_changed += !(A_pad[lda_pad * j + i] == pad);
+                }
+                int64_t tau_differ = 0;
+                int64_t J_differ = 0;
+                for (int64_t i = 0; i < n; ++i) {
+                    tau_differ += std::memcmp(&tau_pad[i], &tau_ref[i], sizeof(double)) != 0;
+                    J_differ   += J_pad[i] != J_ref[i];
+                }
+                std::cout << std::setw(4) << m << " x " << std::setw(4) << n << ",  " << std::setw(16) << name << ",  " << (qrcp_wide == Subroutines::QRCPWide::luqr ? "luqr " : "geqp3")
+                          << ":  RANK " << rank_pad << " (lda = m: " << rank_ref << "),  DIFFERING ENTRIES: A " << A_differ << ", tau " << tau_differ
+                          << ", J " << J_differ << ",  CHANGED PADDING ENTRIES " << pad_changed << "\n";
+
+                EXPECT_EQ(rank_pad, rank_ref);
+                EXPECT_EQ(A_differ, 0);
+                EXPECT_EQ(tau_differ, 0);
+                EXPECT_EQ(J_differ, 0);
+                EXPECT_EQ(pad_changed, 0);
+            }
+        }
     }
 }
