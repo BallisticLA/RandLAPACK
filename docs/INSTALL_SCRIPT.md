@@ -45,7 +45,7 @@ Good to know:
 - **A C++20 compiler.** GCC 13.3.0 is the reference version, and GCC 13 the
   floor: GCC 11 and 12 do not compile the current version. The script notes
   other versions and continues, and warns below GCC 13.
-- **CMake** 3.24 or later (3.31.9 recommended). With
+- **CMake** 3.24 or later (3.31 recommended). With
   `--no-extras --no-benchmarks`, 3.21 is enough.
 - **Git.**
 - **A backend**, the BLAS/LAPACK library that does the arithmetic:
@@ -73,32 +73,32 @@ package-manager command that installs everything but CUDA.
 
 Elsewhere, we recommend [Spack](https://github.com/spack/spack). Install,
 load and register the compiler **before** anything else. Loading it does not
-make Spack build with it, so name it (`%gcc@13.3.0`) in each spec that
-Spack compiles:
+make Spack build with it, so name it (`%gcc@13`) in each spec that Spack
+compiles; oneMKL and CUDA are prebuilt binaries and take no compiler:
 
 ```shell
 # Step 1: Install the compiler FIRST
-spack install gcc@13.3.0
+spack install gcc@13
 
 # Step 2: Load it and register it with Spack
-spack load gcc@13.3.0
+spack load gcc@13
 spack compiler find
 
 # Step 3: Install all other dependencies with the new compiler
-spack install cmake@3.31.9 %gcc@13.3.0
+spack install cmake@3.31 %gcc@13
 spack install intel-oneapi-mkl
-spack install googletest %gcc@13.3.0
+spack install googletest %gcc@13
 
 # For GPU support
-spack install cuda@12.9.0 %gcc@13.3.0
+spack install cuda@12.9.0
 ```
 
 After installation, load the environment, compiler first. Consider adding
 these lines to your shell startup file:
 
 ```shell
-spack load gcc@13.3.0
-spack load cmake
+spack load gcc@13
+spack load cmake@3.31
 spack load intel-oneapi-mkl
 spack load googletest
 spack load cuda@12.9.0  # If GPU support needed
@@ -263,7 +263,7 @@ Homebrew's `libomp`.
 
 ## 5. What the script does
 
-1. **Checks the toolchain** (compiler, CMake 3.21+, Git), reporting
+1. **Checks the toolchain** (compiler, CMake 3.21+, Git; extras and benchmarks need 3.24, section 2), reporting
    everything missing at once rather than failing on the first item.
 2. **Creates the layout** of section 4 and initialises the RandBLAS
    submodule. RandBLAS stays a pinned submodule, built and installed together
@@ -347,8 +347,7 @@ installer at them with `BLASPP_INSTALL_DIR` and `LAPACKPP_INSTALL_DIR`
 ### 6.3 Does LP64 limit RandLAPACK?
 
 Rarely. LP64 limits each matrix dimension, not the number of elements, to
-about 2.1 billion, so a 100,000 x 100,000 matrix is fine; sparse matrices
-are limited to 2^31 nonzeros. Past that, BLAS++ and LAPACK++ throw an error
+about 2.1 billion, so a 100,000 x 100,000 matrix is fine. Past that, BLAS++ and LAPACK++ throw an error
 rather than truncate the value.
 
 A *mismatch* is worse: if BLAS++ was built for one width and the backend it
