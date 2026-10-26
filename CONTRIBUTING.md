@@ -8,7 +8,7 @@ mechanics of contributing code.
 
 1. Run `bash install.sh` from your clone
    ([docs/INSTALL_SCRIPT.md](docs/INSTALL_SCRIPT.md); for a manual build see
-   [docs/INSTALL.md](docs/INSTALL.md), and for native Windows
+   [docs/INSTALL_MANUAL.md](docs/INSTALL_MANUAL.md), and for native Windows
    [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md)). With GoogleTest
    installed, the installer builds the test suite.
 2. Check that the tests pass before you change anything (the installer's
@@ -38,7 +38,7 @@ zero-copy transpose views, and so on).
 
 The RandBLAS submodule is read-only from this repository's point of view.
 Develop RandBLAS in its own clone (see
-[docs/INSTALL.md, "RandBLAS is a pinned submodule"](docs/INSTALL.md#randblas-is-a-pinned-submodule)).
+[docs/DEPENDENCIES.md, "RandBLAS is a pinned submodule"](docs/DEPENDENCIES.md#randblas-is-a-pinned-submodule)).
 
 ### Moving the RandBLAS submodule
 
@@ -54,7 +54,7 @@ Develop RandBLAS in its own clone (see
 
 BLAS++ and LAPACK++ are pinned in `installers/dependency-pins.env`, which
 every installer and CI lane reads
-([docs/INSTALL.md](docs/INSTALL.md#why-blas-and-lapack-come-from-forks)
+([docs/DEPENDENCIES.md](docs/DEPENDENCIES.md#why-blas-and-lapack-come-from-forks)
 explains the forks). The file must match its copy in the RandBLAS submodule,
 and CI's `pins` job checks both the file and the match (see
 [docs/CI.md](docs/CI.md)). A pin therefore moves in RandBLAS first:
@@ -65,8 +65,8 @@ and CI's `pins` job checks both the file and the match (see
    - copies the new `*_REF` and `*_TAG` lines into
      `installers/dependency-pins.env`;
    - updates the tag in the pinned-versions table of
-     [docs/INSTALL.md](docs/INSTALL.md#pinned-versions), the only doc that
-     names it.
+     [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md#pinned-versions), the only
+     doc that names it.
 
 ## Tests
 
