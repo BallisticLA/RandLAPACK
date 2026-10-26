@@ -8,7 +8,8 @@ Five workflows run on every pull request and on every push to `main`:
   commands we tell users to type are themselves under test.
 - **dependency-pins** checks the BLAS++/LAPACK++ pins that every lane builds.
 
-Each operating system thus gets two lanes, a core one and an installer one.
+Each operating system is thus covered by two workflows, a core one and the
+installer one.
 
 | Workflow | Job | Runner | Validates | Required check? |
 |----------|-----|--------|-----------|-----------------|
@@ -42,10 +43,12 @@ Each operating system thus gets two lanes, a core one and an installer one.
 - **Linux/macOS core recipe:** follow the steps in the workflow file; they
   are ordinary `cmake` + `make` invocations.
 - **Installer lanes:** `bash install.sh --yes --no-gpu` from a fresh clone.
-- **Windows**, from an MSVC developer prompt in the repository root:
-  `.github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies
-  [-Backend openblas]` reproduces a core-windows leg, and
-  `.\installers\install.ps1` reproduces install-windows.
+- **Windows**, from an x64 developer prompt in the repository root:
+  `powershell -ExecutionPolicy Bypass -File .github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies`
+  (add `-Backend openblas` for the OpenBLAS leg) reproduces a core-windows
+  leg, and
+  `powershell -ExecutionPolicy Bypass -File .\installers\install.ps1`
+  reproduces install-windows.
 
 ## Things that are deliberate (do not "fix" without reading this)
 
@@ -89,8 +92,10 @@ Each operating system thus gets two lanes, a core one and an installer one.
   ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). No job
   configures with `-DRequireCUDA=ON`, and the GPU drivers compile only in
   CUDA translation units, so a change that breaks GPU code still passes CI:
-  `test/drivers/test_bqrrp_gpu.cu` did not compile from #155 until #206 fixed
-  it. Build and run the GPU tests locally when you touch GPU code.
+  `test/drivers/test_bqrrp_gpu.cu` did not compile from
+  [#155](https://github.com/BallisticLA/RandLAPACK/pull/155) until
+  [#206](https://github.com/BallisticLA/RandLAPACK/pull/206) fixed it. Build
+  and run the GPU tests locally when you touch GPU code.
 
 ### Windows
 
@@ -104,8 +109,10 @@ Each operating system thus gets two lanes, a core one and an installer one.
 - **`windows-spaced-path` builds its dependencies uncached, on purpose.**
   Intel installs oneMKL under `C:\Program Files (x86)\Intel\oneAPI` by
   default, and upstream BLAS++ and LAPACK++ split library paths on spaces.
-  The pinned forks carry the fix (icl-utk-edu/blaspp#137,
-  icl-utk-edu/lapackpp#92), so `setup.ps1` no longer copies the import
+  The pinned forks carry the fix
+  ([blaspp#137](https://github.com/icl-utk-edu/blaspp/pull/137),
+  [lapackpp#92](https://github.com/icl-utk-edu/lapackpp/pull/92)), so
+  `setup.ps1` no longer copies the import
   libraries to a space-free directory. This job is the regression check. It
   copies oneMKL and Intel OpenMP to a path with spaces and parentheses,
   builds BLAS++ and LAPACK++ against it in a fresh dependency root, and fails
@@ -192,7 +199,7 @@ Each operating system thus gets two lanes, a core one and an installer one.
   file.** [`installers/dependency-pins.env`](../installers/dependency-pins.env)
   names the [blaspp](https://github.com/BallisticLA/blaspp) and
   [lapackpp](https://github.com/BallisticLA/lapackpp) forks and a full commit
-  hash for each, plus the tag `ballistic-2026.10.22` on those commits.
+  hash for each, plus a tag on those commits.
   `install.sh`, the Windows provisioner and every workflow read it, and the
   `pins` job keeps it honest.
   [INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains why
@@ -205,9 +212,9 @@ Each operating system thus gets two lanes, a core one and an installer one.
 
 ## Caches
 
-Dependencies (BLAS++, LAPACK++, Random123, plus oneMKL, Intel OpenMP and
-GoogleTest on Windows) are built once and cached; a cache-miss run is several
-minutes slower than a warm one.
+Dependencies (BLAS++, LAPACK++, Random123, plus oneMKL, Intel OpenMP,
+OpenBLAS and GoogleTest on Windows) are built or downloaded once and cached;
+a cache-miss run is several minutes slower than a warm one.
 
 | Cache key prefix | Used by | Lives beside |
 |------------------|---------|--------------|
