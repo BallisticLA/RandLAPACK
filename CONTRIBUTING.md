@@ -11,9 +11,11 @@ mechanics of contributing code.
    [docs/INSTALL.md](docs/INSTALL.md), and for native Windows
    [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md)). With GoogleTest
    installed, the installer builds the test suite.
-2. Check that the tests pass before you change anything:
+2. Check that the tests pass before you change anything (the installer's
+   final summary prints this build directory; it differs if you set
+   `RANDNLA_PROJECT_DIR`):
    ```shell
-   ctest --test-dir ../RandNLA-project/build/RandLAPACK-build
+   OMP_NUM_THREADS=1 ctest --test-dir ../RandNLA-project/build/RandLAPACK-build -j 4
    ```
 3. After editing headers, rebuild and re-run the tests from that same build
    directory. RandLAPACK is header-only, so downstream projects (extras,
@@ -58,9 +60,13 @@ and CI's `pins` job checks both the file and the match (see
 [docs/CI.md](docs/CI.md)). A pin therefore moves in RandBLAS first:
 
 1. Move the pin in RandBLAS.
-2. Once that change is on RandBLAS's `main`, make one RandLAPACK commit that
-   moves the submodule to it, updates `RandLAPACK_RandBLAS_PIN`, and copies
-   the new pins into `installers/dependency-pins.env`.
+2. Once that change is on RandBLAS's `main`, make one RandLAPACK commit that:
+   - moves the submodule to it and updates `RandLAPACK_RandBLAS_PIN`;
+   - copies the new `*_REF` and `*_TAG` lines into
+     `installers/dependency-pins.env`;
+   - updates the tag in the pinned-versions table of
+     [docs/INSTALL.md](docs/INSTALL.md#pinned-versions), the only doc that
+     names it.
 
 ## Tests
 
