@@ -9,6 +9,16 @@ linear algebra problems such as least squares, (kernel) ridge regression,
 low-rank approximation, and matrix factorizations. Its API is not yet stable;
 we are actively working on changing that.
 
+RandLAPACK builds on [RandBLAS](https://github.com/BallisticLA/RandBLAS), a
+header-only C++ library for sketching in randomized linear algebra
+(sketching compresses a matrix by multiplying it with a random one). RandBLAS
+comes with RandLAPACK as a pinned git submodule (another git repository
+included at one fixed commit), so you do not install it separately. For
+MATLAB, [randlapack-bindings](https://github.com/BallisticLA/randlapack-bindings)
+provides bindings: currently a proof of concept for `BQRRP` (blocked QR
+with randomized column pivoting), in single and double precision, with
+Python planned.
+
 Questions, or want to get involved in development? Join
 [**our Discord server**](https://discord.gg/R4qj8Er9YW).
 
@@ -51,10 +61,9 @@ OMP_NUM_THREADS=1 ctest --test-dir ../RandNLA-project/build/RandLAPACK-build -j 
 The installer builds RandLAPACK, its dependencies, the extras and benchmark
 projects, and the test suite. The dependencies are BLAS++ and LAPACK++ (C++
 wrappers for BLAS and LAPACK, built from the BallisticLA forks), Random123,
-and RandBLAS, which comes inside this repository as a pinned git submodule
-(another git repository included at one fixed commit). Run
-`bash install.sh --help` for the options: GPU support, parallelism, reusing
-preinstalled dependencies, and more.
+and RandBLAS, from its submodule. Run `bash install.sh --help` for the
+options: GPU support, parallelism, reusing preinstalled dependencies, and
+more.
 
 ### Native Windows
 
@@ -72,10 +81,16 @@ powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 This builds the dependencies and RandLAPACK and runs the test suite; it does
 not build the extras or benchmark projects.
 
-### By hand, and from your own project
+### From your own project, and by hand
 
-To build by hand, or to use RandLAPACK from your own CMake project (with a
-minimal example program), see [docs/INSTALL.md](docs/INSTALL.md).
+- To use RandLAPACK from your own CMake project, with a minimal example
+  program, see [docs/USING.md](docs/USING.md).
+- To build every piece by hand instead, see
+  [docs/INSTALL_MANUAL.md](docs/INSTALL_MANUAL.md). This is an advanced,
+  riskier option: the installers keep the dependencies consistent for you.
+
+[docs/DEPENDENCIES.md](docs/DEPENDENCIES.md#tested-setups) lists the hardware
+and software setups where RandLAPACK has been tested.
 
 ## What's in the library
 
@@ -107,9 +122,6 @@ organized):
 
 ## Related libraries
 
-RandLAPACK depends on [RandBLAS](https://github.com/BallisticLA/RandBLAS),
-which we are also developing.
-
 Before RandLAPACK, we implemented several high-level RandNLA algorithms in
 MATLAB ([MARLA](https://github.com/BallisticLA/marla)) and Python
 ([PARLA](https://github.com/BallisticLA/parla)). PARLA treats *algorithms as
@@ -123,7 +135,9 @@ approach.
 |----------------|------|
 | Install with one command on Linux or macOS | [docs/INSTALL_SCRIPT.md](docs/INSTALL_SCRIPT.md) |
 | Install on native Windows (MSVC) | [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) |
-| Install by hand, or use RandLAPACK from your CMake project (with an example program) | [docs/INSTALL.md](docs/INSTALL.md) |
+| Use RandLAPACK from your own CMake project (with an example program) | [docs/USING.md](docs/USING.md) |
+| Install by hand (advanced, riskier) | [docs/INSTALL_MANUAL.md](docs/INSTALL_MANUAL.md) |
+| See the tested setups, dependency versions and CUDA requirements | [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) |
 | Understand how the library is organized | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Contribute code | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | See what CI checks, and why | [docs/CI.md](docs/CI.md) |
