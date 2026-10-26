@@ -19,12 +19,13 @@ the thing we tell users to type is itself under test). The fifth,
 | dependency-pins | `pins` | ubuntu-latest | `installers/dependency-pins.env`: each commit exists at its URL, a non-empty tag points at its commit, and the pins match the RandBLAS submodule's | no (new) |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
 | install-script | `install-linux-openblas64` | ubuntu-latest | `install.sh --blas=openblas` with Debian/Ubuntu's `libopenblas64` as the only OpenBLAS: BLAS++ must come out ILP64 and link `libopenblas64`, then the test suite | no (new) |
-| install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, explicit `--blas=openblas` install | **yes** |
+| install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, an explicit `--blas-int=ilp64` re-run, explicit `--blas=openblas` install | **yes** |
 | install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, then the test suite | no (new) |
 | install-script | `install-windows` | windows-2022 | `installers/install.ps1`: fresh install, idempotent re-run | no (new) |
 
 Required-check names match **job** names (`build`, `install-linux`,
-`install-macos`), not "workflow / job" display names. The Windows jobs, the
+`install-macos`), not "workflow / job" display names, and a pull request
+must be up to date with `main` before it merges. The Windows jobs, the
 `pins` job, the two `build-asan` jobs and the two newest installer lanes
 (`install-linux-openblas64`, `install-macos-lp64`) are deliberately not
 required yet; they become candidates once they have a green track record.
@@ -33,7 +34,7 @@ required yet; they become candidates once they have a green track record.
 
 - **Workflows fire on `pull_request`, and on `push` only for `main`.** They
   used to fire on `push` for every branch as well, so each commit on a pull
-  request ran every job twice -- same SHA, same result, double the minutes.
+  request ran every job twice: same SHA, same result, double the minutes.
   A branch with an open pull request is covered by the `pull_request` event;
   `main` still gets a run of its own. The one thing this drops is CI for a
   branch with no pull request open, which `workflow_dispatch` covers on
@@ -71,6 +72,12 @@ required yet; they become candidates once they have a green track record.
   every Linux and macOS installer lane skips them too; `install.ps1` does not,
   so `install-windows` builds and runs them, as a user's Windows install
   does.
+- **No job builds or runs the GPU code**
+  ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). No job
+  configures with `-DRequireCUDA=ON`, and the GPU drivers compile only in
+  CUDA translation units, so a change that breaks GPU code still passes CI:
+  `test/drivers/test_bqrrp_gpu.cu` did not compile from #155 until #206 fixed
+  it. Build and run the GPU tests locally when you touch GPU code.
 - **The Windows matrix is deliberately small** (CI-cost budget): the two
   mkl legs cover the default backend serial + OpenMP, and ONE openblas leg
   covers non-MKL provisioning and the LP64 build. There is no
@@ -98,7 +105,7 @@ required yet; they become candidates once they have a green track record.
   down as BLAS++ reporting "BLAS library not found" (the libraries were fine;
   an x86 linker simply cannot use an x64 import library). `windows-toolchain-guards` closes it
   from two directions in **one** job: every check asserts a *refusal* or runs
-  pure logic, so each takes seconds and runner start-up dominates -- splitting
+  pure logic, so each takes seconds and runner start-up dominates; splitting
   them across jobs would multiply the Windows runner count for no coverage.
     - The decision table (`test-toolchain-guard.ps1`) drives the guard over
       every architecture. This is the only way to cover **arm64** and **arm**:
@@ -145,14 +152,14 @@ required yet; they become candidates once they have a green track record.
   banner.** It prefers `VSCMD_ARG_TGT_ARCH`, then the
   `bin\Host<host>\<target>\cl.exe` path convention, and only then the banner.
   The banner alone would be wrong on a localized Visual Studio, where the
-  words around the architecture are translated -- and a missed detection here
+  words around the architecture are translated, and a missed detection here
   fails *open*, silently allowing the exact configuration the check exists to
   reject.
 - **The MSVC OpenMP flavor is forced to `/openmp:llvm` in RandLAPACK's own
   CMake** (`CMake/rl_build_options.cmake` and the benchmark project), not
   just in RandBLAS. RandLAPACK's `find_package(OpenMP)` runs before the
   submodule's guard, and a 2026-08 CI diagnostic proved classic `-openmp`
-  was being cached -- under which MSVC silently ignores the `collapse`
+  was being cached, under which MSVC silently ignores the `collapse`
   clause (warning C4849) that `rl_rpchol` relies on, i.e. the "openmp" leg
   was not testing what its name claimed.
 - **Windows executables are staged, not PATH-dependent.** The BLAS backend
@@ -193,9 +200,9 @@ several minutes slower than a warm one.
 
 | Cache key prefix | Used by | Lives beside |
 |------------------|---------|--------------|
-| `core-deps-<OS>-v<N>` | core-linux, core-macos (both jobs) | the workspace (`../*-install`) |
+| `core-deps-<OS>-v<N>` | core-linux, core-macos (both jobs) | `runner.workspace`, the checkout's parent (`*-install`) |
 | `installer-deps-<OS>-v<N>` | install-linux | `deps-install/` in the workspace |
-| `windows-*-r<N>` (per backend + shared) | core-windows, install-windows | `..\windows-deps` |
+| `windows-*-r<N>` (per backend + shared) | core-windows (`build-windows`, `windows-spaced-path`), install-windows | `runner.workspace\windows-deps` |
 
 To force a rebuild against fresh upstream clones, bump the `-v`/`-r` suffix
 in the relevant key. The Windows keys use MANUAL revision literals (plus the
@@ -208,7 +215,14 @@ returns an empty string. The result was two workflows reading and writing
 `setup.ps1` changes, bump the `-r<N>` on the affected keys in `action.yml`.
 BLAS++/LAPACK++ are built at the commits in `installers/dependency-pins.env`,
 and every key that caches them carries those commits, so changing a pin
-rebuilds them with no suffix bump.
+rebuilds them with no suffix bump. The core lanes clone Random123 at its
+default branch, unpinned, so bumping `-v<N>` is also how they pick up a new
+Random123.
+
+Cache paths start from `runner.workspace` and never contain `..`:
+`actions/cache` refuses to save a path with `..` in it ("Relative pathing '.'
+and '..' is not allowed"), so a cache spelled that way restores nothing and
+is never saved, without failing the job.
 
 ## Reproducing CI locally
 
