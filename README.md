@@ -13,11 +13,11 @@ RandLAPACK builds on [RandBLAS](https://github.com/BallisticLA/RandBLAS), a
 header-only C++ library for sketching in randomized linear algebra
 (sketching compresses a matrix by multiplying it with a random one). RandBLAS
 comes with RandLAPACK as a pinned git submodule (another git repository
-included at one fixed commit), so you do not install it separately. For
-MATLAB, [randlapack-bindings](https://github.com/BallisticLA/randlapack-bindings)
-provides bindings: currently a proof of concept for `BQRRP` (blocked QR
-with randomized column pivoting), in single and double precision, with
-Python planned.
+included at one fixed commit), so you do not install it separately.
+[randlapack-bindings](https://github.com/BallisticLA/randlapack-bindings)
+provides MATLAB bindings (Python is planned): currently a proof of concept
+for `BQRRP` (blocked QR with randomized column pivoting), in single and
+double precision.
 
 Questions, or want to get involved in development? Join
 [**our Discord server**](https://discord.gg/R4qj8Er9YW).
