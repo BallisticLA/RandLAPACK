@@ -1,7 +1,7 @@
 # How RandLAPACK is organized
 
 This is the map for reading or extending the library. For installation see
-[INSTALL.md](INSTALL.md); for the contribution workflow see
+the [README](../README.md#install); for the contribution workflow see
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## In short
@@ -20,8 +20,8 @@ This is the map for reading or extending the library. For installation see
   BallisticLA forks at the
   commits pinned in
   [`installers/dependency-pins.env`](../installers/dependency-pins.env)
-  ([INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains
-  why).
+  ([DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks)
+  explains why).
 
 ```mermaid
 flowchart TD
@@ -101,7 +101,7 @@ The repository builds as three CMake projects, not one:
    (the default) and GoogleTest is found. RandBLAS is built from the
    submodule (or, for package maintainers only, used as an installed package
    behind the `RandLAPACK_EXTERNAL_RandBLAS` commit gate; see
-   [INSTALL.md](INSTALL.md#randblas-is-a-pinned-submodule)).
+   [DEPENDENCIES.md](DEPENDENCIES.md#randblas-is-a-pinned-submodule)).
 2. **benchmark/** measures RandLAPACK's performance (the harnesses behind
    the papers). Some benchmarks borrow headers from `extras/`.
 3. **extras/** is a holding area for functionality that currently needs
