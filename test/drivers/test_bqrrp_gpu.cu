@@ -503,8 +503,8 @@ TEST_F(TestBQRRP, BQRRP_GPU_vectors) {
 
 // Repeated BQRRP_GPU calls must not grow device memory use. cudaMemGetInfo is device wide,
 // so other processes add noise; a leak shows up in every round, noise rarely does.
-// The geqrf case also allocates a geqrf workspace per iteration; it is sized so that keeping
-// those workspaces would exceed the bound.
+// The geqrf case also allocates a geqrf workspace per iteration, about 10 MiB per call in all;
+// keeping them would grow memory by about 160 MiB per round of 16 calls, five times the bound.
 TEST_F(TestBQRRP, BQRRP_GPU_repeated_calls_no_leak) {
     struct Case { const char* name; GPUSubroutines::QRTall qr_tall; int64_t m, n, d, b_sz; };
     const Case cases[] = {
@@ -512,7 +512,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_repeated_calls_no_leak) {
         {"geqrf",  GPUSubroutines::QRTall::geqrf,  1000, 600, 125, 100}
     };
     int num_rounds = 3;
-    int calls_per_round = 5;
+    int calls_per_round = 16;
     auto free_mib = []() {
         size_t free_bytes, total_bytes;
         cudaDeviceSynchronize();
