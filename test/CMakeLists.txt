@@ -75,6 +75,15 @@ if (GTest_FOUND)
         add_test(NAME RandLAPACK_tests_gpu_shuffle_repeat
                  COMMAND RandLAPACK_tests_gpu --gtest_shuffle --gtest_repeat=2)
         set_tests_properties(RandLAPACK_tests_gpu_shuffle_repeat PROPERTIES RUN_SERIAL TRUE)
+
+        # A program built with per-thread default streams. Its own executable: the drivers are
+        # header templates, so one shared with legacy-stream sources could link either version.
+        set_source_files_properties(drivers/test_cqrrpt_gpu_ptds.cu PROPERTIES LANGUAGE CUDA)
+        add_executable(RandLAPACK_tests_gpu_ptds drivers/test_cqrrpt_gpu_ptds.cu)
+        target_compile_options(RandLAPACK_tests_gpu_ptds PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>)
+        target_link_libraries(RandLAPACK_tests_gpu_ptds RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
+        randlapack_stage_runtime_dlls(RandLAPACK_tests_gpu_ptds)
+        gtest_discover_tests(RandLAPACK_tests_gpu_ptds)
     endif()
 
     # Create additional tests

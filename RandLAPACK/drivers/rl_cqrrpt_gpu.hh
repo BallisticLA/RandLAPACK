@@ -315,9 +315,11 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaMalloc(&R_sp_device, k * k * sizeof(T));
 
     // A and R keep their leading dimensions on the device; only rows 0:m and 0:n are copied.
-    cudaMemcpy2D(A_device, lda * sizeof(T), A, lda * sizeof(T), m * sizeof(T), n, cudaMemcpyHostToDevice);
-    cudaMemcpy2D(R_device, ldr * sizeof(T), R, ldr * sizeof(T), n * sizeof(T), n, cudaMemcpyHostToDevice);
-    cudaMemcpy(R_sp_device, R_sp, k * k * sizeof(T), cudaMemcpyHostToDevice);
+    // Every copy runs on lapack_queue's stream, so it is ordered against the device work even
+    // when the default stream does not synchronize with other streams (per-thread default stream).
+    blas::device_copy_matrix(m, n, A, lda, A_device, lda, lapack_queue);
+    blas::device_copy_matrix(n, n, R, ldr, R_device, ldr, lapack_queue);
+    blas::device_memcpy(R_sp_device, R_sp, k * k, lapack_queue);
 
     //char name [] = "A";
     //RandBLAS::util::print_colmaj(m, n, A, name);
@@ -335,9 +337,9 @@ int CQRRPT_GPU<T, RNG>::call(
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A_device, lda, (T) 0.0, R_sp_device, k, lapack_queue);
     lapack::potrf(Uplo::Upper, k, R_sp_device, k, d_info, lapack_queue);
-    lapack_queue.sync();
     device_info_int info = 0;
-    cudaMemcpy(&info, d_info, sizeof(device_info_int), cudaMemcpyDeviceToHost);
+    blas::device_memcpy(&info, d_info, 1, lapack_queue);
+    lapack_queue.sync();
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
@@ -350,13 +352,11 @@ int CQRRPT_GPU<T, RNG>::call(
     // In order to avoid creating a specialized kerken function, we would copy the diagonal of R_sp 
     // back to the host using a strided cuda Memcopy (beware of performance issues).
 
-    // spitch  (2nd argument) - width of the row vectors in the source array - sizeof(T), since we have a column vector.
-    // dpitch  (4nd argument) - width of the row vectors in the source array - (k + 1) * sizeof(T), since we have a k by k matrix and 
-    //                                                                         want the "vector" to start with a diagonal element.
-    // width   (5th argument) - number of columns in data transfer           - sizeof(T), since we transfer one element per column.
-    // heighth (6th argument) - numer of rows in data transfer               - k, since we will be transferring k elements total.
+    // In elements: the host pitch is 1, since we have a column vector; the device pitch is k + 1, so each
+    // "row" starts at a diagonal entry of the k by k matrix; each of the k rows is 1 element wide.
     T* R_sp_diag = new T[k]();
-    cudaMemcpy2D(R_sp_diag, sizeof(T), R_sp_device, (k + 1) * sizeof(T), sizeof(T), k, cudaMemcpyDeviceToHost);
+    blas::device_memcpy_2d(R_sp_diag, (int64_t) 1, R_sp_device, k + 1, (int64_t) 1, k, lapack_queue);
+    lapack_queue.sync();
 
     new_rank = k;
     if(info > 0) {
@@ -412,8 +412,9 @@ int CQRRPT_GPU<T, RNG>::call(
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
 
-    cudaMemcpy2D(A, lda * sizeof(T), A_device, lda * sizeof(T), m * sizeof(T), n, cudaMemcpyDeviceToHost);
-    cudaMemcpy2D(R, ldr * sizeof(T), R_device, ldr * sizeof(T), n * sizeof(T), n, cudaMemcpyDeviceToHost);
+    blas::device_copy_matrix(m, n, A_device, lda, A, lda, lapack_queue);
+    blas::device_copy_matrix(n, n, R_device, ldr, R, ldr, lapack_queue);
+    lapack_queue.sync();
     // Rows past the rank hold leftovers of the sketch's R factor.
     lapack::laset(MatrixType::General, n - new_rank, n, (T) 0.0, (T) 0.0, &R[new_rank], ldr);
     
