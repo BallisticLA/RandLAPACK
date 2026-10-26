@@ -454,6 +454,41 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
     }
 }
 
+// The two-column input of CQRRPT_cholesky_failure_k2_drops_failed_column, on which potrf fails at
+// column 2, exactly and on any BLAS. With k = 2 the scan, which starts at i = 2, cannot cut the
+// rank, so only the cap at the failed column keeps CQRRPT_GPU from keeping it: rank 1, as in CQRRPT.
+TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_k2_drops_failed_column) {
+    int64_t m = 32;
+    int64_t n = 2;
+    int64_t d = 4;
+    uint32_t seed = 3;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A = cqrrpt_test::cholesky_failure_k2_input(m, d, seed);
+    ASSERT_EQ((int64_t) A.size(), m * n) << "the sketch from this seed cannot carry the input";
+
+    std::vector<double> Q(A), R(n * n, 0.0);
+    std::vector<int64_t> J(n, 0);
+    RandBLAS::RNGState<r123::Philox4x32> state(seed);
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    CQRRPT_GPU.nnz = 1;
+    CQRRPT_GPU.no_hqrrp = 1;
+    ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    ASSERT_EQ(J, (std::vector<int64_t>{1, 2})) << "the sketch's QRCP must not pivot";
+    int64_t r = CQRRPT_GPU.rank;
+    EXPECT_EQ(r, 1);
+
+    // Q(:, 0:rank) orthonormal, and A[:, J] = Q R up to the dropped direction, of relative size 2e-9.
+    auto c = factor_checks(m, n, r, A, Q, R, n, J);
+    ASSERT_TRUE(c.finite) << "rank " << r << ": Q or R contains NaN or Inf";
+    EXPECT_LE(c.err_orth, 10 * std::numeric_limits<double>::epsilon()) << "rank " << r;
+    std::vector<double> AP(A);
+    std::vector<int64_t> J_identity{1, 2};
+    RandLAPACK::util::col_swap(m, n, n, AP.data(), m, J_identity.data());
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
+    double err_qr = lapack::lange(Norm::Fro, m, n, AP.data(), m) / lapack::lange(Norm::Fro, m, n, A.data(), m);
+    EXPECT_LE(err_qr, 1e-8) << "rank " << r;
+}
+
 // With tol <= u the ratio threshold sqrt(tol/u) is at most 1, so the scan's ratio test holds from
 // its first entry. When potrf succeeds there is no scan, and the rank is the sketch's. When it
 // fails, the scan cuts at its first allowed index, i = 2, so the rank is 1, as in CQRRPT; it must
