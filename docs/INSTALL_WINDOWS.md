@@ -211,9 +211,9 @@ session too.
 
 AMD AOCL downloads sit behind a click-through license page, so the installer
 cannot fetch them: download AOCL yourself, then point `-BlasLibraries` at its
-`.lib` files (example in section 6). The custom path is expected to work with
-any well-formed backend but is not exercised by our CI; oneMKL and OpenBLAS
-are.
+`.lib` files (example in section 6). CI exercises `-Backend custom` with
+oneMKL's import libraries (the `windows-spaced-path` job); AOCL itself is not
+tested.
 
 ## 5. What the installer downloads, and at which versions
 
@@ -229,21 +229,20 @@ archives:
 | OpenBLAS | **0.3.34** | official GitHub release binaries | SHA256 |
 | GoogleTest | **v1.18.0** | release tag | git tag |
 | Random123 | **v1.14.0** | release tag | git tag |
-| BLAS++ | tag `ballistic-2026.10.22` | [BallisticLA/blaspp](https://github.com/BallisticLA/blaspp), a fork of icl-utk-edu/blaspp | git commit |
-| LAPACK++ | tag `ballistic-2026.10.22` | [BallisticLA/lapackpp](https://github.com/BallisticLA/lapackpp), a fork of icl-utk-edu/lapackpp | git commit |
+| BLAS++ | the commit in `installers/dependency-pins.env` | [BallisticLA/blaspp](https://github.com/BallisticLA/blaspp), a fork of icl-utk-edu/blaspp | git commit |
+| LAPACK++ | the commit in `installers/dependency-pins.env` | [BallisticLA/lapackpp](https://github.com/BallisticLA/lapackpp), a fork of icl-utk-edu/lapackpp | git commit |
 
 - **Every component is pinned to an immutable reference**, so a given
   RandLAPACK revision always builds the same dependency versions. All are
   stable, released versions from the project's canonical upstream, except
   BLAS++ and LAPACK++.
 - **BLAS++ and LAPACK++ come from the BallisticLA forks**, pinned by full
-  commit hash in
-  [`installers/dependency-pins.env`](../installers/dependency-pins.env),
-  which also names the tag `ballistic-2026.10.22` on those commits. That one
-  file is read by this installer, by `install.sh` on Linux and macOS, and by
-  CI. [INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains
-  why, and lists the fixes the forks carry, among them the MSVC build fixes
-  this build needs.
+  commit hash and tag in
+  [`installers/dependency-pins.env`](../installers/dependency-pins.env).
+  That one file is read by this installer, by `install.sh` on Linux and
+  macOS, and by CI. [INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks)
+  explains why, and lists the fixes the forks carry, among them the MSVC
+  build fixes this build needs.
 - **oneMKL is downloaded only if you do not already have one.** If an
   existing oneAPI is discovered (section 4), the installer uses *your*
   version, whatever that is, together with the Intel OpenMP runtime from the
@@ -292,28 +291,26 @@ archives:
 -Fresh                Reconfigure RandLAPACK from scratch. Dependencies are
                       still reused unless their pinned source or the backend
                       libraries changed, in which case BLAS++/LAPACK++ are
-                      rebuilt automatically (as on the first run after an
-                      upgrade from a sequential-oneMKL install); delete
-                      <ProjectDir>\install subdirectories to force a rebuild.
+                      rebuilt automatically; delete <ProjectDir>\install
+                      subdirectories to force a rebuild.
 -SkipTests            Skip the test suite.
 ```
 
-Worked examples:
+Worked examples, each one line, run from the same x64 developer prompt as
+the quick start:
 
-```powershell
-# Default: oneMKL, discovered or downloaded.
-.\installers\install.ps1
+```bat
+REM Default: oneMKL, discovered or downloaded.
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 
-# OpenBLAS instead of MKL.
-.\installers\install.ps1 -Backend openblas
+REM OpenBLAS instead of MKL.
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1 -Backend openblas
 
-# You already installed the oneAPI toolkit somewhere non-standard.
-.\installers\install.ps1 -MklRoot "D:\intel\oneAPI\mkl\latest"
+REM You already installed the oneAPI toolkit somewhere non-standard.
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1 -MklRoot "D:\intel\oneAPI\mkl\latest"
 
-# AMD AOCL, downloaded manually beforehand.
-.\installers\install.ps1 -Backend custom `
-    -BlasLibraries "C:\AOCL\lib\AOCL-LibBlis-Win-MT-dll.lib;C:\AOCL\lib\AOCL-LibFlame-Win-MT-dll.lib" `
-    -BackendBinDir "C:\AOCL\bin"
+REM AMD AOCL, downloaded manually beforehand.
+powershell -ExecutionPolicy Bypass -File .\installers\install.ps1 -Backend custom -BlasLibraries "C:\AOCL\lib\AOCL-LibBlis-Win-MT-dll.lib;C:\AOCL\lib\AOCL-LibFlame-Win-MT-dll.lib" -BackendBinDir "C:\AOCL\bin"
 ```
 
 ## 7. Runtime DLLs: what "staging" means
@@ -356,9 +353,8 @@ there are two, oneMKL's `bin` and Intel OpenMP's.
   dependencies are reused when present, and the ones configured by the
   32-bit compiler will keep failing no matter which shell you re-run from.
 - **"BLAS library not found" from BLAS++, with oneMKL clearly installed**:
-  almost always the 32-bit shell above, on a version of the installer that
-  predates the preflight check. The x86 linker rejects the x64 import
-  library, and BLAS++ can only report that its probe did not link.
+  almost always the 32-bit shell above. The x86 linker rejects the x64
+  import library, and BLAS++ can only report that its probe did not link.
 - **Tests run far slower with `ctest -j N`**: with oneMKL, each test process
   starts a full set of threads (one per core), so N processes oversubscribe
   the machine. Run `ctest` without `-j`, or set `OMP_NUM_THREADS` to a small
@@ -386,5 +382,4 @@ there are two, oneMKL's `bin` and Intel OpenMP's.
   `<ProjectDir>\install\*` subdirectories, then re-run the installer.
 
 CI runs these same flows on every pull request; [CI.md](CI.md) describes the
-lanes, and `.github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies
-[-Backend openblas]` reproduces a CI lane locally.
+lanes and how to reproduce one locally.
