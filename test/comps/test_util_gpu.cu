@@ -549,3 +549,101 @@ TEST_F(TestUtil_GPU, test_copy_mat_gpu_upper_trapezoid) {
     cudaError_t ierr = cudaGetLastError();
     EXPECT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
 }
+
+// col_swap_gpu's in-place overloads, col_swap_gpu_kernel_sequential for a matrix and vec_ell_swap_gpu
+// for a vector, apply the swaps one at a time and keep the remaining pivots in an array that every
+// thread reads. Each trial applies a random permutation J and its inverse K alternately, then J once
+// more, back to back with no host synchronization in between, and compares the result with
+// util::col_swap's. Most trials use random disjoint adjacent transpositions: each costs a grid sync
+// and the quickest pivot update, which leaves the widest window for a race on that array.
+TEST_F(TestUtil_GPU, test_col_swp_gpu_sequential_stress) {
+    int64_t m = 1000;
+    int64_t n = 1000;
+    int num_trials = 100;
+    cudaStream_t strm = cudaStreamPerThread;
+    std::mt19937_64 gen(2027);
+
+    std::vector<double> A(m * n), A_ref(m * n), A_out(m * n);
+    std::iota(A.begin(), A.end(), 0.0);
+    std::vector<int64_t> v(n), v_ref(n), v_out(n), J(n), K(n), J_cpy(n);
+    std::iota(v.begin(), v.end(), 1);
+    double* A_device;
+    int64_t *v_device, *J_device, *K_device;
+    cudaMalloc(&A_device, m * n * sizeof(double));
+    cudaMalloc(&v_device, n * sizeof(int64_t));
+    cudaMalloc(&J_device, n * sizeof(int64_t));
+    cudaMalloc(&K_device, n * sizeof(int64_t));
+
+    int wrong_matrix = 0;
+    int wrong_vector = 0;
+    for (int t = 0; t < num_trials; ++t) {
+        // Every tenth trial is a uniform random permutation, whose long pivot searches make it slow.
+        bool shuffle = t % 10 == 0;
+        int round_trips = shuffle ? 1 : 10;
+        std::iota(J.begin(), J.end(), 1);
+        if (shuffle) {
+            std::shuffle(J.begin(), J.end(), gen);
+        } else {
+            for (int64_t i = 0; i + 1 < n; ++i)
+                if (gen() % 10 != 0) {
+                    std::swap(J[i], J[i + 1]);
+                    ++i;
+                }
+        }
+        // Column i of the result is column J[i] of the input, so K, with K[J[i]] = i, undoes J.
+        for (int64_t i = 0; i < n; ++i)
+            K[J[i] - 1] = i + 1;
+        cudaMemcpy(A_device, A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(v_device, v.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(J_device, J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(K_device, K.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice);
+
+        for (int r = 0; r < round_trips; ++r) {
+            RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, A_device, m, J_device);
+            RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, A_device, m, K_device);
+        }
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, A_device, m, J_device);
+        for (int r = 0; r < round_trips; ++r) {
+            RandLAPACK::cuda_kernels::col_swap_gpu<double>(strm, n, n, v_device, J_device);
+            RandLAPACK::cuda_kernels::col_swap_gpu<double>(strm, n, n, v_device, K_device);
+        }
+        RandLAPACK::cuda_kernels::col_swap_gpu<double>(strm, n, n, v_device, J_device);
+        cudaStreamSynchronize(strm);
+        cudaMemcpy(A_out.data(), A_device, m * n * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaMemcpy(v_out.data(), v_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+
+        A_ref = A;
+        J_cpy = J;
+        RandLAPACK::util::col_swap(m, n, n, A_ref.data(), m, J_cpy.data());
+        v_ref = v;
+        J_cpy = J;
+        RandLAPACK::util::col_swap(n, n, v_ref.data(), J_cpy.data());
+        wrong_matrix += !(A_out == A_ref);
+        wrong_vector += !(v_out == v_ref);
+    }
+    cudaFree(A_device);
+    cudaFree(v_device);
+    cudaFree(J_device);
+    cudaFree(K_device);
+
+    std::cout << "WRONG RESULTS IN " << num_trials << " TRIALS:  MATRIX " << wrong_matrix << ",  VECTOR " << wrong_vector << "\n";
+    EXPECT_EQ(wrong_matrix, 0);
+    EXPECT_EQ(wrong_vector, 0);
+    cudaError_t ierr = cudaGetLastError();
+    EXPECT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
+}
+
+// The in-place matrix overload is a cooperative launch, so its grid must fit on the device at once.
+// This A asks for more blocks, one per 128 rows, than the device can hold, so the grid is capped by
+// the occupancy of the kernel that col_swap_gpu launches.
+TEST_F(TestUtil_GPU, test_col_swp_gpu_tall) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    int64_t m = (int64_t) 128 * prop.multiProcessorCount * prop.maxBlocksPerMultiProcessor;
+    int64_t n = 4;
+    ColSwpTestData<double> all_data(m, n);
+    std::iota(all_data.A.begin(), all_data.A.end(), 0.0);
+    all_data.J = {3, 1, 4, 2};
+
+    col_swp_gpu<double>(all_data);
+}

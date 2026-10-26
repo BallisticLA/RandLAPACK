@@ -419,13 +419,17 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel_sequential(
     int64_t* curr = idx_mut;
     int64_t* end = idx_mut + k;
     for (int64_t i = 1; i <= k; ++i, ++curr) {
-        // swap rows IFF mismatched
+        // Every thread reads *curr, so no thread may write it: a thread that read the new value
+        // would skip both the swap and the g.sync. *curr is not read again, so it is enough to
+        // move j to where i was, which lies past curr; g.sync orders that write before its reads.
         if (int64_t const j = *curr; i != j) {
             for (int64_t l = threadIdx.x + blockDim.x * blockIdx.x; l < m; l += blockDim.x * gridDim.x) {
                 swap_gpu_device(A[i * lda + l], A[j * lda + l]);
             }
             if (threadIdx.x == 0 && blockIdx.x == 0) {
-                swap_gpu_device(*curr, *find_gpu_device(curr, end, i));
+                int64_t* found = find_gpu_device(curr + 1, end, i);
+                if (found != end)
+                    *found = j;
             }
             g.sync();
         }
@@ -477,16 +481,17 @@ __global__ void __launch_bounds__(512) vec_ell_swap_gpu(
         idx_mut[i] = idx[i];
     }
     __syncthreads();
+    // The swaps are sequential and only thread 0 performs them, so the other threads stop here
+    // rather than read idx_mut while thread 0 writes it.
+    if (threadIdx.x != 0)
+        return;
     int64_t* curr = idx_mut;
     int64_t* end = idx_mut + k;
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-            if (threadIdx.x == 0) {
-                swap_gpu_device(J[i], J[j]);
-                swap_gpu_device(*curr, *find_gpu_device(curr, end, i));
-            }
-            __syncthreads();
+            swap_gpu_device(J[i], J[j]);
+            swap_gpu_device(*curr, *find_gpu_device(curr, end, i));
         }
     }
 }
@@ -702,7 +707,7 @@ void col_swap_gpu(
         int numBlocksPerSm = 0;
         cudaDeviceProp deviceProp;
         cudaGetDeviceProperties(&deviceProp, 0);
-        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel<T>, numThreads, 0);
+        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel_sequential<T>, numThreads, 0);
         return deviceProp.multiProcessorCount * numBlocksPerSm;
     }();
     int lower_bound = std::max(m, k);
