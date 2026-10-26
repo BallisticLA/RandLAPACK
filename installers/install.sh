@@ -18,7 +18,8 @@
 # submodule pinned to an exact commit, and that pinned copy stays authoritative.
 # RandBLAS's own installer is for people who want RandBLAS on its own.
 #
-# Prerequisites and tested configurations are listed in docs/INSTALL_SCRIPT.md.
+# Prerequisites are listed in docs/INSTALL_SCRIPT.md, tested setups in
+# docs/DEPENDENCIES.md.
 
 set -euo pipefail
 # macOS ships bash 3.2, where expanding an EMPTY array under `set -u` is an
