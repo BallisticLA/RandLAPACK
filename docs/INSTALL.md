@@ -27,8 +27,10 @@ Section 6 covers native Windows.
 - **C++ Compiler**: C++20 support required
   - GCC 13 or higher (the tested floor; RandBLAS uses C++20 concepts)
   - Clang 14 or higher (not extensively tested)
-  - Intel ICPX (has known issues, see GitHub issue
-    [#91](https://github.com/BallisticLA/RandLAPACK/issues/91))
+  - Intel ICPX (not extensively tested). Build LAPACK++ from the fork tag in
+    Section 2: an icpx-built upstream LAPACK++ crashes in `gemqrt`
+    ([#202](https://github.com/BallisticLA/RandLAPACK/issues/202)), and the
+    tag carries the fix.
   - MSVC (Visual Studio 2022) on native Windows, with Ninja as the build
     tool (both bundled with the "Desktop development with C++" workload);
     see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
@@ -73,6 +75,13 @@ checking that the installed `include/blas/defines.h` contains
 `ACCELERATE_NEW_LAPACK`. This is what `install.sh` does on macOS (it also
 refuses a build that silently fell back to the legacy interface).
 Alternatively, use Homebrew OpenBLAS (`install.sh --blas=openblas`).
+
+The new interface also provides ILP64 (64-bit BLAS integers), and
+`install.sh` uses it by default on macOS: it builds BLAS++ with
+`-Dblas_int=int64`, and falls back to LP64 with a warning only if that
+configure fails. Pass `--blas-int=lp64` for an LP64 build. By hand, add
+`-Dblas_int=int64` or `-Dblas_int=int32` to the BLAS++ command; LAPACK++ takes
+its integer width from BLAS++.
 
 ### Note on Directory Names
 On some systems, library directories are called `lib` while on others they're called `lib64`. Adjust paths accordingly in the CMake configuration commands below.
@@ -136,6 +145,17 @@ tracks the return to upstream. The BLAS++ and LAPACK++ recipes below build
 the tag `ballistic-2026.10.22`, which marks the commits pinned in
 [`installers/dependency-pins.env`](../installers/dependency-pins.env), the file
 `install.sh` and CI build from.
+
+If you build BLAS++ and LAPACK++ yourself, build that tag. The latest upstream
+release, `v2025.05.28`, lacks fixes RandLAPACK relies on. Upstream `master` has
+some of them: Apple's new Accelerate interface, discovery of an ILP64
+OpenBLAS, and the MSVC build fixes. Only the forks have the rest: library
+paths that contain spaces, re-configuring a build directory without losing
+BLAS++'s and LAPACK++'s detected settings, `lapack_symbol_suffix` for
+symbol-suffixed LAPACK libraries, and the `gemqrt` fix without which an
+icpx-built LAPACK++ crashes. Issue
+[#204](https://github.com/BallisticLA/RandLAPACK/issues/204) lists each fix
+with its upstream pull request.
 
 One can compile and install BLAS++ from
 [source](https://github.com/BallisticLA/blaspp) using CMake by running
@@ -208,7 +228,7 @@ Here are the conceptual meanings in the recipe's build flags:
 
 * `-Dlapackpp_DIR=X` means `X` is the directory containing `lapackppConfig.cmake`.
     If you follow BLAS++ installation instructions from Section 5 instead of
-    Section 2, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/lapackpp`.
+    Section 2, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/cmake/lapackpp`.
   
 * `-Dblaspp_DIR=X` means `X` is the directory containing the file `blasppConfig.cmake`.
 
@@ -221,10 +241,12 @@ Here are the conceptual meanings in the recipe's build flags:
    for using RandLAPACK in other projects. You should make note of the directory
    that ends up containing the file ``RandLAPACKConfig.cmake``.
 
-Two optional flags are not used in the recipe above:
+Three optional flags are not used in the recipe above:
 `-DRandLAPACK_BUILD_TESTS=OFF` skips the GoogleTest regression suite, which
-is built by default when GTest is found, and `-DSANITIZE_ADDRESS=ON` adds
-AddressSanitizer instrumentation (CI uses it with Debug builds).
+is built by default when GTest is found; `-DBUILD_TESTS=OFF` skips the
+RandBLAS submodule's own tests, as `install.sh` and the CI recipes do; and
+`-DSANITIZE_ADDRESS=ON` adds AddressSanitizer instrumentation (CI uses it
+with Debug builds).
 
 
 ## 4. Using RandLAPACK in other projects
@@ -296,7 +318,7 @@ to work:
    folder called ``build`` at the top level of the BLAS++ project directory,
    and ``cd`` into that folder.
 
-2. Run ``export CXX=gcc`` so that ``gcc`` is the default compiler for
+2. Run ``export CXX=g++`` so that ``g++`` is the default compiler for
    the current bash session.
 
 3. Decide a common prefix for where you'll put BLAS++ and LAPACK++
@@ -324,7 +346,7 @@ to work:
 8. Run the following CMake command
    ```
     cmake -DCMAKE_BUILD_TYPE=Release \
-       -Dblaspp_DIR=/opt/mklpp/lib/blaspp \
+       -Dblaspp_DIR=/opt/mklpp/lib/cmake/blaspp \
        -DCMAKE_INSTALL_PREFIX=/opt/mklpp \
        -Dbuild_tests=OFF ..
     make -j2 install
@@ -334,9 +356,38 @@ You can then link to BLAS++ and LAPACK++ in other CMake projects
 just by including ``find_package(blaspp REQUIRED)`` and ``find_package(lapackpp REQUIRED)``
 in your ``CMakeLists.txt`` file, and then passing build flags
 ```
--Dblaspp_DIR=/opt/mklpp/lib/blaspp -Dlapackpp_DIR=/opt/mklpp/lib/lapackpp
+-Dblaspp_DIR=/opt/mklpp/lib/cmake/blaspp -Dlapackpp_DIR=/opt/mklpp/lib/cmake/lapackpp
 ```
 when running ``cmake``.
+
+### ILP64 OpenBLAS
+
+The ILP64 (64-bit integer) builds of OpenBLAS come under other library
+names, and BLAS++ has to be told which kind you have. Both cases below build
+BLAS++ and LAPACK++ from the fork tag of Section 2.
+
+* **Unsuffixed, as Debian/Ubuntu's `libopenblas64`** (package
+  `libopenblas64-dev`; the symbols are the usual `dgemm_`). Add
+  `-Dblas=openblas -Dblas_int=int64` to the BLAS++ command. BLAS++ then finds
+  `-lopenblas64`, but only when no LP64 `libopenblas` is installed beside it,
+  because it tries `-lopenblas` first;
+  [INSTALL_SCRIPT.md, section 6.2](INSTALL_SCRIPT.md#62-which-integer-width-you-get-and-why)
+  explains why, and how to name the library when both are installed.
+* **Symbol-suffixed, as conda-forge's `libopenblas64_`** (OpenBLAS built with
+  `INTERFACE64=1 SYMBOLSUFFIX=64_`, whose symbols are `dgemm_64_`). Add
+  `-Dblas=openblas -Dblas_int=int64 -Dblas_symbol_suffix=64_` to the BLAS++
+  command, and name the library with `-DBLAS_LIBRARIES=<dir>/libopenblas64_.so`
+  unless its directory is on the linker's search path. LAPACK++ needs no
+  extra flag: its `lapack_symbol_suffix` option, when left empty, takes
+  BLAS++'s suffix. Set it only for a LAPACK library whose suffix differs from
+  the BLAS library's.
+
+`install.sh` has no option for a symbol suffix. Build BLAS++ and LAPACK++ by
+hand and point the installer at them with `BLASPP_INSTALL_DIR` and
+`LAPACKPP_INSTALL_DIR` (see
+[INSTALL_SCRIPT.md](INSTALL_SCRIPT.md#reusing-preinstalled-dependencies-discovery)).
+RandLAPACK's CI does not cover a suffixed OpenBLAS; the forks' own CI builds
+and tests BLAS++ and LAPACK++ against conda-forge's.
 
 ### Installation trouble
 
