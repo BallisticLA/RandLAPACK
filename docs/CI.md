@@ -1,6 +1,7 @@
 # RandLAPACK's GitHub CI
 
-Five workflows run on every pull request and on every push to `main`:
+Five workflows run on every push to `main` and on every pull request,
+except pull requests into the `cqrrp-gpu-benchmarking` branch:
 
 - **core-linux, core-macos, core-windows** replicate the build recipe by
   hand, step by step, so a failure points at a specific step.
@@ -15,7 +16,7 @@ installer one.
 |----------|-----|--------|-----------|-----------------|
 | core-linux | `build` | ubuntu-latest | Release build + tests, extras build + tests, benchmark compile (OpenBLAS) | **yes** (`build`) |
 | core-linux | `build-asan` | ubuntu-latest | Debug + AddressSanitizer build and test run | no |
-| core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain | **yes** (`build`) |
+| core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain (Accelerate new interface, LP64, no OpenMP) | **yes** (`build`) |
 | core-macos | `build-asan` | macos-latest | Debug + AddressSanitizer build and test run | no |
 | core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial ("serial" = RandLAPACK's own loops; the BLAS backend is multithreaded in every leg); each leg ends with a stripped-PATH run of a staged test executable | no |
@@ -91,11 +92,8 @@ installer one.
 - **No job builds or runs the GPU code**
   ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). No job
   configures with `-DRequireCUDA=ON`, and the GPU drivers compile only in
-  CUDA translation units, so a change that breaks GPU code still passes CI:
-  `test/drivers/test_bqrrp_gpu.cu` did not compile from
-  [#155](https://github.com/BallisticLA/RandLAPACK/pull/155) until
-  [#206](https://github.com/BallisticLA/RandLAPACK/pull/206) fixed it. Build
-  and run the GPU tests locally when you touch GPU code.
+  CUDA translation units, so a change that breaks GPU code still passes CI.
+  Build and run the GPU tests locally when you touch GPU code.
 
 ### Windows
 
@@ -108,24 +106,22 @@ installer one.
   lane.
 - **`windows-spaced-path` builds its dependencies uncached, on purpose.**
   Intel installs oneMKL under `C:\Program Files (x86)\Intel\oneAPI` by
-  default, and upstream BLAS++ and LAPACK++ split library paths on spaces.
-  The pinned forks carry the fix
+  default, and upstream BLAS++ and LAPACK++ split library paths on spaces. The
+  pinned forks carry the fix
   ([blaspp#137](https://github.com/icl-utk-edu/blaspp/pull/137),
   [lapackpp#92](https://github.com/icl-utk-edu/lapackpp/pull/92)), so
-  `setup.ps1` no longer copies the import
-  libraries to a space-free directory. This job is the regression check. It
-  copies oneMKL and Intel OpenMP to a path with spaces and parentheses,
-  builds BLAS++ and LAPACK++ against it in a fresh dependency root, and fails
-  unless BLAS++'s exported config names that path (and, for `-Backend
-  custom`, which also passes the libraries as `LAPACK_LIBRARIES`, LAPACK++'s
-  does too). A cached build would not exercise the configure step the fix
-  lives in.
+  `setup.ps1` passes the libraries where they are. This job is the regression
+  check. It copies oneMKL and Intel OpenMP to a path with spaces and
+  parentheses, builds BLAS++ and LAPACK++ against it in a fresh dependency
+  root, and fails unless BLAS++'s exported config names that path (and, for
+  `-Backend custom`, which also passes the libraries as `LAPACK_LIBRARIES`,
+  LAPACK++'s does too). A cached build would not exercise the configure step
+  the fix lives in.
 - **The Windows guard job tests the documented *user* path, which the build
   matrix structurally cannot.** Every build leg initializes MSVC with an
   explicit `arch: x64` under `pwsh`, so none of them exercises the shell the
-  install docs tell users to open. That gap let a 32-bit toolchain reach a
-  collaborator in 2026-08 and fail three layers down, as BLAS++ reporting
-  "BLAS library not found" (the libraries were fine; an x86 linker simply
+  install docs tell users to open. A 32-bit toolchain there fails three
+  layers down, as BLAS++ reporting "BLAS library not found" (an x86 linker
   cannot use an x64 import library). `windows-toolchain-guards` closes the
   gap from two directions in **one** job. Every check asserts a *refusal* or
   runs pure logic, so each takes seconds and runner start-up dominates;
@@ -160,14 +156,14 @@ installer one.
   fails *open*, silently allowing the exact configuration the check exists
   to reject.
 - **CI passes `-Yes`, and prompts are TTY-gated regardless.** `setup.ps1` can
-  ask a question (currently: whether you already have OpenBLAS, since unlike
-  oneMKL it has no canonical Windows location to probe). Any prompt reaching
-  a runner would block until the job times out, so `$script:Interactive` is
-  false whenever stdin is redirected or the session is non-interactive, and
-  every question must have a defensible unattended default. `action.yml` and
-  `run-ci.ps1` additionally pass `-Yes`, so the intent survives any future
-  change to that detection. This mirrors `install.sh`, which computes
-  `INTERACTIVE` from `[[ -t 0 ]]` plus `--yes` for the same reason.
+  ask questions (currently: whether to download oneMKL, and whether you
+  already have OpenBLAS). Any prompt reaching a runner would block until the
+  job times out, so `$script:Interactive` is false whenever stdin is
+  redirected or the session is non-interactive, and every question must have a
+  defensible unattended default. `action.yml` and `run-ci.ps1` additionally
+  pass `-Yes`, so the intent survives any future change to that detection.
+  This mirrors `install.sh`, which computes `INTERACTIVE` from `[[ -t 0 ]]`
+  plus `--yes` for the same reason.
 - **Backends are auto-provisioned by default; `-NoDownload` opts out.**
   Windows has no system prefix for third-party libraries, so per-project
   acquisition (what vcpkg, Conan and NuGet exist for) is the ordinary
@@ -181,17 +177,18 @@ installer one.
 - **The MSVC OpenMP flavor is forced to `/openmp:llvm` in RandLAPACK's own
   CMake** (`CMake/rl_build_options.cmake` and the benchmark project), not
   just in RandBLAS. RandLAPACK's `find_package(OpenMP)` runs before the
-  submodule's guard, and a 2026-08 CI diagnostic showed that classic
-  `-openmp` was being cached. Under it, MSVC silently ignores the `collapse`
-  clause (warning C4849) that `rl_rpchol` relies on, so the "openmp" leg was
-  not testing what its name claimed.
+  submodule's guard, so without this, classic `-openmp` gets cached. Under
+  it, MSVC silently ignores the `collapse` clause (warning C4849) that
+  `rl_rpchol` relies on, and the "openmp" leg would not test what its name
+  claims.
 - **Windows executables are staged, not PATH-dependent.** The BLAS backend
   enters BLAS++ as raw library paths, which `TARGET_RUNTIME_DLLS` cannot see,
   so `RANDLAPACK_RUNTIME_DLL_DIRS` stages the backend DLLs beside every
   test/benchmark executable (app-local deployment). The stripped-PATH CI step
-  is the regression gate; do not remove it. An internal process-PATH prepend
-  remains in run-ci.ps1/install.ps1 only for the RandBLAS submodule's own test
-  executables, until RandBLAS gains the same staging (planned follow-up).
+  is the regression gate; do not remove it. A process-PATH prepend remains
+  in `run-ci.ps1` and in `setup.ps1` (which `install.ps1` runs).
+  RandLAPACK's executables do not rely on it, but the RandBLAS submodule's
+  own test executables do, until RandBLAS gains the same staging.
 
 ### Dependencies
 
@@ -200,7 +197,7 @@ installer one.
   names the [blaspp](https://github.com/BallisticLA/blaspp) and
   [lapackpp](https://github.com/BallisticLA/lapackpp) forks and a full commit
   hash for each, plus a tag on those commits.
-  `install.sh`, the Windows provisioner and every workflow read it, and the
+  `install.sh`, `setup.ps1` and every workflow read it, and the
   `pins` job keeps it honest.
   [INSTALL.md](INSTALL.md#why-blas-and-lapack-come-from-forks) explains why
   the forks exist and lists the fixes they carry.
@@ -235,10 +232,8 @@ a cache-miss run is several minutes slower than a warm one.
 - **The Windows keys use MANUAL revision literals** (plus the pinned
   BLAS++/LAPACK++ commits), never `hashFiles()`. That helper resolves paths
   relative to the workspace root, and the install-script workflow checks the
-  repo out under `RandLAPACK\`, where the glob matches nothing and
-  `hashFiles()` silently returns an empty string. The result was two
-  workflows reading and writing *different* caches while appearing to share
-  one.
+  repo out under `RandLAPACK\`, where `hashFiles()` silently returns an empty
+  string, so two workflows would read and write *different* caches.
 - **Cache paths start from `runner.workspace` and never contain `..`.**
   `actions/cache` refuses to save a path with `..` in it ("Relative pathing
   '.' and '..' is not allowed"), so a cache spelled that way restores nothing
