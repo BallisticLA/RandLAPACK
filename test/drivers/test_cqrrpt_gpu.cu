@@ -8,7 +8,9 @@
 #include <cuda_runtime.h>
 
 #include <RandBLAS.hh>
+#include <algorithm>
 #include <fstream>
+#include <memory>
 #include <gtest/gtest.h>
 #include <cusolverDn.h>
 
@@ -476,41 +478,80 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
 }
 
 // With timing on, each step's time must cover its device work, not just the kernel launches.
-// The trsm step must last at least as long as the same trsm timed alone, and total must
-// include the final trsm, so the call may outlast total by less than one trsm.
-// Timing must not change the results.
+// The trsm step must last at least as long as the same trsm timed alone. Total must include the
+// final trsm and trmm, so the call may outlast total only by its tail: the copies back to the
+// host, the frees and the queue's teardown. Leaving the final trsm out of total adds a whole
+// trsm to that, so the time past total may exceed the tail, redone alone right after the call,
+// by at most 3/4 of a trsm. Where a trsm is shorter than the copies (fast FP64), that slack
+// cannot cover their noise, and the bound is skipped. Timing must not change the results.
 TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
     int64_t m = 5000;
     int64_t n = 1000;
+    int64_t d = 2 * n;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
     std::vector<double> A(m * n);
     RandBLAS::DenseDist D(m, n);
     state = RandBLAS::fill_dense(D, A.data(), state);
+    auto elapsed = [](std::chrono::steady_clock::time_point start) {
+        return (long) std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
+    };
 
-    // Reference: the preconditioning trsm (m-by-n against an n-by-n triangle), fastest of 3 runs.
+    // Reference trsm: the preconditioning trsm, m-by-n against an n-by-n triangle.
+    std::vector<double> T(n * n, 0.0), A_host(m * n), T_host(n * n);
+    for (int64_t i = 0; i < n; ++i)
+        T[i + i * n] = 1.0;
+    double *A_device, *T_device;
+    cudaMalloc(&A_device, m * n * sizeof(double));
+    cudaMalloc(&T_device, n * n * sizeof(double));
+    cudaMemcpy(A_device, A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(T_device, T.data(), n * n * sizeof(double), cudaMemcpyHostToDevice);
+    lapack::Queue queue(0);
     long t_trsm = std::numeric_limits<long>::max();
-    {
-        std::vector<double> T(n * n, 0.0);
-        for (int64_t i = 0; i < n; ++i)
-            T[i + i * n] = 1.0;
-        double *A_device, *T_device;
-        cudaMalloc(&A_device, m * n * sizeof(double));
-        cudaMalloc(&T_device, n * n * sizeof(double));
-        cudaMemcpy(A_device, A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(T_device, T.data(), n * n * sizeof(double), cudaMemcpyHostToDevice);
-        lapack::Queue queue(0);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, T_device, n, A_device, m, queue);
-        queue.sync();
+    auto time_trsm = [&]() {
         for (int rep = 0; rep < 3; ++rep) {
             auto start = std::chrono::steady_clock::now();
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, T_device, n, A_device, m, queue);
             queue.sync();
-            t_trsm = std::min<long>(t_trsm, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+            t_trsm = std::min(t_trsm, elapsed(start));
         }
-        cudaFree(A_device);
-        cudaFree(T_device);
-    }
+    };
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, T_device, n, A_device, m, queue);
+    queue.sync();
+    time_trsm();
+
+    // The driver's tail, alone: on a queue that has run trsm and potrf, copy Q (m-by-n) and R
+    // (n-by-n) back to the host, then free the device buffers and host workspaces of the same
+    // sizes, and destroy the queue. Sets t_copy to the copies' time and returns the whole.
+    long t_copy = std::numeric_limits<long>::max();
+    auto time_tail = [&]() {
+        auto q = std::make_unique<lapack::Queue>(0);
+        auto* d_info = blas::device_malloc<lapack::device_info_int>(1, *q);
+        double *Q_device, *R_device, *R_sp_device;
+        cudaMalloc(&Q_device, m * n * sizeof(double));
+        cudaMalloc(&R_device, n * n * sizeof(double));
+        cudaMalloc(&R_sp_device, n * n * sizeof(double));
+        double* A_hat = new double[d * n]();
+        double* R_sp = new double[n * n]();
+        blas::device_copy_matrix(m, n, A.data(), m, Q_device, m, *q);
+        blas::device_copy_matrix(n, n, T.data(), n, R_sp_device, n, *q);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sp_device, n, Q_device, m, *q);
+        lapack::potrf(Uplo::Upper, n, R_sp_device, n, d_info, *q);
+        q->sync();
+        auto start = std::chrono::steady_clock::now();
+        blas::device_copy_matrix(m, n, Q_device, m, A_host.data(), m, *q);
+        blas::device_copy_matrix(n, n, R_device, n, T_host.data(), n, *q);
+        q->sync();
+        t_copy = std::min(t_copy, elapsed(start));
+        cudaFree(Q_device);
+        cudaFree(R_device);
+        cudaFree(R_sp_device);
+        blas::device_free(d_info, *q);
+        delete[] A_hat;
+        delete[] R_sp;
+        q.reset();
+        return elapsed(start);
+    };
 
     auto run = [&](bool timing, std::vector<double>& Q, std::vector<double>& R, std::vector<int64_t>& J, long& wall) {
         Q = A;
@@ -522,22 +563,39 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
         auto s = RandBLAS::RNGState();
         auto start = std::chrono::steady_clock::now();
         EXPECT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, s), 0);
-        wall = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
+        wall = elapsed(start);
         return CQRRPT_GPU.times;
     };
     std::vector<double> Q_on, R_on, Q_off, R_off;
     std::vector<int64_t> J_on, J_off;
     long wall = 0;
     run(false, Q_off, R_off, J_off, wall);
-    auto times = run(true, Q_on, R_on, J_on, wall);
+    // A stall on a busy machine can break a single timed call or tail, while the defects show
+    // in every call: keep the longest trsm step, and the median excess, of 3 timed calls.
+    long step_trsm = 0;
+    std::vector<long> excesses;
+    for (int rep = 0; rep < 3; ++rep) {
+        auto times = run(true, Q_on, R_on, J_on, wall);
+        // times = {saso, qrcp, rank_reveal, cholqr, a_mod_piv, a_mod_trsm, rest, total}
+        ASSERT_EQ(times.size(), 8u);
+        long past = wall - times[7];
+        excesses.push_back(past - time_tail());
+        step_trsm = std::max(step_trsm, times[5]);
+        EXPECT_EQ(Q_on, Q_off);
+        EXPECT_EQ(R_on, R_off);
+        EXPECT_EQ(J_on, J_off);
+    }
+    std::sort(excesses.begin(), excesses.end());
+    long excess = excesses[1];
+    // The GPU's clocks, or other work on it, can slow either set of reference trsm runs.
+    time_trsm();
+    cudaFree(A_device);
+    cudaFree(T_device);
 
-    // times = {saso, qrcp, rank_reveal, cholqr, a_mod_piv, a_mod_trsm, rest, total}
-    ASSERT_EQ(times.size(), 8u);
-    EXPECT_GE(times[5], t_trsm) << "trsm step " << times[5] << " us, trsm alone " << t_trsm << " us";
-    EXPECT_LT(wall - times[7], t_trsm) << "call " << wall << " us, total " << times[7] << " us, trsm alone " << t_trsm << " us";
-    EXPECT_EQ(Q_on, Q_off);
-    EXPECT_EQ(R_on, R_off);
-    EXPECT_EQ(J_on, J_off);
+    EXPECT_GE(step_trsm, t_trsm) << "trsm step " << step_trsm << " us, trsm alone " << t_trsm << " us";
+    if (t_trsm < t_copy)
+        GTEST_SKIP() << "trsm alone " << t_trsm << " us, copies back " << t_copy << " us: too close to bound the time past total";
+    EXPECT_LT(excess, 3 * t_trsm / 4) << "time past total exceeds the tail alone by " << excess << " us; trsm alone " << t_trsm << " us";
 }
 
 // R's contents on entry must not matter: with R filled with NaN, CQRRPT_GPU must return exactly
