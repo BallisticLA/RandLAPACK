@@ -182,7 +182,7 @@ RandLAPACK was built with `-DRandLAPACK_EXTERNAL_RandBLAS=ON`, also pass
 `-DRandBLAS_DIR`.
 
 After `install.sh`, the exact paths are in
-[INSTALL_SCRIPT.md, section 5](INSTALL_SCRIPT.md#5-working-with-the-installed-project). On
+[INSTALL_SCRIPT.md, section 4](INSTALL_SCRIPT.md#4-after-the-install). On
 Windows, also see
 [INSTALL_WINDOWS.md, section 7](INSTALL_WINDOWS.md#7-runtime-dlls-what-staging-means)
 for the runtime DLLs.
