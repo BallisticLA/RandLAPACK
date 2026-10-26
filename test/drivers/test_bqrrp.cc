@@ -579,7 +579,8 @@ TEST_F(TestBQRRP, BQRRP_wide_aspect) {
 // rounding-level residual ||A[:, J] - Q(:, 1:rank) R(1:rank, :)|| / ||A||, for every qr_tall
 // and apply_trans_q pair. Cases: a full-rank Gaussian with the default tol, and an exact
 // rank-400 matrix with b_sz = 200 and tol = 1e-10, whose rank drop at a block boundary only
-// the zero-block check can detect.
+// the zero-block check can detect. Its trailing block holds rounding residue, so its output
+// past the rank also checks that the zero-block exit zeroes tau and A(400:m, 400:n).
 TEST_F(TestBQRRP, BQRRP_scale_invariance) {
     int64_t m = 1000;
     int64_t n = 600;
@@ -605,7 +606,8 @@ TEST_F(TestBQRRP, BQRRP_scale_invariance) {
                 SCOPED_TRACE(::testing::Message() << name << ", scale " << scale);
                 std::vector<double> A_fact(A_s);
                 std::vector<double> A_piv(A_s);
-                std::vector<double> tau(n, 0.0);
+                // NaN, so that any tau entry BQRRP leaves unset fails the checks below.
+                std::vector<double> tau(n, std::numeric_limits<double>::quiet_NaN());
                 std::vector<int64_t> J(n, 0);
                 auto state_alg = state;
 
@@ -616,6 +618,8 @@ TEST_F(TestBQRRP, BQRRP_scale_invariance) {
                 BQRRP.apply_trans_q = apply_trans_q;
                 BQRRP.call(m, n, A_fact.data(), m, 1.25, tau.data(), J.data(), state_alg);
                 int64_t k = BQRRP.rank;
+                if (expected_rank < std::min(m, n))
+                    check_rank_deficient_tail(m, n, k, A_s, A_fact, tau, J, atol);
 
                 // A[:, J] - Q(:, 1:k) * R(1:k, :)
                 RandLAPACK::util::col_swap(m, n, n, A_piv.data(), m, J.data());
@@ -673,9 +677,10 @@ TEST_F(TestBQRRP, BQRRP_rank_deficient_wide_clipped_block) {
     test_BQRRP_rank_deficient<double>(600, 1000, 550, 250, state);
 }
 
-// A = [B, 0] with B of full rank r, a multiple of b_sz: after r columns the remaining block is
-// exactly zero, so BQRRP takes its zero-block exit. Its output past r must follow the same
-// convention as a rank-deficient block's. r / b_sz = 2 and 3 mirror the GPU test.
+// A = [B, E] with B of full rank r, a multiple of b_sz, and E noise of size 1e-14 relative to B,
+// far below tol = 1e-10: after r columns the remaining block is judged zero, so BQRRP takes its
+// zero-block exit. E is nonzero, so the exit itself must zero A(r:m, r:n). Its output past r must
+// follow the same convention as a rank-deficient block's. r / b_sz = 2 and 3 mirror the GPU test.
 TEST_F(TestBQRRP, BQRRP_zero_block_tail) {
     int64_t m = 1000;
     int64_t n = 600;
@@ -696,6 +701,9 @@ TEST_F(TestBQRRP, BQRRP_zero_block_tail) {
         auto state = RandBLAS::RNGState();
         RandLAPACK::gen::mat_gen_info<double> m_info(m, r, RandLAPACK::gen::gaussian);
         RandLAPACK::gen::mat_gen(m_info, A.data(), state);
+        RandBLAS::DenseDist DE(m, n - r);
+        state = RandBLAS::fill_dense(DE, &A[m * r], state);
+        blas::scal(m * (n - r), 1e-14, &A[m * r], 1);
 
         for (const auto& [name, qr_tall, apply_trans_q] : variants) {
             SCOPED_TRACE(std::string(name) + ", r = " + std::to_string(r));
@@ -705,6 +713,7 @@ TEST_F(TestBQRRP, BQRRP_zero_block_tail) {
             auto state_alg = state;
 
             RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
+            BQRRP.tol           = 1e-10;
             BQRRP.qr_tall       = qr_tall;
             BQRRP.apply_trans_q = apply_trans_q;
             BQRRP.call(m, n, A_fact.data(), m, d_factor, tau.data(), J.data(), state_alg);

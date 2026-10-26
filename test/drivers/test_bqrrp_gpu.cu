@@ -643,7 +643,8 @@ TEST_F(TestBQRRP, BQRRP_GPU_leading_zero_rows) {
 // 1e-20, 1 and 1e20, must give the same rank and a rounding-level residual, for both qr_tall
 // options. Cases: a full-rank Gaussian with the default tol, and an exact rank-400 matrix with
 // b_sz = 200 and tol = 1e-10, whose rank drop at a block boundary only the zero-block check
-// can detect.
+// can detect. Its trailing block holds rounding residue, so its output past the rank also checks
+// that the zero-block exit zeroes tau and A(400:m, 400:n).
 TEST_F(TestBQRRP, BQRRP_GPU_scale_invariance) {
     int64_t m = 1000;
     int64_t n = 600;
@@ -668,12 +669,16 @@ TEST_F(TestBQRRP, BQRRP_GPU_scale_invariance) {
                 RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
                 BQRRP_GPU.tol     = tol;
                 BQRRP_GPU.qr_tall = qr_tall;
+                // All-ones bytes are NaN, so that any tau entry BQRRP_GPU leaves unset fails the checks below.
+                cudaMemset(all_data.tau_device, 0xFF, n * sizeof(double));
                 BQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
                 int64_t k = BQRRP_GPU.rank;
 
                 cudaMemcpy(all_data.Q.data(),   all_data.A_device,   m * n * sizeof(double), cudaMemcpyDeviceToHost);
                 cudaMemcpy(all_data.tau.data(), all_data.tau_device, n * sizeof(double),     cudaMemcpyDeviceToHost);
                 cudaMemcpy(all_data.J.data(),   all_data.J_device,   n * sizeof(int64_t),    cudaMemcpyDeviceToHost);
+                if (expected_rank < std::min(m, n))
+                    check_rank_deficient_tail(m, n, k, all_data.A, all_data.Q, all_data.tau, all_data.J, atol);
 
                 // A[:, J] - Q(:, 1:k) * R(1:k, :)
                 RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
@@ -932,9 +937,11 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     EXPECT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
 }
 
-// A = [B, 0] with B of full rank r, a multiple of b_sz: after r columns the remaining block is
-// exactly zero, so BQRRP_GPU takes its zero-block exit. r / b_sz = 2 and 3 cover both parities of
-// the exit iteration, which decide how the output is reassembled from the swap buffers.
+// A = [B, E] with B of full rank r, a multiple of b_sz, and E noise of size 1e-14 relative to B,
+// far below tol = 1e-10: after r columns the remaining block is judged zero, so BQRRP_GPU takes its
+// zero-block exit. E is nonzero, so the exit itself must zero A(r:m, r:n). r / b_sz = 2 and 3 cover
+// both parities of the exit iteration, which decide how the output is reassembled from the swap
+// buffers.
 TEST_F(TestBQRRP, BQRRP_GPU_zero_block_tail) {
     int64_t m = 1000;
     int64_t n = 600;
@@ -951,9 +958,13 @@ TEST_F(TestBQRRP, BQRRP_GPU_zero_block_tail) {
             BQRRPTestData<double> all_data(m, n, r, d);
             RandLAPACK::gen::mat_gen_info<double> m_info(m, r, RandLAPACK::gen::gaussian);
             RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+            RandBLAS::DenseDist DE(m, n - r);
+            state = RandBLAS::fill_dense(DE, &all_data.A[m * r], state);
+            blas::scal(m * (n - r), 1e-14, &all_data.A[m * r], 1);
             norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
 
             RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+            BQRRP_GPU.tol     = 1e-10;
             BQRRP_GPU.qr_tall = qr_tall;
             // All-ones bytes are NaN, so that any tau entry BQRRP_GPU leaves unset fails the check.
             cudaMemset(all_data.tau_device, 0xFF, n * sizeof(double));
