@@ -110,7 +110,13 @@ jobs:
               `pwd`/../lapackpp
           make -j$(nproc) install
 
+      # Tests run in parallel, as `ctest -j` runs them locally: each test case
+      # is its own process, so cases that share state (a file, a directory)
+      # fail here instead of only on a developer's machine. Two OpenMP threads
+      # per test keep the runner from oversubscribing.
       - name: build and test RandLAPACK (Release)
+        env:
+          OMP_NUM_THREADS: 2
         run: |
           cd ..
           mkdir RandLAPACK-build
@@ -124,9 +130,14 @@ jobs:
               `pwd`/../RandLAPACK
           make -j$(nproc)
           make -j$(nproc) install
-          ctest --output-on-failure
+          ctest --output-on-failure -j "$(nproc)"
 
+      # The extras suite takes about a second, so it also repeats each case
+      # under heavier parallelism, which makes a shared-state race show up
+      # reliably rather than occasionally.
       - name: build and test extras
+        env:
+          OMP_NUM_THREADS: 1
         run: |
           cd ..
           mkdir extras-build
@@ -138,7 +149,7 @@ jobs:
             -DRandom123_DIR=`pwd`/../Random123-install/include/ \
             ../RandLAPACK/extras
           make -j$(nproc)
-          ctest --output-on-failure
+          ctest --output-on-failure -j 8 --repeat until-fail:5
 
       - name: build benchmarks
         run: |

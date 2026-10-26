@@ -189,7 +189,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
             cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
 
-            lapack::ungqr(m, n, n, all_data.Q.data(), m, all_data.tau.data());
+            lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.Q.data(), m, all_data.tau.data());
             RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
             lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.R_full.data(), m, all_data.R.data(), all_data.rank);
 
@@ -251,6 +251,90 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         	RandLAPACK_CUDA_ERROR("Error before test_BQRRP_compare_with_CPU returned. " << cudaGetErrorString(ierr))
         	abort();
     	}
+    }
+
+    /// Rank-deficient test for BQRRP_GPU, mirroring test_BQRRP_rank_deficient in test_bqrrp.cc:
+    /// A = 1e4 * G * H has exact rank r, with r not a multiple of b_sz, so the block holding
+    /// column r is detected as rank-deficient and BQRRP_GPU stops there. For both qr_tall options,
+    /// checks the reported rank and the residual of A[:, J] - Q1 * R(1:r, :), over the columns up
+    /// to the end of that block and, separately, over the trailing columns (that block's R12).
+    template <typename T, typename RNG>
+    static void test_BQRRP_GPU_rank_deficient(
+        int64_t m,
+        int64_t n,
+        int64_t r,
+        int64_t b_sz,
+        RandBLAS::RNGState<RNG> &state) {
+
+        // The block holding column r must be rank-deficient, so r must fall inside a block, and the
+        // drop must be within the first 128 diagonal entries, all the GPU rank estimator inspects.
+        ASSERT_NE(r % b_sz, 0) << "r=" << r << " must not be a multiple of b_sz=" << b_sz;
+        ASSERT_LT(r, std::min(m, n)) << "r=" << r << " must be < min(m, n)=" << std::min(m, n);
+        ASSERT_LT(r % b_sz, 128) << "in-block rank r % b_sz=" << r % b_sz << " must be < 128";
+
+        int64_t d = 1.25 * b_sz;
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
+
+        std::vector<T> G(m * r, 0.0);
+        std::vector<T> H(r * n, 0.0);
+        std::vector<T> A(m * n, 0.0);
+        RandBLAS::DenseDist DG(m, r);
+        RandBLAS::DenseDist DH(r, n);
+        state = RandBLAS::fill_dense(DG, G.data(), state);
+        state = RandBLAS::fill_dense(DH, H.data(), state);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, (T) 1e4, G.data(), m, H.data(), r, (T) 0.0, A.data(), m);
+
+        // The rank-deficient block ends at column split; R(:, split:n) is its R12.
+        int64_t split = std::min(std::min(m, n), (r / b_sz + 1) * b_sz);
+
+        const std::vector<std::pair<const char*, GPUSubroutines::QRTall>> variants = {
+            {"cholqr", GPUSubroutines::QRTall::cholqr},
+            {"geqrf",  GPUSubroutines::QRTall::geqrf}
+        };
+
+        for (const auto& [name, qr_tall] : variants) {
+            SCOPED_TRACE(name);
+            T norm_A = 0;
+            BQRRPTestData<T> all_data(m, n, r, d);
+            all_data.A = A;
+            norm__sektch_and_copy_computational_helper<T, RNG>(norm_A, d, all_data, state);
+
+            RandLAPACK::BQRRP_GPU<T, RNG> BQRRP_GPU(false, b_sz);
+            BQRRP_GPU.tol     = 1e-10;
+            BQRRP_GPU.qr_tall = qr_tall;
+            BQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+
+            cudaMemcpy(all_data.Q.data(),   all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
+            cudaMemcpy(all_data.tau.data(), all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
+            cudaMemcpy(all_data.J.data(),   all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+
+            // Build R(1:r, :) and Q1 = Q(:, 1:r) from the known rank r, so that the residual
+            // checks below do not depend on the reported rank.
+            RandLAPACK::util::upsize(r * n, all_data.R);
+            lapack::lacpy(MatrixType::Upper, r, n, all_data.Q.data(), m, all_data.R.data(), r);
+            lapack::ungqr(m, r, r, all_data.Q.data(), m, all_data.tau.data());
+
+            // A[:, J] - Q1 * R(1:r, :)
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, (T) 1.0, all_data.Q.data(), m, all_data.R.data(), r, (T) -1.0, all_data.A_cpy1.data(), m);
+            T res_lead  = lapack::lange(Norm::Fro, m, split, all_data.A_cpy1.data(), m) / norm_A;
+            T res_trail = lapack::lange(Norm::Fro, m, n - split, &all_data.A_cpy1[m * split], m) / norm_A;
+
+            std::cout << std::setw(8) << name << ":  RANK " << std::setw(5) << BQRRP_GPU.rank << " (expected " << r << "),"
+                      << "  REL RESIDUAL, COLS [0, " << split << "): " << std::scientific << res_lead
+                      << ",  COLS [" << split << ", " << n << "): " << res_trail << "\n";
+
+            EXPECT_EQ(BQRRP_GPU.rank, r);
+            EXPECT_LE(res_lead, atol);
+            EXPECT_LE(res_trail, atol);
+
+            cudaError_t ierr = cudaGetLastError();
+            if (ierr != cudaSuccess)
+            {
+                RandLAPACK_CUDA_ERROR("Error before test_BQRRP_GPU_rank_deficient returned. " << cudaGetErrorString(ierr))
+                abort();
+            }
+        }
     }
 };
 // Note: If Subprocess killed exception -> reload vscode
@@ -421,6 +505,118 @@ TEST_F(TestBQRRP, BQRRP_GPU_wide_aspect) {
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
 }
 
+// Full-rank wide A with m not a multiple of b_sz: the clipped last block must apply Q'
+// with its own reflectors, tau[curr_sz:], when computing its R12.
+TEST_F(TestBQRRP, BQRRP_GPU_wide_aspect_clipped_block) {
+    int64_t m = 600;
+    int64_t n = 1000;
+    int64_t k = m;
+    double d_factor = 1;
+    int64_t b_sz = 250;
+    int64_t d = d_factor * b_sz;
+
+    for (auto qr_tall : {GPUSubroutines::QRTall::geqrf, GPUSubroutines::QRTall::cholqr}) {
+        SCOPED_TRACE(qr_tall == GPUSubroutines::QRTall::geqrf ? "geqrf" : "cholqr");
+        double norm_A = 0;
+        auto state = RandBLAS::RNGState();
+
+        BQRRPTestData<double> all_data(m, n, k, d);
+        RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+        BQRRP_GPU.qr_tall = qr_tall;
+
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+
+        norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+        test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
+    }
+}
+
+// BQRRP_GPU's workspace comes from cudaMallocAsync, which returns memory the caller used and
+// freed earlier when the pool keeps freed memory (a raised release threshold). CholQR reads the
+// strictly lower triangle of its R_tall_qr buffer, so BQRRP_GPU must clear that buffer itself.
+TEST_F(TestBQRRP, BQRRP_GPU_cholqr_reused_pool_memory) {
+    // Skip, rather than fail, where the pool setup is unavailable; clear the CUDA error first so
+    // that no later error check in BQRRP_GPU trips over it.
+    int pools_supported = 0;
+    cudaDeviceGetAttribute(&pools_supported, cudaDevAttrMemoryPoolsSupported, 0);
+    if (!pools_supported) {
+        cudaGetLastError();
+        GTEST_SKIP() << "device 0 does not support stream-ordered memory pools";
+    }
+    cudaMemPool_t pool;
+    uint64_t threshold_old = 0;
+    if (cudaDeviceGetDefaultMemPool(&pool, 0) != cudaSuccess ||
+        cudaMemPoolGetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_old) != cudaSuccess) {
+        cudaGetLastError();
+        GTEST_SKIP() << "cannot query the default memory pool";
+    }
+    // Restores the pool for the tests that follow, however this test exits.
+    struct PoolRestore {
+        cudaMemPool_t pool;
+        uint64_t threshold;
+        ~PoolRestore() {
+            cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold);
+            cudaMemPoolTrimTo(pool, 0);
+        }
+    } pool_restore{pool, threshold_old};
+
+    uint64_t threshold_keep = UINT64_MAX;
+    if (cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold_keep) != cudaSuccess) {
+        cudaGetLastError();
+        GTEST_SKIP() << "cannot raise the pool's release threshold";
+    }
+    // Leave freed, nonzero stream-ordered memory in the pool.
+    void* dirty = nullptr;
+    size_t dirty_bytes = size_t(64) << 20;
+    if (cudaMallocAsync(&dirty, dirty_bytes, 0) != cudaSuccess) {
+        cudaGetLastError();
+        GTEST_SKIP() << "cannot allocate the " << (dirty_bytes >> 20) << " MiB pool block";
+    }
+    cudaMemsetAsync(dirty, 0x3F, dirty_bytes, 0);
+    cudaFreeAsync(dirty, 0);
+    cudaDeviceSynchronize();
+
+    int64_t m = 2000;
+    int64_t n = 1000;
+    int64_t k = n;
+    double d_factor = 1.25;
+    int64_t b_sz = 300;
+    int64_t d = d_factor * b_sz;
+    double norm_A = 0;
+    auto state = RandBLAS::RNGState();
+
+    BQRRPTestData<double> all_data(m, n, k, d);
+    RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+    BQRRP_GPU.qr_tall = GPUSubroutines::QRTall::cholqr;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+
+    norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+    test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
+}
+
+// Rank-deficient inputs. The in-block rank drop stays below 128, the most the GPU
+// rank estimator inspects per block.
+// Exact rank r < b_sz: the first block is rank-deficient.
+TEST_F(TestBQRRP, BQRRP_GPU_rank_deficient_first_block) {
+    auto state = RandBLAS::RNGState();
+    test_BQRRP_GPU_rank_deficient<double>(1000, 600, 60, 100, state);
+}
+
+// Rank drop inside the second block: the reported rank must count the full first block.
+TEST_F(TestBQRRP, BQRRP_GPU_rank_deficient_later_block) {
+    auto state = RandBLAS::RNGState();
+    test_BQRRP_GPU_rank_deficient<double>(1000, 600, 160, 100, state);
+}
+
+// Wide A whose clipped last block (b_sz = 100 of 250) is rank-deficient.
+TEST_F(TestBQRRP, BQRRP_GPU_rank_deficient_wide_clipped_block) {
+    auto state = RandBLAS::RNGState();
+    test_BQRRP_GPU_rank_deficient<double>(600, 1000, 550, 250, state);
+}
+
 TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     int64_t m   = 16384;
     int64_t k   = 1024;
@@ -471,4 +667,3 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     cudaFree(tau_device);
     blas::device_free(d_work_geqrf_opt, lapack_queue);
 }
-#endif

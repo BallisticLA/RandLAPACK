@@ -24,6 +24,7 @@
 
 #include "../../linops/ext_cholsolver_linop.hh"
 #include "../../misc/ext_util.hh"
+#include "../ext_scratch_dir.hh"
 #include <RandLAPACK/testing/rl_test_utils.hh>
 
 #include <RandBLAS.hh>
@@ -192,7 +193,8 @@ protected:
         ASSERT_EQ(m, dim_chol);  // CholSolver rows must match
 
         // Generate SPD matrix file for CholSolver
-        std::string spd_file = "/tmp/test_chol_dense.mtx";
+        RandLAPACK_extras::testing::ScratchDir scratch;
+        std::string spd_file = scratch.file("spd.mtx");
         RandLAPACK::testing::generate_spd_matrix_file<T>(spd_file, dim_chol, 10.0, state);
 
         // Create CholSolver operator
@@ -243,9 +245,6 @@ protected:
 
         // Compare results
         compare_results(C_composite, C_reference, m, n);
-
-        // Cleanup
-        std::remove(spd_file.c_str());
     }
 
     // Test function for Dense * CholSolver composition
@@ -270,7 +269,8 @@ protected:
         ASSERT_EQ(n, dim_chol);
 
         // Generate SPD matrix file for CholSolver
-        std::string spd_file = "/tmp/test_dense_chol.mtx";
+        RandLAPACK_extras::testing::ScratchDir scratch;
+        std::string spd_file = scratch.file("spd.mtx");
         RandLAPACK::testing::generate_spd_matrix_file<T>(spd_file, dim_chol, 10.0, state);
 
         // Create CholSolver operator
@@ -317,8 +317,6 @@ protected:
         }
 
         compare_results(C_composite, C_reference, m, n);
-
-        std::remove(spd_file.c_str());
     }
 
     // Test function for CholSolver * Sparse composition
@@ -342,7 +340,8 @@ protected:
         ASSERT_EQ(m, dim_chol);
 
         // Generate SPD matrix file for CholSolver
-        std::string spd_file = "/tmp/test_chol_sparse.mtx";
+        RandLAPACK_extras::testing::ScratchDir scratch;
+        std::string spd_file = scratch.file("spd.mtx");
         RandLAPACK::testing::generate_spd_matrix_file<T>(spd_file, dim_chol, 10.0, state);
 
         // Create CholSolver operator
@@ -399,8 +398,6 @@ protected:
 
         // Compare results
         compare_results(C_composite, C_reference, m, n);
-
-        std::remove(spd_file.c_str());
     }
 
     // Test function for Sparse * CholSolver composition
@@ -425,7 +422,8 @@ protected:
         ASSERT_EQ(n, dim_chol);
 
         // Generate SPD matrix file for CholSolver
-        std::string spd_file = "/tmp/test_sparse_chol.mtx";
+        RandLAPACK_extras::testing::ScratchDir scratch;
+        std::string spd_file = scratch.file("spd.mtx");
         RandLAPACK::testing::generate_spd_matrix_file<T>(spd_file, dim_chol, 10.0, state);
 
         // Create CholSolver operator
@@ -476,8 +474,6 @@ protected:
         }
 
         compare_results(C_composite, C_reference, m, n);
-
-        std::remove(spd_file.c_str());
     }
 
     // Test function for CholSolver * (Sparse * Dense) nested composition
@@ -503,7 +499,8 @@ protected:
         ASSERT_EQ(m, dim_chol);
 
         // Generate SPD matrix file for CholSolver
-        std::string spd_file = "/tmp/test_chol_sparse_dense.mtx";
+        RandLAPACK_extras::testing::ScratchDir scratch;
+        std::string spd_file = scratch.file("spd.mtx");
         RandLAPACK::testing::generate_spd_matrix_file<T>(spd_file, dim_chol, 10.0, state);
 
         // Create CholSolver operator
@@ -570,8 +567,6 @@ protected:
 
         // Compare results
         compare_results(C_composite, C_reference, m, n);
-
-        std::remove(spd_file.c_str());
     }
 };
 
