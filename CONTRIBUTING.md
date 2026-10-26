@@ -45,24 +45,42 @@ Conventions enforced in review:
 - The RandBLAS submodule is read-only from this repository's point of view:
   develop RandBLAS in its own clone (see
   [docs/INSTALL.md, "RandBLAS is a pinned submodule"](docs/INSTALL.md#randblas-is-a-pinned-submodule)).
-  A commit that moves the submodule also updates `RandLAPACK_RandBLAS_PIN`
-  in `CMakeLists.txt`; configuring a git checkout fails while the two
-  disagree.
+  Point the submodule only at a commit on RandBLAS's `main` (for a
+  squash-merged pull request, the merge commit; the pull request's own
+  commits are not on `main`). The commit that moves the submodule also
+  updates `RandLAPACK_RandBLAS_PIN` in `CMakeLists.txt`. Configuring a git
+  checkout compares the variable with the committed submodule commit
+  (`git ls-tree HEAD`) and fails while the two disagree, so commit both
+  together before you configure.
 - BLAS++ and LAPACK++ are pinned in `installers/dependency-pins.env`, which
   every installer and CI lane reads and which must match the copy in the
   RandBLAS submodule; CI's `pins` job checks both (see
-  [docs/CI.md](docs/CI.md)).
+  [docs/CI.md](docs/CI.md)). A pin therefore moves in RandBLAS first. Once
+  that change is on RandBLAS's `main`, one RandLAPACK commit moves the
+  submodule to it, updates `RandLAPACK_RandBLAS_PIN`, and copies the new
+  pins into `installers/dependency-pins.env`.
 
 ## Tests
 
 Every behavioral change needs a test in `test/` (GoogleTest; the tree
-mirrors the source layout). Run the suite locally before opening a PR; CI
+mirrors the source layout, and a new file goes into the source list in
+`test/CMakeLists.txt`). Run the suite locally before opening a PR; CI
 runs it on Linux, macOS and native Windows, both through hand-written build
 recipes and through the installers themselves, and a PR cannot merge while a
 required check fails ([docs/CI.md](docs/CI.md) lists the lanes and which are
-required). GPU tests (`test/**/*.cu`) only run on machines with CUDA, and CI
-has no GPU runner; if your change touches GPU code, say in the PR whether
-you ran them.
+required). CI neither compiles nor runs the GPU tests (`test/**/*.cu`;
+[#215](https://github.com/BallisticLA/RandLAPACK/issues/215)), so if your
+change touches GPU code, build and run them on a machine with CUDA and say
+in the PR that you did.
+
+Tests must be safe to run in parallel. `gtest_discover_tests` runs every
+test case as its own process, `ctest -j` runs those processes at the same
+time, and CI's core-linux job does exactly that, so two test cases must
+never share a file or a directory. A test that needs files gives each case
+its own directory under `std::filesystem::temp_directory_path()` and removes
+it afterwards, never a fixed or `rand()`-named path: `ScratchDir` in
+`extras/test/ext_scratch_dir.hh` does this for the extras tests, and the
+fixture in `test/misc/test_matrix_io.cc` for the core suite.
 
 A rule worth knowing for GPU code: `gpu_functions/rl_cuda_kernels.cuh`
 derives `USE_CUDA` from `__CUDACC__`, so `.cu` files no longer define it
