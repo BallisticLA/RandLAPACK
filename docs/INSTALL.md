@@ -19,6 +19,9 @@ CMake project.
 - Section 7: details (pinned versions, forks, the RandBLAS submodule, CUDA
   versions). Section 8: troubleshooting.
 
+The commands in Sections 3 to 6 are for bash or zsh on Linux and macOS. On
+Windows, use `install.ps1`.
+
 ## 1. Key terms
 
 | Term | Meaning |
@@ -34,11 +37,13 @@ CMake project.
 
 ## 2. Requirements
 
-- **CMake** 3.21 or later (3.31.9 recommended).
+- **CMake** 3.21 or later, and 3.24 or later for the `extras/` and
+  `benchmark/` projects (3.31.9 recommended).
 - **A C++20 compiler**, one of:
   - GCC 13 or later, the tested floor. GCC 11 and 12 do not compile the
     current version.
-  - Clang 14 or later (not extensively tested).
+  - Clang 14 or later, with libstdc++ 13 or newer, or libc++ (not
+    extensively tested).
   - Intel icpx (not extensively tested). Build LAPACK++ from the pinned fork
     of Section 3: an icpx-built upstream LAPACK++ crashes in `gemqrt`
     ([#202](https://github.com/BallisticLA/RandLAPACK/issues/202)), and the
@@ -52,13 +57,12 @@ CMake project.
   - GoogleTest, Google's C++ testing framework. Without it, RandLAPACK's
     regression tests are not built. Any package manager provides it.
   - OpenMP, for multithreaded loops. RandLAPACK and its dependencies detect
-    it and use it automatically.
-  - CUDA, for GPU support. It is off by default; `-DRequireCUDA=ON` enables
-    it. A GPU build also needs CMake 3.23 or later (3.24 or later with CUDA
-    13), and BLAS++ and LAPACK++ built with `-Dgpu_backend=cuda` instead of
-    the `none` of Section 3. Section 7 lists the CUDA, GCC and driver
-    versions. If CMake finds no CUDA Toolkit, `-DRequireCUDA=ON` prints
-    "CUDA not found" and builds without GPU support.
+    it and use it automatically, except on macOS: Apple Clang finds
+    Homebrew's `libomp` only with the settings at the end of Section 5.
+    Pass them to every configure; without them, RandLAPACK's own loops run
+    on one thread (Accelerate still uses all cores).
+  - CUDA, for GPU support. It is off by default;
+    [Section 7](#cuda-and-gcc-versions) lists what a GPU build needs.
 
 On Ubuntu 24.04 and macOS, the [README](../README.md#install) gives one
 package-manager command that installs everything but CUDA. Elsewhere, we
@@ -86,12 +90,12 @@ shell:
 
 ```shell
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
-. RandLAPACK/installers/dependency-pins.env   # sets BLASPP_URL, BLASPP_TAG, ...
+. RandLAPACK/installers/dependency-pins.env   # sets BLASPP_URL, BLASPP_REF, ...
 ```
 
 1. **BLAS++** ([source](https://github.com/BallisticLA/blaspp)):
    ```shell
-   git clone --branch $BLASPP_TAG $BLASPP_URL blaspp
+   git clone $BLASPP_URL blaspp && git -C blaspp checkout $BLASPP_REF
    cmake -S blaspp -B blaspp-build -DCMAKE_BUILD_TYPE=Release \
        -DCMAKE_INSTALL_PREFIX=$PWD/blaspp-install \
        -Dbuild_tests=OFF -Dgpu_backend=none
@@ -103,14 +107,15 @@ git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
      (Section 6); with an ordinary OpenBLAS, `-Dblas_int=int64` fails with
      "BLAS++ requires LAPACK".
    - BLAS++ picks oneMKL when oneMKL's environment is loaded. Then add
-     `-Dblas_int=int64`: RandLAPACK's sparse code does not compile against an
-     LP64 oneMKL. Section 6 has the full oneMKL recipe.
+     `-Dblas_int=int64`: against an LP64 oneMKL, RandLAPACK's test suite
+     (and any code that multiplies two sparse matrices) does not compile.
+     Section 6 has the full oneMKL recipe.
    - `-Dgpu_backend=none` keeps BLAS++ from building CUDA support just
-     because it finds a CUDA Toolkit; for GPU support see Section 2.
+     because it finds a CUDA Toolkit; for GPU support see Section 7.
 2. **LAPACK++** ([source](https://github.com/BallisticLA/lapackpp)), against
    that BLAS++:
    ```shell
-   git clone --branch $LAPACKPP_TAG $LAPACKPP_URL lapackpp
+   git clone $LAPACKPP_URL lapackpp && git -C lapackpp checkout $LAPACKPP_REF
    cmake -S lapackpp -B lapackpp-build -DCMAKE_BUILD_TYPE=Release \
        -Dblaspp_DIR=$PWD/blaspp-install/lib/cmake/blaspp \
        -DCMAKE_INSTALL_PREFIX=$PWD/lapackpp-install \
@@ -180,8 +185,6 @@ with the `CQRRPT` driver (QR with column pivoting of a tall matrix):
 cmake_minimum_required(VERSION 3.21)
 project(myexec)
 
-find_package(blaspp REQUIRED)
-find_package(lapackpp REQUIRED)
 find_package(RandLAPACK REQUIRED)
 
 add_executable(myexec main.cc)
@@ -214,18 +217,18 @@ Matrices are column-major arrays. `RandBLAS::fill_dense` fills `A` with
 random numbers, and the program prints `rank 50`.
 
 The exported target `RandLAPACK::RandLAPACK` brings RandBLAS, LAPACK++ and
-BLAS++ along as link dependencies. Configure the project with:
+BLAS++ along as link dependencies. Configure the project with
+`-DRandLAPACK_DIR=Z`, where `Z` contains `RandLAPACKConfig.cmake`. That
+config records where RandLAPACK found BLAS++, LAPACK++, Random123 and
+RandBLAS, so they need no flags of their own. If RandLAPACK was built with
+`-DRandLAPACK_EXTERNAL_RandBLAS=ON`, also pass `-DRandBLAS_DIR`.
 
-- `-Dblaspp_DIR=W`, where `W` contains `blasppConfig.cmake`;
-- `-Dlapackpp_DIR=X`, where `X` contains `lapackppConfig.cmake`;
-- `-DRandLAPACK_DIR=Z`, where `Z` contains `RandLAPACKConfig.cmake`.
+**With oneMKL**, load its environment (`source <oneapi>/setvars.sh`) in
+every shell where you build or run a program that uses RandLAPACK. BLAS++
+records oneMKL by library name only, so the linker and the loader find it
+through that environment.
 
-RandBLAS needs no flag with the default submodule build: it installs under
-the same prefix as RandLAPACK, and RandLAPACK's config finds it there. If
-RandLAPACK was built with `-DRandLAPACK_EXTERNAL_RandBLAS=ON`, also pass
-`-DRandBLAS_DIR`.
-
-After `install.sh`, the exact paths are in
+After `install.sh`, the exact path is in
 [INSTALL_SCRIPT.md, section 4](INSTALL_SCRIPT.md#4-after-the-install). On
 Windows, also see
 [INSTALL_WINDOWS.md, section 7](INSTALL_WINDOWS.md#7-runtime-dlls-what-staging-means)
@@ -290,9 +293,10 @@ directory you can write to works.
    cmake --build blaspp-mkl-build -j 4 --target install
    ```
 3. Check that `$HOME/mklpp/include/blas/defines.h` contains `BLAS_HAVE_MKL`.
-   Without it (BLAS++ links oneMKL but did not find `mkl.h`, typically
-   because step 1 was skipped), RandBLAS uses its portable sparse code
-   instead of oneMKL's, and says so only in its configure output.
+   Without it (BLAS++ links oneMKL but did not find `mkl.h`, usually
+   because oneMKL's headers were not on the include path), RandBLAS uses its
+   portable sparse code instead of oneMKL's, and says so only in its
+   configure output.
 4. Build LAPACK++ into the same prefix:
    ```shell
    cmake -S lapackpp -B lapackpp-mkl-build -DCMAKE_BUILD_TYPE=Release \
@@ -301,7 +305,7 @@ directory you can write to works.
    cmake --build lapackpp-mkl-build -j 4 --target install
    ```
 
-RandLAPACK (Section 4) and other CMake projects then find both with:
+RandLAPACK (Section 4) then finds both with:
 
 ```
 -Dblaspp_DIR=$HOME/mklpp/lib/cmake/blaspp -Dlapackpp_DIR=$HOME/mklpp/lib/cmake/lapackpp
@@ -317,9 +321,7 @@ current SDKs).
 - The legacy default is LAPACK 3.2.1, from 2009. Its divide-and-conquer SVD
   (`gesdd`) returns wrong results on Apple Silicon, and it lacks routines
   RandLAPACK requires, such as `orhr_col` and `geqrt` (BQRRP and HQRRP use
-  them). RandLAPACK calls `gesdd` in `rl_rsvd.hh`, `rl_abrik.hh`,
-  `rl_revd2.hh`, `rl_preconditioners.hh`, `rl_util.hh` and
-  `rl_test_utils.hh`.
+  them).
 - The new interface fixes both, and also provides ILP64.
 
 To build against the new interface:
@@ -369,7 +371,8 @@ and LAPACK++ against conda-forge's.
 
 ### Pinned versions
 
-A given RandLAPACK revision always builds the same dependency sources:
+For a given RandLAPACK revision, the installers always build the same
+dependency sources:
 
 | Dependency | Pinned to | Where the pin lives |
 |---|---|---|
@@ -440,20 +443,26 @@ impossible.
 
 ### CUDA and GCC versions
 
-GPU support needs:
+GPU support is off by default. It needs:
 
-- the CUDA Toolkit, 12.4.1 or later (12.9.0 recommended);
+- the CUDA Toolkit, 12.4.1 or later (12.9.0 recommended), which includes
+  cuBLAS and cuSOLVER;
 - an NVIDIA driver, v580 or later recommended for CUDA 12.9.0;
 - a GCC version your CUDA release accepts: CUDA has strict GCC version
-  requirements.
+  requirements (table below);
+- CMake 3.23 or later (3.24 or later with CUDA 13);
+- BLAS++ and LAPACK++ built with `-Dgpu_backend=cuda` instead of the `none`
+  of Section 3.
+
+Then configure RandLAPACK with `-DRequireCUDA=ON` (`--gpu` for
+`install.sh`). If CMake finds no CUDA Toolkit, it prints "CUDA not found"
+and builds without GPU support.
 
 | CUDA | GCC | Status | Notes |
 |---|---|---|---|
 | 13.3.0 | up to 15.x | Supported | Tested with GCC 15.2 |
 | **12.9.0** | **13.x** (up to 14.x) | **Recommended** | Tested with GCC 13.3.0 and driver v581.80; `nvcc` rejects GCC above 14 |
 | 12.4.1 | 13.x | Supported | Minimum supported version |
-| 12.2.1 | 12.x | Limited | GCC 12.3.0 or older only |
-| 12.2.1 | 13.x | Incompatible | `nvcc` error: "unsupported GNU version" |
 
 The table is not exhaustive. The Supported Compilers table in NVIDIA's CUDA
 Installation Guide for Linux lists the host compilers each CUDA release
