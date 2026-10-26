@@ -29,10 +29,11 @@ repository root keeps `bash install.sh` working.
    ```shell
    OMP_NUM_THREADS=1 ctest --test-dir ~/RandNLA/RandNLA-project/build/RandLAPACK-build -j 4
    ```
-   The suite should pass, typically in a minute or two
-   ([INSTALL_MANUAL.md, section 4](INSTALL_MANUAL.md#4-building-and-installing-randlapack)
-   explains the settings). If you set `RANDNLA_PROJECT_DIR`, the build
-   directory is under it instead; the installer's final summary prints it.
+   This runs four single-threaded tests at a time, and the suite should
+   pass, typically in a minute or two. Plain `ctest` runs one test at a
+   time, each using every core, and can take far longer, especially on a
+   busy machine. If you set `RANDNLA_PROJECT_DIR`, the build directory is
+   under it instead; the installer's final summary prints it.
 
 Good to know:
 
@@ -53,7 +54,10 @@ Good to know:
 - **A backend**, the BLAS/LAPACK library that does the arithmetic:
   - on Linux, OpenBLAS or Intel oneMKL 2022 or later. oneMKL is chosen by
     default when `MKLROOT` is set, which loading oneAPI's environment does
-    ([INSTALL_MANUAL.md, "Intel oneMKL"](INSTALL_MANUAL.md#intel-onemkl-recommended));
+    (`source <oneapi>/setvars.sh`, or only oneMKL's
+    `<oneapi>/mkl/latest/env/vars.sh`). Keep it loaded wherever you later
+    build or run programs that use RandLAPACK
+    ([USING.md](USING.md#building-it));
   - on macOS, Apple's Accelerate (macOS 13.3 or later), which needs nothing
     installed.
 
