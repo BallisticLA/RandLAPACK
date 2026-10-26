@@ -192,6 +192,33 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp) {
     test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
 }
 
+// Single precision instantiates CQRRPT_GPU<float>, which must compile and factor to float accuracy.
+TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp_float) {
+    int64_t m = 1000;
+    int64_t n = 200;
+    int64_t k = 200;
+    float d_factor = 2.0;
+    float norm_A = 0;
+    float tol = std::pow(std::numeric_limits<float>::epsilon(), (float) 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTTestData<float> all_data(m, n, k);
+    RandLAPACK::CQRRPT_GPU<float, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    CQRRPT_GPU.nnz = 2;
+    CQRRPT_GPU.num_threads = 4;
+    CQRRPT_GPU.no_hqrrp = 1;
+
+    RandLAPACK::gen::mat_gen_info<float> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper<float, r123::Philox4x32>(norm_A, all_data);
+    test_CQRRPT_general<float, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<float, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
+    EXPECT_EQ(all_data.rank, k);
+}
+
 // GPU counterpart of CQRRPT_dirty_J_rank_deficient in test_cqrrpt.cc (the QRCP
 // itself runs on the host): dirty J buffers must not influence pivoting.
 TEST_F(TestCQRRPT, CQRRPT_GPU_dirty_J_rank_deficient) {
