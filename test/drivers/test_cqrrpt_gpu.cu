@@ -505,20 +505,25 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
         EXPECT_EQ(CQRRPT_GPU.rank, rank);
         EXPECT_EQ(J_pad, J);
 
+        // std::max skips a NaN difference, so non-finite entries are counted separately.
         double max_q = 0.0, max_r = 0.0, scale_r = 0.0;
-        int64_t bad_pad = 0;
+        int64_t bad_pad = 0, nonfinite = 0;
         for (int64_t j = 0; j < n; ++j) {
-            for (int64_t i = 0; i < m; ++i)
+            for (int64_t i = 0; i < m; ++i) {
                 max_q = std::max(max_q, std::abs(Q_pad[i + j * lda] - Q[i + j * m]));
+                nonfinite += !std::isfinite(Q_pad[i + j * lda]) + !std::isfinite(Q[i + j * m]);
+            }
             for (int64_t i = m; i < lda; ++i)
                 bad_pad += Q_pad[i + j * lda] != pad;
             for (int64_t i = 0; i < n; ++i) {
                 max_r = std::max(max_r, std::abs(R_pad[i + j * ldr] - R[i + j * n]));
                 scale_r = std::max(scale_r, std::abs(R[i + j * n]));
+                nonfinite += !std::isfinite(R_pad[i + j * ldr]) + !std::isfinite(R[i + j * n]);
             }
             for (int64_t i = n; i < ldr; ++i)
                 bad_pad += R_pad[i + j * ldr] != pad;
         }
+        EXPECT_EQ(nonfinite, 0) << "NaN or Inf entries in Q, R, Q_pad or R_pad";
         EXPECT_LE(max_q, 1e-13) << "max |Q_pad - Q|";
         EXPECT_LE(max_r, 1e-13 * scale_r) << "max |R_pad - R|";
         EXPECT_EQ(bad_pad, 0) << "padding entries changed";
