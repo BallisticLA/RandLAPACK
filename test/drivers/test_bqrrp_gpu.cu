@@ -1210,27 +1210,32 @@ TEST_F(TestBQRRP, BQRRP_GPU_padded_lda) {
             ASSERT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
 
             // Largest difference from the lda = m run, relative to its largest entry, and the
-            // number of padding entries that changed.
+            // number of padding entries that changed. std::max skips a NaN difference, so
+            // non-finite entries of A and tau, in either run, are counted separately.
             double ref_max = 0, diff_max = 0;
-            int64_t pad_changed = 0;
+            int64_t pad_changed = 0, nonfinite = 0;
             for (int64_t j = 0; j < n; ++j) {
                 for (int64_t i = 0; i < m; ++i) {
                     ref_max  = std::max(ref_max, std::abs(A_ref[m * j + i]));
                     diff_max = std::max(diff_max, std::abs(A_pad[lda_pad * j + i] - A_ref[m * j + i]));
+                    nonfinite += !std::isfinite(A_pad[lda_pad * j + i]) + !std::isfinite(A_ref[m * j + i]);
                 }
                 for (int64_t i = m; i < lda_pad; ++i)
                     pad_changed += !(A_pad[lda_pad * j + i] == pad);
             }
             double tau_diff = 0;
-            for (int64_t i = 0; i < n; ++i)
+            for (int64_t i = 0; i < n; ++i) {
                 tau_diff = std::max(tau_diff, std::abs(tau_pad[i] - tau_ref[i]));
+                nonfinite += !std::isfinite(tau_pad[i]) + !std::isfinite(tau_ref[i]);
+            }
             std::cout << std::setw(4) << m << " x " << std::setw(4) << n << ",  lda " << lda_pad << ":  RANK " << rank_pad << " (lda = m: " << rank_ref << ")"
                       << ",  MAX |A DIFF| / MAX |A| " << std::scientific << diff_max / ref_max << ",  MAX |tau DIFF| " << tau_diff
-                      << ",  CHANGED PADDING ENTRIES " << pad_changed << "\n";
+                      << ",  CHANGED PADDING ENTRIES " << pad_changed << ",  NON-FINITE ENTRIES " << nonfinite << "\n";
 
             double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
             EXPECT_EQ(rank_pad, rank_ref);
             EXPECT_EQ(J_pad, J_ref);
+            EXPECT_EQ(nonfinite, 0) << "NaN or Inf entries in A or tau, padded or not";
             EXPECT_LE(diff_max, atol * ref_max);
             EXPECT_LE(tau_diff, atol);
             EXPECT_EQ(pad_changed, 0);
