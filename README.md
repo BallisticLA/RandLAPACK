@@ -14,21 +14,51 @@ Questions, or want to get involved in development? Join
 
 ## Install
 
-**Linux and macOS:**
+### Linux and macOS
+
+First install a C++20 compiler (GCC 13 or newer on Linux), CMake 3.21 or
+later, Git, a BLAS/LAPACK library (the standard low-level linear algebra
+routines) and GoogleTest. These are the packages CI installs:
 
 ```shell
-git clone https://github.com/BallisticLA/RandLAPACK.git
+# Ubuntu 24.04
+sudo apt-get install git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
+
+# macOS: the built-in Accelerate provides BLAS/LAPACK; libomp adds multithreading
+xcode-select --install
+brew install cmake googletest libomp
+```
+
+Without GoogleTest, no tests are built. To use Intel oneMKL instead of
+OpenBLAS, load oneAPI's environment (`source <oneapi>/setvars.sh`) first. On
+a machine with an NVIDIA GPU, read the GPU note in
+[INSTALL_SCRIPT.md, section 2](docs/INSTALL_SCRIPT.md#2-requirements). Then
+build and install:
+
+```shell
+git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 cd RandLAPACK
 bash install.sh
 ```
 
-Then check the install by running the test suite:
+Check the install by running the test suite. The installer's final summary
+prints this build directory; it differs if you set `RANDNLA_PROJECT_DIR`.
 
 ```shell
-ctest --test-dir ../RandNLA-project/build/RandLAPACK-build
+OMP_NUM_THREADS=1 ctest --test-dir ../RandNLA-project/build/RandLAPACK-build -j 4
 ```
 
-**Native Windows**, from an "x64 Native Tools Command Prompt for VS 2022"
+The installer builds RandLAPACK, its dependencies, the extras and benchmark
+projects, and the test suite. The dependencies are BLAS++ and LAPACK++ (C++
+wrappers for BLAS and LAPACK, built from the BallisticLA forks), Random123,
+and RandBLAS, which comes inside this repository as a pinned git submodule
+(another git repository included at one fixed commit). Run
+`bash install.sh --help` for the options: GPU support, parallelism, reusing
+preinstalled dependencies, and more.
+
+### Native Windows
+
+From an "x64 Native Tools Command Prompt for VS 2022"
 ([INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) explains which prompt to open,
 and why):
 
@@ -38,24 +68,13 @@ cd RandLAPACK
 powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
 ```
 
-**What you need first** (on Linux and macOS):
+This builds the dependencies and RandLAPACK and runs the test suite; it does
+not build the extras or benchmark projects.
 
-- a C++20 compiler, CMake 3.21 or later, and Git;
-- a BLAS/LAPACK library, the standard low-level linear algebra routines
-  (OpenBLAS or Intel oneMKL on Linux; on macOS 13.3 or later the installer
-  uses Apple's built-in Accelerate, so there is nothing to install);
-- GoogleTest, for the test suite.
+### By hand, and from your own project
 
-**What the installer builds:** RandLAPACK, its dependencies, the extras and
-benchmark projects, and the test suite. The dependencies are BLAS++ and
-LAPACK++ (C++ wrappers for BLAS and LAPACK, built from the BallisticLA
-forks), Random123, and RandBLAS, which comes inside this repository as a
-pinned git submodule (another git repository included at one fixed commit). Run `bash install.sh --help`
-for the options: GPU support, parallelism, reusing preinstalled dependencies,
-and more.
-
-To build by hand, or to use RandLAPACK from your own CMake project, see
-[docs/INSTALL.md](docs/INSTALL.md).
+To build by hand, or to use RandLAPACK from your own CMake project (with a
+minimal example program), see [docs/INSTALL.md](docs/INSTALL.md).
 
 ## What's in the library
 
@@ -76,6 +95,8 @@ organized):
 
 - BQRRP and CQRRPT also have CUDA (GPU) implementations, `BQRRP_GPU` and
   `CQRRPT_GPU`.
+- `CholQR_linops` and `sCholQR3_linops` are deterministic Cholesky QR
+  baselines for linear operators, for comparison with `CQRRT_linops`.
 - The drivers are assembled from smaller randomized building blocks that you
   can also use on their own: rangefinders, QB, block Krylov, row sketching,
   orthogonalization and stabilization routines, and randomly pivoted Cholesky
@@ -101,7 +122,7 @@ approach.
 |----------------|------|
 | Install with one command on Linux or macOS | [docs/INSTALL_SCRIPT.md](docs/INSTALL_SCRIPT.md) |
 | Install on native Windows (MSVC) | [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md) |
-| Install by hand, or use RandLAPACK from your CMake project | [docs/INSTALL.md](docs/INSTALL.md) |
+| Install by hand, or use RandLAPACK from your CMake project (with an example program) | [docs/INSTALL.md](docs/INSTALL.md) |
 | Understand how the library is organized | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Contribute code | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | See what CI checks, and why | [docs/CI.md](docs/CI.md) |
