@@ -70,6 +70,10 @@ if (GTest_FOUND)
         # Discover CUDA tests. Every GPU entry holds the lock "gpu", so under ctest -j no two run at
         # once: the leak checks read device-wide free memory, which another GPU test would change.
         gtest_discover_tests(RandLAPACK_tests_gpu PROPERTIES RESOURCE_LOCK gpu)
+        # The CQRRPT_GPU timing test compares wall-clock times, which CPU tests running beside it
+        # can stretch by preempting the host, so it runs alone.
+        set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/cqrrpt_gpu_timing_serial.cmake")
         # Discovered tests run one per process. This entry runs them in one process, shuffled and
         # twice, so a test that leaves CUDA state behind (a pending error, a bad free) fails here.
         # It runs alone: alongside the discovered GPU tests it would double their memory peak.

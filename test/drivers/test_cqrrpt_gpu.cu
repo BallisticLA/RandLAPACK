@@ -605,11 +605,12 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
 
 // With timing on, each step's time must cover its device work, not just the kernel launches.
 // The trsm step must last at least as long as the same trsm timed alone. Total must include the
-// final trsm and trmm, so the call may outlast total only by its tail: the copies back to the
-// host, the frees and the queue's teardown. Leaving the final trsm out of total adds a whole
-// trsm to that, so the time past total may exceed the tail, redone alone right after the call,
-// by at most 3/4 of a trsm. Where a trsm is shorter than the copies (fast FP64), that slack
-// cannot cover their noise, and the bound is skipped. Timing must not change the results.
+// final trsm and trmm, so the call may outlast total only by what it does outside total: zeroing
+// R on entry, and its tail, the copies back to the host, the frees and the queue's teardown.
+// Leaving the final trsm out of total adds a whole trsm to that, so the time past total may
+// exceed those parts, each timed alone next to the call, by at most 3/4 of a trsm. Where a trsm
+// is shorter than the copies (fast FP64), that slack cannot cover their noise, and the test skips
+// that bound, saying so. Timing must not change the results. ctest runs this test alone.
 TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
     int64_t m = 5000;
     int64_t n = 1000;
@@ -687,9 +688,14 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
         CQRRPT_GPU.nnz = 2;
         CQRRPT_GPU.no_hqrrp = 1;
         auto s = RandBLAS::RNGState();
+        // The driver zeroes R on entry, before starting total. Time the same laset on R, in the
+        // same state, right before the call, and leave it out of the time past total.
+        auto start_laset = std::chrono::steady_clock::now();
+        lapack::laset(MatrixType::General, n, n, 0.0, 0.0, R.data(), n);
+        long t_laset = elapsed(start_laset);
         auto start = std::chrono::steady_clock::now();
         EXPECT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, s), 0);
-        wall = elapsed(start);
+        wall = elapsed(start) - t_laset;
         return CQRRPT_GPU.times;
     };
     std::vector<double> Q_on, R_on, Q_off, R_off;
@@ -719,9 +725,12 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
     cudaFree(T_device);
 
     EXPECT_GE(step_trsm, t_trsm) << "trsm step " << step_trsm << " us, trsm alone " << t_trsm << " us";
+    std::cout << "TRSM STEP " << step_trsm << " us, TRSM ALONE " << t_trsm << " us, COPIES BACK " << t_copy
+              << " us, TIME PAST TOTAL MINUS THE PARTS OUTSIDE IT " << excess << " us\n";
     if (t_trsm < t_copy)
-        GTEST_SKIP() << "trsm alone " << t_trsm << " us, copies back " << t_copy << " us: too close to bound the time past total";
-    EXPECT_LT(excess, 3 * t_trsm / 4) << "time past total exceeds the tail alone by " << excess << " us; trsm alone " << t_trsm << " us";
+        GTEST_SKIP() << "time past total not checked: trsm alone (" << t_trsm << " us) is shorter than the copies back ("
+                     << t_copy << " us), as with fast FP64, so 3/4 of a trsm cannot cover their noise. The trsm step and result checks ran.";
+    EXPECT_LT(excess, 3 * t_trsm / 4) << "time past total exceeds the parts outside it, alone, by " << excess << " us; trsm alone " << t_trsm << " us";
 }
 
 // R's contents on entry must not matter: with R filled with NaN, CQRRPT_GPU must return exactly
