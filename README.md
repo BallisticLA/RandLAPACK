@@ -16,13 +16,13 @@ Questions, or want to get involved in development? Join
 
 ### Linux and macOS
 
-First install a C++20 compiler (GCC 13 or newer on Linux), CMake 3.21 or
+First install a C++20 compiler (GCC 13 or newer on Linux), CMake 3.24 or
 later, Git, a BLAS/LAPACK library (the standard low-level linear algebra
 routines) and GoogleTest. These are the packages CI installs:
 
 ```shell
 # Ubuntu 24.04
-sudo apt-get install git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
+sudo apt-get update && sudo apt-get install git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
 
 # macOS: the built-in Accelerate provides BLAS/LAPACK; libomp adds multithreading
 xcode-select --install
@@ -63,6 +63,7 @@ From an "x64 Native Tools Command Prompt for VS 2022"
 and why):
 
 ```bat
+mkdir C:\src & cd /d C:\src
 git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 cd RandLAPACK
 powershell -ExecutionPolicy Bypass -File .\installers\install.ps1
