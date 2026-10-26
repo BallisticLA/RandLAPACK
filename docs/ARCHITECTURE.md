@@ -139,8 +139,10 @@ Review enforces the layout, buffer, error and randomness rules for new code.
   and the offending values.
 - **Randomness** comes only from RandBLAS's counter-based (Philox)
   generators, through `RandBLAS::RNGState`, never from `std::rand` or
-  `std::mt19937`. Every randomized routine is therefore reproducible from a
-  seed, independent of threading.
+  `std::mt19937`. The random numbers a routine draws are therefore
+  reproducible from a seed, independent of threading. Its results can still
+  differ in the last bits from run to run, because a multithreaded BLAS may
+  sum in a different order.
 - **GPU code** lives in `gpu_functions/` and `drivers/*_gpu.hh`. CUDA support
   is opt-in (`-DRequireCUDA=ON`) and not available on native Windows.
   - The umbrella header includes the GPU layer only when a CUDA compiler is
