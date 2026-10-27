@@ -192,7 +192,8 @@ variables for each dimension.
 
 ## 9. Lightweight transpose views (zero-copy reinterpretation)
 
-**Where**: RandBLAS `sparse_data/` (CSR/CSC transpose), `linops/rl_sparse_views.hh`
+**Where**: RandBLAS `sparse_data/` (CSR/CSC transpose), `linops/rl_sparse_views.hh`,
+`linops/rl_transposed_linop.hh`
 
 Transposing a sparse matrix doesn't copy data. Instead, a CSR matrix is
 reinterpreted as CSC (and vice versa) by swapping the roles of row and column

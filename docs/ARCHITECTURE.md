@@ -68,8 +68,9 @@ RandLAPACK/                     (repository root)
 |   |                           rl_syps.hh/rl_syrf.hh, rl_rpchol.hh,
 |   |                           rl_preconditioners.hh, rl_determiter.hh)
 |   |-- linops/                 linear-operator abstractions (concepts;
-|   |                           dense, sparse, symmetric and composite
-|   |                           operators) used by matrix-free drivers
+|   |                           dense, sparse, symmetric, composite, power
+|   |                           and transposed operators) used by matrix-free
+|   |                           drivers
 |   |-- gpu_functions/          CUDA kernels and cuSOLVER dispatch helpers
 |   |                           (compiled only by a CUDA compiler)
 |   |-- misc/                   rl_util.hh, rl_pdkernels.hh, rl_thread_caps.hh
