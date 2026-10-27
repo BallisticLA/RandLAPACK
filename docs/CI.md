@@ -86,10 +86,8 @@ installer one.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). RandBLAS's CI already tests the
   pinned commit, and rebuilding its ~450 tests in every RandLAPACK job
-  roughly doubled job times. `install.sh` turns them off the same way, so
-  every Linux and macOS installer lane skips them too. `install.ps1` does
-  not, so `install-windows` builds and runs them, as a user's Windows install
-  does.
+  roughly doubled job times. `install.sh` and `install.ps1` turn them off the
+  same way, so every installer lane skips them too.
 - **No job builds or runs the GPU code**
   ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). No job
   configures with `-DRequireCUDA=ON`, and the GPU drivers compile only in
