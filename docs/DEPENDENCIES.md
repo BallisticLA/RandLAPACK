@@ -153,9 +153,7 @@ GPU support is off by default. It needs:
 
 Then configure RandLAPACK with `-DRequireCUDA=ON` (`--gpu` for
 `install.sh`). If CMake finds no CUDA Toolkit, it prints "CUDA not found"
-and builds without GPU support. With `install.sh`, a GPU build currently
-also needs `--no-benchmarks`
-([INSTALL_SCRIPT.md, section 2](INSTALL_SCRIPT.md#2-requirements)).
+and builds without GPU support.
 
 | CUDA | GCC | Status | Notes |
 |---|---|---|---|

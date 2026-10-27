@@ -67,11 +67,6 @@ Good to know:
 - **For GPU support (optional):** the CUDA Toolkit, an NVIDIA driver and a
   GCC version your CUDA release accepts, as listed in
   [DEPENDENCIES.md, "CUDA and GCC versions"](DEPENDENCIES.md#cuda-and-gcc-versions).
-  - **Known issue:** in the current version the GPU benchmark does not
-    compile, so a GPU build also needs `--no-benchmarks`. That covers
-    `--gpu`, answering yes to the installer's GPU question, and an unattended
-    run on a machine with an NVIDIA GPU, which builds with GPU support by
-    default (section 3).
 
 On Ubuntu 24.04 and macOS, the [README](../README.md#install) gives the
 package-manager command that installs everything but CUDA.
