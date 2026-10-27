@@ -25,6 +25,7 @@ if (GTest_FOUND)
         drivers/test_abrik.cc
         drivers/test_abrik_projector.cc
         drivers/test_orth_linop.cc
+        drivers/test_lsqr_blendenpik.cc
         misc/test_config.cc
         misc/test_util.cc
         misc/test_pdkernels.cc

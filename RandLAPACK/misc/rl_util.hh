@@ -2,6 +2,7 @@
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_exceptions.hh"
 
 #include <RandBLAS.hh>
 #include <iostream>
@@ -705,3 +706,22 @@ void sparse_to_dense_summing_duplicates(
 }
 
 } // end namespace util
+
+namespace RandLAPACK {
+
+/// Rows of a d_factor * n sketch, as CQRRT, CQRRTO_linops and Blendenpik_linops form them: the
+/// product rounded in T, truncated, at least n. Throws if the product is negative, not finite,
+/// or does not fit in int64_t.
+template <typename T>
+inline int64_t cqrrt_sketch_rows(T d_factor, int64_t n) {
+    T prod = d_factor * (T)n;
+    // (T)INT64_MAX rounds to 2^63 in float and double, so this is the exact bound.
+    randlapack_require(prod >= T(0) && prod < (T)std::numeric_limits<int64_t>::max())
+        << "d_factor * n = " << prod << " (d_factor=" << d_factor << ", n=" << n
+        << ") is negative or does not fit in int64_t";
+    int64_t d = (int64_t)prod;
+    if (d < n) d = n;   // the product rounds below n in float for n > 2^24
+    return d;
+}
+
+} // namespace RandLAPACK
