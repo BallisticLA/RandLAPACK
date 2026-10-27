@@ -502,10 +502,10 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
         double *A2 = new double[n*n];
         blas::copy(n*n, A1, 1, A2, 1);
         RandLAPACK::util::transpose_square(A2, n);
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             layout, blas::Op::Trans, n, n, A1, n, A2, n, 
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
-        );
+        ), "");
         delete [] A1;
         delete [] A2;
     }
