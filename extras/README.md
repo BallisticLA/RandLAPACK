@@ -25,7 +25,8 @@ may include from it. Some benchmarks do borrow headers from here.
 
 ```
 extras/
-├── linops/      Solver-based linear operators (CholSolverLinOp, LUSolverLinOp)
+├── linops/      Solver-based linear operators (CholSolverLinOp, LUSolverLinOp) and the
+│                FFT-based ToeplitzLinOp
 ├── misc/        Matrix Market conversions (ext_util.hh) and the matrix-file
 │                loader BenchIO::load_matrix (ext_matrix_io.hh)
 └── test/        GTest-based regression tests for the above
@@ -70,6 +71,12 @@ Both are pinned to the source archive of one exact commit, checked against a
 SHA256 (`URL` and `URL_HASH` in `extras/CMakeLists.txt`). `benchmark/` pins
 the same two archives, so a bump changes both files together; see
 [benchmark/README.md](../benchmark/README.md).
+
+`ToeplitzLinOp` (`linops/ext_toeplitz_linop.hh`) additionally needs Intel
+MKL's FFT (`mkl_dfti.h`), which is not downloaded. It is usable, and its
+test is built, when RandBLAS has MKL support (`RandBLAS_HAS_MKL`), which
+also puts MKL's headers on the include path. `RANDLAPACK_FFT_THREADS=k` caps
+its FFT threads (default 16; `k <= 0` removes the cap).
 
 ## Matrix file input
 
