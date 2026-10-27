@@ -7,6 +7,7 @@
 #include <RandBLAS/testing/comparison.hh>
 
 #include <math.h>
+#include <algorithm>
 #include <gtest/gtest.h>
 
 using RandBLAS::RNGState;
@@ -46,7 +47,10 @@ class TestPDK_SquaredExponential : public ::testing::Test {
                 K_entrywise[i + j*n] = RandLAPACK::squared_exp_kernel(d, xi, xj, bandwidth);
             }
         }
-        T atol = 3 * d * std::numeric_limits<T>::epsilon() * (1.0 + std::pow(bandwidth, -2));
+        // ||x_i||^2 + ||x_j||^2 - 2<x_i, x_j> cancels, so the block kernel's error is about
+        // (d + 2) eps max ||x_i||^2 / bandwidth^2; d alone underestimates max ||x_i||^2.
+        T max_sq_norm = *std::max_element(squared_norms.begin(), squared_norms.end());
+        T atol = (d + 2) * std::numeric_limits<T>::epsilon() * (1.0 + max_sq_norm / (bandwidth * bandwidth));
         EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, n, n, K_blockimpl.data(), n,
             K_entrywise.data(), n, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, atol
