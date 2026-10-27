@@ -6,19 +6,33 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <vector>
 
 namespace test_helpers {
 
+/// Gaussian m x n matrix (column-major) drawn from RandBLAS::RNGState<>(seed).
+template <typename T = double>
+std::vector<T> random_matrix(int64_t m, int64_t n, uint32_t seed) {
+    std::vector<T> A(m * n);
+    RandBLAS::RNGState<> state(seed);
+    RandBLAS::fill_dense(RandBLAS::DenseDist(m, n), A.data(), state);
+    return A;
+}
+
 /// Satisfies the LinearOperator concept and nothing more (no Side or sketch overload, no
-/// materialize overload): applies a column-major n_rows x n_cols matrix by GEMM.
+/// materialize overload): applies a column-major n_rows x n_cols matrix by GEMM. Throws once
+/// calls_left reaches 0; negative means never.
 template <typename T>
 struct ConceptOnlyLinOp {
     using scalar_t = T;
     const int64_t n_rows;
     const int64_t n_cols;
     const T* A;
+    int calls_left = -1;
     void operator()(blas::Layout layout, blas::Op trans_A, blas::Op trans_B, int64_t m, int64_t n,
                     int64_t k, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc) {
+        if (calls_left == 0) throw std::runtime_error("operator call budget exhausted");
+        if (calls_left > 0) --calls_left;
         if (layout != blas::Layout::ColMajor) throw std::runtime_error("ColMajor only");
         blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A, n_rows, B, ldb, beta, C, ldc);
     }

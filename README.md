@@ -42,8 +42,9 @@ organized):
 
 - BQRRP and CQRRPT also have CUDA (GPU) implementations, `BQRRP_GPU` and
   `CQRRPT_GPU`.
-- `CholQR_linops` and `sCholQR3_linops` are deterministic Cholesky QR
-  baselines for linear operators, for comparison with `CQRRT_linops`.
+- `CholQR_linops`, `CholQR2_linops`, `sCholQR3_linops` and
+  `sCholQR3_linops_basic` are deterministic Cholesky QR baselines for linear
+  operators, for comparison with `CQRRT_linops`.
 - `Blendenpik_linops` is built on `lsqr` (LSQR with an optional triangular
   right preconditioner), which you can also call directly.
 - The drivers are assembled from smaller randomized building blocks that you

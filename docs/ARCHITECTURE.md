@@ -60,7 +60,8 @@ RandLAPACK/                     (repository root)
 |   |-- drivers/                user-facing algorithms (rl_rsvd.hh,
 |   |                           rl_bqrrp.hh + rl_bqrrp_gpu.hh, rl_cqrrpt.hh
 |   |                           + rl_cqrrpt_gpu.hh, rl_cqrrt.hh,
-|   |                           rl_cqrrt_linops.hh, rl_blendenpik.hh,
+|   |                           rl_cqrrt_linops.hh, rl_cholqr_linops.hh,
+|   |                           rl_scholqr3_linops.hh, rl_blendenpik.hh,
 |   |                           rl_revd2.hh, rl_abrik.hh, rl_hqrrp.hh,
 |   |                           rl_krill.hh, ...)
 |   |-- comps/                  computational building blocks (rl_rf.hh
@@ -68,7 +69,7 @@ RandLAPACK/                     (repository root)
 |   |                           rl_qb.hh, rl_bk.hh block Krylov, rl_orth.hh,
 |   |                           rl_syps.hh/rl_syrf.hh, rl_rpchol.hh,
 |   |                           rl_preconditioners.hh, rl_determiter.hh,
-|   |                           rl_lsqr.hh)
+|   |                           rl_lsqr.hh, rl_cholqr.hh Q-less Cholesky QR)
 |   |-- linops/                 linear-operator abstractions (concepts;
 |   |                           dense, sparse, symmetric, composite,
 |   |                           power, transposed, scaled-identity and
