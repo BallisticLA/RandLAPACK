@@ -236,9 +236,9 @@ them:
 ~/RandNLA/RandNLA-project/build/RandLAPACK-build/bin/RandLAPACK_tests_gpu
 ```
 
-Three GPU tests, a timing check and two device-memory leak checks, assume
-that nothing else is using the machine or the GPU. On a shared machine,
-skip them with `ctest -LE exclusive`.
+A few GPU tests, a timing check and device-memory leak checks, assume that
+nothing else is using the machine or the GPU. They carry the ctest label
+`exclusive`; on a shared machine, skip them with `ctest -LE exclusive`.
 
 ### Rebuilding after code changes
 
