@@ -17,6 +17,7 @@
 // misc
 #include "RandLAPACK/misc/rl_util.hh"
 #include "RandLAPACK/misc/rl_pdkernels.hh"
+#include "RandLAPACK/misc/rl_thread_caps.hh"
 
 // linear operator infrastructure
 #include "RandLAPACK/linops/rl_linops.hh"
