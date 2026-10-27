@@ -58,22 +58,42 @@ const T alpha,
 const T* A,
 bool* all_greater
 ){
-    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
-    __shared__ bool indicator;
-    if (id == 0) {
-        *all_greater = true;
-        indicator = true;
+    // Runs as a single block that strides over all n entries; __syncthreads_and combines the
+    // threads' results. A thread stops at its first entry greater than alpha, or NaN.
+    int all_small = 1;
+    for (int64_t i = threadIdx.x; i < n && all_small; i += blockDim.x) {
+        if (!(std::abs(A[i]) <= alpha))
+            all_small = 0;
     }
+    all_small = __syncthreads_and(all_small);
+    if (threadIdx.x == 0)
+        *all_greater = all_small;
+}
+
+template <typename T>
+__global__ void __launch_bounds__(128) max_abs(
+int64_t n,
+const T* A,
+T* result
+){
+    // Runs as a single block of 128 threads that strides over all n entries; a shared-memory
+    // reduction takes the largest |A[i]|. NaN entries are skipped, as std::max skips them.
+    __shared__ T largest[128];
+    T local = 0;
+    for (int64_t i = threadIdx.x; i < n; i += blockDim.x) {
+        T a = std::abs(A[i]);
+        if (a > local)
+            local = a;
+    }
+    largest[threadIdx.x] = local;
     __syncthreads();
-    // No need to continue checking the elements if we have already encountered one greater than alpha
-    if ((id < n) && (std::abs(A[id]) > alpha) && (*all_greater == true)) {
-        indicator = false;
+    for (int s = blockDim.x / 2; s > 0; s /= 2) {
+        if (threadIdx.x < s && largest[threadIdx.x + s] > largest[threadIdx.x])
+            largest[threadIdx.x] = largest[threadIdx.x + s];
+        __syncthreads();
     }
-    __syncthreads();
-    
-    if(id == 0 && !indicator) {
-        *all_greater = false;
-    }
+    if (threadIdx.x == 0)
+        *result = largest[0];
 }
 
 template <typename T>
@@ -84,24 +104,26 @@ const T* A,
 int64_t lda,
 int64_t* rank
 ){
-    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
-    __shared__ int64_t indicator;
-    if (id == 0) {
-        indicator = n;
-        *rank = n;
+    // Runs as a single block of 128 threads that strides over all n diagonal entries. Each
+    // thread keeps the first index it finds, and the reduction below takes the smallest.
+    // The test matches the CPU driver: |A(i, i)| / |A(0, 0)| < alpha.
+    __shared__ int64_t first_small[128];
+    int64_t first = n;
+    for (int64_t i = threadIdx.x; i < n; i += blockDim.x) {
+        if (std::abs(A[i * lda + i]) / std::abs(A[0]) < alpha) {
+            first = i;
+            break;
+        }
     }
+    first_small[threadIdx.x] = first;
     __syncthreads();
-
-    // As we are looking at the elements of the diagonal of A in parallel,
-    // it is important to remember that the actual rank might be smaller 
-    // than the currently-defined one, so this should not have an early termination.
-    if((id < indicator) && (std::abs(A[id * lda + id]) / std::abs(A[0]) <= alpha)) {
-        atomicMin((int*) &indicator, (int) id);
+    for (int s = blockDim.x / 2; s > 0; s /= 2) {
+        if (threadIdx.x < s && first_small[threadIdx.x + s] < first_small[threadIdx.x])
+            first_small[threadIdx.x] = first_small[threadIdx.x + s];
+        __syncthreads();
     }
-    __syncthreads();
-    if(id == 0 && indicator != n) {
-        *rank = indicator;
-    }
+    if (threadIdx.x == 0)
+        *rank = first_small[0];
 }
 
 template <typename T>
@@ -194,6 +216,22 @@ __device__ void copy_gpu_device(
     }
 }
 
+// Device-side stand-ins for std::swap, std::iter_swap and std::find, which are constexpr
+// __host__ functions: nvcc rejects them in device code without --expt-relaxed-constexpr.
+template <typename T>
+__device__ void swap_gpu_device(T& a, T& b) {
+    T const tmp = a;
+    a = b;
+    b = tmp;
+}
+
+template <typename T>
+__device__ T* find_gpu_device(T* first, T* last, T value) {
+    while (first != last && *first != value)
+        ++first;
+    return first;
+}
+
 template <typename T>
 __global__ void __launch_bounds__(128) swap_gpu(
     T* a, 
@@ -226,7 +264,7 @@ __global__ void __launch_bounds__(128) LUQRCP_piv_process_gpu_global(
     __syncthreads();
     if (Idx const id = (Idx)blockDim.x * blockIdx.x + threadIdx.x; id == 0) {
         for(int i = 0; i < n; ++ i) {
-            std::swap(a[b[i] - 1], a[i]);
+            swap_gpu_device(a[b[i] - 1], a[i]);
         }
     }
 }
@@ -352,7 +390,8 @@ __global__  void __launch_bounds__(128) get_U_gpu(
 ) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n - 1) {
-        std::fill(&A[i * (lda + 1) + 1], &A[(i * lda) + m], 0.0);
+        for (int64_t j = i + 1; j < m; ++j)
+            A[i * lda + j] = 0.0;
     }
 }
 
@@ -380,13 +419,17 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel_sequential(
     int64_t* curr = idx_mut;
     int64_t* end = idx_mut + k;
     for (int64_t i = 1; i <= k; ++i, ++curr) {
-        // swap rows IFF mismatched
+        // Every thread reads *curr, so no thread may write it: a thread that read the new value
+        // would skip both the swap and the g.sync. *curr is not read again, so it is enough to
+        // move j to where i was, which lies past curr; g.sync orders that write before its reads.
         if (int64_t const j = *curr; i != j) {
             for (int64_t l = threadIdx.x + blockDim.x * blockIdx.x; l < m; l += blockDim.x * gridDim.x) {
-                std::iter_swap(A + i * lda + l, A + j * lda + l);
+                swap_gpu_device(A[i * lda + l], A[j * lda + l]);
             }
             if (threadIdx.x == 0 && blockIdx.x == 0) {
-                std::iter_swap(curr, std::find(curr, end, i));
+                int64_t* found = find_gpu_device(curr + 1, end, i);
+                if (found != end)
+                    *found = j;
             }
             g.sync();
         }
@@ -438,16 +481,17 @@ __global__ void __launch_bounds__(512) vec_ell_swap_gpu(
         idx_mut[i] = idx[i];
     }
     __syncthreads();
+    // The swaps are sequential and only thread 0 performs them, so the other threads stop here
+    // rather than read idx_mut while thread 0 writes it.
+    if (threadIdx.x != 0)
+        return;
     int64_t* curr = idx_mut;
     int64_t* end = idx_mut + k;
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-            if (threadIdx.x == 0) {
-                std::iter_swap(J + i, J + j);
-                std::iter_swap(curr, std::find(curr, end, i));
-            }
-            __syncthreads();
+            swap_gpu_device(J[i], J[j]);
+            swap_gpu_device(*curr, *find_gpu_device(curr, end, i));
         }
     }
 }
@@ -504,9 +548,9 @@ __global__ void copy_mat_gpu(
     bool copy_upper_triangle
 ) {
     if (copy_upper_triangle) {
-        // Only copying the upper-triangular portion of the original
+        // Only copying the upper-trapezoidal portion of the m-by-n original
         for (int64_t i = threadIdx.x + blockDim.x * blockIdx.x; i < n; i += blockDim.x * gridDim.x) {
-            for (int64_t j = threadIdx.y + blockDim.y * blockIdx.y; j <= i; j += blockDim.y * gridDim.y) {
+            for (int64_t j = threadIdx.y + blockDim.y * blockIdx.y; j <= i && j < m; j += blockDim.y * gridDim.y) {
                 A_cpy[(ldac * i) + j] = A[(lda * i) + j];
             }
         }
@@ -533,9 +577,9 @@ void naive_rank_est(
     int64_t* rank_device;
     cudaMalloc(&rank_device, sizeof(int64_t));
 
+    // One block covers the whole diagonal; the kernel's shared array assumes 128 threads.
     constexpr int threadsPerBlock{128};
-    int64_t num_blocks_ger{(n + threadsPerBlock - 1) / threadsPerBlock};
-    naive_rank_est<<<num_blocks_ger, threadsPerBlock, sizeof(int64_t), stream>>>(n, alpha, A, lda, rank_device);
+    naive_rank_est<<<1, threadsPerBlock, 0, stream>>>(n, alpha, A, lda, rank_device);
 
     // It seems that these synchs are required, after all
     cudaStreamSynchronize(stream);
@@ -560,9 +604,9 @@ void all_of(
     bool* all_greater_device;
     cudaMalloc(&all_greater_device, sizeof(bool));
 
+    // One block covers all n entries.
     constexpr int threadsPerBlock{128};
-    int64_t num_blocks_ger{(n + threadsPerBlock - 1) / threadsPerBlock};
-    all_of<<<num_blocks_ger, threadsPerBlock, sizeof(bool), stream>>>(n, alpha, A, all_greater_device);
+    all_of<<<1, threadsPerBlock, 0, stream>>>(n, alpha, A, all_greater_device);
     cudaStreamSynchronize(stream);
     cudaMemcpy(&all_greater, all_greater_device, sizeof(bool), cudaMemcpyDeviceToHost);
     cudaStreamSynchronize(stream);
@@ -571,6 +615,46 @@ void all_of(
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
+}
+
+// Largest |A[i]| over the n entries of the vector A.
+template <typename T>
+void max_abs(
+    cudaStream_t stream,
+    int64_t n,
+    const T* A,
+    T& result
+) {
+#ifdef USE_CUDA
+    T* result_device;
+    cudaMalloc(&result_device, sizeof(T));
+
+    // One block covers all n entries; the kernel's shared array assumes 128 threads.
+    constexpr int threadsPerBlock{128};
+    max_abs<<<1, threadsPerBlock, 0, stream>>>(n, A, result_device);
+    cudaStreamSynchronize(stream);
+    cudaMemcpy(&result, result_device, sizeof(T), cudaMemcpyDeviceToHost);
+    cudaFree(result_device);
+    check_cuda_error_nosync("Failed to launch max_abs.")
+#else
+    throw std::runtime_error("No CUDA support available.");
+#endif
+}
+
+// BQRRP_GPU's zero-block test: whether every |A[i]| of the n entries is at most tol * col_ref.
+// A NaN entry counts as exceeding it, and a col_ref that is Inf or NaN judges no block zero.
+template <typename T>
+bool block_is_zero(
+    cudaStream_t stream,
+    int64_t n,
+    const T tol,
+    const T col_ref,
+    const T* A
+) {
+    bool block_zero = false;
+    if (std::isfinite(col_ref))
+        all_of(stream, n, tol * col_ref, A, block_zero);
+    return block_zero;
 }
 
 template <typename T>
@@ -639,7 +723,7 @@ void col_swap_gpu(
         int numBlocksPerSm = 0;
         cudaDeviceProp deviceProp;
         cudaGetDeviceProperties(&deviceProp, 0);
-        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel<T>, numThreads, 0);
+        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel_sequential<T>, numThreads, 0);
         return deviceProp.multiProcessorCount * numBlocksPerSm;
     }();
     int lower_bound = std::max(m, k);

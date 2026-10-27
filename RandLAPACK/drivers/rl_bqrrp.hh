@@ -80,6 +80,10 @@ class BQRRP : public BQRRPalg<T, RNG> {
         ///     A[:, J] = QR,
         /// where Q and R are of size m-by-l and l-by-n, with rank_estimate(A) = l.
         /// Stores implict Q factor and explicit R factor in A's space (output formatted exactly like GEQP3).
+        /// If l < min(m, n), the output past l is what GEQP3 returns when the trailing block is exactly
+        /// zero: tau(l:min(m, n)) = 0 and A(l:m, l:n) = 0. The reflectors past l are then the identity
+        /// and R(l:min(m, n), :) is zero, so ungqr over all min(m, n) reflectors returns Q(:, 1:l) in its
+        /// first l columns.
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
@@ -138,7 +142,9 @@ class BQRRP : public BQRRPalg<T, RNG> {
         // NB for orhr_col and gemqrt
         int64_t internal_nb;
 
-        // Naive rank estimation parameter;
+        // Relative tolerance of the rank decisions: a block is zero if no entry of its pivot column exceeds tol times
+        // the largest of A's first pivot column; else its rank is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|.
+        // The default is eps. For numerical rank, set tol above the rounding error in A, e.g. 1e-10 in double.
         T tol;
 
         // 10 entries - logs time for different portions of the algorithm
@@ -173,6 +179,14 @@ int BQRRP<T, RNG>::call(
     randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
     randlapack_require(!(tau == nullptr && n > 0)) << "tau buffer is null but n=" << n << " > 0";
     randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
+
+    // An empty A has nothing to factor. Return before allocating anything, with the identity
+    // pivots that GEQP3 returns for an empty matrix.
+    if (std::min(m, n) == 0) {
+        this -> rank = 0;
+        std::iota(J, J + n, (int64_t) 1);
+        return 0;
+    }
 
     //-------TIMING VARS--------/
     steady_clock::time_point preallocation_t_start;
@@ -225,6 +239,9 @@ int BQRRP<T, RNG>::call(
     int64_t sampling_dimension = d;
     // An indicator for whether all entries in a given block are zero.
     bool block_zero            = true;
+    // Largest |entry| of A's first pivot column, taken at iteration 0. The zero-block threshold
+    // is tol * col_ref, so that the decision does not depend on the scale of A.
+    T col_ref                  = 0;
     // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration,
     // since the rest of the matrix must be zero.
     // Is equal to block size by default, needs to be updated if the block size has changed.
@@ -233,7 +250,7 @@ int BQRRP<T, RNG>::call(
     int64_t internal_nb        = this -> internal_nb;
 
     //*********************************POINTERS TO A BEGIN*********************************
-    // LDA for all of the below is m
+    // LDA for all of the below is lda
 
     // Pointer to the beginning of the original space of A.
     // Pointer to the beginning of A's "work zone," 
@@ -306,7 +323,7 @@ int BQRRP<T, RNG>::call(
     T* S = new T[d * m]();
     RandBLAS::DenseDist D(d, m);
     state = RandBLAS::fill_dense(D, S, state);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T) 1.0, S, d, A, m, (T) 0.0, A_sk, d);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T) 1.0, S, d, A, lda, (T) 0.0, A_sk, d);
     delete[] S;
 
     if(this -> timing) {
@@ -368,12 +385,16 @@ int BQRRP<T, RNG>::call(
 
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
-        block_zero = true;
-        for (i = 0; i < rows; ++i) {
-            if (std::abs(A_work[i]) > std::numeric_limits<T>::epsilon()) {
+        if (iter == 0) {
+            for (i = 0; i < rows; ++i)
+                col_ref = std::max(col_ref, std::abs(A_work[i]));
+        }
+        // A NaN entry counts as nonzero. An Inf in the first pivot column makes the threshold Inf
+        // or NaN, so then no block is judged zero, and the Inf and NaN reach the output.
+        block_zero = std::isfinite(col_ref);
+        for (i = 0; block_zero && i < rows; ++i) {
+            if (!(std::abs(A_work[i]) <= this -> tol * col_ref))
                 block_zero = false;
-                break;
-            }
         }
         if(block_zero){
             // Zero leftover matrix, early termination
@@ -384,6 +405,12 @@ int BQRRP<T, RNG>::call(
                 blas::copy(cols, J_buffer, 1, J, 1);
             } else {
                 RandLAPACK::util::col_swap(cols, cols, &J[curr_sz], J_buffer);
+            }
+
+            // Past the rank, the reflectors become the identity and the trailing block of A zero.
+            if (this -> rank < std::min(m, n)) {
+                std::fill(&tau[this -> rank], &tau[std::min(m, n)], (T) 0.0);
+                lapack::laset(MatrixType::General, m - this -> rank, n - this -> rank, (T) 0.0, (T) 0.0, &A[lda * this -> rank + this -> rank], lda);
             }
 
             delete[] J_buffer_lu;
@@ -572,6 +599,12 @@ int BQRRP<T, RNG>::call(
             // All earlier blocks were full rank; this one adds block_rank, which is < b_sz
             // if the block is rank-deficient.
             this -> rank = curr_sz - b_sz + block_rank;
+
+            // Past the rank, the reflectors become the identity and the trailing block of A zero.
+            if (this -> rank < std::min(m, n)) {
+                std::fill(&tau[this -> rank], &tau[std::min(m, n)], (T) 0.0);
+                lapack::laset(MatrixType::General, m - this -> rank, n - this -> rank, (T) 0.0, (T) 0.0, &A[lda * this -> rank + this -> rank], lda);
+            }
 
             if(this -> timing) {
                 total_t_stop = steady_clock::now();

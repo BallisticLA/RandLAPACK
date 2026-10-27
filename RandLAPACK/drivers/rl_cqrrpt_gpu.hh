@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -73,6 +74,7 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
             oversampling = 10;
             use_cholqr = 0;
             panel_pivoting = 1;
+            rank = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -95,22 +97,21 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         ///
         /// @param[in] R
         ///     Represents the upper-triangular R factor of QR factorization.
-        ///     On entry, is empty and may not have any space allocated for it.
+        ///     On entry, an n-by-n buffer with leading dimension ldr >= n; its contents are ignored.
         ///
         /// @param[out] A
         ///     Overwritten by an m-by-k orthogonal Q factor.
         ///     Matrix is stored explicitly.
         ///
         /// @param[out] R
-        ///     Stores k-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        ///     Rows 0:rank hold the upper-trapezoidal R factor; all other entries
+        ///     of the n-by-n block are zero.
         ///
         /// @param[out] J
         ///     Stores k integer type pivot index entries.
         ///
-        /// @return = 0: successful exit
-        ///
-        /// @return = 1: cholesky factorization failed
+        /// @return = 0: successful exit. If the Cholesky factorization fails, the rank
+        ///     is re-estimated from the leading part of the factor, as in CQRRPT.
         ///
 
         int call(
@@ -159,6 +160,12 @@ int CQRRPT_GPU<T, RNG>::call(
     T d_factor,
     RandBLAS::RNGState<RNG> &state
 ){
+    randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
+    randlapack_require(ldr >= n) << "ldr=" << ldr << " < n=" << n << " (ldr must be >= n)";
+
+    // R's contents on entry are ignored: the parts the algorithm does not write are read as zeros.
+    lapack::laset(MatrixType::General, n, n, (T) 0.0, (T) 0.0, R, ldr);
+
     ///--------------------TIMING VARS--------------------/
     steady_clock::time_point saso_t_stop;
     steady_clock::time_point saso_t_start;
@@ -214,7 +221,7 @@ int CQRRPT_GPU<T, RNG>::call(
     /// Applying a SASO
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, 1.0, S, 0, 0, A, lda, 0.0, A_hat, d
+        d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
     );
 
     if(this -> timing) {
@@ -232,6 +239,15 @@ int CQRRPT_GPU<T, RNG>::call(
     if(this -> timing) {
         qrcp_t_stop = steady_clock::now();
         rank_reveal_t_start = steady_clock::now();
+    }
+
+    // Check if the input is all zeros, as CQRRPT does.
+    if (!A_hat[0]) {
+        this->rank = 0;
+        delete[] A_hat;
+        delete[] tau;
+        delete[] J_buf;
+        return 0;
     }
 
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
@@ -255,7 +271,7 @@ int CQRRPT_GPU<T, RNG>::call(
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, k);
     /// Extracting a k by n R representation (k by k upper-triangular, rest - general)
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R, ldr);
-    lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[n * k], ldr);
+    lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[ldr * k], ldr);
 
     if(this -> timing)
         a_mod_piv_t_start = steady_clock::now();
@@ -284,83 +300,81 @@ int CQRRPT_GPU<T, RNG>::call(
     T* R_device;
     T* R_sp_device;
 
-    // Variables for a posteriori rank estimation.
+    // Rank estimated a posteriori.
     int64_t new_rank;
-    T running_max, running_min, curr_entry;
 
     using lapack::device_info_int;
-    blas::Queue blas_queue(0);
+    // One queue (one stream) for all device work: trsm, syrk, potrf, trsm and trmm
+    // each read what the previous call wrote, and only same-stream launches are ordered.
     lapack::Queue lapack_queue(0);
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
     
-    cudaMalloc(&A_device, m * n * sizeof(T));
+    cudaMalloc(&A_device, lda * n * sizeof(T));
     cudaMalloc(&R_device, ldr * n * sizeof(T));
     cudaMalloc(&R_sp_device, k * k * sizeof(T));
 
-    cudaMemcpy(A_device, A, m * n * sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(R_device, R, ldr * n * sizeof(T), cudaMemcpyHostToDevice);
-    cudaMemcpy(R_sp_device, R_sp, k * k * sizeof(T), cudaMemcpyHostToDevice);
+    // A and R keep their leading dimensions on the device; only rows 0:m and 0:n are copied.
+    // Every copy runs on lapack_queue's stream, so it is ordered against the device work even
+    // when the default stream does not synchronize with other streams (per-thread default stream).
+    blas::device_copy_matrix(m, n, A, lda, A_device, lda, lapack_queue);
+    blas::device_copy_matrix(n, n, R, ldr, R_device, ldr, lapack_queue);
+    blas::device_memcpy(R_sp_device, R_sp, k * k, lapack_queue);
 
     //char name [] = "A";
     //RandBLAS::util::print_colmaj(m, n, A, name);
 
     // A_pre * R_sp = AP
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_sp_device, k, A_device, lda, blas_queue);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_sp_device, k, A_device, lda, lapack_queue);
 
+    // Device calls are asynchronous: when timing, wait for each step's work before stopping its timer.
     if(this -> timing) {
+        lapack_queue.sync();
         a_mod_trsm_t_stop = steady_clock::now();
         cholqr_t_start = steady_clock::now();
     }
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A_device, lda, (T) 0.0, R_sp_device, k, blas_queue);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A_device, lda, (T) 0.0, R_sp_device, k, lapack_queue);
     lapack::potrf(Uplo::Upper, k, R_sp_device, k, d_info, lapack_queue);
-    blas_queue.sync();
+    device_info_int info = 0;
+    blas::device_memcpy(&info, d_info, 1, lapack_queue);
+    lapack_queue.sync();
 
-    // Re-estimate rank after we have the R-factor form Cholesky QR.
-    // The strategy here is the same as in naive rank estimation.
-    // This also automatically takes care of any potentical failures in Cholesky factorization.
-    // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
-    // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
+    // If CholQR failed, re-estimate the rank a posteriori from the completed part of R_sp's diagonal,
+    // with CQRRPT's rule; cuSOLVER may leave NaN past the failed column, which the rule never keeps.
     //
     // The approach is slightly complicated due the fact that R_sp is currently allocated on device.
     // In order to avoid creating a specialized kerken function, we would copy the diagonal of R_sp 
     // back to the host using a strided cuda Memcopy (beware of performance issues).
 
-    // spitch  (2nd argument) - width of the row vectors in the source array - sizeof(T), since we have a column vector.
-    // dpitch  (4nd argument) - width of the row vectors in the source array - (k + 1) * sizeof(T), since we have a k by k matrix and 
-    //                                                                         want the "vector" to start with a diagonal element.
-    // width   (5th argument) - number of columns in data transfer           - sizeof(T), since we transfer one element per column.
-    // heighth (6th argument) - numer of rows in data transfer               - k, since we will be transferring k elements total.
+    // In elements: the host pitch is 1, since we have a column vector; the device pitch is k + 1, so each
+    // "row" starts at a diagonal entry of the k by k matrix; each of the k rows is 1 element wide.
     T* R_sp_diag = new T[k]();
-    cudaMemcpy2D(R_sp_diag, sizeof(T), R_sp_device, (k + 1) * sizeof(T), sizeof(T), k, cudaMemcpyDeviceToHost);
+    blas::device_memcpy_2d(R_sp_diag, (int64_t) 1, R_sp_device, k + 1, (int64_t) 1, k, lapack_queue);
+    lapack_queue.sync();
 
-    new_rank = k;
-    running_max = R_sp_diag[0];
-    running_min = R_sp_diag[0];
+    new_rank = util::cholqr_failure_rank(k, R_sp_diag, (int64_t) 1, (int64_t) info, this->eps);
 
-    for(i = 0; i < k; ++i) {
-        curr_entry = std::abs(R_sp_diag[i]);
-        running_max = std::max(running_max, curr_entry);
-        running_min = std::min(running_min, curr_entry);
-        if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
-            new_rank = i - 1;
-            break;
-        }
-    }
-
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, R_sp_device, k, A_device, lda, blas_queue);
-
-    if(this -> timing)
-        cholqr_t_stop = steady_clock::now();
-
-    // Get the final R-factor.
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, R_sp_device, k, R_device, ldr, blas_queue);
-
-    // Set the rank parameter to the value comuted a posteriori.
-    this->rank = k;
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, R_sp_device, k, A_device, lda, lapack_queue);
 
     if(this -> timing) {
+        lapack_queue.sync();
+        cholqr_t_stop = steady_clock::now();
+    }
+
+    // Get the final R-factor: R[0:new_rank, :] = R_sp[0:new_rank, 0:k] * R[0:k, :].
+    // After a failed potrf, R_sp[0:new_rank, new_rank:k] may not be a factor, so rebuild it as Q' * A_pre[:, new_rank:k].
+    if(new_rank < k)
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, k - new_rank, m, (T) 1.0, A_device, lda, &A_device[lda * new_rank], lda, (T) 0.0, &R_sp_device[k * new_rank], k, lapack_queue);
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, R_sp_device, k, R_device, ldr, lapack_queue);
+    if(new_rank < k)
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, new_rank, n, k - new_rank, (T) 1.0, &R_sp_device[k * new_rank], k, &R_device[new_rank], ldr, (T) 1.0, R_device, ldr, lapack_queue);
+
+    // Set the rank parameter to the value comuted a posteriori.
+    this->rank = new_rank;
+
+    if(this -> timing) {
+        lapack_queue.sync();
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
         qrcp_t_dur        = duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
         rank_reveal_t_dur = duration_cast<microseconds>(rank_reveal_t_stop - rank_reveal_t_start).count();
@@ -376,12 +390,16 @@ int CQRRPT_GPU<T, RNG>::call(
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
 
-    cudaMemcpy(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
-    cudaMemcpy(R, R_device, ldr * n * sizeof(T), cudaMemcpyDeviceToHost);
+    blas::device_copy_matrix(m, n, A_device, lda, A, lda, lapack_queue);
+    blas::device_copy_matrix(n, n, R_device, ldr, R, ldr, lapack_queue);
+    lapack_queue.sync();
+    // Rows past the rank hold leftovers of the sketch's R factor.
+    lapack::laset(MatrixType::General, n - new_rank, n, (T) 0.0, (T) 0.0, &R[new_rank], ldr);
     
     cudaFree(A_device);
     cudaFree(R_device);
     cudaFree(R_sp_device);
+    blas::device_free(d_info, lapack_queue);
     delete[] A_hat;
     delete[] J_buf;
     delete[] R_sp;

@@ -107,7 +107,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
         // Matches CQRRT_linops timing indices for direct comparison.
         std::vector<long> times;
 
-        // tuning SASOS
+        // tuning SASOS: nonzeros per short-axis vector of the sketch, capped at min(d, m)
         int64_t nnz;
 
         // Mode of operation that allows to use CQRRT for orthogonalization of the input matrix.
@@ -170,8 +170,9 @@ int CQRRT<T, RNG>::call(
     if(this -> timing)
         saso_t_start = steady_clock::now();
 
-    /// Generating a SASO
-    RandBLAS::SparseDist DS(d, m, this->nnz);
+    /// Generating a SASO. RandBLAS requires nnz <= min(d, m); a single-column input truncates
+    /// d to 1 for any d_factor < 2, below the default nnz = 2.
+    RandBLAS::SparseDist DS(d, m, std::min({this->nnz, d, m}));
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
     state = S.next_state;
 

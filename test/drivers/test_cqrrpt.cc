@@ -2,6 +2,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "cqrrpt_test_inputs.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -469,4 +470,197 @@ TEST_F(TestCQRRPT, CQRRPT_orthogonalization_mode_low_rank) {
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_orthogonalization(d_factor, all_data, CQRRPT, state);
+}
+
+// After a failed potrf, CQRRPT cuts the rank, and the leading rank rows of R must be built
+// from computed data. With Q (nearly) orthonormal, the truncated factorization then cannot
+// leave a residual larger than A itself. The input defeats the sketch, so CholQR fails.
+TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_R_consistent) {
+    int64_t m = 600;
+    int64_t n = 60;
+    uint32_t seed = 7;
+    std::vector<double> A = cqrrpt_test::sketch_defeating_input(m, n, 2, 2.0, seed, 1.0);
+    double norm_A = lapack::lange(Norm::Fro, m, n, A.data(), m);
+
+    for (double tol : {std::pow(std::numeric_limits<double>::epsilon(), 0.85), 1e-6}) {
+        SCOPED_TRACE(tol);
+        std::vector<double> Q(A), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        ASSERT_EQ(CQRRPT.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        int64_t r = CQRRPT.rank;
+        ASSERT_LT(r, n) << "input no longer makes CholQR fail; the test does not exercise the failure path";
+
+        // ||A[:, J] - Q_r R_r||_F / ||A||_F
+        std::vector<double> AP(A);
+        RandLAPACK::util::col_swap(m, n, n, AP.data(), m, J.data());
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
+        double err_qr = lapack::lange(Norm::Fro, m, n, AP.data(), m) / norm_A;
+        EXPECT_LE(err_qr, 1.0) << "rank " << r;
+    }
+}
+
+// util::cholqr_failure_rank, the rule of both drivers, on synthetic diagonals with potrf failed at
+// column info: the rank must not depend on the failed pivot or anything past it, and must be the same
+// for a contiguous diagonal (as CQRRPT_GPU passes it) and the diagonal of a padded matrix (CQRRPT).
+TEST_F(TestCQRRPT, CQRRPT_cholqr_failure_rank_rule) {
+    auto check = [](auto zero, auto tol) {
+        using T = decltype(zero);
+        const T thr = std::sqrt(tol / std::numeric_limits<T>::epsilon());
+        const T inf = std::numeric_limits<T>::infinity();
+        const T nan = std::numeric_limits<T>::quiet_NaN();
+        const T huge = std::numeric_limits<T>::max();
+        // Completed entries, with max/min 1.5, far below the ratio threshold thr.
+        const T base[] = {1.0, 0.9, 1.1, 0.8, 1.2, 0.95, 1.05, 0.85};
+        // Diagonal base[0:k], with base[pos] replaced by value if pos >= 0.
+        struct Case { const char* name; int64_t k, info, pos; T value; int64_t rank; };
+        const Case cases[] = {
+            {"no failure",                          8, 0, -1, 0,             8},
+            {"info = 1",                            8, 1, -1, 0,             0},
+            {"info = 2",                            8, 2, -1, 0,             1},
+            {"info = 3",                            8, 3, -1, 0,             1},
+            {"info = 5",                            8, 5, -1, 0,             3},
+            {"info = k",                            8, 8, -1, 0,             6},
+            {"k = 2, info = 2",                     2, 2, -1, 0,             1},
+            {"k = 1, info = 1",                     1, 1, -1, 0,             0},
+            {"small entry cuts before failure",     8, 7,  3, 1 / (4 * thr), 2},
+            {"large entry cuts before failure",     8, 7,  4, 4 * thr,       3},
+            {"ratio below threshold, no cut",       8, 7,  3, 4 / thr,       5},
+            {"ratio trips at i = 1, cut at i = 2",  8, 6,  1, 1 / (4 * thr), 1},
+        };
+        for (const auto& c : cases) {
+            for (T failed : {-huge, (T) -1, (T) 0, nan}) {
+                for (T past : {nan, inf, -inf, (T) 0, (T) 1, huge, 1 / (4 * thr)}) {
+                    SCOPED_TRACE(::testing::Message() << (sizeof(T) == 8 ? "double, " : "float, ") << c.name
+                                                      << ", failed pivot " << failed << ", entries past it " << past);
+                    std::vector<T> diag(base, base + c.k);
+                    if (c.pos >= 0)
+                        diag[c.pos] = c.value;
+                    if (c.info > 0) {
+                        diag[c.info - 1] = failed;
+                        for (int64_t i = c.info; i < c.k; ++i)
+                            diag[i] = past;
+                    }
+                    int64_t ldr = c.k + 3;
+                    std::vector<T> R(ldr * c.k, nan);
+                    for (int64_t i = 0; i < c.k; ++i)
+                        R[i + i * ldr] = diag[i];
+                    EXPECT_EQ(RandLAPACK::util::cholqr_failure_rank(c.k, diag.data(), (int64_t) 1, c.info, (T) tol), c.rank);
+                    EXPECT_EQ(RandLAPACK::util::cholqr_failure_rank(c.k, R.data(), ldr + 1, c.info, (T) tol), c.rank);
+                }
+            }
+        }
+    };
+    check(0.0, 1e-6);
+    check(0.0f, 1e-5f);
+}
+
+// A full-rank m-by-2 A on which potrf fails at column 2, exactly and on any BLAS (built by
+// cholesky_failure_k2_input from the count sketch, nnz = 1). With k = 2 the ratio scan, which
+// starts at i = 2, cannot cut the rank: CQRRPT must still drop the failed column.
+TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_k2_drops_failed_column) {
+    int64_t m = 32;
+    int64_t n = 2;
+    int64_t d = 4;
+    uint32_t seed = 3;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A = cqrrpt_test::cholesky_failure_k2_input(m, d, seed);
+    ASSERT_EQ((int64_t) A.size(), m * n) << "the sketch from this seed cannot carry the input";
+
+    std::vector<double> Q(A), R(n * n, 0.0);
+    std::vector<int64_t> J(n, 0);
+    RandBLAS::RNGState<r123::Philox4x32> state(seed);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    CQRRPT.nnz = 1;
+    CQRRPT.qrcp = Subroutines::QRCP::geqp3;
+    ASSERT_EQ(CQRRPT.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    ASSERT_EQ(J, (std::vector<int64_t>{1, 2})) << "the sketch's QRCP must not pivot";
+    EXPECT_EQ(CQRRPT.rank, 1);
+
+    // Q(:, 0:rank) orthonormal, and A[:, J] = Q R up to the dropped direction, of relative size 2e-9.
+    int64_t r = CQRRPT.rank;
+    bool finite = true;
+    for (int64_t j = 0; j < r; ++j)
+        for (int64_t i = 0; i < m; ++i)
+            finite = finite && std::isfinite(Q[i + j * m]);
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < r; ++i)
+            finite = finite && std::isfinite(R[i + j * n]);
+    ASSERT_TRUE(finite) << "rank " << r << ": Q or R contains NaN or Inf";
+    std::vector<double> G(r * r, 0.0);
+    RandLAPACK::util::eye(r, r, G.data());
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, r, m, 1.0, Q.data(), m, -1.0, G.data(), r);
+    double err_orth = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, r, G.data(), r);
+    EXPECT_LE(err_orth, 10 * std::numeric_limits<double>::epsilon()) << "rank " << r;
+    std::vector<double> AP(A);
+    RandLAPACK::util::col_swap(m, n, n, AP.data(), m, J.data());
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
+    double err_qr = lapack::lange(Norm::Fro, m, n, AP.data(), m) / lapack::lange(Norm::Fro, m, n, A.data(), m);
+    EXPECT_LE(err_qr, 1e-8) << "rank " << r;
+}
+
+// R's contents on entry must not matter: with R filled with NaN, CQRRPT must return exactly
+// the R it returns for a zeroed R, and that R is zero below the diagonal and past the rank.
+TEST_F(TestCQRRPT, CQRRPT_R_contents_on_entry_ignored) {
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    struct Input { const char* name; int64_t m, n; std::vector<double> A; uint32_t seed; };
+    std::vector<Input> inputs;
+    for (int64_t rank_A : {(int64_t) 50, (int64_t) 40}) {
+        int64_t m = 2000, n = 50;
+        std::vector<double> A(m * n, 0.0);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+        m_info.cond_num = 2;
+        m_info.rank = rank_A;
+        m_info.exponent = 2.0;
+        auto gen_state = RandBLAS::RNGState();
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), gen_state);
+        inputs.push_back({rank_A == n ? "full rank" : "rank 40", m, n, A, 0});
+    }
+    inputs.push_back({"failed potrf", 600, 60, cqrrpt_test::sketch_defeating_input(600, 60, 2, 2.0, 7, 1.0), 7});
+
+    for (auto& in : inputs) {
+        SCOPED_TRACE(in.name);
+        int64_t m = in.m, n = in.n;
+        std::vector<double> Q0(in.A), R0(n * n, 0.0), Q1(in.A), R1(n * n, std::numeric_limits<double>::quiet_NaN());
+        std::vector<int64_t> J0(n, 0), J1(n, 0);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        RandBLAS::RNGState<r123::Philox4x32> state0(in.seed), state1(in.seed);
+        ASSERT_EQ(CQRRPT.call(m, n, Q0.data(), m, R0.data(), n, J0.data(), 2.0, state0), 0);
+        int64_t rank = CQRRPT.rank;
+        ASSERT_EQ(CQRRPT.call(m, n, Q1.data(), m, R1.data(), n, J1.data(), 2.0, state1), 0);
+        ASSERT_EQ(CQRRPT.rank, rank);
+
+        int64_t mismatched = 0, nonzero = 0;
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < n; ++i) {
+                mismatched += !(R1[i + j * n] == R0[i + j * n]);
+                nonzero += (i > j || i >= rank) && R1[i + j * n] != 0.0;
+            }
+        EXPECT_EQ(mismatched, 0) << "entries of R that depend on its contents on entry";
+        EXPECT_EQ(nonzero, 0) << "nonzero entries below the diagonal or past rank " << rank;
+        EXPECT_EQ(Q1, Q0);
+    }
+}
+
+// On an all-zero input CQRRPT must report rank 0, whatever rank held before the call, and
+// return R as documented (zero) with A left zero.
+TEST_F(TestCQRRPT, CQRRPT_zero_input) {
+    int64_t m = 100;
+    int64_t n = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n, 0.0), R(n * n, std::numeric_limits<double>::quiet_NaN());
+    std::vector<int64_t> J(n, 0);
+
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    EXPECT_EQ(CQRRPT.rank, 0);
+    CQRRPT.nnz = 2;
+    CQRRPT.rank = -7;
+    auto state = RandBLAS::RNGState();
+    ASSERT_EQ(CQRRPT.call(m, n, A.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    EXPECT_EQ(CQRRPT.rank, 0);
+    EXPECT_EQ(R, std::vector<double>(n * n, 0.0));
+    EXPECT_EQ(A, std::vector<double>(m * n, 0.0));
 }

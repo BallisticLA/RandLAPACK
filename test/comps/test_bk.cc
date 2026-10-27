@@ -250,6 +250,13 @@ class TestBK : public ::testing::Test
             ASSERT_EQ(one.X_ev[i], two.X_ev[i]) << "X_ev differs at " << i;
         for (int64_t i = 0; i < n * one.end_cols; ++i)
             ASSERT_EQ(one.Y_od[i], two.Y_od[i]) << "Y_od differs at " << i;
+        const double* band_one = one.final_iter_is_odd ? one.R : one.S;
+        const double* band_two = two.final_iter_is_odd ? two.R : two.S;
+        const int64_t ldb = one.final_iter_is_odd ? n : (n + k);
+        for (int64_t j = 0; j < one.end_cols; ++j)
+            for (int64_t i = 0; i < one.end_rows; ++i)
+                ASSERT_EQ(band_one[i + j * ldb], band_two[i + j * ldb])
+                    << "band differs at (" << i << ", " << j << ")";
     }
 
 };
@@ -283,9 +290,9 @@ TEST_F(TestBK, BK_norm_convergence_at_iteration_budget_is_terminal) {
 
 // Does the band actually equal X' A Y, at the point where norm_converged now stops?
 //
-// Phase 0.2 restored norm_converged (rl_bk.hh:716 was measuring the wrong triangle) and
+// Phase 0.2 restored norm_converged (rl_bk.hh's lantr call measured the wrong triangle) and
 // fixed a latent miscount in that exit. With both fixed, five ABRIK tests stop one
-// iteration earlier -- at correctly detected full saturation -- and their residuals move
+// iteration earlier, at correctly detected full saturation, and their residuals move
 // from ~1e-13 to ~1e-8. Two explanations were open: the basis has lost orthogonality across
 // a wide block Krylov run (a numerical fact, in which case the old tolerances were only
 // achievable because the criterion was dead), or the R extraction path is itself wrong (a
@@ -331,7 +338,7 @@ TEST_F(TestBK, BK_band_equals_XtAY_abrik_basic_config) {
 
     // BK's output is exact here (band identity 7e-16, both bases orthonormal). If ABRIK's
     // residual is nonetheless ~1e-8, the loss is downstream. Reproduce ABRIK's own
-    // reconstruction (rl_abrik.hh:340-353) on this band and measure it directly, which
+    // reconstruction (U = X_ev U_hat, V = Y_od V_hat) on this band and measure it directly, which
     // localizes the error to either this arithmetic or something else in the driver.
     {
         const int64_t er = out.end_rows, ec = out.end_cols;
@@ -370,10 +377,10 @@ TEST_F(TestBK, BK_band_equals_XtAY_abrik_basic_config) {
 // Liveness. BK must terminate, and stay inside its buffers, with max_krylov_iters left at
 // its default.
 //
-// That default is INT_MAX (rl_bk.hh:67), and EVERY pre-existing test overrides it, so the
+// That default is INT_MAX (BK's constructor), and EVERY pre-existing test overrides it, so the
 // default path had no coverage at all. In that mode `iter >= max_iters` never fires, which
 // leaves exactly two exits. One of them, norm_converged, was broken until Phase 0.2. So
-// rank_deficient was carrying termination single-handedly -- and that is the exit the
+// rank_deficient was carrying termination single-handedly, and that is the exit the
 // rank-deficiency work exists to change. A relative threshold tau*||A|| is identically zero
 // for a zero matrix, so the natural fix would hang on one; these tests are what stops that
 // reaching main.
@@ -510,56 +517,11 @@ TEST_F(TestBK, BK_is_bitwise_deterministic_for_a_fixed_seed) {
 // call(p) must equal call(p1) followed by resume(p), bitwise, on the geqrf path.
 TEST_F(TestBK, BK_resume_equals_single_shot) {
     int64_t m = 120, n = 60, k = 10;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    const int p1 = 4, p = 8;
-
-    double* A = new double[m * n]();
-    {
-        auto gs = RandBLAS::RNGState();
-        RandLAPACK::gen::mat_gen_info<double> mi(m, n, RandLAPACK::gen::gaussian);
-        RandLAPACK::gen::mat_gen(mi, A, gs);
-    }
-    RandLAPACK::linops::DenseLinOp<double> A_op(m, n, A, m, Layout::ColMajor);
-
-    // Single shot to p.
-    BKOut<double> one;
-    {
-        auto state = RandBLAS::RNGState();
-        RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
-        bk.max_krylov_iters = p;
-        ASSERT_EQ(bk.call(A_op, k, one.X_ev, one.Y_od, one.R, one.S,
-                          one.end_rows, one.end_cols, one.final_iter_is_odd, state), 0);
-    }
-
-    // p1, then resume to p.
-    BKOut<double> two;
-    {
-        auto state = RandBLAS::RNGState();
-        RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
-        bk.max_krylov_iters = p1;
-        ASSERT_EQ(bk.call(A_op, k, two.X_ev, two.Y_od, two.R, two.S,
-                          two.end_rows, two.end_cols, two.final_iter_is_odd, state), 0);
-        ASSERT_EQ(bk.termination_reason, RandLAPACK::BKTermination::max_iters_reached)
-            << "resume is only defined after max_iters_reached; the premise of this test";
-        bk.max_krylov_iters = p;
-        ASSERT_EQ(bk.resume(A_op, k, two.X_ev, two.Y_od, two.R, two.S,
-                            two.end_rows, two.end_cols, two.final_iter_is_odd, state), 0);
-    }
-
-    printf("RESUME single(%d): rows=%ld cols=%ld | %d then resume(%d): rows=%ld cols=%ld\n",
-           p, (long)one.end_rows, (long)one.end_cols,
-           p1, p, (long)two.end_rows, (long)two.end_cols);
-    fflush(stdout);
-
-    ASSERT_EQ(one.end_rows, two.end_rows);
-    ASSERT_EQ(one.end_cols, two.end_cols);
-    ASSERT_EQ(one.final_iter_is_odd, two.final_iter_is_odd);
-    for (int64_t i = 0; i < m * one.end_rows; ++i)
-        ASSERT_EQ(one.X_ev[i], two.X_ev[i]) << "X_ev differs at " << i;
-    for (int64_t i = 0; i < n * one.end_cols; ++i)
-        ASSERT_EQ(one.Y_od[i], two.Y_od[i]) << "Y_od differs at " << i;
-
-    delete[] A;
+    std::vector<double> A(m * n);
+    auto gs = RandBLAS::RNGState();
+    RandLAPACK::gen::mat_gen_info<double> mi(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(mi, A.data(), gs);
+    check_resume_equals_single_shot(m, n, k, 4, 8, A.data(), false);
 }
 
 // The even/S path, for contrast: a budget that ends on an even iteration.
@@ -623,9 +585,44 @@ TEST_F(TestBK, BK_even_terminal_band_identity_cqrrt) {
     EXPECT_GE(bk.narrowed_blocks, (int64_t) 1) << "continuation must actually have fired";
     EXPECT_EQ(out.end_rows, (int64_t) 25);
     EXPECT_EQ(out.end_cols, (int64_t) 20);
+    double oX = orth_err<double>(out.X_ev, m, out.end_rows) * std::sqrt((double)out.end_rows);
+    double oY = orth_err<double>(out.Y_od, n, out.end_cols) * std::sqrt((double)out.end_cols);
+    printf("CQRRT-RANK25 ||X'X-I||_F=%.3e ||Y'Y-I||_F=%.3e\n", oX, oY);
+    fflush(stdout);
+    EXPECT_LT(oX, 1e-12) << "CQRRT bases sit near 1e-14 on MKL";
+    EXPECT_LT(oY, 1e-12);
 
     check_band_identity<double>(m, n, k, A, out, 1e-10);
     delete[] A;
+}
+
+/// Exact rank 11 at block size 10 under CQRRT: the left block of iteration 2 keeps one column,
+/// so the second projection refactors a single column with CQRRT. Its sketch then has
+/// d = floor(1.25 * 1) = 1 row, fewer than the default two nonzeros per column.
+TEST_F(TestBK, BK_cqrrt_refactors_a_single_kept_column) {
+    const int64_t m = 200, n = 200, k = 10, r = 11;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n, 0.0);
+    build_from_spectrum(m, n, decaying_spectrum(r), A.data());
+    auto state = RandBLAS::RNGState();
+
+    BKOut<double> out;
+    RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
+    bk.qr_exp = RandLAPACK::BKSubroutines::QR_explicit::cqrrt;
+    bk.max_krylov_iters = 40;
+    ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
+                      out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
+    double oX = orth_err<double>(out.X_ev, m, out.end_rows) * std::sqrt((double)out.end_rows);
+    double oY = orth_err<double>(out.Y_od, n, out.end_cols) * std::sqrt((double)out.end_cols);
+    printf("CQRRT-RANK11 iters=%d reason=%d end_rows=%ld end_cols=%ld ||X'X-I||_F=%.3e ||Y'Y-I||_F=%.3e\n",
+           bk.num_krylov_iters, (int)bk.termination_reason, (long)out.end_rows, (long)out.end_cols, oX, oY);
+    fflush(stdout);
+    EXPECT_GE(bk.narrowed_blocks, (int64_t) 1);
+    EXPECT_EQ(out.end_rows, (int64_t) 11);
+    EXPECT_EQ(out.end_cols, (int64_t) 11);
+    EXPECT_LT(oX, 1e-12) << "CQRRT bases sit near 1e-14 on MKL";
+    EXPECT_LT(oY, 1e-12);
+    check_band_identity<double>(m, n, k, A.data(), out, 1e-10);
 }
 
 TEST_F(TestBK, BK_diagnose_exact_rank_25) {
@@ -654,59 +651,67 @@ TEST_F(TestBK, BK_diagnose_exact_rank_25) {
 
 
 
-/// Rank 39 at block size 10 is the one rank in 20..40 that does not certify r of r under the
-/// DEFAULT tau, and this test records why: it is threshold sensitivity in tau, not the
-/// stranding mechanism that prune-and-narrow fixes.
-///
-/// With tau defaulting to n*eps (4.44e-14 at n = 200), the tenth column of the iteration-6
-/// block carries a reorthogonalisation residual just above tau*||A||, so the block is
-/// accepted at full width and the left basis reaches 40 columns for a rank-39 matrix. The
-/// run then exits through norm_converged on an ODD terminal with end_rows = 40 > end_cols =
-/// 39, and the single junk left column prevents any triplet from certifying.
-///
-/// Raising tau to 1e-12 makes it behave exactly like ranks 37, 38 and 40: the block narrows,
-/// the run continues, and it stops at iteration 8 with end_rows = end_cols = 39.
-///
-/// This is NOT a regression from continuation: rank 39 measured claimed 39 / certified 0
-/// before continuation as well. The default tau is deliberately left alone, because the
-/// ill-conditioned regime (kappa 1e10, 155 of 200 certified) depends on tau being small
-/// enough not to discard genuine trailing directions. That trade-off is exactly what the
-/// user-facing tau knob exists for.
-TEST_F(TestBK, BK_rank_39_is_a_tau_sensitivity_not_a_shortfall) {
+/// Kept columns that carry no new direction. Rank 39 at block size 10: at the default tau
+/// (n*eps) the tenth left column of iteration 6 is rounding noise whose factor entry lands just
+/// above tau*||A||_F, so the rank test may keep it, and at tau = 1e-30 the noise columns from
+/// iteration 6 on are kept on both sides (the budget of 9 stops the run well before the bases
+/// fill up). The QR divides such a column by a tiny diagonal entry, magnifying the first
+/// projection's leftover along the basis; the second projection after the QR must remove it,
+/// so both bases stay orthonormal and the band equals X' A Y. At tau = 1e-12 the column is
+/// rejected and the run ends at 39 by 39. The default tau stays at n*eps because larger values
+/// discard genuine trailing directions of ill-conditioned inputs (the kappa 1e10 regime).
+TEST_F(TestBK, BK_rank_39_kept_columns_without_new_direction_stay_orthogonal) {
     int64_t m = 200, n = 200, k = 10, r = 39;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
 
-    auto run = [&](double tau_val, int64_t &er, int64_t &ec, int &reason, int64_t &narrowed) {
+    auto run = [&](double tau_val, int budget, std::vector<double> &A, BKOut<double> &out,
+                   int64_t &narrowed) {
         auto state = RandBLAS::RNGState();
-        std::vector<double> s(r);
-        for (int i = 0; i < r; ++i) s[i] = std::pow(10.0, -3.0 * i / (r - 1));
+        std::vector<double> s = decaying_spectrum(r);
         std::vector<double> S(r * r, 0.0);
         RandLAPACK::util::diag(r, r, s.data(), r, S.data());
-        double* A = new double[m * n]();
-        RandLAPACK::gen::gen_singvec<double>(m, n, A, r, S.data(), state);
-        BKOut<double> out;
+        A.assign(m * n, 0.0);
+        RandLAPACK::gen::gen_singvec<double>(m, n, A.data(), r, S.data(), state);
         RandLAPACK::BK<double, r123::Philox4x32> bk(false, false, tol);
-        bk.max_krylov_iters = 40;
+        bk.max_krylov_iters = budget;
         bk.tau = tau_val;
-        ASSERT_EQ(bk.call(m, n, A, m, k, out.X_ev, out.Y_od, out.R, out.S,
+        ASSERT_EQ(bk.call(m, n, A.data(), m, k, out.X_ev, out.Y_od, out.R, out.S,
                           out.end_rows, out.end_cols, out.final_iter_is_odd, state), 0);
-        er = out.end_rows; ec = out.end_cols;
-        reason = (int) bk.termination_reason; narrowed = bk.narrowed_blocks;
-        delete[] A;
+        narrowed = bk.narrowed_blocks;
     };
 
-    int64_t er = 0, ec = 0, narrowed = 0; int reason = 0;
+    for (double tau_val : {0.0, 1e-30}) {
+        SCOPED_TRACE(tau_val == 0.0 ? "default tau" : "tau = 1e-30");
+        std::vector<double> A;
+        BKOut<double> out;
+        int64_t narrowed = 0;
+        run(tau_val, tau_val == 0.0 ? 40 : 9, A, out, narrowed);
+        if (HasFatalFailure()) return;
+        double oX = orth_err<double>(out.X_ev, m, out.end_rows) * std::sqrt((double)out.end_rows);
+        double oY = orth_err<double>(out.Y_od, n, out.end_cols) * std::sqrt((double)out.end_cols);
+        printf("RANK39 tau=%.0e end_rows=%ld end_cols=%ld ||X'X-I||_F=%.3e ||Y'Y-I||_F=%.3e\n",
+               tau_val, (long)out.end_rows, (long)out.end_cols, oX, oY);
+        fflush(stdout);
+        EXPECT_GE(out.end_rows, (int64_t) 39);
+        if (tau_val > 0)
+            EXPECT_GT(out.end_cols, (int64_t) 39) << "tau = 1e-30 must keep noise columns on the right too";
+        EXPECT_LT(oX, 1e-13) << "a kept column without new direction is not orthogonal to the basis";
+        EXPECT_LT(oY, 1e-13);
+        check_band_identity<double>(m, n, k, A.data(), out, 1e-10);
+        if (HasFatalFailure()) return;
+    }
 
-    // Default tau: over-accepts the left basis by one column.
-    run(0.0, er, ec, reason, narrowed);
-    EXPECT_EQ(er, (int64_t) 40) << "default tau accepts a junk 40th left column";
-    EXPECT_EQ(ec, (int64_t) 39);
-
-    // A slightly larger tau rejects it and the run completes symmetrically.
-    run(1e-12, er, ec, reason, narrowed);
-    EXPECT_EQ(er, (int64_t) 39);
-    EXPECT_EQ(ec, (int64_t) 39);
-    EXPECT_GE(narrowed, (int64_t) 1) << "continuation must have fired";
+    {
+        SCOPED_TRACE("tau = 1e-12");
+        std::vector<double> A;
+        BKOut<double> out;
+        int64_t narrowed = 0;
+        run(1e-12, 40, A, out, narrowed);
+        if (HasFatalFailure()) return;
+        EXPECT_EQ(out.end_rows, (int64_t) 39);
+        EXPECT_EQ(out.end_cols, (int64_t) 39);
+        EXPECT_GE(narrowed, (int64_t) 1) << "continuation must have fired";
+    }
 }
 
 /// Resume ACROSS a narrowing. This is the guard for the persisted resume state, and it is the

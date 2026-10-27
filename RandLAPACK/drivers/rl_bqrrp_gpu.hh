@@ -87,6 +87,10 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         ///     A[:, J] = QR,
         /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
         /// Stores implict Q factor and explicit R factor in A's space (output formatted exactly like GEQP3).
+        /// If k < min(m, n), the output past k is what GEQP3 returns when the trailing block is exactly
+        /// zero: tau(k:min(m, n)) = 0 and A(k:m, k:n) = 0. The reflectors past k are then the identity
+        /// and R(k:min(m, n), :) is zero, so ungqr over all min(m, n) reflectors returns Q(:, 1:k) in its
+        /// first k columns.
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
@@ -144,7 +148,9 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         // 15 entries - logs time for different portions of the algorithm
         std::vector<long> times;
 
-        // Naive rank estimation parameter;
+        // Relative tolerance of the rank decisions: a block is zero if no entry of its pivot column exceeds tol times
+        // the largest of A's first pivot column; else its rank is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|.
+        // The default is eps. For numerical rank, set tol above the rounding error in A, e.g. 1e-10 in double.
         T tol;
 
         // Core subroutines options, controlled by user
@@ -163,6 +169,18 @@ int BQRRP_GPU<T, RNG>::call(
     T* tau,
     int64_t* J
 ){
+    // An empty A has nothing to factor. Return before allocating anything or creating the
+    // cuSOLVER handle, with the identity pivots that GEQP3 returns for an empty matrix. With no
+    // LU pivots to apply, LUQRCP_piv_process_gpu writes J = 1, ..., n.
+    if (std::min(m, n) == 0) {
+        this -> rank = 0;
+        if (n > 0) {
+            RandLAPACK::cuda_kernels::LUQRCP_piv_process_gpu(cudaStreamPerThread, (int64_t) 0, n, J, (int64_t*) nullptr);
+            cudaStreamSynchronize(cudaStreamPerThread);
+        }
+        return 0;
+    }
+
     steady_clock::time_point preallocation_t_start;
     steady_clock::time_point preallocation_t_stop;
     steady_clock::time_point qrcp_wide_t_start;
@@ -226,6 +244,9 @@ int BQRRP_GPU<T, RNG>::call(
     int64_t sampling_dimension = d;
     // An indicator for whether all entries in a given block are zero.
     bool block_zero = true;
+    // Largest |entry| of A's first pivot column, taken at iteration 0. The zero-block threshold
+    // is tol * col_ref, so that the decision does not depend on the scale of A.
+    T col_ref = 0;
     // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration,
     // since the rest of the matrix must be zero.
     // Is equal to block size by default, needs to be updated if the block size has changed.
@@ -318,8 +339,9 @@ int BQRRP_GPU<T, RNG>::call(
     // As you will see below, we use a special strategy to avoid performing explicit copies of 
     // A_sk and J.
     // This strategy would still require using buffers of size of the original data.
+    // A_copy_col_swap trades places with A, so it shares A's leading dimension lda.
     T* A_copy_col_swap;
-    cudaMallocAsync(&A_copy_col_swap, sizeof(T) * m * n, strm);
+    cudaMallocAsync(&A_copy_col_swap, sizeof(T) * lda * n, strm);
 
     T* A_sk_copy_col_swap;
     cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
@@ -344,10 +366,9 @@ int BQRRP_GPU<T, RNG>::call(
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
         block_rank = b_sz;
 
-        // Zero-out data - may not be necessary
-        cudaMemsetAsync(J_buffer_lu, (T) 0.0, std::min(d, n), strm);
-        cudaMemsetAsync(J_buffer,    (T) 0.0, n, strm);
-        cudaMemsetAsync(Work2,       (T) 0.0, n, strm);
+        // J_buffer_lu, J_buffer and Work2 need no clearing: getrf writes the pivots that
+        // LUQRCP_piv_process_gpu reads, that kernel writes J_buffer(0:cols) before anything reads it,
+        // and Work2 is read only as the sign vector D, after orhr_col_gpu writes it.
 
 
         if(this -> timing) {
@@ -415,7 +436,6 @@ int BQRRP_GPU<T, RNG>::call(
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         // Pivoting the trailing R and the ``current'' A.      
-        // The copy of A operation is done on a separete stream. If it was not, it would have been done here.  
         
         if(this -> timing) {
             nvtxRangePop();
@@ -448,8 +468,11 @@ int BQRRP_GPU<T, RNG>::call(
         
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
-        block_zero = true;
-        RandLAPACK::cuda_kernels::all_of(strm, rows, std::numeric_limits<T>::epsilon(), A_work, block_zero);
+        if (iter == 0)
+            RandLAPACK::cuda_kernels::max_abs(strm, rows, A_work, col_ref);
+        // A NaN entry counts as nonzero, and an Inf in the first pivot column (col_ref Inf) judges
+        // no block zero, so the Inf and NaN reach the output.
+        block_zero = RandLAPACK::cuda_kernels::block_is_zero(strm, rows, this -> tol, col_ref, A_work);
         if(block_zero){
             // Need to update the pivot vector, same as below.
             if(iter == 0) {
@@ -506,6 +529,11 @@ int BQRRP_GPU<T, RNG>::call(
                     }
                 }
             }
+            // Past the rank, the reflectors become the identity and the trailing block of A zero.
+            if (this -> rank < std::min(m, n)) {
+                cudaMemsetAsync(&tau[this -> rank], 0, (std::min(m, n) - this -> rank) * sizeof(T), strm);
+                cudaMemset2DAsync(&A[lda * this -> rank + this -> rank], lda * sizeof(T), 0, (m - this -> rank) * sizeof(T), n - this -> rank, strm);
+            }
             lapack_queue.sync();
 
             cudaFree(A_sk_trans);
@@ -520,6 +548,7 @@ int BQRRP_GPU<T, RNG>::call(
             // Freeing workspace info variables
             blas::device_free(d_info, lapack_queue);
             cudaFree(d_info_cusolver);
+            cusolverDnDestroy(cusolverH);
             blas::device_free(d_work_getrf, lapack_queue);
             blas::device_free(d_work_geqrf, lapack_queue);
 
@@ -695,6 +724,8 @@ int BQRRP_GPU<T, RNG>::call(
             // For a skeptical reviewer, note: this is NOT related to a synch barrier.
             //if(iter == 0) {
                 lapack::geqrf_work_size_bytes(rows, b_sz, A_work, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
+                // Free the previous iteration's workspace before allocating this one's.
+                blas::device_free(d_work_geqrf_opt, lapack_queue);
                 d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
                 // Below shoudl not be necessary
                 //std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
@@ -826,6 +857,11 @@ int BQRRP_GPU<T, RNG>::call(
                     }
                 }
             }
+            // Past the rank, the reflectors become the identity and the trailing block of A zero.
+            if (this -> rank < std::min(m, n)) {
+                cudaMemsetAsync(&tau[this -> rank], 0, (std::min(m, n) - this -> rank) * sizeof(T), strm);
+                cudaMemset2DAsync(&A[lda * this -> rank + this -> rank], lda * sizeof(T), 0, (m - this -> rank) * sizeof(T), n - this -> rank, strm);
+            }
             lapack_queue.sync();
 
             if(this -> timing) {
@@ -882,6 +918,7 @@ int BQRRP_GPU<T, RNG>::call(
             // Freeing workspace info variables
             blas::device_free(d_info, lapack_queue);
             cudaFree(d_info_cusolver);
+            cusolverDnDestroy(cusolverH);
             blas::device_free(d_work_getrf, lapack_queue);
             blas::device_free(d_work_geqrf, lapack_queue);
 

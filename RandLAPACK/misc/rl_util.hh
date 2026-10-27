@@ -6,6 +6,7 @@
 #include <RandBLAS.hh>
 #include <iostream>
 #include <cmath>
+#include <limits>
 #include <algorithm>
 #include <vector>
 #include <cstdint>
@@ -139,6 +140,31 @@ bool diag_is_nonzero(int64_t n, const T* R, int64_t ldr) {
     for (int64_t i = 0; i < n; ++i)
         if (R[i + i * ldr] == (T)0.0) return false;
     return true;
+}
+
+/// CQRRPT's and CQRRPT_GPU's rank after potrf returned info (failed column, 1-based; 0 is success, rank k) on a
+/// k-by-k factor with diagonal R_diag[0], R_diag[inc], ...: i - 1 at the first i >= 2 where i = info - 1 or
+/// max/min of |R_diag| over entries 0 to i exceeds sqrt(tol / u), and at most info - 1.
+template <typename T>
+int64_t cholqr_failure_rank(int64_t k, const T* R_diag, int64_t inc, int64_t info, T tol) {
+    if (info <= 0)
+        return k;
+    // Q loses orthogonality like u * cond(R)^2. Entries at and past the failed column cannot change the result.
+    T cond_threshold = std::sqrt(tol / std::numeric_limits<T>::epsilon());
+    T running_max = R_diag[0];
+    T running_min = R_diag[0];
+    int64_t rank = k;
+    for (int64_t i = 0; i < k; ++i) {
+        T curr_entry = std::abs(R_diag[i * inc]);
+        running_max = std::max(running_max, curr_entry);
+        running_min = std::min(running_min, curr_entry);
+        if ((i >= info - 1 || running_min * cond_threshold < running_max) && i > 1) {
+            rank = i - 1;
+            break;
+        }
+    }
+    // The scan cannot cut before i = 2, so for info <= 2 only this cap drops the failed column.
+    return std::min<int64_t>(rank, info - 1);
 }
 
 /// Positions columns of A in accordance with the 1-based permutation idx
