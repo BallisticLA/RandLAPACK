@@ -50,7 +50,9 @@ Other setups may work, but are untested; report results on
 - **GPU.** No CI job builds or runs the GPU code
   ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). The GPU row
   is a fresh clone of `main` installed with `install.sh`; all 498 tests
-  passed, 22 of them on the GPU. Two GPU issues are open:
+  passed, 22 of them on the GPU. That run predates
+  [#232](https://github.com/BallisticLA/RandLAPACK/pull/232), which fixed
+  the two GPU issues open then:
   [#213](https://github.com/BallisticLA/RandLAPACK/issues/213) (an abort in
   shuffled or repeated test runs) and
   [#214](https://github.com/BallisticLA/RandLAPACK/issues/214)
