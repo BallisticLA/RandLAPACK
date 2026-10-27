@@ -152,6 +152,34 @@ TEST_F(TestMemoryTracker, RestartAfterStop) {
     EXPECT_THROW(tracker.stop(), RandLAPACK::Error);
 }
 
+// The Blendenpik model counts the sparse sketch (values and two int64_t index arrays of
+// min(nnz, d, m) * max(d, m) entries), adds the x0 and LSQR buffers only when asked, and clamps
+// d to n.
+TEST_F(TestMemoryTracker, BlendenpikModelCountsSketchAndOptionalBuffers) {
+    const int64_t m = 1000, n = 100, d = 200;
+    auto kb = [](int64_t elems, int64_t sketch) {
+        return (long)(((int64_t)sizeof(double) * (elems + sketch) + 2 * 8 * sketch) / 1024);
+    };
+    const int64_t base   = d * n + n + n * n;
+    const int64_t sketch = 4 * m;                 // nnz 4, max(d, m) = m
+    const int64_t x0     = d + n + m;
+    const int64_t lsqr   = m + 4 * n;
+    using RandLAPACK::blendenpik_linops_analytical_kb;
+    EXPECT_EQ(blendenpik_linops_analytical_kb<double>(m, n, 2.0, 4, false, false), kb(base, sketch));
+    EXPECT_EQ(blendenpik_linops_analytical_kb<double>(m, n, 2.0, 4, true,  false), kb(base + x0, sketch));
+    EXPECT_EQ(blendenpik_linops_analytical_kb<double>(m, n, 2.0, 4, false, true),  kb(base + lsqr, sketch));
+    EXPECT_EQ(blendenpik_linops_analytical_kb<double>(m, n, 2.0, 4, true,  true),  kb(base + x0 + lsqr, sketch));
+    // nnz is capped at min(d, m), as the driver caps it.
+    EXPECT_EQ(blendenpik_linops_analytical_kb<double>(m, n, 2.0, 5000, false, false), kb(base, d * m));
+    // d_factor < 1 still sketches to n rows, as the driver does.
+    EXPECT_EQ(blendenpik_linops_analytical_kb<double>(m, n, 0.5, 4, false, false),
+              kb(2 * n * n + n, 4 * m));
+    // Byte counts past 2^31 do not wrap (long is 32-bit on MSVC).
+    const int64_t M = 1 << 20, N = 1 << 14;
+    EXPECT_EQ(blendenpik_linops_analytical_kb<double>(M, N, 2.0, 4, false, false),
+              kb(2 * N * N + N + N * N, 4 * M));
+}
+
 #ifndef __linux__
 
 TEST_F(TestMemoryTracker, NonLinuxReturnsNegative) {
@@ -171,7 +199,7 @@ TEST(TestAnalyticalModels, cqrrto_linops_phases_and_routes) {
     // Gram phase dominates (m = 65536, d = 256 = 2n): A_temp and trsm_identity's panel of P^{-1}.
     const long m = 65536, buf = t * 2 * nn;
     long gram = t * (m * b) + t * n * b;
-    ASSERT_GT(gram, t * n);
+    ASSERT_GT(gram, t * n + 24 * 2 * m);
     EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 2.0, b), (buf + gram) / 1024);
     // d < 2n (d_factor = 1.25) still holds 2n x n, for P and G.
     EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 1.25, b), (buf + gram) / 1024);
@@ -191,9 +219,28 @@ TEST(TestAnalyticalModels, cqrrto_linops_phases_and_routes) {
     EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 2.0, b, false, M::trtri),
               (buf + t * (m * b + nn) + t * n) / 1024);
 
-    // d > 2n (m = n, d = 512, b = 8): the d x n buffer, then the Gram's A_temp and panel.
-    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(n, n, 4.0, 8),
-              (t * 512 * n + t * (n * 8) + t * n * 8) / 1024);
+    // Sketch phase dominates (m = n, d = 512, b = 8): the d x n buffer + tau + the sparse
+    // sketch's values and two int64_t index arrays, min(nnz, d, m) * max(d, m) = 4 * 512 entries
+    // each (the default nnz).
+    long sketch = t * n + (t + 16) * 4 * 512;
+    ASSERT_GT(sketch, t * (n * 8) + t * n * 8);
+    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(n, n, 4.0, 8), (t * 512 * n + sketch) / 1024);
+}
+
+// Where the sparse sketch outweighs the rest (the scaling study's smallest problem, 1000 x 10,
+// d = 20, nnz = 4): its 4 * 1000 entries of value, row and column dominate the sketch phase.
+TEST(TestAnalyticalModels, cqrrto_linops_counts_the_sparse_sketch) {
+    using M = RandLAPACK::CholQRPrecondMethod;
+    const int64_t t = 8, m = 1000, n = 10, d = 20, b = 10;
+    const int64_t buf    = t * d * n;
+    const int64_t sketch = t * n + (t + 16) * 4 * m;
+    const int64_t gram   = t * (m * b) + t * n * b;
+    ASSERT_GT(sketch, gram);
+    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 2.0, b, false, M::trsm_identity, 4),
+              (long)((buf + sketch) / 1024));
+    // nnz is capped at min(d, m), as the driver caps it.
+    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 2.0, b, false, M::trsm_identity, 500),
+              (long)((buf + t * n + (t + 16) * d * m) / 1024));
 }
 
 // The CholQR-family models (double, m = 4096, n = 128, b = 64): pass 1 holds G, A_temp and the

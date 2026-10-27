@@ -157,32 +157,37 @@ private:
 // Analytical peak working memory functions.
 // These compute the peak memory from known buffer sizes in each algorithm,
 // excluding test-mode Q-factor allocation (which is only for verification).
-// All return memory in KB.
+// All return memory in KB. They count the driver's own buffers: an operator's per-apply
+// temporaries (including those of its sketch overload) are not included. m is the row count
+// of the operator the driver runs on ([A; mu I] has m + n rows).
 // ---------------------------------------------------------------------------
 
 // CQRRTO_linops: one max(d, 2n) x n buffer, holding S A and then P and G, plus the larger of
-// its two phases' other buffers: the sketch's tau (n), or the Gram's A_temp (m*b), R_pre (n*n)
-// unless trsm_identity applies the left factor by TRSM, Z_buf (n*b) when gram_left_by_gemm,
-// and the largest of that default route's panel of P^{-1} (n*b) in the Gram loop, the retry
-// copy of diag(G) (n) and, for geqp3 and bqrrp, the pivoted QR of P held while P is inverted
-// (n*n + n, and n int64_t pivots). Not counted: BQRRP's own workspace.
+// its two phases' other buffers: the sketch's tau (n) and the sparse sketch itself (values and
+// int64_t row and column indices, vec_nnz * max(d, m) of each, vec_nnz = min(nnz, d, m) as the
+// driver caps it), or the Gram's A_temp (m*b), R_pre (n*n) unless trsm_identity applies the
+// left factor by TRSM, Z_buf (n*b) when gram_left_by_gemm, and the largest of that default
+// route's panel of P^{-1} (n*b) in the Gram loop, the retry copy of diag(G) (n) and, for geqp3
+// and bqrrp, the pivoted QR of P held while P is inverted (n*n + n, and n int64_t pivots).
+// Not counted: BQRRP's own workspace.
 template <typename T>
 static inline long cqrrto_linops_analytical_kb(int64_t m, int64_t n, double d_factor,
                                                int64_t block_size = kDefaultGramBlockSize,
                                                bool gram_left_gemm = false,
-                                               CholQRPrecondMethod precond_method = CholQRPrecondMethod::trsm_identity) {
-    const long t = static_cast<long>(sizeof(T));
+                                               CholQRPrecondMethod precond_method = CholQRPrecondMethod::trsm_identity,
+                                               int64_t nnz = 4) {
+    const int64_t t = sizeof(T);
     int64_t d = cqrrt_sketch_rows(static_cast<T>(d_factor), n);
     int64_t b = gram_block_width(block_size, n);
     bool pivoted   = precond_method == CholQRPrecondMethod::geqp3 || precond_method == CholQRPrecondMethod::bqrrp;
     bool left_gemm = gram_left_by_gemm(precond_method, gram_left_gemm);
-    bool panel     = precond_method == CholQRPrecondMethod::trsm_identity && !left_gemm;
-    long buf    = t * (long)std::max(d, 2 * n) * n;
-    long sketch = t * n;
-    long gram   = t * ((long)m * b + (panel ? 0L : (long)n * n) + (left_gemm ? (long)n * b : 0L))
-                + std::max(t * (panel ? (long)n * b : (long)n),
-                           pivoted ? t * ((long)n * n + n) + (long)sizeof(int64_t) * n : 0L);
-    return (buf + std::max(sketch, gram)) / 1024;
+    bool panel     = !forms_explicit_inverse(precond_method, gram_left_gemm);
+    int64_t buf    = t * std::max(d, 2 * n) * n;
+    int64_t sketch = t * n + (t + 2 * (int64_t)sizeof(int64_t)) * std::min({nnz, d, m}) * std::max(d, m);
+    int64_t gram   = t * (m * b + (panel ? 0 : n * n) + (left_gemm ? n * b : 0))
+                   + std::max<int64_t>(t * (panel ? n * b : n),
+                                       pivoted ? t * (n * n + n) + (int64_t)sizeof(int64_t) * n : 0);
+    return static_cast<long>((buf + std::max(sketch, gram)) / 1024);
 }
 
 // CholQR_linops: G(n*n) + A_temp(m*b), with the Gram's identity block I_block(n*b) during the
@@ -193,8 +198,8 @@ static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n,
                                                int64_t block_size = kDefaultGramBlockSize,
                                                bool materializes_cols = false) {
     int64_t b = gram_block_width(block_size, n);
-    long elems = (long)n * n + (long)m * b + (materializes_cols ? (long)n : std::max<long>((long)n * b, n));
-    return static_cast<long>(sizeof(T)) * elems / 1024;
+    int64_t elems = n * n + m * b + (materializes_cols ? n : std::max<int64_t>(n * b, n));
+    return static_cast<long>((int64_t)sizeof(T) * elems / 1024);
 }
 
 // CholQR2_linops: pass 1 as CholQR_linops. Pass 2 reads pass 1's R as its preconditioner and
@@ -206,11 +211,9 @@ static inline long cholqr2_linops_analytical_kb(int64_t m, int64_t n,
                                                 int64_t block_size = kDefaultGramBlockSize,
                                                 bool gram_left_gemm = false) {
     int64_t b = gram_block_width(block_size, n);
-    long common = (long)n * n + (long)m * b;
-    long pass1  = common + std::max<long>((long)n * b, n);
-    bool explicit_inverse = gram_left_by_gemm(CholQRPrecondMethod::trsm_identity, gram_left_gemm);
-    long pass2  = explicit_inverse ? common + (long)n * n + (long)n * b + n : pass1;
-    return static_cast<long>(sizeof(T)) * std::max(pass1, pass2) / 1024;
+    bool explicit_inverse = forms_explicit_inverse(CholQRPrecondMethod::trsm_identity, gram_left_gemm);
+    int64_t elems = n * n + m * b + (explicit_inverse ? n * n + n * b + n : std::max<int64_t>(n * b, n));
+    return static_cast<long>((int64_t)sizeof(T) * elems / 1024);
 }
 
 // sCholQR3_linops: passes 2 and 3 reuse CholQR2_linops's buffers.
@@ -226,18 +229,29 @@ static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n,
 // No blocking: always O(m*n + n^2) peak.
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
-    long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 3L * n * n);
-    return bytes / 1024;
+    return static_cast<long>((int64_t)sizeof(T) * (m * n + 3 * n * n) / 1024);
 }
 
-// Dense CQRRT (materialize + rl_cqrrt):
-// Peak = A_materialized(m*n) + A_hat(d*n) + tau(n)
-// (I_mat freed before rl_cqrrt allocates A_hat, so they don't overlap)
+// Dense CQRRT on the materialized operator: A(m*n) + A_hat(d*n) + tau(n).
 template <typename T>
 static inline long dense_cqrrt_analytical_kb(int64_t m, int64_t n, double d_factor) {
     int64_t d = cqrrt_sketch_rows(static_cast<T>(d_factor), n);
-    long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + (long)d * n + n);
-    return bytes / 1024;
+    return static_cast<long>((int64_t)sizeof(T) * (m * n + d * n + n) / 1024);
+}
+
+// Blendenpik_linops: Ask(d*n) + tau(n) + R(n*n) and the sparse sketch (values and int64_t row
+// and column indices, vec_nnz * max(d, m) of each, vec_nnz = min(nnz, d, m) as the driver caps
+// it), all live until call() returns, plus Sb(d) + x0(n) + r0(m) when the sketch-and-solve x0
+// is built (warm_start or init_only) and LSQR's m + 4*n when LSQR runs.
+template <typename T>
+static inline long blendenpik_linops_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t nnz,
+                                                   bool with_x0, bool with_lsqr) {
+    int64_t d = cqrrt_sketch_rows(static_cast<T>(d_factor), n);
+    int64_t sketch_nnz = std::min({nnz, d, m}) * std::max(d, m);
+    int64_t elems = d * n + n + n * n + sketch_nnz;
+    if (with_x0)   elems += d + n + m;
+    if (with_lsqr) elems += m + 4 * n;
+    return static_cast<long>(((int64_t)sizeof(T) * elems + 2 * (int64_t)sizeof(int64_t) * sketch_nnz) / 1024);
 }
 
 } // namespace RandLAPACK
