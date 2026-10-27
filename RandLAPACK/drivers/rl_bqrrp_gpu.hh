@@ -573,6 +573,11 @@ int BQRRP_GPU<T, RNG>::call(
                     blas::device_free(d_work_geqrf_opt, lapack_queue);
                 }
             }
+            // End the open NVTX ranges, piv_A (with timing on) and this iteration's, so that the caller's
+            // ranges stay balanced.
+            if(this -> timing)
+                nvtxRangePop();
+            nvtxRangePop();
             return 0;
         }
         
@@ -611,7 +616,6 @@ int BQRRP_GPU<T, RNG>::call(
                 nvtxRangePop();
                 updating_J_t_stop  = steady_clock::now();
                 updating_J_t_dur  += duration_cast<microseconds>(updating_J_t_stop - updating_J_t_start).count();
-                nvtxRangePushA("update_R");
             }
         } else {
             if(this -> timing) {
@@ -945,6 +949,8 @@ int BQRRP_GPU<T, RNG>::call(
             if(this -> qr_tall != GPUSubroutine::QRTall::cholqr){
                 blas::device_free(d_work_geqrf_opt, lapack_queue);
             }
+            // End this iteration's NVTX range, so that the caller's ranges stay balanced.
+            nvtxRangePop();
             return 0;
         }
         if(this -> timing) {

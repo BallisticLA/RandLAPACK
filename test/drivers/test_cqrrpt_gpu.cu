@@ -264,8 +264,8 @@ class TestCQRRPT : public ::testing::Test
     /// below A's, after a failed potrf or from a sketch that misses most of A: there A[:, J] = QR is checked on the
     /// columns kept. On the failed-potrf input, rank 3 shows that the failure path ran.
     template <typename T>
-    static void run_properties(RandLAPACK::CQRRPT_GPU_Subroutines::QRCP qrcp, const std::vector<PropertyInput>& inputs,
-                               const std::vector<std::vector<T>>& As) {
+    static void run_properties(RandLAPACK::CQRRPT_GPU_Subroutines::QRCP qrcp, int64_t bqrrp_block_size,
+                               const std::vector<PropertyInput>& inputs, const std::vector<std::vector<T>>& As) {
         T tol = std::pow(std::numeric_limits<T>::epsilon(), (T) 0.85);
         T atol = std::pow(std::numeric_limits<T>::epsilon(), (T) 0.75);
         for (size_t c = 0; c < inputs.size(); ++c) {
@@ -286,6 +286,7 @@ class TestCQRRPT : public ::testing::Test
                 RandLAPACK::CQRRPT_GPU<T, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
                 CQRRPT_GPU.nnz = in.nnz;
                 CQRRPT_GPU.qrcp = qrcp;
+                CQRRPT_GPU.bqrrp_block_size = bqrrp_block_size;
                 int64_t r = check_properties<T>(CQRRPT_GPU, m, n, As[c], pad, pinned, in.seed, atol, in.cut);
                 if (in.rank >= 0)
                     EXPECT_EQ(r, in.rank);
@@ -318,7 +319,7 @@ class TestCQRRPT : public ::testing::Test
     }
 
     /// Runs run_properties for one QRCP of the sketch on its double and float inputs.
-    static void qrcp_properties(RandLAPACK::CQRRPT_GPU_Subroutines::QRCP qrcp) {
+    static void qrcp_properties(RandLAPACK::CQRRPT_GPU_Subroutines::QRCP qrcp, int64_t bqrrp_block_size = 0) {
         using RandLAPACK::gen::polynomial;
         using RandLAPACK::gen::exponential;
         std::vector<PropertyInput> in_d = {
@@ -339,7 +340,7 @@ class TestCQRRPT : public ::testing::Test
             sketch_defeating_input(600, 60, 2, 2.0, 7, 1.0),
             cqrrpt_test::cholesky_failure_input(64, 8, 16, 1, 4, 6),
             std::vector<double>(500 * 40, 0.0)};
-        run_properties<double>(qrcp, in_d, A_d);
+        run_properties<double>(qrcp, bqrrp_block_size, in_d, A_d);
         // In float, the rounding residue past rank 60 can exceed the rank threshold 2 u^0.95, so that input is
         // checked for its properties only.
         std::vector<PropertyInput> in_s = {
@@ -354,7 +355,7 @@ class TestCQRRPT : public ::testing::Test
             generated<float>(2000, 100, polynomial, 2.0f, 1, 6),
             scaled_gaussian<float>(3000, 120, 4),
             std::vector<float>(500 * 40, 0.0f)};
-        run_properties<float>(qrcp, in_s, A_s);
+        run_properties<float>(qrcp, bqrrp_block_size, in_s, A_s);
     }
 };
 
@@ -512,7 +513,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_repeated_calls_stable) {
 // cholesky_failure_input with p = 3 and q = 7, potrf fails at column 8, the last, exactly and on any BLAS, and with
 // tol = 1e-6 the ratio test cuts at the large diagonal entry of column 4: rank 2, which shows that the failure
 // path ran. J must be 1..n, R zero below the diagonal and past the rank, Q(:, 0:2) orthonormal, R(0:2, :) =
-// Q(:, 0:2)' A[:, J], and A[:, J(0:2)] = Q(:, 0:2) R(0:2, 0:2), to 10 u.
+// Q(:, 0:2)' A[:, J], and A[:, J(0:2)] = Q(:, 0:2) R(0:2, 0:2), to 10 u; with both QRCPs of the sketch.
 TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_handled) {
     int64_t m = 128, n = 8, d = 16;
     uint32_t seed = 2;
@@ -521,29 +522,33 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_handled) {
     std::vector<double> A = cqrrpt_test::cholesky_failure_input(m, n, d, seed, 3, 7);
     ASSERT_EQ((int64_t) A.size(), m * n) << "the sketch from this seed cannot carry the input";
 
-    std::vector<double> Q(A), R(n * n, std::numeric_limits<double>::quiet_NaN());
-    std::vector<int64_t> J(n, 0), identity(n);
-    std::iota(identity.begin(), identity.end(), (int64_t) 1);
-    RandBLAS::RNGState<r123::Philox4x32> state(seed);
-    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
-    CQRRPT_GPU.nnz = 1;
-    ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
-    int64_t r = CQRRPT_GPU.rank;
-    ASSERT_EQ(r, 2) << "potrf no longer fails on this input, or the rank is cut elsewhere";
-    ASSERT_EQ(J, identity) << "the sketch's QRCP must keep the columns in order";
-    int64_t nonzero = 0;
-    for (int64_t j = 0; j < n; ++j)
-        for (int64_t i = 0; i < n; ++i)
-            nonzero += (i > j || i >= r) && R[i + j * n] != 0.0;
-    EXPECT_EQ(nonzero, 0) << "nonzero entries of R below the diagonal or past rank " << r;
-    auto c = factor_checks(m, n, r, A, Q, R, n, J);
-    ASSERT_TRUE(c.finite) << "rank " << r << ": Q or R contains NaN or Inf";
-    EXPECT_LE(c.err_orth, 10 * u);
-    EXPECT_LE(c.err_proj, 10 * u);
-    std::vector<double> AP(A);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, r, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
-    EXPECT_LE(lapack::lange(Norm::Fro, m, r, AP.data(), m), 10 * u * lapack::lange(Norm::Fro, m, r, A.data(), m))
-        << "||A[:, J(0:2)] - Q R(0:2, 0:2)||";
+    for (auto qrcp : {RandLAPACK::CQRRPT_GPU_Subroutines::QRCP::luqr, RandLAPACK::CQRRPT_GPU_Subroutines::QRCP::bqrrp}) {
+        SCOPED_TRACE(qrcp == RandLAPACK::CQRRPT_GPU_Subroutines::QRCP::luqr ? "luqr" : "bqrrp");
+        std::vector<double> Q(A), R(n * n, std::numeric_limits<double>::quiet_NaN());
+        std::vector<int64_t> J(n, 0), identity(n);
+        std::iota(identity.begin(), identity.end(), (int64_t) 1);
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 1;
+        CQRRPT_GPU.qrcp = qrcp;
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        int64_t r = CQRRPT_GPU.rank;
+        ASSERT_EQ(r, 2) << "potrf no longer fails on this input, or the rank is cut elsewhere";
+        ASSERT_EQ(J, identity) << "the sketch's QRCP must keep the columns in order";
+        int64_t nonzero = 0;
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < n; ++i)
+                nonzero += (i > j || i >= r) && R[i + j * n] != 0.0;
+        EXPECT_EQ(nonzero, 0) << "nonzero entries of R below the diagonal or past rank " << r;
+        auto c = factor_checks(m, n, r, A, Q, R, n, J);
+        ASSERT_TRUE(c.finite) << "rank " << r << ": Q or R contains NaN or Inf";
+        EXPECT_LE(c.err_orth, 10 * u);
+        EXPECT_LE(c.err_proj, 10 * u);
+        std::vector<double> AP(A);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, r, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
+        EXPECT_LE(lapack::lange(Norm::Fro, m, r, AP.data(), m), 10 * u * lapack::lange(Norm::Fro, m, r, A.data(), m))
+            << "||A[:, J(0:2)] - Q R(0:2, 0:2)||";
+    }
 }
 
 // When potrf succeeds, CQRRPT keeps the full rank. CQRRPT_GPU must not cut the rank from the
@@ -1060,7 +1065,9 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_very_tall) {
 // so a gather of the first 524,280 rows only would leave that column of the pivoted sketch zero, and the rank short.
 // Column 1 is nonzero only in rows that the sketch adds into its first d - 524,280 rows alone, which a second block
 // gathered to the start of the pivoted sketch, rather than past 524,280, would overwrite. On a zero A with
-// d = m = 600,000, it must return rank 0, J = 1..n and R = 0.
+// d = m = 600,000, it must return rank 0, J = 1..n and R = 0. BQRRP_GPU gathers the sketch in one launch: with
+// bqrrp, d = 524,280 must factor A within the same bounds, and d = 560,000 must be rejected (RandLAPACK::Error)
+// with A and R unchanged.
 TEST_F(TestCQRRPT, CQRRPT_GPU_sketch_taller_than_one_gather) {
     int64_t m = 600000, n = 8, tail = 524280;
     double d_factor = 70000;
@@ -1126,6 +1133,27 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_sketch_taller_than_one_gather) {
     EXPECT_EQ(CQRRPT_GPU.rank, 0);
     EXPECT_EQ(J_zero, identity);
     EXPECT_EQ(R_zero, std::vector<double>(n * n, 0.0));
+
+    CQRRPT_GPU.qrcp = RandLAPACK::CQRRPT_GPU_Subroutines::QRCP::bqrrp;
+    std::vector<double> Q_b(A), R_b(n * n, 0.0);
+    std::vector<int64_t> J_b(n, 0);
+    RandBLAS::RNGState<r123::Philox4x32> state_b(seed);
+    ASSERT_EQ(CQRRPT_GPU.call(m, n, Q_b.data(), m, R_b.data(), n, J_b.data(), (double) tail / n, state_b), 0);
+    int64_t r_b = CQRRPT_GPU.rank;
+    EXPECT_EQ(r_b, n);
+    auto c_b = factor_checks(m, n, r_b, A, Q_b, R_b, n, J_b);
+    ASSERT_TRUE(c_b.finite) << "bqrrp, rank " << r_b << ": Q or R contains NaN or Inf";
+    EXPECT_LE(c_b.err_orth, atol) << "bqrrp";
+    std::vector<double> AP_b(A);
+    RandLAPACK::util::col_swap(m, n, n, AP_b.data(), m, J_b.data());
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r_b, -1.0, Q_b.data(), m, R_b.data(), n, 1.0, AP_b.data(), m);
+    EXPECT_LE(lapack::lange(Norm::Fro, m, n, AP_b.data(), m) / lapack::lange(Norm::Fro, m, n, A.data(), m), atol) << "bqrrp";
+
+    std::vector<double> Q_t(A), R_t(n * n, -777.0);
+    RandBLAS::RNGState<r123::Philox4x32> state_t(seed);
+    EXPECT_THROW(CQRRPT_GPU.call(m, n, Q_t.data(), m, R_t.data(), n, J_b.data(), d_factor, state_t), RandLAPACK::Error);
+    EXPECT_EQ(Q_t, A) << "A changed before the throw";
+    EXPECT_EQ(R_t, std::vector<double>(n * n, -777.0)) << "R changed before the throw";
 }
 
 // On inputs of known rank, CQRRPT_GPU must find CQRRPT's rank, which is the input's, with
@@ -1303,9 +1331,9 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_luqr_properties) {
 
 // Inputs that stall LU with partial pivoting on the sparse sketch: the rows of A that the sketch sums into one of
 // its rows are all zero, so that row of the sketch is zero, and some columns of A are zero or exact multiples of
-// others. Such an LU keeps the next column in place, zero or dependent as it may be. In double and float,
-// CQRRPT_GPU must find CQRRPT's rank, A's, with finite factors and ||A[:, J] - QR|| / ||A|| and ||Q'Q - I|| /
-// sqrt(rank) within u^0.75.
+// others. Such an LU keeps the next column in place, zero or dependent as it may be. In double and float, and
+// with both QRCPs of the sketch, CQRRPT_GPU must find CQRRPT's rank, A's, with finite factors and
+// ||A[:, J] - QR|| / ||A|| and ||Q'Q - I|| / sqrt(rank) within u^0.75.
 // - The sketch of seed 11 sums into its row 0 rows that are zero in A, and A's column 0 is zero.
 // - A has 60 nonzero rows of 2000, so that about a third of the sketch's rows are zero, and three zero columns,
 //   or three columns that are exact multiples of others; over the sketches of seeds 1 to 10.
@@ -1359,14 +1387,15 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_lu_stall_inputs) {
         {"60 nonzero rows, 3 zero columns", &A_zero_cols, n - 3, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}},
         {"60 nonzero rows, 3 dependent columns", &A_dep_cols, n - 3, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}}};
 
-    auto run = [&](auto zero) {
+    auto run = [&](auto zero, RandLAPACK::CQRRPT_GPU_Subroutines::QRCP qrcp) {
         using T = decltype(zero);
         T tol = std::pow(std::numeric_limits<T>::epsilon(), (T) 0.85);
         T atol = std::pow(std::numeric_limits<T>::epsilon(), (T) 0.75);
         for (auto& in : inputs) {
             std::vector<T> A(in.A->begin(), in.A->end());
             for (uint32_t seed : in.seeds) {
-                SCOPED_TRACE(::testing::Message() << in.name << ", seed " << seed << (sizeof(T) == 8 ? ", double" : ", float"));
+                SCOPED_TRACE(::testing::Message() << in.name << ", seed " << seed << (sizeof(T) == 8 ? ", double" : ", float")
+                             << (qrcp == RandLAPACK::CQRRPT_GPU_Subroutines::QRCP::luqr ? ", luqr" : ", bqrrp"));
                 std::vector<T> Q_cpu(A), R_cpu(n * n, (T) 0);
                 std::vector<int64_t> J_cpu(n, 0);
                 RandBLAS::RNGState<r123::Philox4x32> state_cpu(seed);
@@ -1380,6 +1409,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_lu_stall_inputs) {
                 RandBLAS::RNGState<r123::Philox4x32> state(seed);
                 RandLAPACK::CQRRPT_GPU<T, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
                 CQRRPT_GPU.nnz = nnz;
+                CQRRPT_GPU.qrcp = qrcp;
                 ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), (T) 2.0, state), 0);
                 int64_t r = CQRRPT_GPU.rank;
                 EXPECT_EQ(r, CQRRPT.rank);
@@ -1403,6 +1433,17 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_lu_stall_inputs) {
             }
         }
     };
-    run(0.0);
-    run(0.0f);
+    for (auto qrcp : {RandLAPACK::CQRRPT_GPU_Subroutines::QRCP::luqr, RandLAPACK::CQRRPT_GPU_Subroutines::QRCP::bqrrp}) {
+        run(0.0, qrcp);
+        run(0.0f, qrcp);
+    }
+}
+
+// BQRRP_GPU on the sketch, with the default block size (one block of n columns here) and with blocks of 32
+// columns, which take BQRRP_GPU through several iterations.
+TEST_F(TestCQRRPT, CQRRPT_GPU_bqrrp_properties) {
+    for (int64_t b_sz : {(int64_t) 0, (int64_t) 32}) {
+        SCOPED_TRACE(::testing::Message() << "bqrrp_block_size " << b_sz);
+        qrcp_properties(RandLAPACK::CQRRPT_GPU_Subroutines::QRCP::bqrrp, b_sz);
+    }
 }
