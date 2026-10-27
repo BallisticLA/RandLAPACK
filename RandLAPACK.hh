@@ -43,9 +43,8 @@
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"
-#include "RandLAPACK/drivers/rl_cqrrt.hh"
+#include "RandLAPACK/drivers/rl_cqrrt.hh"      // dense CQRRT and the operator-based CQRRTO_linops
 #include "RandLAPACK/drivers/rl_cholqr_linops.hh"
-#include "RandLAPACK/drivers/rl_cqrrt_linops.hh"
 #include "RandLAPACK/drivers/rl_scholqr3_linops.hh"
 #include "RandLAPACK/drivers/rl_blendenpik.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"

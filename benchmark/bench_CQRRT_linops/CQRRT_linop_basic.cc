@@ -1,4 +1,4 @@
-// CQRRT_linops scaling study - measures performance and accuracy as matrix size varies
+// CQRRTO_linops scaling study - measures performance and accuracy as matrix size varies
 // Tests both CQRRT (preconditioned) and CholQR (unpreconditioned) on tall sparse matrices
 // Supports two modes:
 //   1. Fixed aspect ratio: n = m / aspect_ratio (both dimensions scale together)
@@ -24,7 +24,7 @@
 #include "RandLAPACK/testing/rl_test_utils.hh"
 
 // Linops algorithms (now in main RandLAPACK)
-#include "rl_cqrrt_linops.hh"
+#include "rl_cqrrt.hh"
 #include "rl_cholqr_linops.hh"
 #include "rl_scholqr3_linops.hh"
 #include "RandLAPACK/testing/rl_memory_tracker.hh"
@@ -114,14 +114,13 @@ static std::vector<scaling_result<T>> run_algorithms(
     // Run CQRRT (preconditioned Cholesky QR) - multiple runs
     // ============================================================
     // Peak RSS measured separately with test_mode=false to exclude Q-factor allocation.
-    // With column-blocking, test_mode reallocates A_pre from m*b_eff to m*n for Q.
     {
         // RSS measurement (test_mode=false)
         long cqrrt_peak_rss_kb = 0;
         {
             std::vector<T> R_rss(n * n, 0.0);
             auto state_rss = run_states[0];
-            RandLAPACK::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
+            RandLAPACK::CQRRTO_linops<T, RNG> CQRRT_rss(false, tol, false);
             CQRRT_rss.nnz = sketch_nnz;
             CQRRT_rss.block_size = block_size;
             RandLAPACK::PeakRSSTracker cqrrt_mem;
@@ -134,7 +133,7 @@ static std::vector<scaling_result<T>> run_algorithms(
             std::vector<T> R_cqrrt(n * n, 0.0);
             auto state_copy = run_states[run];  // Per-run RNG state
 
-            RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, false);  // timing=true, test_mode=false
+            RandLAPACK::CQRRTO_linops<T, RNG> CQRRT_QR(true, tol, false);  // timing=true, test_mode=false
             CQRRT_QR.nnz = sketch_nnz;
             CQRRT_QR.block_size = block_size;
             CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
@@ -155,7 +154,6 @@ static std::vector<scaling_result<T>> run_algorithms(
     // Run CholQR (unpreconditioned Cholesky QR) - multiple runs
     // ============================================================
     // Peak RSS measured separately with test_mode=false to exclude Q-factor allocation.
-    // With column-blocking, test_mode reallocates A_temp from m*b_eff to m*n for Q.
     {
         // RSS measurement (test_mode=false)
         long cholqr_peak_rss_kb = 0;
@@ -276,7 +274,7 @@ static std::vector<scaling_result<T>> run_algorithms(
     } // if (!skip_dense)
 
     // Compute analytical peak working memory for each algorithm (same for all runs)
-    long cqrrt_akb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
+    long cqrrt_akb = RandLAPACK::cqrrto_linops_analytical_kb<T>(m, n, d_factor, block_size);
     long cholqr_akb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
     long scholqr3_akb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
     long dense_cqrrt_akb = RandLAPACK::dense_cqrrt_analytical_kb<T>(m, n, d_factor);
@@ -628,12 +626,12 @@ static void write_csv_headers(
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
-    breakdown << "# CQRRT_linop: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
+    breakdown << "# CQRRT_linop: alloc, saso, qr, trtri, linop_precond, linop_gram, left, potrf, finalize, rest, total\n";
     breakdown << "# CholQR: alloc, materialize, gram, potrf, rest, total\n";
     breakdown << "# sCholQR3: alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
     breakdown << "# CQRRT_expl: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
     breakdown << "m,n,run,"
-              << "cqrrt_alloc,cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
+              << "cqrrt_alloc,cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_left,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
               << "cholqr_alloc,cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
               << "scholqr3_alloc,scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
               << "dense_materialize,dense_saso,dense_qr,dense_trtri,dense_precond,dense_gram,dense_trmm_gram,dense_potrf,dense_finalize,dense_rest,dense_total,"

@@ -160,3 +160,61 @@ TEST_F(TestMemoryTracker, NonLinuxReturnsNegative) {
 }
 
 #endif
+
+// The CQRRT analytical models in plain byte arithmetic (double, so 8 bytes per entry; every
+// total is a whole number of KB). n = 128, b = 64, so n^2 = 16384, and d = d_factor * n. The
+// max(d, 2n) x n buffer (S A, then P and G) is held throughout.
+TEST(TestAnalyticalModels, cqrrto_linops_phases_and_routes) {
+    using M = RandLAPACK::CholQRPrecondMethod;
+    const long t = 8, n = 128, nn = n * n, b = 64;
+
+    // Gram phase dominates (m = 65536, d = 256 = 2n): A_temp and trsm_identity's panel of P^{-1}.
+    const long m = 65536, buf = t * 2 * nn;
+    long gram = t * (m * b) + t * n * b;
+    ASSERT_GT(gram, t * n);
+    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 2.0, b), (buf + gram) / 1024);
+    // d < 2n (d_factor = 1.25) still holds 2n x n, for P and G.
+    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 1.25, b), (buf + gram) / 1024);
+
+    // gram_left_gemm forms R_pre (n^2) and Z_buf (n x b), with the diag(G) copy in place of
+    // the panel.
+    long gram_z = t * (m * b + nn + n * b) + t * n;
+    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 2.0, b, true), (buf + gram_z) / 1024);
+
+    // geqp3 and bqrrp always hold R_pre and Z_buf, and while P is inverted its pivoted QR
+    // (n^2 + n entries and n int64_t pivots) instead of the diag(G) copy.
+    long gram_piv = gram_z - t * n + t * (nn + n) + 8 * n;
+    for (M method : {M::geqp3, M::bqrrp})
+        for (bool left_gemm : {false, true})
+            EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 2.0, b, left_gemm, method),
+                      (buf + gram_piv) / 1024) << (int)method << " " << left_gemm;
+    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(m, n, 2.0, b, false, M::trtri),
+              (buf + t * (m * b + nn) + t * n) / 1024);
+
+    // d > 2n (m = n, d = 512, b = 8): the d x n buffer, then the Gram's A_temp and panel.
+    EXPECT_EQ(RandLAPACK::cqrrto_linops_analytical_kb<double>(n, n, 4.0, 8),
+              (t * 512 * n + t * (n * 8) + t * n * 8) / 1024);
+}
+
+// The CholQR-family models (double, m = 4096, n = 128, b = 64): pass 1 holds G, A_temp and the
+// identity block; later passes need no more by default (the previous R is the preconditioner
+// and its inverse is solved panel by panel), and with gram_left_gemm add R_pre (n^2), Z_buf
+// (n x b) and the diag(G) copy.
+TEST(TestAnalyticalModels, cholqr_family) {
+    const int64_t t = 8, m = 4096, n = 128, b = 64;
+    const long pass1 = (long)(t * (n * n + m * b + n * b) / 1024);
+    EXPECT_EQ(RandLAPACK::cholqr_linops_analytical_kb<double>(m, n, b), pass1);
+    // An operator with materialize_cols needs no identity block: the diag(G) copy is the third term.
+    EXPECT_EQ(RandLAPACK::cholqr_linops_analytical_kb<double>(m, n, b, true), (long)(t * (n * n + m * b + n) / 1024));
+    EXPECT_EQ(RandLAPACK::cholqr2_linops_analytical_kb<double>(m, n, b), pass1);
+    EXPECT_EQ(RandLAPACK::scholqr3_linops_analytical_kb<double>(m, n, b), pass1);
+    const long pass2_gemm = (long)(t * (2 * n * n + m * b + n * b + n) / 1024);
+    EXPECT_EQ(RandLAPACK::cholqr2_linops_analytical_kb<double>(m, n, b, true), pass2_gemm);
+    EXPECT_EQ(RandLAPACK::scholqr3_linops_analytical_kb<double>(m, n, b, true), pass2_gemm);
+}
+
+TEST(TestAnalyticalModels, dense_cqrrt) {
+    // The materialized A (m x n) + A_hat (d x n) + tau (n), m = 65536, n = 128, d = 256.
+    const long t = 8, m = 65536, n = 128;
+    EXPECT_EQ(RandLAPACK::dense_cqrrt_analytical_kb<double>(m, n, 2.0), t * (m * n + 256 * n + n) / 1024);
+}

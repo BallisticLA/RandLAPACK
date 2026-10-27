@@ -4,7 +4,7 @@
 //   1. Load K.mtx (m x m SPD) and V.mtx (m x n sparse)
 //   2. Cholesky factorize K = LL^T, create L^{-1} operator (half_solve=true)
 //   3. Create composite operator: CompositeOperator(L_inv_op, V_op) = L^{-1}V
-//   4. Run Q-less QR on L^{-1}V via CQRRT_linops, CholQR_linops, sCholQR3_linops
+//   4. Run Q-less QR on L^{-1}V via CQRRTO_linops, CholQR_linops, sCholQR3_linops
 //   5. Application (a): Generalized LS — solve min_x ||Vx - b||_{K^{-1}}
 //   6. Application (b): Generalized singular values — SVD of R
 //   7. Application (c): Generalized singular vectors — full SVD of R
@@ -38,7 +38,7 @@
 #include "RandLAPACK/testing/rl_test_utils.hh"
 
 // Linops algorithms (now in main RandLAPACK)
-#include "rl_cqrrt_linops.hh"
+#include "rl_cqrrt.hh"
 #include "rl_cholqr_linops.hh"
 #include "rl_scholqr3_linops.hh"
 #include "RandLAPACK/testing/rl_memory_tracker.hh"
@@ -284,9 +284,9 @@ static void write_breakdown_csv(
     out << "# GSVD Benchmark runtime breakdown\n";
     write_common_header_comments<T>(out, m, n, num_runs, K_file, V_file, d_factor, sketch_nnz, block_size, skip_apps, compute_cond);
     out << "# Times are in microseconds\n";
-    out << "# CQRRT_linop breakdown (11): alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total\n";
+    out << "# CQRRT_linop breakdown (11): alloc, sketch, qr, tri_inv, fwd, adj, left, chol, finalize, rest, total\n";
     out << "# CholQR breakdown (6): alloc, fwd, adj, chol, rest, total\n";
-    out << "# sCholQR3 breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total\n";
+    out << "# sCholQR3 breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, left2, chol2, upd2, fwd3, adj3, left3, chol3, upd3, q_mat, rest, total\n";
     out << "# sCholQR3_basic breakdown (15): alloc, fwd1, adj1, chol1, trsm1, fwd_q, syrk2, chol2, upd2, syrk3, chol3, upd3, q_mat, rest, total\n";
 
     // Column header: m, n, run, algorithm, then all breakdown times
@@ -451,7 +451,7 @@ int run_benchmark(int argc, char* argv[]) {
     {
         auto warmup_state = run_states[0];
         std::vector<T> R_warmup(n * n, 0.0);
-        RandLAPACK::CQRRT_linops<T, RNG> warmup_algo(false, tol, false);
+        RandLAPACK::CQRRTO_linops<T, RNG> warmup_algo(false, tol, false);
         warmup_algo.nnz = sketch_nnz;
         warmup_algo.block_size = block_size;
         warmup_algo.call(LiV_op, R_warmup.data(), n, d_factor, warmup_state);
@@ -508,15 +508,15 @@ int run_benchmark(int argc, char* argv[]) {
     // ================================================================
     run_algo("CQRRT_linop", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
         auto state = run_states[r];
-        RandLAPACK::CQRRT_linops<T, RNG> algo(true, tol, false);
+        RandLAPACK::CQRRTO_linops<T, RNG> algo(true, tol, false);
         algo.nnz = sketch_nnz; algo.block_size = block_size;
         RandLAPACK::PeakRSSTracker mem; mem.start();
         algo.call(LiV_op, R.data(), n, d_factor, state);
         res.peak_rss_kb = mem.stop();
         res.qr_time_us = algo.times[10];
-        // breakdown: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
+        // breakdown: alloc, sketch, qr, tri_inv, fwd, adj, left, chol, finalize, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
-        res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
+        res.analytical_kb = RandLAPACK::cqrrto_linops_analytical_kb<T>(m, n, d_factor, block_size);
     });
 
     // ================================================================
@@ -544,7 +544,7 @@ int run_benchmark(int argc, char* argv[]) {
         algo.call(LiV_op, R.data(), n);
         res.peak_rss_kb = mem.stop();
         res.qr_time_us = algo.times[17];
-        // breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total
+        // breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, left2, chol2, upd2, fwd3, adj3, left3, chol3, upd3, q_mat, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 18);
         res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
     });

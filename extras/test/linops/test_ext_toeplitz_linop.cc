@@ -409,15 +409,21 @@ void compare_column_paths(OpHat& A_hat, OpProd& A_prod, double tol) {
     vector<double> R(n * n, 0.0), R_prod(n * n, 0.0);
     QR qr(false, 0.0, /*test_mode=*/true), qr_prod(false, 0.0, /*test_mode=*/true);
     if constexpr (requires { qr.block_size; }) qr.block_size = qr_prod.block_size = 8;
-    ASSERT_EQ(qr.call(A_hat, R.data(), n), 0);
-    ASSERT_EQ(qr_prod.call(A_prod, R_prod.data(), n), 0);
+    if constexpr (requires { qr.nnz; }) {   // CQRRTO_linops: the same sketch for both
+        RNGState<> state(29), state_prod(29);
+        ASSERT_EQ(qr.call(A_hat, R.data(), n, 2.0, state), 0);
+        ASSERT_EQ(qr_prod.call(A_prod, R_prod.data(), n, 2.0, state_prod), 0);
+    } else {
+        ASSERT_EQ(qr.call(A_hat, R.data(), n), 0);
+        ASSERT_EQ(qr_prod.call(A_prod, R_prod.data(), n), 0);
+    }
     EXPECT_LE(rel_fro_error(R.data(), R_prod.data(), n * n), tol);
     EXPECT_LE(rel_fro_error(qr.Q, qr_prod.Q, m * n), tol);
 }
 } // namespace
 
 // Where a driver applied [T; mu I] to identity columns (the first Gram, sCholQR3_basic's first
-// product, the test-mode Q, materialize), it now reads exact columns. Those differ from the FFT
+// product, CQRRTO's sketch, the test-mode Q, materialize), it now reads exact columns. Those differ from the FFT
 // products by the FFT's rounding (under the 1e-13 relative every apply above meets), and with
 // mu = 5 here cond([T; mu I]) is small, so R and Q agree with the FFT path to 1e-12.
 TEST_F(TestToeplitzLinOp, cholqr_family_reads_columns_directly) {
@@ -434,6 +440,7 @@ TEST_F(TestToeplitzLinOp, cholqr_family_reads_columns_directly) {
     compare_column_paths<RandLAPACK::CholQR2_linops<double>>(A_hat, A_prod, tol);
     compare_column_paths<RandLAPACK::sCholQR3_linops<double>>(A_hat, A_prod, tol);
     compare_column_paths<RandLAPACK::sCholQR3_linops_basic<double>>(A_hat, A_prod, tol);
+    compare_column_paths<RandLAPACK::CQRRTO_linops<double>>(A_hat, A_prod, tol);
 
     vector<double> buf(mr * n);
     RandLAPACK::materialize(A_hat, mr, n, buf.data(), mr);

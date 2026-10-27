@@ -175,10 +175,10 @@ TEST_F(TestVStackLinOp, augmented_gram_is_regularized) {
     check_regularized_gram(R, A, m, n, mu, 1e-10);
 }
 
-// CQRRT_linops handed A_hat = [A; mu*I] directly: it sketches A_hat through VStackLinOp's
+// CQRRTO_linops handed A_hat = [A; mu*I] directly: it sketches A_hat through VStackLinOp's
 // blocked sketch overload and forms its Gram, so R^T R = A^T A + mu^2 I.
 // (block_size < n exercises the blocking.)
-TEST_F(TestVStackLinOp, cqrrt_linops_augmented_gram) {
+TEST_F(TestVStackLinOp, cqrrto_linops_augmented_gram) {
     int64_t m = 90, n = 20;
     double mu = 1e-2;
     vector<double> A(m * n);
@@ -191,8 +191,8 @@ TEST_F(TestVStackLinOp, cqrrt_linops_augmented_gram) {
     A_hat.block_size = 8;
 
     vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> qr(/*timing=*/false,
-                                        std::pow(std::numeric_limits<double>::epsilon(), 0.85));
+    RandLAPACK::CQRRTO_linops<double> qr(/*timing=*/false,
+                                         std::pow(std::numeric_limits<double>::epsilon(), 0.85));
     qr.nnz = 4;
     int status = qr.call(A_hat, R.data(), n, /*d_factor=*/2.0, state);
     ASSERT_EQ(status, 0);

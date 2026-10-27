@@ -14,7 +14,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
-#include <cmath>
 #include <cstdint>
 #if defined(__GLIBC__)
 #include <malloc.h>   // malloc_trim
@@ -161,13 +160,29 @@ private:
 // All return memory in KB.
 // ---------------------------------------------------------------------------
 
-// CQRRT_linops: A_hat(d*n) + tau(n) + R_sk_inv(n*n) + A_pre(m*b_eff)
+// CQRRTO_linops: one max(d, 2n) x n buffer, holding S A and then P and G, plus the larger of
+// its two phases' other buffers: the sketch's tau (n), or the Gram's A_temp (m*b), R_pre (n*n)
+// unless trsm_identity applies the left factor by TRSM, Z_buf (n*b) when gram_left_by_gemm,
+// and the largest of that default route's panel of P^{-1} (n*b) in the Gram loop, the retry
+// copy of diag(G) (n) and, for geqp3 and bqrrp, the pivoted QR of P held while P is inverted
+// (n*n + n, and n int64_t pivots). Not counted: BQRRP's own workspace.
 template <typename T>
-static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
-    int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
-    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (d * n + n + (long)n * n + (long)m * b_eff);
-    return bytes / 1024;
+static inline long cqrrto_linops_analytical_kb(int64_t m, int64_t n, double d_factor,
+                                               int64_t block_size = kDefaultGramBlockSize,
+                                               bool gram_left_gemm = false,
+                                               CholQRPrecondMethod precond_method = CholQRPrecondMethod::trsm_identity) {
+    const long t = static_cast<long>(sizeof(T));
+    int64_t d = cqrrt_sketch_rows(static_cast<T>(d_factor), n);
+    int64_t b = gram_block_width(block_size, n);
+    bool pivoted   = precond_method == CholQRPrecondMethod::geqp3 || precond_method == CholQRPrecondMethod::bqrrp;
+    bool left_gemm = gram_left_by_gemm(precond_method, gram_left_gemm);
+    bool panel     = precond_method == CholQRPrecondMethod::trsm_identity && !left_gemm;
+    long buf    = t * (long)std::max(d, 2 * n) * n;
+    long sketch = t * n;
+    long gram   = t * ((long)m * b + (panel ? 0L : (long)n * n) + (left_gemm ? (long)n * b : 0L))
+                + std::max(t * (panel ? (long)n * b : (long)n),
+                           pivoted ? t * ((long)n * n + n) + (long)sizeof(int64_t) * n : 0L);
+    return (buf + std::max(sketch, gram)) / 1024;
 }
 
 // CholQR_linops: G(n*n) + A_temp(m*b), with the Gram's identity block I_block(n*b) during the
@@ -220,7 +235,7 @@ static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
 // (I_mat freed before rl_cqrrt allocates A_hat, so they don't overlap)
 template <typename T>
 static inline long dense_cqrrt_analytical_kb(int64_t m, int64_t n, double d_factor) {
-    int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
+    int64_t d = cqrrt_sketch_rows(static_cast<T>(d_factor), n);
     long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + (long)d * n + n);
     return bytes / 1024;
 }
