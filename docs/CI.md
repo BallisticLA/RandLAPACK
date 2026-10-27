@@ -24,7 +24,8 @@ installer one.
 | dependency-pins | `pins` | ubuntu-latest | `installers/dependency-pins.env`: each commit exists at its URL, a non-empty tag points at its commit, and the pins match the RandBLAS submodule's | no |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
 | install-script | `install-linux-openblas64` | ubuntu-latest | `install.sh --blas=openblas` with Debian/Ubuntu's `libopenblas64` as the only OpenBLAS: BLAS++ must come out ILP64 and link `libopenblas64`, then the test suite | no |
-| install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, an explicit `--blas-int=ilp64` re-run, explicit `--blas=openblas` install | **yes** |
+| install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, an explicit `--blas-int=ilp64` re-run | **yes** |
+| install-script | `install-macos-openblas` | macos-latest | `install.sh --blas=openblas` with Homebrew's OpenBLAS, which is LP64 only, so the installer must fall back to LP64; then the test suite | no |
 | install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, then the test suite | no |
 | install-script | `install-windows` | windows-2022 | `installers/install.ps1`: fresh install, idempotent re-run | no |
 
@@ -34,10 +35,12 @@ installer one.
   `install-macos` fails, and it must be up to date with `main`.
 - Required-check names match **job** names, not "workflow / job" display
   names.
-- The Windows jobs, the `pins` job, the two `build-asan` jobs and the two
-  newest installer lanes (`install-linux-openblas64`, `install-macos-lp64`)
-  are deliberately not required yet. They become candidates once they have a
-  green track record.
+- The Windows jobs, the `pins` job, the two `build-asan` jobs and the
+  newest installer lanes (`install-linux-openblas64`, `install-macos-lp64`,
+  `install-macos-openblas`) are deliberately not required yet. They become
+  candidates once they have a green track record. `install-macos-openblas`
+  was split out of the required `install-macos`, so it is the first
+  candidate.
 
 ## Reproducing CI locally
 

@@ -220,19 +220,37 @@ jobs:
           bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu --blas-int=ilp64 | tee ilp64.out
           grep -qE '^  Backend  *accelerate, ILP64' ilp64.out
 
-      # Homebrew OpenBLAS remains a supported route; keep it exercised.
-      - name: install with --blas=openblas into a second project
-        run: |
-          set -euo pipefail
-          brew install openblas
-          bash RandLAPACK/install.sh --yes --no-gpu --blas=openblas \
-              --project-dir "$GITHUB_WORKSPACE/RandNLA-project-openblas" | tee openblas.out
-          grep -qE '^  Backend  *openblas, ' openblas.out
-          ctest --test-dir RandNLA-project-openblas/build/RandLAPACK-build \
-                --output-on-failure
-
       # The installer sends each step's full output to install.log and prints
       # only progress lines, so on failure the log holds the actual error.
+      - name: show install.log on failure
+        if: failure()
+        run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
+
+  # Homebrew OpenBLAS remains a supported route; keep it exercised. A job of
+  # its own runs beside install-macos instead of doubling that job's time.
+  install-macos-openblas:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+
+      - name: configure OS
+        run: brew install googletest libomp openblas
+
+      # Homebrew's OpenBLAS is LP64 only, so the installer falls back to LP64
+      # with a warning.
+      - name: run the installer with --blas=openblas
+        run: |
+          set -euo pipefail
+          bash RandLAPACK/install.sh --yes --no-gpu --blas=openblas | tee installer.out
+          grep -qE '^  Backend  *openblas, LP64' installer.out
+
+      - name: test the installed library
+        run: |
+          ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --output-on-failure
+
       - name: show install.log on failure
         if: failure()
         run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
