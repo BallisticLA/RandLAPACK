@@ -45,8 +45,11 @@ organized):
 - `CholQR_linops`, `CholQR2_linops`, `sCholQR3_linops` and
   `sCholQR3_linops_basic` are deterministic Cholesky QR baselines for linear
   operators, for comparison with `CQRRTO_linops`.
-- `Blendenpik_linops` is built on `lsqr` (LSQR with an optional triangular
-  right preconditioner), which you can also call directly.
+- `IterRefineLSQ` solves tall least-squares problems by restarted conjugate
+  gradients on the normal equations, preconditioned with the triangular factor
+  of a Q-less QR such as `CQRRTO_linops`. It and Blendenpik are built on two
+  routines you can also call directly: `lsqr` (LSQR with an optional
+  triangular right preconditioner) and `restarted_pcg_ne`.
 - The drivers are assembled from smaller randomized building blocks that you
   can also use on their own: rangefinders, QB, block Krylov, row sketching,
   orthogonalization and stabilization routines, and randomly pivoted Cholesky

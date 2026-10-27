@@ -15,6 +15,7 @@ if (GTest_FOUND)
         comps/test_syrf.cc
         comps/test_rpchol.cc
         comps/test_bk.cc
+        comps/test_restarted_pcg_ne.cc
         drivers/test_krill.cc
         drivers/test_rsvd.cc
         drivers/test_rsvd_linop.cc
@@ -27,6 +28,7 @@ if (GTest_FOUND)
         drivers/test_abrik_projector.cc
         drivers/test_orth_linop.cc
         drivers/test_lsqr_blendenpik.cc
+        drivers/test_iter_refine_lsq.cc
         misc/test_config.cc
         misc/test_util.cc
         misc/test_pdkernels.cc
