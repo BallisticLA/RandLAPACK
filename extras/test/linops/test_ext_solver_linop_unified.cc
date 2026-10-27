@@ -23,6 +23,8 @@
 #include "../ext_scratch_dir.hh"
 #include <RandLAPACK/testing/rl_test_utils.hh>
 #include <RandBLAS/testing/comparison.hh>
+#include <algorithm>
+#include <cmath>
 
 using std::vector;
 using blas::Layout;
@@ -688,4 +690,175 @@ TEST_F(TestExtSolverLinOpUnified, lu_halfsv_right_rowmajor_n) {
 }
 TEST_F(TestExtSolverLinOpUnified, lu_halfsv_right_rowmajor_t) {
     test_lu_half_solve<double>(Side::Right, Layout::RowMajor, Op::Trans, 10, 8, 8);
+}
+
+
+// ============================================================================
+// CholSolverLinOp: in-memory (RandBLAS CSR) constructor
+// ----------------------------------------------------------------------------
+// The cases above build CholSolverLinOp from a Matrix Market file. These build it
+// from a CSR tridiagonal matrix and check results by re-applying A as a sparse product.
+// ============================================================================
+
+template <typename T>
+using InMemCSR = RandBLAS::sparse_data::csr::CSRMatrix<T>;
+
+using RandLAPACK::testing::rel_fro_error;
+
+// AX := A * X for the n x n_rhs ColMajor block X.
+template <typename T>
+static vector<T> inmem_apply(InMemCSR<T>& A_csr, const T* X, int64_t n, int64_t n_rhs) {
+    vector<T> AX(n * n_rhs);
+    RandLAPACK::linops::SparseLinOp<InMemCSR<T>> A_op(n, n, A_csr);
+    A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+         n, n_rhs, n, (T)1, X, n, (T)0, AX.data(), n);
+    return AX;
+}
+
+// Solve A X = B through the operator and check A X against B.
+template <typename T>
+static void inmem_check_solve(InMemCSR<T>& A_csr, RandLAPACK_extras::linops::CholSolverLinOp<T>& A_inv,
+                              const vector<T>& B, int64_t n, int64_t n_rhs, T tol) {
+    vector<T> X(n * n_rhs);
+    A_inv(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+          n, n_rhs, n, (T)1, B.data(), n, (T)0, X.data(), n);
+    vector<T> AX = inmem_apply(A_csr, X.data(), n, n_rhs);
+    for (int64_t j = 0; j < n_rhs; ++j)
+        ASSERT_LE(rel_fro_error(AX.data() + j * n, B.data() + j * n, n), tol);
+}
+
+TEST(TestCholSolverInMemory, spd_tridiag_single_rhs_releases_the_copy) {
+    const int64_t n = 8;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A);
+    EXPECT_GT(A_inv.A_mem.nonZeros(), 0);
+    A_inv.factorize();
+    EXPECT_EQ(A_inv.A_mem.data().allocatedSize(), 0) << "the in-memory copy must be freed after factorize()";
+    vector<double> b(n);
+    for (int64_t i = 0; i < n; ++i) b[i] = (double)(i + 1);
+    inmem_check_solve<double>(A, A_inv, b, n, 1, 1e-12);
+}
+
+TEST(TestCholSolverInMemory, spd_tridiag_multi_rhs_lazy_factorize) {
+    const int64_t n = 10, n_rhs = 3;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A);  // factorizes on first apply
+    vector<double> B(n * n_rhs);
+    for (int64_t i = 0; i < n * n_rhs; ++i) B[i] = std::cos((double)i * 0.5);
+    inmem_check_solve<double>(A, A_inv, B, n, n_rhs, 1e-12);
+}
+
+TEST(TestCholSolverInMemory, spd_tridiag_float) {
+    const int64_t n = 10;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<float>(n, 2.0f, -1.0f);
+    RandLAPACK_extras::linops::CholSolverLinOp<float> A_inv(A);
+    vector<float> b(n);
+    for (int64_t i = 0; i < n; ++i) b[i] = 1.0f + 0.1f * (float)i;
+    inmem_check_solve<float>(A, A_inv, b, n, 1, 1e-4f);
+}
+
+// C := alpha A^{-1} B + beta C0, checked independently: A (C - beta C0) / alpha must equal B.
+TEST(TestCholSolverInMemory, spd_tridiag_alpha_beta) {
+    const int64_t n = 6, n_rhs = 3;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 4.0, -1.0);
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A);
+    vector<double> B(n * n_rhs);
+    for (int64_t i = 0; i < n * n_rhs; ++i) B[i] = std::sin((double)i * 0.3);
+    const double alpha = 2.0, beta = 1.5;
+    vector<double> C(n * n_rhs, 7.0);
+    A_inv(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+          n, n_rhs, n, alpha, B.data(), n, beta, C.data(), n);
+    for (auto& c : C) c = (c - beta * 7.0) / alpha;
+    vector<double> AX = inmem_apply(A, C.data(), n, n_rhs);
+    ASSERT_LE(rel_fro_error(AX.data(), B.data(), n * n_rhs), 1e-12);
+}
+
+// Half solve: M = L^{-1} P satisfies M^T M = A^{-1}, so A M^T (M b) = b.
+TEST(TestCholSolverInMemory, spd_tridiag_half_solve_composes_to_inverse) {
+    const int64_t n = 9;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    RandLAPACK_extras::linops::CholSolverLinOp<double> M(A, /*half_solve=*/true);
+    vector<double> b(n), y(n), x(n);
+    for (int64_t i = 0; i < n; ++i) b[i] = 1.0 + 0.25 * (double)i;
+    M(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, 1, n, 1.0, b.data(), n, 0.0, y.data(), n);
+    M(Side::Left, Layout::ColMajor, Op::Trans,   Op::NoTrans, n, 1, n, 1.0, y.data(), n, 0.0, x.data(), n);
+    vector<double> Ax = inmem_apply(A, x.data(), n, 1);
+    ASSERT_LE(rel_fro_error(Ax.data(), b.data(), n), 1e-12);
+}
+
+// Only the lower triangle is read: garbage in the strict upper triangle must not change
+// the solve.
+TEST(TestCholSolverInMemory, strict_upper_triangle_is_ignored) {
+    const int64_t n = 7;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    auto A_bad = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    for (int64_t i = 0; i < n; ++i)
+        for (int64_t p = A_bad.rowptr[i]; p < A_bad.rowptr[i + 1]; ++p)
+            if (A_bad.colidxs[p] > i) A_bad.vals[p] = 100.0;
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A_bad);
+    vector<double> b(n);
+    for (int64_t i = 0; i < n; ++i) b[i] = 1.0 - 0.1 * (double)i;
+    inmem_check_solve<double>(A, A_inv, b, n, 1, 1e-12);
+}
+
+// Rows need not list their columns in order. Interior rows stored as {diag, upper, lower} must
+// give the solve of the sorted matrix (a reader that stops each row at its first upper entry
+// drops the subdiagonal and factors 2 I instead).
+TEST(TestCholSolverInMemory, rows_in_any_column_order) {
+    const int64_t n = 7;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    auto A_rot = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    for (int64_t i = 1; i + 1 < n; ++i) {   // {lower, diag, upper} -> {diag, upper, lower}
+        const int64_t p0 = A_rot.rowptr[i];
+        std::rotate(A_rot.colidxs + p0, A_rot.colidxs + p0 + 1, A_rot.colidxs + p0 + 3);
+        std::rotate(A_rot.vals + p0, A_rot.vals + p0 + 1, A_rot.vals + p0 + 3);
+    }
+    ASSERT_EQ(A_rot.colidxs[A_rot.rowptr[1]], 1);
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A_rot);
+    vector<double> b(n);
+    for (int64_t i = 0; i < n; ++i) b[i] = 1.0 + 0.2 * (double)i;
+    inmem_check_solve<double>(A, A_inv, b, n, 1, 1e-12);
+}
+
+// An indefinite matrix must throw a message naming the SPD requirement, and keep throwing
+// on a retry (the in-memory copy is released only after a successful factorization).
+TEST(TestCholSolverInMemory, indefinite_matrix_throws_on_every_factorize) {
+    const int64_t n = 6;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 0.5, -1.0);   // indefinite
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A);
+    try {
+        A_inv.factorize();
+        FAIL() << "factorize() accepted an indefinite matrix";
+    } catch (const RandLAPACK::Error& e) {
+        EXPECT_NE(std::string(e.what()).find("symmetric positive definite"), std::string::npos) << e.what();
+    }
+    EXPECT_THROW(A_inv.factorize(), RandLAPACK::Error);
+    EXPECT_FALSE(A_inv.factorization_done);
+    EXPECT_GT(A_inv.A_mem.nonZeros(), 0);
+}
+
+TEST(TestCholSolverInMemory, invalid_csr_inputs_are_rejected) {
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(4, 2.0, -1.0);
+    A.index_base = RandBLAS::sparse_data::IndexBase::One;
+    EXPECT_THROW(RandLAPACK_extras::linops::CholSolverLinOp<double>{A}, RandLAPACK::Error);
+    InMemCSR<double> rect(3, 4);
+    try {
+        RandLAPACK_extras::linops::CholSolverLinOp<double> bad(rect);
+        FAIL() << "a non-square CSR matrix was accepted";
+    } catch (const RandLAPACK::Error& e) {
+        EXPECT_NE(std::string(e.what()).find("square"), std::string::npos) << e.what();
+    }
+    InMemCSR<double> empty(4, 4);
+    EXPECT_THROW(RandLAPACK_extras::linops::CholSolverLinOp<double>{empty}, RandLAPACK::Error);
+}
+
+// A double CSR matrix can build a float operator directly.
+TEST(TestCholSolverInMemory, double_source_float_operator) {
+    const int64_t n = 10;
+    auto A_d = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    auto A_f = RandLAPACK::gen::gen_tridiag_csr<float>(n, 2.0f, -1.0f);
+    RandLAPACK_extras::linops::CholSolverLinOp<float> A_inv(A_d);
+    vector<float> b(n);
+    for (int64_t i = 0; i < n; ++i) b[i] = 1.0f - 0.05f * (float)i;
+    inmem_check_solve<float>(A_f, A_inv, b, n, 1, 1e-4f);
 }
