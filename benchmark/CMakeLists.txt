@@ -211,6 +211,13 @@ if (HAVE_CUDA)
         CU_SOURCES bench_BQRRP/BQRRP_GPU_benchmark.cu
         LINK_LIBS ${Benchmark_libs} CUDA::cusolver
     )
+
+    # CQRRPT GPU benchmark: luqr and bqrrp against CPU CQRRPT, pageable and pinned A, double and float
+    add_benchmark_gpu(
+        NAME CQRRPT_GPU_benchmark
+        CU_SOURCES bench_CQRRPT/CQRRPT_GPU_benchmark.cu
+        LINK_LIBS ${Benchmark_libs} CUDA::cusolver
+    )
 else()
     message(STATUS "Skipping GPU benchmarks (CUDA not available)")
 endif()
