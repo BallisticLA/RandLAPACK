@@ -873,6 +873,7 @@ TEST_F(TestBQRRP, BQRRP_padded_lda) {
                 if (J_tail_same_set)
                     for (int64_t j = r; j < n; ++j)
                         match[j] = (J_pad[j] >= 1 && J_pad[j] <= n) ? pos_ref[J_pad[j]] : -1;
+                int64_t unmatched = std::count(match.begin(), match.end(), (int64_t) -1);
 
                 // Frobenius norms of A_ref and tau_ref and of the differences; NaN entries are also
                 // counted, since a difference with a NaN would not exceed any bound.
@@ -913,6 +914,7 @@ TEST_F(TestBQRRP, BQRRP_padded_lda) {
                 EXPECT_EQ(rank_pad, rank_ref);
                 EXPECT_EQ(J_lead_differ, 0) << "pivots up to the rank";
                 EXPECT_TRUE(J_tail_same_set) << "pivots past the rank must hold the same columns";
+                EXPECT_EQ(unmatched, 0) << "columns past the rank with no valid pivot to match";
                 EXPECT_EQ(nonfinite, 0) << "NaN or Inf entries in A or tau, padded or not";
                 EXPECT_LE(A_lead_rel, tol) << "||A_pad - A_ref||_F / ||A_ref||_F on columns 0:rank";
                 EXPECT_LE(A_tail_rel, tol) << "||A_pad - A_ref||_F / ||A_ref||_F past the rank, columns matched through J";
