@@ -45,21 +45,26 @@ endif()
 set(HAVE_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP")
 message(STATUS "Checking for OpenMP ... ${HAVE_OpenMP}")
 
+message(STATUS "Checking for RandLAPACK ... ")
+find_package(RandLAPACK REQUIRED)
+message(STATUS "Done checking for RandLAPACK.")
+
+# The GPU benchmarks need a CUDA toolkit and a RandLAPACK whose BLAS++ and LAPACK++ were built with CUDA:
+# RandLAPACK's GPU code is header-only and runs on their device queues. Their package configs, loaded by
+# find_package(RandLAPACK), set blaspp_use_cuda and lapackpp_use_cuda.
 message(STATUS "Checking for CUDA ... ")
 find_package(CUDAToolkit QUIET)
 set(tmp FALSE)
-if (CUDAToolkit_FOUND)
+if (CUDAToolkit_FOUND AND blaspp_use_cuda AND lapackpp_use_cuda)
     set(tmp TRUE)
     enable_language(CUDA)
     set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+elseif (CUDAToolkit_FOUND)
+    message(STATUS "A CUDA toolkit is installed, but RandLAPACK's BLAS++ or LAPACK++ was built without CUDA")
 endif()
 set(HAVE_CUDA ${tmp} CACHE BOOL "Set if we have a working CUDA")
 message(STATUS "Checking for CUDA ... ${HAVE_CUDA}")
-
-message(STATUS "Checking for RandLAPACK ... ")
-find_package(RandLAPACK REQUIRED)
-message(STATUS "Done checking for RandLAPACK.")
 
 function(add_benchmark)
     set(OPTS)
@@ -219,5 +224,5 @@ if (HAVE_CUDA)
         LINK_LIBS ${Benchmark_libs} CUDA::cusolver
     )
 else()
-    message(STATUS "Skipping GPU benchmarks (CUDA not available)")
+    message(STATUS "Skipping GPU benchmarks (no CUDA toolkit, or RandLAPACK was built without CUDA)")
 endif()
