@@ -11,6 +11,8 @@
 #include <cuda_runtime.h>
 #include "lapack/device.hh"
 
+#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
+
 #include <RandBLAS.hh>
 #include <cstdint>
 #include <vector>
@@ -45,22 +47,19 @@ template <typename T, typename RNG>
 class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
     public:
 
-        /// The algorithm allows for choosing how QRCP is implemented: either through LAPACK's GEQP3
-        /// or through a custom HQRRP function. This decision is controlled through 'no_hqrrp' parameter,
-        /// which defaults to 1.
+        /// The sketch and its QRCP run on the host; the rest of the algorithm runs on the device.
+        /// The QRCP of the sketch is LAPACK's GEQP3 when 'no_hqrrp' is nonzero (the default), and HQRRP
+        /// otherwise, tuned by 'nb_alg', 'oversampling', 'panel_pivoting' and 'use_cholqr'.
+        /// The sparse sketching operator has 'nnz' nonzeros per column, 2 by default, as in CQRRPT.
         ///
-        /// The algorithm allows for choosing the rank estimation scheme either naively, through looking at the
-        /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_x.
-        /// This decision is controlled through 'naive_rank_estimate' parameter, which defaults to 1.
-        /// The choice of norm ||A||_x, either 2 or F, is controlled via 'use_fro_norm'.
+        /// @param[in] verb
+        ///     Stored in 'verbosity'; the algorithm prints nothing.
         ///
-        /// The algorithm optionally times all of its subcomponents through a user-defined 'verbosity' parameter.
+        /// @param[in] time_subroutines
+        ///     If true, the call fills 'times' with the durations of its steps, in microseconds.
         ///
-        /// The algorithm optionally computes a condition number of a preconditioned matrix A through a 'cond_check'
-        /// parameter, which defaults to 0. This requires extra n * (m + 1) * sizeof(T) bytes of space, which will be 
-        /// internally allocated by a utility routine. 
-        /// A computation is handled by a utility method that finds the l2 condition number by computing all singular
-        /// values of the R-factor via an appropriate LAPACK function.
+        /// @param[in] ep
+        ///     The tolerance 'eps' of the a posteriori rank estimate after a failed Cholesky factorization.
         CQRRPT_GPU(
             bool verb,
             bool time_subroutines,
@@ -74,6 +73,7 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
             oversampling = 10;
             use_cholqr = 0;
             panel_pivoting = 1;
+            nnz = 2;
             rank = 0;
         }
 
@@ -92,8 +92,8 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         /// @param[in] A
         ///     The m-by-n matrix A, stored in a column-major format.
         ///
-        /// @param[in] d
-        ///     Embedding dimension of a sketch, m >= d >= n.
+        /// @param[in] d_factor
+        ///     The sketch has d = d_factor * n rows, m >= d >= n.
         ///
         /// @param[in] R
         ///     Represents the upper-triangular R factor of QR factorization.
@@ -108,7 +108,8 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         ///     of the n-by-n block are zero.
         ///
         /// @param[out] J
-        ///     Stores k integer type pivot index entries.
+        ///     Stores n integer type pivot index entries. For an empty A (m = 0 or n = 0),
+        ///     J = 1, ..., n and the rank is 0.
         ///
         /// @return = 0: successful exit. If the Cholesky factorization fails, the rank
         ///     is re-estimated from the leading part of the factor, as in CQRRPT.
@@ -160,11 +161,26 @@ int CQRRPT_GPU<T, RNG>::call(
     T d_factor,
     RandBLAS::RNGState<RNG> &state
 ){
+    // Input parameter validation, as in CQRRPT.
+    randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+    randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
     randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
     randlapack_require(ldr >= n) << "ldr=" << ldr << " < n=" << n << " (ldr must be >= n)";
+    randlapack_require(d_factor >= (T)1.0) << "d_factor=" << d_factor << " must be >= 1.0";
+    randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
+    randlapack_require(!(R == nullptr && n > 0)) << "R buffer is null but n=" << n << " > 0";
+    randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
 
     // R's contents on entry are ignored: the parts the algorithm does not write are read as zeros.
     lapack::laset(MatrixType::General, n, n, (T) 0.0, (T) 0.0, R, ldr);
+
+    // An empty A has nothing to factor. Return before touching the device, with rank 0 and the
+    // identity pivots that GEQP3 returns for an empty matrix, as BQRRP_GPU does.
+    if (std::min(m, n) == 0) {
+        this->rank = 0;
+        std::iota(J, J + n, (int64_t) 1);
+        return 0;
+    }
 
     ///--------------------TIMING VARS--------------------/
     steady_clock::time_point saso_t_stop;

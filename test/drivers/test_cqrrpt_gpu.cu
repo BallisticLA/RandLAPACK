@@ -981,3 +981,68 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_repeated_calls_no_leak) {
         EXPECT_LE(min_growth, 32.0) << "device memory grew by at least " << min_growth << " MiB per " << calls_per_round << " calls";
     }
 }
+
+// An empty A (0 x 16 or 16 x 0) has nothing to factor: CQRRPT_GPU must set rank 0, J to the identity,
+// which is what GEQP3 returns for an empty matrix, and R to zero.
+TEST_F(TestCQRRPT, CQRRPT_GPU_empty_input) {
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    for (auto [m, n] : {std::pair<int64_t, int64_t>{0, 16}, std::pair<int64_t, int64_t>{16, 0}}) {
+        SCOPED_TRACE(::testing::Message() << m << " x " << n);
+        std::vector<double> A(std::max<int64_t>(m * n, 1), 0.0), R(std::max<int64_t>(n * n, 1), std::numeric_limits<double>::quiet_NaN());
+        std::vector<int64_t> J(std::max<int64_t>(n, 1), 0);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.rank = -7;
+        auto state = RandBLAS::RNGState();
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, A.data(), std::max<int64_t>(m, 1), R.data(), std::max<int64_t>(n, 1), J.data(), 2.0, state), 0);
+        EXPECT_EQ(CQRRPT_GPU.rank, 0);
+        for (int64_t j = 0; j < n; ++j)
+            EXPECT_EQ(J[j], j + 1) << "j = " << j;
+        for (int64_t i = 0; i < n * n; ++i)
+            EXPECT_EQ(R[i], 0.0) << "i = " << i;
+    }
+}
+
+// The arguments CQRRPT rejects, CQRRPT_GPU must reject too, before it reads A.
+TEST_F(TestCQRRPT, CQRRPT_GPU_invalid_arguments) {
+    int64_t m = 100, n = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n, 1.0), R(n * n, 0.0);
+    std::vector<int64_t> J(n, 0);
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    auto state = RandBLAS::RNGState();
+    EXPECT_ANY_THROW(CQRRPT_GPU.call(-1, n, A.data(), m, R.data(), n, J.data(), 2.0, state));
+    EXPECT_ANY_THROW(CQRRPT_GPU.call(m, -1, A.data(), m, R.data(), n, J.data(), 2.0, state));
+    EXPECT_ANY_THROW(CQRRPT_GPU.call(m, n, A.data(), m - 1, R.data(), n, J.data(), 2.0, state));
+    EXPECT_ANY_THROW(CQRRPT_GPU.call(m, n, A.data(), m, R.data(), n - 1, J.data(), 2.0, state));
+    EXPECT_ANY_THROW(CQRRPT_GPU.call(m, n, A.data(), m, R.data(), n, J.data(), 0.5, state));
+    EXPECT_ANY_THROW(CQRRPT_GPU.call(m, n, nullptr, m, R.data(), n, J.data(), 2.0, state));
+    EXPECT_ANY_THROW(CQRRPT_GPU.call(m, n, A.data(), m, nullptr, n, J.data(), 2.0, state));
+    EXPECT_ANY_THROW(CQRRPT_GPU.call(m, n, A.data(), m, R.data(), n, nullptr, 2.0, state));
+    EXPECT_EQ(A, std::vector<double>(m * n, 1.0)) << "A changed";
+}
+
+// The default nnz is CQRRPT's, 2: a CQRRPT_GPU that does not set it must return exactly what one
+// that sets nnz = 2 returns.
+TEST_F(TestCQRRPT, CQRRPT_GPU_default_nnz) {
+    int64_t m = 2000, n = 50;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n);
+    auto gen_state = RandBLAS::RNGState();
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::fill_dense(D, A.data(), gen_state);
+
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU_default(false, false, tol);
+    EXPECT_EQ(CQRRPT_GPU_default.nnz, 2);
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU_nnz2(false, false, tol);
+    CQRRPT_GPU_nnz2.nnz = 2;
+    std::vector<double> Q0(A), Q1(A), R0(n * n), R1(n * n);
+    std::vector<int64_t> J0(n), J1(n);
+    auto state0 = RandBLAS::RNGState(), state1 = RandBLAS::RNGState();
+    ASSERT_EQ(CQRRPT_GPU_default.call(m, n, Q0.data(), m, R0.data(), n, J0.data(), 2.0, state0), 0);
+    ASSERT_EQ(CQRRPT_GPU_nnz2.call(m, n, Q1.data(), m, R1.data(), n, J1.data(), 2.0, state1), 0);
+    EXPECT_EQ(CQRRPT_GPU_default.rank, n);
+    EXPECT_EQ(CQRRPT_GPU_nnz2.rank, n);
+    EXPECT_EQ(J0, J1);
+    EXPECT_EQ(Q0, Q1);
+    EXPECT_EQ(R0, R1);
+}
