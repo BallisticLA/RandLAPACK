@@ -27,8 +27,8 @@ if (RequireCUDA)
             set(CMAKE_CUDA_ARCHITECTURES all-major)
         endif()
 
-        # Add required CUDA flags for RandLAPACK code
-        set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
+        # No --expt-relaxed-constexpr: the tests compile RandLAPACK's CUDA headers with the flags a
+        # consumer of the installed package gets, so device code must not call constexpr host functions.
     else()
         message(STATUS "CUDA not found. Continuing without CUDA support.")
     endif()
@@ -39,9 +39,6 @@ endif()
 # Add general CMake module paths (needed regardless of CUDA)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
-
-# Include compiler flags (needed for both CUDA and non-CUDA builds)
-include(compiler_flags)
 
 # Configure the build
 enable_testing()

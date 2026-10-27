@@ -64,6 +64,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
             panel_pivoting = 1;
             orthogonalization = false;
             nnz = 2;
+            rank = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -85,7 +86,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///
         /// @param[in] R
         ///     Represents the upper-triangular R factor of QR factorization.
-        ///     On entry, is empty and may not have any space allocated for it.
+        ///     On entry, an n-by-n buffer with leading dimension ldr >= n; its contents are ignored.
         ///
         /// @param[in] state
         ///     RNG state parameter, required for sketching operator generation.
@@ -95,8 +96,8 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///     Matrix is stored explicitly.
         ///
         /// @param[out] R
-        ///     Stores k-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        ///     Rows 0:rank hold the upper-trapezoidal R factor; all other entries
+        ///     of the n-by-n block are zero. Not formed in orthogonalization mode.
         ///
         /// @param[out] J
         ///     Stores k integer type pivot index entries.
@@ -168,6 +169,9 @@ int CQRRPT<T, RNG>::call(
     randlapack_require(!(R == nullptr && n > 0)) << "R buffer is null but n=" << n << " > 0";
     randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
 
+    // R's contents on entry are ignored: the parts the algorithm does not write are read as zeros.
+    lapack::laset(MatrixType::General, n, n, (T) 0.0, (T) 0.0, R, ldr);
+
     ///--------------------TIMING VARS--------------------/
     steady_clock::time_point saso_t_stop;
     steady_clock::time_point saso_t_start;
@@ -199,9 +203,8 @@ int CQRRPT<T, RNG>::call(
     int64_t d = d_factor * n;
     // A constant for initial rank estimation.
     T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
-    // Variables for a posteriori rank estimation.
+    // Rank estimated a posteriori.
     int64_t new_rank;
-    T running_max, running_min, curr_entry;
 
     T* A_hat = new T[d * n]();
     T* tau   = new T[n]();
@@ -257,6 +260,7 @@ int CQRRPT<T, RNG>::call(
 
     // Check if the input is all zeros
     if (!A_hat[0]) {
+        this->rank = 0;
         delete[] A_hat;
         delete[] tau;
         delete[] J_buf;
@@ -274,7 +278,6 @@ int CQRRPT<T, RNG>::call(
         }
     }
     this->rank = k;
-    new_rank = k;
 
     if(this -> timing)
         rank_reveal_t_stop = steady_clock::now();
@@ -311,28 +314,9 @@ int CQRRPT<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A, lda, (T) 0.0, R_sp, ldr);
-    if(lapack::potrf(Uplo::Upper, k, R_sp, ldr)) {
-        // Perform aposteriori rank estimation of CholQR failed?
-
-        // Re-estimate rank after we have the R-factor form Cholesky QR.
-        // The strategy here is the same as in naive rank estimation.
-        // This also automatically takes care of any potential failures in Cholesky factorization.
-        // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
-        // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
-        running_max = R_sp[0];
-        running_min = R_sp[0];
-        T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
-
-        for(i = 0; i < k; ++i) {
-            curr_entry = std::abs(R_sp[i * ldr + i]);
-            running_max = std::max(running_max, curr_entry);
-            running_min = std::min(running_min, curr_entry);
-            if((running_min * cond_threshold < running_max) && i > 1) {
-                new_rank = i - 1;
-                break;
-            }
-        }
-    }
+    int64_t info = lapack::potrf(Uplo::Upper, k, R_sp, ldr);
+    // If CholQR failed, re-estimate the rank a posteriori from the completed part of R_sp's diagonal.
+    new_rank = util::cholqr_failure_rank(k, R_sp, ldr + 1, info, this->eps);
 
     // Set the rank parameter to the value computed a posteriori.
     this->rank = new_rank;
@@ -344,8 +328,13 @@ int CQRRPT<T, RNG>::call(
         cholqr_t_stop = steady_clock::now();
 
     if (!this->orthogonalization) {
-        // Get the final R-factor -- undoing the preconditioning
+        // After a failed potrf, R_sp[0:new_rank, new_rank:k] need not be a factor: rebuild it as Q' * A_pre[:, new_rank:k].
+        if (new_rank < k)
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, k - new_rank, m, (T) 1.0, A, lda, &A[lda * new_rank], lda, (T) 0.0, &R_sp[ldr * new_rank], ldr);
+        // Get the final R-factor, undoing the preconditioning
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, A_hat, d, R_sp, ldr); 
+        // Rows past the rank hold leftovers of the Cholesky factor.
+        lapack::laset(MatrixType::General, n - new_rank, n, (T) 0.0, (T) 0.0, &R[new_rank], ldr);
     } 
     else if (new_rank != n) {
         // Complete the orthonormal set

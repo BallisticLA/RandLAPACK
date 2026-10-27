@@ -67,8 +67,29 @@ if (GTest_FOUND)
         target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
         randlapack_stage_runtime_dlls(RandLAPACK_tests_gpu)
 
-        # Discover CUDA tests
-        gtest_discover_tests(RandLAPACK_tests_gpu)
+        # Discover CUDA tests. Every GPU entry holds the lock "gpu", so under ctest -j no two run at
+        # once: the leak checks read device-wide free memory, which another GPU test would change.
+        gtest_discover_tests(RandLAPACK_tests_gpu PROPERTIES RESOURCE_LOCK gpu)
+        # The CQRRPT_GPU timing test (which also runs alone) and the BQRRP_GPU leak checks assume no other
+        # process loads the host or uses the GPU. They carry the label exclusive: skip them with ctest -LE exclusive.
+        set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/gpu_exclusive_tests.cmake")
+        # Discovered tests run one per process. This entry runs them in one process, shuffled and twice, so a test
+        # that leaves CUDA state behind fails here. It runs alone, as it would double their memory peak, and leaves
+        # out the exclusive tests, so that ctest -LE exclusive skips them everywhere.
+        set(gpu_exclusive_tests "TestCQRRPT.CQRRPT_GPU_timing_covers_device_work:TestBQRRP.BQRRP_GPU_repeated_calls_no_leak:TestBQRRP.BQRRP_GPU_empty_input")
+        add_test(NAME RandLAPACK_tests_gpu_shuffle_repeat
+                 COMMAND RandLAPACK_tests_gpu --gtest_shuffle --gtest_repeat=2 --gtest_filter=-${gpu_exclusive_tests})
+        set_tests_properties(RandLAPACK_tests_gpu_shuffle_repeat PROPERTIES RUN_SERIAL TRUE RESOURCE_LOCK gpu)
+
+        # A program built with per-thread default streams. Its own executable: the drivers are
+        # header templates, so one shared with legacy-stream sources could link either version.
+        set_source_files_properties(drivers/test_cqrrpt_gpu_ptds.cu PROPERTIES LANGUAGE CUDA)
+        add_executable(RandLAPACK_tests_gpu_ptds drivers/test_cqrrpt_gpu_ptds.cu)
+        target_compile_options(RandLAPACK_tests_gpu_ptds PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>)
+        target_link_libraries(RandLAPACK_tests_gpu_ptds RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
+        randlapack_stage_runtime_dlls(RandLAPACK_tests_gpu_ptds)
+        gtest_discover_tests(RandLAPACK_tests_gpu_ptds PROPERTIES RESOURCE_LOCK gpu)
     endif()
 
     # Create additional tests
