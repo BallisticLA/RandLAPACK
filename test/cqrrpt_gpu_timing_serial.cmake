@@ -1,5 +1,0 @@
-foreach(test_name IN LISTS RandLAPACK_tests_gpu_TESTS)
-    if(test_name MATCHES "(^|/)TestCQRRPT\\.CQRRPT_GPU_timing_covers_device_work$")
-        set_tests_properties("${test_name}" PROPERTIES RUN_SERIAL TRUE)
-    endif()
-endforeach()

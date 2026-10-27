@@ -598,6 +598,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
 // outlast total by at most its parts outside it (laset of R, copies back, frees), timed alone, plus 3/4 of a trsm:
 // that catches a final trsm left out of total, not a shorter step. Skipped where a trsm is shorter than the copies.
 TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
+    // Labeled exclusive and run alone by ctest (gpu_exclusive_tests.cmake): wall-clock bounds need an idle host and GPU.
     int64_t m = 5000;
     int64_t n = 1000;
     int64_t d = 2 * n;

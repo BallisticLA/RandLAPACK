@@ -507,6 +507,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_vectors) {
 // The geqrf case also allocates a geqrf workspace per iteration, about 10 MiB per call in all;
 // keeping them would grow memory by about 160 MiB per round of 16 calls, five times the bound.
 TEST_F(TestBQRRP, BQRRP_GPU_repeated_calls_no_leak) {
+    // Labeled exclusive in ctest (gpu_exclusive_tests.cmake): free memory is device wide, so other GPU processes skew it.
     struct Case { const char* name; GPUSubroutines::QRTall qr_tall; int64_t m, n, d, b_sz; };
     const Case cases[] = {
         {"cholqr", GPUSubroutines::QRTall::cholqr,   64,  16,  32,   8},
@@ -1248,6 +1249,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_padded_lda) {
 // is the one of BQRRP_GPU_repeated_calls_no_leak, with its assumption that no other process
 // allocates on the GPU meanwhile; a call that keeps its cuSOLVER handle alone exceeds it.
 TEST_F(TestBQRRP, BQRRP_GPU_empty_input) {
+    // Labeled exclusive in ctest (gpu_exclusive_tests.cmake): free memory is device wide, so other GPU processes skew it.
     int64_t b_sz = 8;
     int64_t d = 10;
     int num_rounds = 2;
