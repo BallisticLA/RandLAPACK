@@ -9,8 +9,10 @@
 
 #include <RandBLAS.hh>
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <memory>
+#include <numeric>
 #include <gtest/gtest.h>
 #include <cusolverDn.h>
 
@@ -784,4 +786,198 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_zero_input) {
     EXPECT_EQ(CQRRPT_GPU.rank, 0);
     EXPECT_EQ(R, std::vector<double>(n * n, 0.0));
     EXPECT_EQ(A, std::vector<double>(m * n, 0.0));
+}
+
+// A in pinned host memory must give exactly the factorization of the same A in pageable memory, with
+// compact and padded storage. The copy of a pinned A runs asynchronously, so it may overlap host work.
+TEST_F(TestCQRRPT, CQRRPT_GPU_pinned_matches_pageable) {
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    struct Input { const char* name; int64_t m, n; std::vector<double> A; uint32_t seed; };
+    std::vector<Input> inputs;
+    for (int64_t rank_A : {(int64_t) 200, (int64_t) 150}) {
+        // A is 32 MB, so that its copy lasts milliseconds.
+        int64_t m = 20000, n = 200;
+        std::vector<double> A(m * n, 0.0);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+        m_info.cond_num = 2;
+        m_info.rank = rank_A;
+        m_info.exponent = 2.0;
+        auto gen_state = RandBLAS::RNGState();
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), gen_state);
+        inputs.push_back({rank_A == n ? "full rank" : "rank 150", m, n, A, 0});
+    }
+    inputs.push_back({"failed potrf", 600, 60, sketch_defeating_input(600, 60, 2, 2.0, 7, 1.0), 7});
+
+    for (auto& in : inputs) {
+        for (int64_t pad : {(int64_t) 0, (int64_t) 5}) {
+            SCOPED_TRACE(::testing::Message() << in.name << ", lda = m + " << pad);
+            int64_t m = in.m, n = in.n, lda = m + pad;
+            std::vector<double> Q(lda * n, -777.0), R(n * n, 0.0), R_pin(n * n, 0.0);
+            lapack::lacpy(MatrixType::General, m, n, in.A.data(), m, Q.data(), lda);
+            double* Q_pin = nullptr;
+            ASSERT_EQ(cudaMallocHost((void**) &Q_pin, lda * n * sizeof(double)), cudaSuccess);
+            std::copy(Q.begin(), Q.end(), Q_pin);
+            std::vector<int64_t> J(n, 0), J_pin(n, 0);
+            RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+            CQRRPT_GPU.nnz = 2;
+            CQRRPT_GPU.no_hqrrp = 1;
+            RandBLAS::RNGState<r123::Philox4x32> state(in.seed), state_pin(in.seed);
+            ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), lda, R.data(), n, J.data(), 2.0, state), 0);
+            int64_t rank = CQRRPT_GPU.rank;
+            ASSERT_EQ(CQRRPT_GPU.call(m, n, Q_pin, lda, R_pin.data(), n, J_pin.data(), 2.0, state_pin), 0);
+            EXPECT_EQ(CQRRPT_GPU.rank, rank);
+            EXPECT_EQ(J_pin, J);
+            // Bytes, padding included: NaN entries would compare unequal as values.
+            EXPECT_EQ(std::memcmp(Q_pin, Q.data(), lda * n * sizeof(double)), 0) << "Q differs";
+            EXPECT_EQ(std::memcmp(R_pin.data(), R.data(), n * n * sizeof(double)), 0) << "R differs";
+            cudaFreeHost(Q_pin);
+        }
+    }
+}
+
+// More rows than one launch of a 2D device kernel with 8-row thread blocks covers (8 * 65,535 =
+// 524,280), with columns of distinct norms so that the pivots reorder them. Every row must be
+// pivoted and orthogonalized.
+TEST_F(TestCQRRPT, CQRRPT_GPU_very_tall) {
+    int64_t m = 600000;
+    int64_t n = 8;
+    double tol  = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    std::vector<double> A(m * n);
+    auto state = RandBLAS::RNGState();
+    RandBLAS::DenseDist D(m, n);
+    state = RandBLAS::fill_dense(D, A.data(), state);
+    for (int64_t j = 0; j < n; ++j)
+        blas::scal(m, std::pow(2.0, (double) j), &A[m * j], 1);
+
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    CQRRPT_GPU.nnz = 2;
+    CQRRPT_GPU.no_hqrrp = 1;
+    std::vector<double> Q(A), R(n * n, 0.0);
+    std::vector<int64_t> J(n, 0);
+    ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+    int64_t r = CQRRPT_GPU.rank;
+    ASSERT_EQ(r, n);
+    std::vector<int64_t> J_sorted(J), identity(n);
+    std::sort(J_sorted.begin(), J_sorted.end());
+    std::iota(identity.begin(), identity.end(), (int64_t) 1);
+    ASSERT_EQ(J_sorted, identity) << "J is not a permutation";
+    ASSERT_NE(J, identity) << "the pivots must reorder the columns for this test to check the pivoting of A";
+
+    auto c = factor_checks(m, n, r, A, Q, R, n, J);
+    ASSERT_TRUE(c.finite);
+    EXPECT_LE(c.err_orth, atol);
+    // ||A[:, J] - QR||_F / ||A||_F, over all rows and over the rows past 524,280 alone.
+    std::vector<double> AP(A);
+    RandLAPACK::util::col_swap(m, n, n, AP.data(), m, J.data());
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
+    double norm_A = lapack::lange(Norm::Fro, m, n, A.data(), m);
+    int64_t tail = 524280;
+    EXPECT_LE(lapack::lange(Norm::Fro, m, n, AP.data(), m) / norm_A, atol);
+    EXPECT_LE(lapack::lange(Norm::Fro, m - tail, n, &AP[tail], m) / norm_A, atol);
+}
+
+// On inputs of known rank, CQRRPT_GPU must find CQRRPT's rank, which is the input's, with
+// ||A[:, J] - QR|| / ||A|| and ||Q'Q - I|| / sqrt(rank) within u^0.75.
+TEST_F(TestCQRRPT, CQRRPT_GPU_rank_matches_cpu) {
+    double tol  = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    struct Input { int64_t m, n, rank; RandLAPACK::gen::mat_type type; double cond; };
+    for (auto in : {Input{2000, 50, 40, RandLAPACK::gen::polynomial, 2.0}, Input{1500, 120, 80, RandLAPACK::gen::polynomial, 2.0},
+                    Input{3000, 300, 300, RandLAPACK::gen::polynomial, 2.0}, Input{4000, 200, 120, RandLAPACK::gen::polynomial, 1e3},
+                    Input{2000, 100, 100, RandLAPACK::gen::exponential, 1e12}}) {
+        SCOPED_TRACE(::testing::Message() << in.m << " x " << in.n << ", rank " << in.rank);
+        int64_t m = in.m, n = in.n;
+        std::vector<double> A(m * n, 0.0);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, in.type);
+        m_info.cond_num = in.cond;
+        m_info.rank = in.rank;
+        m_info.exponent = 2.0;
+        auto gen_state = RandBLAS::RNGState(3);
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), gen_state);
+
+        std::vector<double> Q_cpu(A), R_cpu(n * n, 0.0);
+        std::vector<int64_t> J_cpu(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state_cpu(11);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        ASSERT_EQ(CQRRPT.call(m, n, Q_cpu.data(), m, R_cpu.data(), n, J_cpu.data(), 2.0, state_cpu), 0);
+        ASSERT_EQ(CQRRPT.rank, in.rank);
+
+        std::vector<double> Q(A), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        RandBLAS::RNGState<r123::Philox4x32> state(11);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.no_hqrrp = 1;
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        int64_t r = CQRRPT_GPU.rank;
+        EXPECT_EQ(r, CQRRPT.rank);
+
+        auto c = factor_checks(m, n, r, A, Q, R, n, J);
+        ASSERT_TRUE(c.finite);
+        EXPECT_LE(c.err_orth, atol);
+        std::vector<double> AP(A);
+        RandLAPACK::util::col_swap(m, n, n, AP.data(), m, J.data());
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, r, -1.0, Q.data(), m, R.data(), n, 1.0, AP.data(), m);
+        EXPECT_LE(lapack::lange(Norm::Fro, m, n, AP.data(), m) / lapack::lange(Norm::Fro, m, n, A.data(), m), atol);
+    }
+}
+
+// Repeated CQRRPT_GPU calls must not grow device memory use, on the full path and on the exits
+// before CholQR: an all-zero input, and an exception from the sketch (nnz = 0, which RandBLAS
+// rejects). cudaMemGetInfo is device wide, so this check assumes no other process allocates on the
+// GPU meanwhile. A device copy of A kept per call would grow memory by about 120 MiB per round.
+TEST_F(TestCQRRPT, CQRRPT_GPU_repeated_calls_no_leak) {
+    // Labeled exclusive in ctest (gpu_exclusive_tests.cmake): free memory is device wide, so other GPU processes skew it.
+    int64_t m = 20000;
+    int64_t n = 50;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    int num_rounds = 3;
+    int calls_per_round = 16;
+    auto free_mib = []() {
+        size_t free_bytes, total_bytes;
+        cudaDeviceSynchronize();
+        cudaMemGetInfo(&free_bytes, &total_bytes);
+        return (double) free_bytes / (1 << 20);
+    };
+    std::vector<double> A_rand(m * n), A_zero(m * n, 0.0);
+    auto state = RandBLAS::RNGState();
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::fill_dense(D, A_rand.data(), state);
+
+    struct Case { const char* name; const std::vector<double>* A; int64_t nnz; int64_t rank; };
+    const Case cases[] = {{"full rank", &A_rand, 2, n}, {"zero input", &A_zero, 2, 0}, {"exception from the sketch", &A_rand, 0, -1}};
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = c.nnz;
+        CQRRPT_GPU.no_hqrrp = 1;
+        std::vector<double> Q(m * n), R(n * n);
+        std::vector<int64_t> J(n);
+        auto run = [&]() {
+            std::copy(c.A->begin(), c.A->end(), Q.begin());
+            auto s = RandBLAS::RNGState();
+            if (c.rank < 0) {
+                EXPECT_ANY_THROW(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, s));
+            } else {
+                EXPECT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, s), 0);
+                EXPECT_EQ(CQRRPT_GPU.rank, c.rank);
+            }
+        };
+
+        // A first call absorbs one-time allocations.
+        run();
+        double min_growth = std::numeric_limits<double>::infinity();
+        for (int r = 0; r < num_rounds; ++r) {
+            double before = free_mib();
+            for (int i = 0; i < calls_per_round; ++i)
+                run();
+            min_growth = std::min(min_growth, before - free_mib());
+        }
+        cudaError_t ierr = cudaGetLastError();
+        ASSERT_EQ(ierr, cudaSuccess) << cudaGetErrorString(ierr);
+        std::cout << std::setw(26) << c.name << ":  SMALLEST GROWTH PER ROUND " << min_growth << " MiB\n";
+        EXPECT_LE(min_growth, 32.0) << "device memory grew by at least " << min_growth << " MiB per " << calls_per_round << " calls";
+    }
 }

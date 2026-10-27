@@ -6,6 +6,7 @@
 #include <cuda_runtime.h>
 
 #include <RandBLAS.hh>
+#include <cstring>
 #include <gtest/gtest.h>
 
 // This file is compiled with --default-stream=per-thread. The default stream then does not
@@ -67,4 +68,43 @@ TEST(TestCQRRPTPerThreadStream, CQRRPT_GPU_copies_ordered_on_its_queue) {
         }
     }
     ASSERT_EQ(num_bad, 0) << num_bad << " of " << num_calls << " calls gave a wrong factorization";
+}
+
+// A in pinned host memory must give exactly the factorization of the same A in pageable memory, also in a
+// program with per-thread default streams. That catches host writes to A that race with its asynchronous
+// copy; it does not check which stream the copy runs on, since the host work after it outlasts the copy.
+TEST(TestCQRRPTPerThreadStream, CQRRPT_GPU_pinned_matches_pageable) {
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    // A is 32 MB, so that its copy lasts milliseconds.
+    for (auto rank_A : {(int64_t) 200, (int64_t) 150}) {
+        int64_t m = 20000, n = 200;
+        SCOPED_TRACE(rank_A);
+        std::vector<double> A(m * n, 0.0);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+        m_info.cond_num = 2;
+        m_info.rank = rank_A;
+        m_info.exponent = 2.0;
+        auto gen_state = RandBLAS::RNGState();
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), gen_state);
+
+        RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+        CQRRPT_GPU.nnz = 2;
+        CQRRPT_GPU.no_hqrrp = 1;
+        std::vector<double> Q(A), R(n * n, 0.0), R_pin(n * n, 0.0);
+        std::vector<int64_t> J(n, 0), J_pin(n, 0);
+        auto state = RandBLAS::RNGState();
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
+        int64_t rank = CQRRPT_GPU.rank;
+
+        double* Q_pin = nullptr;
+        ASSERT_EQ(cudaMallocHost((void**) &Q_pin, m * n * sizeof(double)), cudaSuccess);
+        std::copy(A.begin(), A.end(), Q_pin);
+        state = RandBLAS::RNGState();
+        ASSERT_EQ(CQRRPT_GPU.call(m, n, Q_pin, m, R_pin.data(), n, J_pin.data(), 2.0, state), 0);
+        EXPECT_EQ(CQRRPT_GPU.rank, rank);
+        EXPECT_EQ(J_pin, J);
+        EXPECT_EQ(std::memcmp(Q_pin, Q.data(), m * n * sizeof(double)), 0) << "Q differs";
+        EXPECT_EQ(std::memcmp(R_pin.data(), R.data(), n * n * sizeof(double)), 0) << "R differs";
+        cudaFreeHost(Q_pin);
+    }
 }
