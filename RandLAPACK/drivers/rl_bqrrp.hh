@@ -144,7 +144,7 @@ class BQRRP : public BQRRPalg<T, RNG> {
 
         // Relative tolerance of the rank decisions: a block is zero if no entry of its pivot column exceeds tol times
         // the largest of A's first pivot column; else its rank is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|.
-        // The default, eps, finds only exact rank deficiency; for numerical rank use e.g. 1e-10 in double, more in float.
+        // The default is eps. For numerical rank, set tol above the rounding error in A, e.g. 1e-10 in double.
         T tol;
 
         // 10 entries - logs time for different portions of the algorithm
