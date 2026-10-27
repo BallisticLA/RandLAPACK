@@ -9,6 +9,7 @@
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <nvtx3/nvToolsExt.h>
 #include "lapack/device.hh"
 
 #include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
@@ -213,6 +214,8 @@ int CQRRPT_GPU<T, RNG>::call(
     int64_t d = d_factor * n;
     // A constant for initial rank estimation.
     T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
+    // Rank estimated a posteriori.
+    int64_t new_rank;
 
     T* A_hat = new T[d * n]();
     T* tau   = new T[n]();
@@ -221,10 +224,79 @@ int CQRRPT_GPU<T, RNG>::call(
     // caller's J to keep its prior contents from steering the pivoting.
     std::fill(J, J + n, (int64_t) 0);
 
+    /******************************DEVICE SETUP*********************************/
+    // The sketch and its QRCP run on the host: RandBLAS does not sketch on a GPU yet, and no GPU
+    // library offers GEQP3. Everything else runs on the device.
+    using lapack::device_info_int;
+    // One queue (one stream) for all device work: trsm, syrk, potrf, trsm and trmm
+    // each read what the previous call wrote, and only same-stream launches are ordered.
+    lapack::Queue lapack_queue(0);
+
+    // The device buffers of this call. The destructor runs on every exit from here on, exceptions
+    // included: unless the call's final sync has run, it waits for the queue, whose copy of A may still
+    // be reading the caller's A, and it then frees the buffers. Neither cudaStreamSynchronize nor
+    // cudaFree (which matches blas::device_malloc) throws, as a destructor must not.
+    struct DeviceBuffers {
+        lapack::Queue& queue;
+        bool synced = false;
+        T* A = nullptr;
+        T* R = nullptr;
+        T* R_sp = nullptr;
+        T* W = nullptr;
+        int64_t* J = nullptr;
+        device_info_int* info = nullptr;
+        ~DeviceBuffers() {
+            if (!synced)
+                cudaStreamSynchronize(queue.stream());
+            cudaFree(A);
+            cudaFree(R);
+            cudaFree(R_sp);
+            cudaFree(W);
+            cudaFree(J);
+            cudaFree(info);
+        }
+    } dev{lapack_queue};
+
+    // The NVTX range of the current step, for profilers. The destructor ends an open range, so that
+    // the caller's ranges stay balanced when the call returns early or throws.
+    struct NvtxStep {
+        bool open = false;
+        void begin(const char* name) { end(); nvtxRangePushA(name); open = true; }
+        void end() { if (open) nvtxRangePop(); open = false; }
+        ~NvtxStep() { end(); }
+    } step;
+
+    // All device memory is allocated here, before any work is queued, and freed after the last sync.
+    // A and R keep their leading dimensions on the device. R_sp, sized for k = n, holds the k by k
+    // preconditioner, and then the Cholesky factor, with leading dimension k. W is the gather buffer
+    // for pivoting A, rb rows at a time: rb keeps the gather's grid within 65,535 blocks of 8 rows,
+    // and W within 2^25 entries (256 MB in double).
+    int64_t rb = std::min({m, (int64_t) 524280, std::max((int64_t) 1, ((int64_t) 1 << 25) / n)});
+    dev.A    = blas::device_malloc< T >( lda * n, lapack_queue );
+    dev.R    = blas::device_malloc< T >( ldr * n, lapack_queue );
+    dev.R_sp = blas::device_malloc< T >( n * n, lapack_queue );
+    dev.W    = blas::device_malloc< T >( rb * n, lapack_queue );
+    dev.J    = blas::device_malloc< int64_t >( n, lapack_queue );
+    dev.info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    // potrf grows the queue's workspace when it is too small, which syncs the queue and allocates.
+    // Size it now, with the query potrf makes (under the same cuSOLVER version guard), for n. Should
+    // the query fail, or the k by k factor need more, potrf grows the workspace itself.
+#if CUSOLVER_VERSION >= 11000
+    size_t d_size_potrf = 0, h_size_potrf = 0;
+    cudaDataType potrf_type = std::is_same_v<T, double> ? CUDA_R_64F : CUDA_R_32F;
+    if (cusolverDnXpotrf_bufferSize(lapack_queue.solver(), lapack_queue.solver_params(), CUBLAS_FILL_MODE_UPPER, n, potrf_type, dev.R_sp, n, potrf_type, &d_size_potrf, &h_size_potrf) == CUSOLVER_STATUS_SUCCESS)
+        lapack_queue.work_ensure_size< char >( d_size_potrf );
+#endif
+
     if(this -> timing)
         saso_t_start = steady_clock::now();
-    /***********************************************************************************/
-    // I will avoid performing skething on a GPU for now
+    step.begin("sketch");
+
+    // Copy A to the device before the sketch, which only reads A: a pinned A is copied while the host
+    // sketches, a pageable one before. Only rows 0:m are copied.
+    // Every copy runs on lapack_queue's stream, so it is ordered against the device work even
+    // when the default stream does not synchronize with other streams (per-thread default stream).
+    blas::device_copy_matrix(m, n, A, lda, dev.A, lda, lapack_queue);
 
     /// Generating a SASO
     RandBLAS::SparseDist DS(d, m, this->nnz);
@@ -238,10 +310,12 @@ int CQRRPT_GPU<T, RNG>::call(
         d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
     );
 
+    step.end();
     if(this -> timing) {
         saso_t_stop = steady_clock::now();
         qrcp_t_start = steady_clock::now();
     }
+    step.begin("qrcp");
 
     /// Performing QRCP on a sketch
     if(this->no_hqrrp) {
@@ -250,12 +324,13 @@ int CQRRPT_GPU<T, RNG>::call(
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
     }
 
+    step.end();
     if(this -> timing) {
         qrcp_t_stop = steady_clock::now();
         rank_reveal_t_start = steady_clock::now();
     }
 
-    // Check if the input is all zeros, as CQRRPT does.
+    // Check if the input is all zeros, as CQRRPT does. dev waits for the copy of A and frees.
     if (!A_hat[0]) {
         this->rank = 0;
         delete[] A_hat;
@@ -263,6 +338,7 @@ int CQRRPT_GPU<T, RNG>::call(
         return 0;
     }
 
+    step.begin("rank_est");
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
     /// The actual rank estimate k will be computed a posteriori. 
     /// Using R[i,i] to approximate the i-th singular value of A_hat. 
@@ -275,6 +351,7 @@ int CQRRPT_GPU<T, RNG>::call(
     }
     this->rank = k;
 
+    step.end();
     if(this -> timing)
         rank_reveal_t_stop = steady_clock::now();
 
@@ -282,92 +359,51 @@ int CQRRPT_GPU<T, RNG>::call(
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R, ldr);
     lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[ldr * k], ldr);
 
-    /******************************GPU REGION BEGIN*********************************/
-    // The reasons for using GPUs for this part only ar the following: 
-    // 1. There is no geqp3 available in any GPU linalg libraries. 
-    //    We could port HQRRP to GPUs, but that takes additional time.
-    // 2. There are no lacpy functions on any GPU linalg libraries. Those, however, 
-    //    can be substituted with blas::copy.
-    // 3. We do not have GPU-based skething support in RandBLAS at the moment.
-    //
-    // If the above points would be resolved, we may perform the entirety of CQRRPT on the device.
-
-    // Rank estimated a posteriori.
-    int64_t new_rank;
-
-    using lapack::device_info_int;
-    // One queue (one stream) for all device work: trsm, syrk, potrf, trsm and trmm
-    // each read what the previous call wrote, and only same-stream launches are ordered.
-    lapack::Queue lapack_queue(0);
-
-    // All device memory is allocated here, before any work is queued, and freed after the last sync.
-    // A and R keep their leading dimensions on the device. R_sp, sized for k = n, holds the k by k
-    // preconditioner, and then the Cholesky factor, with leading dimension k. W is the gather buffer
-    // for pivoting A, rb rows at a time: rb keeps the gather's grid within 65,535 blocks of 8 rows,
-    // and W within 2^25 entries (256 MB in double).
-    int64_t rb = std::min({m, (int64_t) 524280, std::max((int64_t) 1, ((int64_t) 1 << 25) / n)});
-    T* A_device             = blas::device_malloc< T >( lda * n, lapack_queue );
-    T* R_device             = blas::device_malloc< T >( ldr * n, lapack_queue );
-    T* R_sp_device          = blas::device_malloc< T >( n * n, lapack_queue );
-    T* W_device             = blas::device_malloc< T >( rb * n, lapack_queue );
-    int64_t* J_device       = blas::device_malloc< int64_t >( n, lapack_queue );
-    device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
-    // potrf grows the queue's workspace when it is too small, which syncs the queue and allocates.
-    // Size it now, with the query potrf makes (under the same cuSOLVER version guard), for n. Should
-    // the query fail, or the k by k factor need more, potrf grows the workspace itself.
-#if CUSOLVER_VERSION >= 11000
-    size_t d_size_potrf = 0, h_size_potrf = 0;
-    cudaDataType potrf_type = std::is_same_v<T, double> ? CUDA_R_64F : CUDA_R_32F;
-    if (cusolverDnXpotrf_bufferSize(lapack_queue.solver(), lapack_queue.solver_params(), CUBLAS_FILL_MODE_UPPER, n, potrf_type, R_sp_device, n, potrf_type, &d_size_potrf, &h_size_potrf) == CUSOLVER_STATUS_SUCCESS)
-        lapack_queue.work_ensure_size< char >( d_size_potrf );
-#endif
-
-    // Only rows 0:m of A and 0:n of R are copied.
-    // Every copy runs on lapack_queue's stream, so it is ordered against the device work even
-    // when the default stream does not synchronize with other streams (per-thread default stream).
-    blas::device_copy_matrix(m, n, A, lda, A_device, lda, lapack_queue);
-    blas::device_copy_matrix(n, n, R, ldr, R_device, ldr, lapack_queue);
-    blas::device_memcpy(J_device, J, n, lapack_queue);
+    // Only rows 0:n of R are copied.
+    blas::device_copy_matrix(n, n, R, ldr, dev.R, ldr, lapack_queue);
+    blas::device_memcpy(dev.J, J, n, lapack_queue);
     // The preconditioner is R's leading k by k block, zero below the diagonal.
-    blas::device_copy_matrix(k, k, R_device, ldr, R_sp_device, k, lapack_queue);
+    blas::device_copy_matrix(k, k, dev.R, ldr, dev.R_sp, k, lapack_queue);
 
     if(this -> timing) {
         lapack_queue.sync();
         a_mod_piv_t_start = steady_clock::now();
     }
+    step.begin("piv_A");
 
     // Permute the columns of A with J on the device: gather each block of rows into W, then copy it
     // back. Column j of A[:, J] is column J[j] - 1 of A, as util::col_swap gives on the host.
     for (int64_t r0 = 0; r0 < m; r0 += rb) {
         int64_t rows = std::min(rb, m - r0);
-        RandLAPACK::cuda_kernels::col_swap_gpu(lapack_queue.stream(), rows, n, n, W_device, rb, &A_device[r0], lda, J_device);
-        blas::device_copy_matrix(rows, n, W_device, rb, &A_device[r0], lda, lapack_queue);
+        RandLAPACK::cuda_kernels::col_swap_gpu(lapack_queue.stream(), rows, n, n, dev.W, rb, &dev.A[r0], lda, dev.J);
+        blas::device_copy_matrix(rows, n, dev.W, rb, &dev.A[r0], lda, lapack_queue);
     }
 
+    step.end();
     if(this -> timing) {
         lapack_queue.sync();
         a_mod_piv_t_stop = steady_clock::now();
         a_mod_trsm_t_start = steady_clock::now();
     }
-
-    //char name [] = "A";
-    //RandBLAS::util::print_colmaj(m, n, A, name);
+    step.begin("precond_A");
 
     // A_pre * R_sp = AP
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_sp_device, k, A_device, lda, lapack_queue);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, dev.R_sp, k, dev.A, lda, lapack_queue);
 
+    step.end();
     // Device calls are asynchronous: when timing, wait for each step's work before stopping its timer.
     if(this -> timing) {
         lapack_queue.sync();
         a_mod_trsm_t_stop = steady_clock::now();
         cholqr_t_start = steady_clock::now();
     }
+    step.begin("cholqr");
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A_device, lda, (T) 0.0, R_sp_device, k, lapack_queue);
-    lapack::potrf(Uplo::Upper, k, R_sp_device, k, d_info, lapack_queue);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, dev.A, lda, (T) 0.0, dev.R_sp, k, lapack_queue);
+    lapack::potrf(Uplo::Upper, k, dev.R_sp, k, dev.info, lapack_queue);
     device_info_int info = 0;
-    blas::device_memcpy(&info, d_info, 1, lapack_queue);
+    blas::device_memcpy(&info, dev.info, 1, lapack_queue);
     lapack_queue.sync();
 
     // If CholQR failed, re-estimate the rank a posteriori from the completed part of R_sp's diagonal,
@@ -377,27 +413,30 @@ int CQRRPT_GPU<T, RNG>::call(
         // In elements: the host pitch is 1, since we have a column vector; the device pitch is k + 1, so each
         // "row" starts at a diagonal entry of the k by k matrix; each of the k rows is 1 element wide.
         T* R_sp_diag = new T[k]();
-        blas::device_memcpy_2d(R_sp_diag, (int64_t) 1, R_sp_device, k + 1, (int64_t) 1, k, lapack_queue);
+        blas::device_memcpy_2d(R_sp_diag, (int64_t) 1, dev.R_sp, k + 1, (int64_t) 1, k, lapack_queue);
         lapack_queue.sync();
         new_rank = util::cholqr_failure_rank(k, R_sp_diag, (int64_t) 1, (int64_t) info, this->eps);
         delete[] R_sp_diag;
     }
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, R_sp_device, k, A_device, lda, lapack_queue);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, dev.R_sp, k, dev.A, lda, lapack_queue);
 
+    step.end();
     if(this -> timing) {
         lapack_queue.sync();
         cholqr_t_stop = steady_clock::now();
     }
+    step.begin("form_R");
 
     // Get the final R-factor: R[0:new_rank, :] = R_sp[0:new_rank, 0:k] * R[0:k, :].
     // After a failed potrf, R_sp[0:new_rank, new_rank:k] may not be a factor, so rebuild it as Q' * A_pre[:, new_rank:k].
     if(new_rank < k)
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, k - new_rank, m, (T) 1.0, A_device, lda, &A_device[lda * new_rank], lda, (T) 0.0, &R_sp_device[k * new_rank], k, lapack_queue);
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, R_sp_device, k, R_device, ldr, lapack_queue);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, k - new_rank, m, (T) 1.0, dev.A, lda, &dev.A[lda * new_rank], lda, (T) 0.0, &dev.R_sp[k * new_rank], k, lapack_queue);
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, dev.R_sp, k, dev.R, ldr, lapack_queue);
     if(new_rank < k)
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, new_rank, n, k - new_rank, (T) 1.0, &R_sp_device[k * new_rank], k, &R_device[new_rank], ldr, (T) 1.0, R_device, ldr, lapack_queue);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, new_rank, n, k - new_rank, (T) 1.0, &dev.R_sp[k * new_rank], k, &dev.R[new_rank], ldr, (T) 1.0, dev.R, ldr, lapack_queue);
 
+    step.end();
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = new_rank;
 
@@ -418,18 +457,15 @@ int CQRRPT_GPU<T, RNG>::call(
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
 
-    blas::device_copy_matrix(m, n, A_device, lda, A, lda, lapack_queue);
-    blas::device_copy_matrix(n, n, R_device, ldr, R, ldr, lapack_queue);
+    step.begin("copy_back");
+    blas::device_copy_matrix(m, n, dev.A, lda, A, lda, lapack_queue);
+    blas::device_copy_matrix(n, n, dev.R, ldr, R, ldr, lapack_queue);
     lapack_queue.sync();
+    dev.synced = true;
+    step.end();
     // Rows past the rank hold leftovers of the sketch's R factor.
     lapack::laset(MatrixType::General, n - new_rank, n, (T) 0.0, (T) 0.0, &R[new_rank], ldr);
-    
-    blas::device_free(A_device, lapack_queue);
-    blas::device_free(R_device, lapack_queue);
-    blas::device_free(R_sp_device, lapack_queue);
-    blas::device_free(W_device, lapack_queue);
-    blas::device_free(J_device, lapack_queue);
-    blas::device_free(d_info, lapack_queue);
+
     delete[] A_hat;
     delete[] tau;
 
