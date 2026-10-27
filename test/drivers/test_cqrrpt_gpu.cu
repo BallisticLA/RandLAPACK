@@ -594,14 +594,9 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
     }
 }
 
-// With timing on, each step's time must cover its device work, not just the kernel launches.
-// The trsm step must last at least as long as the same trsm timed alone. Total must include the
-// final trsm and trmm, so the call may outlast total only by what it does outside total: zeroing
-// R on entry, and its tail, the copies back to the host, the frees and the queue's teardown.
-// Leaving the final trsm out of total adds a whole trsm to that, so the time past total may
-// exceed those parts, each timed alone next to the call, by at most 3/4 of a trsm. Where a trsm
-// is shorter than the copies (fast FP64), that slack cannot cover their noise, and the test skips
-// that bound, saying so. Timing must not change the results. ctest runs this test alone.
+// With timing on, results must not change, the trsm step must last at least a trsm alone, and the call may
+// outlast total by at most its parts outside it (laset of R, copies back, frees), timed alone, plus 3/4 of a trsm:
+// that catches a final trsm left out of total, not a shorter step. Skipped where a trsm is shorter than the copies.
 TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
     int64_t m = 5000;
     int64_t n = 1000;

@@ -148,14 +148,9 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         // 15 entries - logs time for different portions of the algorithm
         std::vector<long> times;
 
-        // Relative tolerance of the rank decisions. A block is judged zero when no entry of its pivot
-        // column exceeds tol times the largest entry of A's first pivot column (a NaN entry counts as
-        // exceeding it, and no block is judged zero if that first column holds an Inf); otherwise its
-        // rank is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|, R_sk being that block's sketch R.
-        // The default, eps, lies below the rounding residue that a numerically rank-deficient A leaves
-        // past its rank, so the zero-block exit fires only on an exactly zero trailing block, and such
-        // an A is usually reported at full rank. To detect numerical rank, set a larger tol, such as
-        // 1e-10, or one set by the problem's noise level.
+        // Relative tolerance of the rank decisions: a block is zero if no entry of its pivot column exceeds tol times
+        // the largest of A's first pivot column; else its rank is the first i with |R_sk(i, i)| < tol * |R_sk(0, 0)|.
+        // The default, eps, finds only exact rank deficiency; for numerical rank use e.g. 1e-10 in double, more in float.
         T tol;
 
         // Core subroutines options, controlled by user
