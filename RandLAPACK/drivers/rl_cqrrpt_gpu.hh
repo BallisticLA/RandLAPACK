@@ -216,8 +216,6 @@ int CQRRPT_GPU<T, RNG>::call(
 
     T* A_hat = new T[d * n]();
     T* tau   = new T[n]();
-    // Buffer for column pivoting.
-    int64_t* J_buf = new int64_t[n]();
 
     // geqp3 reads jpvt on entry (nonzero marks a fixed column), so zero the
     // caller's J to keep its prior contents from steering the pivoting.
@@ -262,7 +260,6 @@ int CQRRPT_GPU<T, RNG>::call(
         this->rank = 0;
         delete[] A_hat;
         delete[] tau;
-        delete[] J_buf;
         return 0;
     }
 
@@ -289,18 +286,6 @@ int CQRRPT_GPU<T, RNG>::call(
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R, ldr);
     lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[ldr * k], ldr);
 
-    if(this -> timing)
-        a_mod_piv_t_start = steady_clock::now();
-
-    // Swap k columns of A with pivots from J
-    blas::copy(n, J, 1, J_buf, 1);
-    util::col_swap(m, n, k, A, lda, J_buf);
-
-    if(this -> timing) {
-        a_mod_piv_t_stop = steady_clock::now();
-        a_mod_trsm_t_start = steady_clock::now();
-    }
-
     /******************************GPU REGION BEGIN*********************************/
     // The reasons for using GPUs for this part only ar the following: 
     // 1. There is no geqp3 available in any GPU linalg libraries. 
@@ -315,6 +300,11 @@ int CQRRPT_GPU<T, RNG>::call(
     T* A_device;
     T* R_device;
     T* R_sp_device;
+    int64_t* J_device;
+    // Gather buffer for pivoting A, rb rows at a time. rb keeps the gather's grid within 65,535
+    // blocks of 8 rows, and W within 2^25 entries (256 MB in double).
+    T* W_device;
+    int64_t rb = std::min({m, (int64_t) 524280, std::max((int64_t) 1, ((int64_t) 1 << 25) / n)});
 
     // Rank estimated a posteriori.
     int64_t new_rank;
@@ -328,6 +318,8 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaMalloc(&A_device, lda * n * sizeof(T));
     cudaMalloc(&R_device, ldr * n * sizeof(T));
     cudaMalloc(&R_sp_device, k * k * sizeof(T));
+    cudaMalloc(&J_device, n * sizeof(int64_t));
+    cudaMalloc(&W_device, rb * n * sizeof(T));
 
     // A and R keep their leading dimensions on the device; only rows 0:m and 0:n are copied.
     // Every copy runs on lapack_queue's stream, so it is ordered against the device work even
@@ -335,6 +327,26 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::device_copy_matrix(m, n, A, lda, A_device, lda, lapack_queue);
     blas::device_copy_matrix(n, n, R, ldr, R_device, ldr, lapack_queue);
     blas::device_memcpy(R_sp_device, R_sp, k * k, lapack_queue);
+    blas::device_memcpy(J_device, J, n, lapack_queue);
+
+    if(this -> timing) {
+        lapack_queue.sync();
+        a_mod_piv_t_start = steady_clock::now();
+    }
+
+    // Permute the columns of A with J on the device: gather each block of rows into W, then copy it
+    // back. Column j of A[:, J] is column J[j] - 1 of A, as util::col_swap gives on the host.
+    for (int64_t r0 = 0; r0 < m; r0 += rb) {
+        int64_t rows = std::min(rb, m - r0);
+        RandLAPACK::cuda_kernels::col_swap_gpu(lapack_queue.stream(), rows, n, n, W_device, rb, &A_device[r0], lda, J_device);
+        blas::device_copy_matrix(rows, n, W_device, rb, &A_device[r0], lda, lapack_queue);
+    }
+
+    if(this -> timing) {
+        lapack_queue.sync();
+        a_mod_piv_t_stop = steady_clock::now();
+        a_mod_trsm_t_start = steady_clock::now();
+    }
 
     //char name [] = "A";
     //RandBLAS::util::print_colmaj(m, n, A, name);
@@ -415,9 +427,10 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaFree(A_device);
     cudaFree(R_device);
     cudaFree(R_sp_device);
+    cudaFree(J_device);
+    cudaFree(W_device);
     blas::device_free(d_info, lapack_queue);
     delete[] A_hat;
-    delete[] J_buf;
     delete[] R_sp;
     delete[] tau;    
     delete[] R_sp_diag;

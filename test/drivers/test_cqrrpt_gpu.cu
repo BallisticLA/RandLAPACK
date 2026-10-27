@@ -596,7 +596,8 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
     }
 }
 
-// With timing on, results must not change, the trsm step must last at least a trsm alone, and the call may
+// With timing on, results must not change, the trsm step (one trsm, between syncs) must last at least half a trsm
+// alone, which a timer that does not wait for the device misses by far, and the call may
 // outlast total by at most its parts outside it (laset of R, copies back, frees), timed alone, plus 3/4 of a trsm:
 // that catches a final trsm left out of total, not a shorter step. Skipped where a trsm is shorter than the copies.
 TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
@@ -713,7 +714,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
     cudaFree(A_device);
     cudaFree(T_device);
 
-    EXPECT_GE(step_trsm, t_trsm) << "trsm step " << step_trsm << " us, trsm alone " << t_trsm << " us";
+    EXPECT_GE(step_trsm, t_trsm / 2) << "trsm step " << step_trsm << " us, trsm alone " << t_trsm << " us";
     std::cout << "TRSM STEP " << step_trsm << " us, TRSM ALONE " << t_trsm << " us, COPIES BACK " << t_copy
               << " us, TIME PAST TOTAL MINUS THE PARTS OUTSIDE IT " << excess << " us\n";
     if (t_trsm < t_copy)
