@@ -16,6 +16,7 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include <chrono>
 #include <numeric>
@@ -83,7 +84,7 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         ///     Stored in 'verbosity'; the algorithm prints nothing.
         ///
         /// @param[in] time_subroutines
-        ///     If true, the call fills 'times' with the durations of its steps, in microseconds.
+        ///     If true, a call that factors A fills 'times' with the durations of its steps; see 'times'.
         ///
         /// @param[in] ep
         ///     The tolerance 'eps' of the a posteriori rank estimate after a failed Cholesky factorization.
@@ -163,7 +164,11 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         T eps;
         int64_t rank;
 
-        // 8 entries
+        // With timing on, 8 durations in microseconds: the sketch and its Gaussian sketch (the first issues the
+        // copy of A), the QRCP of the sketch (with the copies of both sketches to the device, which wait for the
+        // copy of A), the zero test and rank estimate, the pivoting of A, CholQR (syrk, potrf and the trsm that
+        // forms Q), the preconditioning trsm, the rest, and the total. The total covers the whole call: the copies
+        // back and the release of the device memory and queue too. Each device step ends with a sync of the queue.
         std::vector<long> times;
 
         // tuning SASOS
@@ -188,6 +193,25 @@ int CQRRPT_GPU<T, RNG>::call(
     T d_factor,
     RandBLAS::RNGState<RNG> &state
 ){
+    ///--------------------TIMING VARS--------------------/
+    steady_clock::time_point sketch_t_start;
+    steady_clock::time_point sketch_t_stop;
+    steady_clock::time_point qrcp_t_start;
+    steady_clock::time_point qrcp_t_stop;
+    steady_clock::time_point rank_est_t_start;
+    steady_clock::time_point rank_est_t_stop;
+    steady_clock::time_point piv_t_start;
+    steady_clock::time_point piv_t_stop;
+    steady_clock::time_point cholqr_t_start;
+    steady_clock::time_point cholqr_t_stop;
+    steady_clock::time_point trsm_t_start;
+    steady_clock::time_point trsm_t_stop;
+    steady_clock::time_point total_t_start;
+    steady_clock::time_point total_t_stop;
+
+    if(this -> timing)
+        total_t_start = steady_clock::now();
+
     // The most rows that one launch of col_swap_gpu's gather covers: it runs a thread block per 8 rows,
     // and a grid holds at most 65,535 blocks in y.
     const int64_t max_gather_rows = 8 * 65535;
@@ -217,32 +241,6 @@ int CQRRPT_GPU<T, RNG>::call(
         return 0;
     }
 
-    ///--------------------TIMING VARS--------------------/
-    steady_clock::time_point saso_t_stop;
-    steady_clock::time_point saso_t_start;
-    steady_clock::time_point qrcp_t_start;
-    steady_clock::time_point qrcp_t_stop;
-    steady_clock::time_point rank_reveal_t_start;
-    steady_clock::time_point rank_reveal_t_stop;
-    steady_clock::time_point cholqr_t_start;
-    steady_clock::time_point cholqr_t_stop;
-    steady_clock::time_point a_mod_piv_t_start;
-    steady_clock::time_point a_mod_piv_t_stop;
-    steady_clock::time_point a_mod_trsm_t_start;
-    steady_clock::time_point a_mod_trsm_t_stop;
-    steady_clock::time_point total_t_start;
-    steady_clock::time_point total_t_stop;
-    long saso_t_dur        = 0;
-    long qrcp_t_dur        = 0;
-    long rank_reveal_t_dur = 0;
-    long cholqr_t_dur      = 0;
-    long a_mod_piv_t_dur   = 0;
-    long a_mod_trsm_t_dur  = 0;
-    long total_t_dur       = 0;
-
-    if(this -> timing)
-        total_t_start = steady_clock::now();
-
     int64_t k = n;
     int64_t d = d_factor * n;
     // A constant for initial rank estimation.
@@ -266,13 +264,16 @@ int CQRRPT_GPU<T, RNG>::call(
         T* R_sp_diag = nullptr;
         char* work_getrf = nullptr;
         char* work_geqrf = nullptr;
-        ~HostBuffers() {
+        void release() {
             delete[] A_hat;
             delete[] A_hat_sk;
             delete[] R_sp_diag;
             delete[] work_getrf;
             delete[] work_geqrf;
+            A_hat = A_hat_sk = R_sp_diag = nullptr;
+            work_getrf = work_geqrf = nullptr;
         }
+        ~HostBuffers() { release(); }
     } host;
     host.A_hat = new T[d * n]();
     host.A_hat_sk = new T[d_sk * n]();
@@ -281,14 +282,15 @@ int CQRRPT_GPU<T, RNG>::call(
     using lapack::device_info_int;
     using lapack::device_pivot_int;
     // One queue (one stream) for all device work: each call reads what the previous ones wrote,
-    // and only same-stream launches are ordered.
-    lapack::Queue lapack_queue(0);
+    // and only same-stream launches are ordered. A normal exit destroys it before the total timer stops.
+    auto queue_owner = std::make_unique<lapack::Queue>(0);
+    lapack::Queue& lapack_queue = *queue_owner;
     cudaStream_t strm = lapack_queue.stream();
 
-    // The device buffers of this call. The destructor runs on every exit from here on, exceptions
-    // included: unless the call's final sync has run, it waits for the queue, whose copy of A may still
-    // be reading the caller's A, and it then frees the buffers. Neither cudaStreamSynchronize nor
-    // cudaFree (which matches blas::device_malloc) throws, as a destructor must not.
+    // The device buffers of this call. release() runs on every exit from here on, exceptions included,
+    // through the destructor: unless the call's final sync has run, it waits for the queue, whose copy of
+    // A may still be reading the caller's A, and it then frees the buffers. Neither cudaStreamSynchronize
+    // nor cudaFree (which matches blas::device_malloc) throws, as a destructor must not.
     struct DeviceBuffers {
         lapack::Queue& queue;
         bool synced = false;
@@ -307,13 +309,15 @@ int CQRRPT_GPU<T, RNG>::call(
         device_info_int* info = nullptr;
         char* work_getrf = nullptr;
         char* work_geqrf = nullptr;
-        ~DeviceBuffers() {
+        void release() {
             if (!synced)
                 cudaStreamSynchronize(queue.stream());
-            for (void* p : {(void*) A, (void*) R, (void*) R_sp, (void*) W, (void*) A_sk, (void*) A_sk_work, (void*) A_sk_sk, (void*) tau,
-                            (void*) J, (void*) J_lu, (void*) rank, (void*) zero, (void*) info, (void*) work_getrf, (void*) work_geqrf})
-                cudaFree(p);
+            synced = true;
+            auto free = [](auto*& p) { if (p) cudaFree(p); p = nullptr; };
+            free(A); free(R); free(R_sp); free(W); free(A_sk); free(A_sk_work); free(A_sk_sk); free(tau);
+            free(J); free(J_lu); free(rank); free(zero); free(info); free(work_getrf); free(work_geqrf);
         }
+        ~DeviceBuffers() { release(); }
     } dev{lapack_queue};
 
     // The NVTX range of the current step, for profilers. The destructor ends an open range, so that
@@ -376,7 +380,7 @@ int CQRRPT_GPU<T, RNG>::call(
 #endif
 
     if(this -> timing)
-        saso_t_start = steady_clock::now();
+        sketch_t_start = steady_clock::now();
     step.begin("sketch");
 
     // Copy A to the device before the sketch, which only reads A: a pinned A is copied while the host
@@ -412,7 +416,7 @@ int CQRRPT_GPU<T, RNG>::call(
 
     step.end();
     if(this -> timing) {
-        saso_t_stop = steady_clock::now();
+        sketch_t_stop = steady_clock::now();
         qrcp_t_start = steady_clock::now();
     }
     step.begin("qrcp");
@@ -444,7 +448,7 @@ int CQRRPT_GPU<T, RNG>::call(
     if(this -> timing) {
         lapack_queue.sync();
         qrcp_t_stop = steady_clock::now();
-        rank_reveal_t_start = steady_clock::now();
+        rank_est_t_start = steady_clock::now();
     }
     step.begin("rank_est");
 
@@ -471,7 +475,7 @@ int CQRRPT_GPU<T, RNG>::call(
     this->rank = k;
 
     if(this -> timing)
-        rank_reveal_t_stop = steady_clock::now();
+        rank_est_t_stop = steady_clock::now();
 
     // R = [R_sk(0:k, 0:k) upper triangular, R_sk(0:k, k:n)], zero elsewhere. The preconditioner is its
     // leading k by k block.
@@ -481,7 +485,7 @@ int CQRRPT_GPU<T, RNG>::call(
 
     if(this -> timing) {
         lapack_queue.sync();
-        a_mod_piv_t_start = steady_clock::now();
+        piv_t_start = steady_clock::now();
     }
     step.begin("piv_A");
 
@@ -496,8 +500,8 @@ int CQRRPT_GPU<T, RNG>::call(
     step.end();
     if(this -> timing) {
         lapack_queue.sync();
-        a_mod_piv_t_stop = steady_clock::now();
-        a_mod_trsm_t_start = steady_clock::now();
+        piv_t_stop = steady_clock::now();
+        trsm_t_start = steady_clock::now();
     }
     step.begin("precond_A");
 
@@ -508,7 +512,7 @@ int CQRRPT_GPU<T, RNG>::call(
     // Device calls are asynchronous: when timing, wait for each step's work before stopping its timer.
     if(this -> timing) {
         lapack_queue.sync();
-        a_mod_trsm_t_stop = steady_clock::now();
+        trsm_t_stop = steady_clock::now();
         cholqr_t_start = steady_clock::now();
     }
     step.begin("cholqr");
@@ -553,23 +557,6 @@ int CQRRPT_GPU<T, RNG>::call(
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = new_rank;
 
-    if(this -> timing) {
-        lapack_queue.sync();
-        saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
-        qrcp_t_dur        = duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
-        rank_reveal_t_dur = duration_cast<microseconds>(rank_reveal_t_stop - rank_reveal_t_start).count();
-        a_mod_piv_t_dur   = duration_cast<microseconds>(a_mod_piv_t_stop - a_mod_piv_t_start).count();
-        a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
-        cholqr_t_dur      = duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
-
-        total_t_stop = steady_clock::now();
-        total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-        long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur);
-
-        // Fill the data vector
-        this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
-    }
-
     step.begin("copy_back");
     blas::device_copy_matrix(m, n, dev.A, lda, A, lda, lapack_queue);
     blas::device_copy_matrix(n, n, dev.R, ldr, R, ldr, lapack_queue);
@@ -579,6 +566,27 @@ int CQRRPT_GPU<T, RNG>::call(
     step.end();
     // Rows past the rank hold leftovers of the sketch's R factor.
     lapack::laset(MatrixType::General, n - new_rank, n, (T) 0.0, (T) 0.0, &R[new_rank], ldr);
+
+    // Release the memory and the queue here, rather than on return, so that total covers them.
+    dev.release();
+    host.release();
+    queue_owner.reset();
+
+    if(this -> timing) {
+        total_t_stop = steady_clock::now();
+        auto us = [](steady_clock::time_point start, steady_clock::time_point stop) {
+            return (long) duration_cast<microseconds>(stop - start).count();
+        };
+        long sketch_t_dur   = us(sketch_t_start, sketch_t_stop);
+        long qrcp_t_dur     = us(qrcp_t_start, qrcp_t_stop);
+        long rank_est_t_dur = us(rank_est_t_start, rank_est_t_stop);
+        long piv_t_dur      = us(piv_t_start, piv_t_stop);
+        long cholqr_t_dur   = us(cholqr_t_start, cholqr_t_stop);
+        long trsm_t_dur     = us(trsm_t_start, trsm_t_stop);
+        long total_t_dur    = us(total_t_start, total_t_stop);
+        long t_rest = total_t_dur - (sketch_t_dur + qrcp_t_dur + rank_est_t_dur + piv_t_dur + cholqr_t_dur + trsm_t_dur);
+        this -> times = {sketch_t_dur, qrcp_t_dur, rank_est_t_dur, piv_t_dur, cholqr_t_dur, trsm_t_dur, t_rest, total_t_dur};
+    }
 
     return 0;
 }

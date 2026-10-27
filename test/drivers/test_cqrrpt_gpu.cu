@@ -771,15 +771,14 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_leading_dimensions) {
     }
 }
 
-// With timing on, results must not change, the trsm step (one trsm, between syncs) must last at least half a trsm
-// alone, which a timer that does not wait for the device misses by far, and the call may
-// outlast total by at most its parts outside it (laset of R, copies back, frees), timed alone, plus 3/4 of a trsm:
-// that catches a final trsm left out of total, not a shorter step. Skipped where a trsm is shorter than the copies.
+// With timing on, results must not change; the trsm step (one trsm, between syncs) must last at least half a trsm
+// alone, which a timer that does not wait for the device misses by far; and total, which covers the whole call, may
+// fall short of the call's wall time by at most a quarter of the copies back of Q and R, timed alone. That catches a
+// total that leaves out the copies back, the release of the device memory and queue, or a final device step.
 TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
     // Labeled exclusive and run alone by ctest (gpu_exclusive_tests.cmake): wall-clock bounds need an idle host and GPU.
     int64_t m = 5000;
     int64_t n = 1000;
-    int64_t d = 2 * n;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
     std::vector<double> A(m * n);
@@ -812,19 +811,16 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
     queue.sync();
     time_trsm();
 
-    // The driver's tail, alone: on a queue that has run trsm and potrf, copy Q (m-by-n) and R
-    // (n-by-n) back to the host, then free the device buffers and host workspaces of the same
-    // sizes, and destroy the queue. Sets t_copy to the copies' time and returns the whole.
+    // The copies back alone: on a queue that has run trsm and potrf, copy Q (m-by-n) and R (n-by-n)
+    // back to the host. Sets t_copy to the shortest of the calls.
     long t_copy = std::numeric_limits<long>::max();
-    auto time_tail = [&]() {
+    auto time_copies = [&]() {
         auto q = std::make_unique<lapack::Queue>(0);
         auto* d_info = blas::device_malloc<lapack::device_info_int>(1, *q);
         double *Q_device, *R_device, *R_sp_device;
         cudaMalloc(&Q_device, m * n * sizeof(double));
         cudaMalloc(&R_device, n * n * sizeof(double));
         cudaMalloc(&R_sp_device, n * n * sizeof(double));
-        double* A_hat = new double[d * n]();
-        double* R_sp = new double[n * n]();
         blas::device_copy_matrix(m, n, A.data(), m, Q_device, m, *q);
         blas::device_copy_matrix(n, n, T.data(), n, R_sp_device, n, *q);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sp_device, n, Q_device, m, *q);
@@ -839,10 +835,6 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
         cudaFree(R_device);
         cudaFree(R_sp_device);
         blas::device_free(d_info, *q);
-        delete[] A_hat;
-        delete[] R_sp;
-        q.reset();
-        return elapsed(start);
     };
 
     auto run = [&](bool timing, std::vector<double>& Q, std::vector<double>& R, std::vector<int64_t>& J, long& wall) {
@@ -852,49 +844,43 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_timing_covers_device_work) {
         RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, timing, tol);
         CQRRPT_GPU.nnz = 2;
         auto s = RandBLAS::RNGState();
-        // The driver zeroes R on entry, before starting total. Time the same laset on R, in the
-        // same state, right before the call, and leave it out of the time past total.
-        auto start_laset = std::chrono::steady_clock::now();
-        lapack::laset(MatrixType::General, n, n, 0.0, 0.0, R.data(), n);
-        long t_laset = elapsed(start_laset);
         auto start = std::chrono::steady_clock::now();
         EXPECT_EQ(CQRRPT_GPU.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, s), 0);
-        wall = elapsed(start) - t_laset;
+        wall = elapsed(start);
         return CQRRPT_GPU.times;
     };
     std::vector<double> Q_on, R_on, Q_off, R_off;
     std::vector<int64_t> J_on, J_off;
     long wall = 0;
     run(false, Q_off, R_off, J_off, wall);
-    // A stall on a busy machine can break a single timed call or tail, while the defects show
-    // in every call: keep the longest trsm step, and the median excess, of 3 timed calls.
+    // A stall on a busy machine can break a single timed call, while the defects show in every
+    // call: keep the longest trsm step, and the median time past total, of 3 timed calls.
     long step_trsm = 0;
-    std::vector<long> excesses;
+    std::vector<long> pasts;
     for (int rep = 0; rep < 3; ++rep) {
         auto times = run(true, Q_on, R_on, J_on, wall);
-        // times = {saso, qrcp, rank_reveal, cholqr, a_mod_piv, a_mod_trsm, rest, total}
+        // times = {sketch, qrcp, rank_est, pivot, cholqr, trsm, rest, total}
         ASSERT_EQ(times.size(), 8u);
-        long past = wall - times[7];
-        excesses.push_back(past - time_tail());
+        for (int i = 0; i < 8; ++i)
+            EXPECT_GE(times[i], 0) << "times[" << i << "]";
+        pasts.push_back(wall - times[7]);
         step_trsm = std::max(step_trsm, times[5]);
         EXPECT_EQ(Q_on, Q_off);
         EXPECT_EQ(R_on, R_off);
         EXPECT_EQ(J_on, J_off);
+        time_copies();
     }
-    std::sort(excesses.begin(), excesses.end());
-    long excess = excesses[1];
+    std::sort(pasts.begin(), pasts.end());
+    long past = pasts[1];
     // The GPU's clocks, or other work on it, can slow either set of reference trsm runs.
     time_trsm();
     cudaFree(A_device);
     cudaFree(T_device);
 
-    EXPECT_GE(step_trsm, t_trsm / 2) << "trsm step " << step_trsm << " us, trsm alone " << t_trsm << " us";
     std::cout << "TRSM STEP " << step_trsm << " us, TRSM ALONE " << t_trsm << " us, COPIES BACK " << t_copy
-              << " us, TIME PAST TOTAL MINUS THE PARTS OUTSIDE IT " << excess << " us\n";
-    if (t_trsm < t_copy)
-        GTEST_SKIP() << "time past total not checked: trsm alone (" << t_trsm << " us) is shorter than the copies back ("
-                     << t_copy << " us), as with fast FP64, so 3/4 of a trsm cannot cover their noise. The trsm step and result checks ran.";
-    EXPECT_LT(excess, 3 * t_trsm / 4) << "time past total exceeds the parts outside it, alone, by " << excess << " us; trsm alone " << t_trsm << " us";
+              << " us, TIME PAST TOTAL " << past << " us\n";
+    EXPECT_GE(step_trsm, t_trsm / 2) << "trsm step " << step_trsm << " us, trsm alone " << t_trsm << " us";
+    EXPECT_LT(past, t_copy / 4) << "the call outlasts total by " << past << " us; the copies back alone take " << t_copy << " us";
 }
 
 // R's contents on entry must not matter: with R filled with NaN, CQRRPT_GPU must return exactly
