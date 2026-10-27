@@ -4,6 +4,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
+#include <algorithm>
 #include <fstream>
 #include <tuple>
 #include <gtest/gtest.h>
@@ -803,10 +804,9 @@ TEST_F(TestBQRRP, BQRRP_empty_input) {
     }
 }
 
-// Padded storage: lda = m + 7 must give the result of lda = m, for every qr_tall, apply_trans_q
-// and qrcp_wide choice, and leave the padding rows untouched. Rank and J must match exactly, A and
-// tau to 100 eps relative to their norms: BLAS kernels may round differently for differently
-// aligned data. Shapes: tall, and wide with a clipped last block.
+// Padded storage (lda = m + 7) must give lda = m's result for every variant and leave the padding untouched:
+// rank and J up to the rank exactly, A and tau to 100 eps, as BLAS may round differently on other alignments.
+// Past the rank J comes from pivoting on rounding residue in the last sketch, so A's columns are matched through J.
 TEST_F(TestBQRRP, BQRRP_padded_lda) {
     struct Case { int64_t m, n, b_sz; };
     const Case cases[] = {{300, 200, 50}, {200, 300, 64}};
@@ -850,38 +850,74 @@ TEST_F(TestBQRRP, BQRRP_padded_lda) {
                 int64_t rank_ref = run(m, A_ref, tau_ref, J_ref);
                 int64_t rank_pad = run(lda_pad, A_pad, tau_pad, J_pad);
 
+                int64_t r = std::min(rank_ref, rank_pad);
+
+                // J must match up to the rank, and hold the same columns past it. match[j] is the column of
+                // A_ref to compare with column j of A_pad: j up to the rank, the one with the same pivot past it.
+                int64_t J_lead_differ = 0, J_tail_reordered = 0;
+                std::vector<int64_t> match(n, -1), pos_ref(n + 1, -1);
+                for (int64_t j = 0; j < n; ++j) {
+                    if (j < r) {
+                        J_lead_differ += J_pad[j] != J_ref[j];
+                        match[j] = j;
+                    } else {
+                        J_tail_reordered += J_pad[j] != J_ref[j];
+                        if (J_ref[j] >= 1 && J_ref[j] <= n)
+                            pos_ref[J_ref[j]] = j;
+                    }
+                }
+                std::vector<int64_t> tail_ref(J_ref.begin() + r, J_ref.end()), tail_pad(J_pad.begin() + r, J_pad.end());
+                std::sort(tail_ref.begin(), tail_ref.end());
+                std::sort(tail_pad.begin(), tail_pad.end());
+                bool J_tail_same_set = tail_ref == tail_pad;
+                if (J_tail_same_set)
+                    for (int64_t j = r; j < n; ++j)
+                        match[j] = (J_pad[j] >= 1 && J_pad[j] <= n) ? pos_ref[J_pad[j]] : -1;
+
                 // Frobenius norms of A_ref and tau_ref and of the differences; NaN entries are also
                 // counted, since a difference with a NaN would not exceed any bound.
-                double A_norm = 0, A_diff = 0, tau_norm = 0, tau_diff = 0;
-                int64_t pad_changed = 0, nonfinite = 0, J_differ = 0;
+                double A_norm = 0, A_lead_diff = 0, A_tail_diff = 0, tau_norm = 0, tau_diff = 0;
+                int64_t pad_changed = 0, nonfinite = 0, tau_tail_differ = 0;
                 for (int64_t j = 0; j < n; ++j) {
                     for (int64_t i = 0; i < m; ++i) {
-                        double a = A_ref[m * j + i], e = A_pad[lda_pad * j + i] - a;
+                        double a = A_ref[m * j + i], a_pad = A_pad[lda_pad * j + i];
                         A_norm += a * a;
-                        A_diff += e * e;
-                        nonfinite += !std::isfinite(a) + !std::isfinite(A_pad[lda_pad * j + i]);
+                        nonfinite += !std::isfinite(a) + !std::isfinite(a_pad);
+                        double e = match[j] >= 0 ? a_pad - A_ref[m * match[j] + i] : 0.0;
+                        if (j < r)
+                            A_lead_diff += e * e;
+                        else
+                            A_tail_diff += e * e;
                     }
                     for (int64_t i = m; i < lda_pad; ++i)
                         pad_changed += !(A_pad[lda_pad * j + i] == pad);
                 }
                 for (int64_t i = 0; i < n; ++i) {
-                    double e = tau_pad[i] - tau_ref[i];
-                    tau_norm += tau_ref[i] * tau_ref[i];
-                    tau_diff += e * e;
                     nonfinite += !std::isfinite(tau_ref[i]) + !std::isfinite(tau_pad[i]);
-                    J_differ  += J_pad[i] != J_ref[i];
+                    if (i < r) {
+                        double e = tau_pad[i] - tau_ref[i];
+                        tau_norm += tau_ref[i] * tau_ref[i];
+                        tau_diff += e * e;
+                    } else {
+                        tau_tail_differ += tau_pad[i] != tau_ref[i];
+                    }
                 }
-                double A_rel = std::sqrt(A_diff / A_norm), tau_rel = std::sqrt(tau_diff / tau_norm);
+                double A_lead_rel = std::sqrt(A_lead_diff / A_norm), A_tail_rel = std::sqrt(A_tail_diff / A_norm);
+                double tau_rel = std::sqrt(tau_diff / tau_norm);
                 std::cout << std::setw(4) << m << " x " << std::setw(4) << n << ",  " << std::setw(16) << name << ",  " << (qrcp_wide == Subroutines::QRCPWide::luqr ? "luqr " : "geqp3")
-                          << ":  RANK " << rank_pad << " (lda = m: " << rank_ref << "),  RELATIVE DIFFERENCE: A " << std::scientific << std::setprecision(1) << A_rel
-                          << ", tau " << tau_rel << ",  DIFFERING PIVOTS " << J_differ << ",  CHANGED PADDING ENTRIES " << pad_changed << "\n";
+                          << ":  RANK " << rank_pad << " (lda = m: " << rank_ref << "),  RELATIVE DIFFERENCE: A " << std::scientific << std::setprecision(1) << A_lead_rel
+                          << " (past the rank, matched through J: " << A_tail_rel << "), tau " << tau_rel << ",  DIFFERING PIVOTS " << J_lead_differ
+                          << " (past the rank: " << J_tail_reordered << " reordered),  CHANGED PADDING ENTRIES " << pad_changed << "\n";
 
                 double tol = 100 * std::numeric_limits<double>::epsilon();
                 EXPECT_EQ(rank_pad, rank_ref);
-                EXPECT_EQ(J_differ, 0);
+                EXPECT_EQ(J_lead_differ, 0) << "pivots up to the rank";
+                EXPECT_TRUE(J_tail_same_set) << "pivots past the rank must hold the same columns";
                 EXPECT_EQ(nonfinite, 0) << "NaN or Inf entries in A or tau, padded or not";
-                EXPECT_LE(A_rel, tol) << "||A_pad - A_ref||_F / ||A_ref||_F";
-                EXPECT_LE(tau_rel, tol) << "||tau_pad - tau_ref|| / ||tau_ref||";
+                EXPECT_LE(A_lead_rel, tol) << "||A_pad - A_ref||_F / ||A_ref||_F on columns 0:rank";
+                EXPECT_LE(A_tail_rel, tol) << "||A_pad - A_ref||_F / ||A_ref||_F past the rank, columns matched through J";
+                EXPECT_LE(tau_rel, tol) << "||tau_pad - tau_ref|| / ||tau_ref|| on 0:rank";
+                EXPECT_EQ(tau_tail_differ, 0) << "tau past the rank";
                 EXPECT_EQ(pad_changed, 0);
             }
         }
