@@ -256,8 +256,8 @@ jobs:
         run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
 
   # The explicit-LP64 route on Accelerate stays supported and tested: with
-  # the default now resolving to ILP64, this is the one installer lane that
-  # still builds it (core-macos covers it without the installer).
+  # the default resolving to ILP64 (core-macos builds ILP64 too), this is the
+  # one lane that builds it.
   install-macos-lp64:
     runs-on: macos-latest
     steps:

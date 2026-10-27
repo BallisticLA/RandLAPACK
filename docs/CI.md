@@ -16,7 +16,7 @@ installer one.
 |----------|-----|--------|-----------|-----------------|
 | core-linux | `build` | ubuntu-latest | Release build + tests, extras build + tests, benchmark compile (OpenBLAS) | **yes** (`build`) |
 | core-linux | `build-asan` | ubuntu-latest | Debug + AddressSanitizer build and test run | no |
-| core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain (Accelerate new interface, LP64, no OpenMP) | **yes** (`build`) |
+| core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain (Accelerate new interface, ILP64, no OpenMP) | **yes** (`build`) |
 | core-macos | `build-asan` | macos-latest | Debug + AddressSanitizer build and test run | no |
 | core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial ("serial" = RandLAPACK's own loops; the BLAS backend is multithreaded in every leg); each leg ends with a stripped-PATH run of a staged test executable | no |
@@ -78,6 +78,10 @@ installer one.
   explains). Both core-macos jobs therefore `grep` for
   `ACCELERATE_NEW_LAPACK` in the installed `defines.h` and fail loudly
   rather than let a silent fallback to the legacy interface back in.
+- **core-macos builds BLAS++ ILP64** (`-Dblas_int=int64`), the width
+  `install.sh` picks on macOS by default, and checks `defines.h` for
+  `BLAS_ILP64` the same way. `install-macos-lp64` is the one lane that builds
+  Accelerate LP64.
 - **core-linux runs its tests in parallel**: `ctest -j "$(nproc)"` for the
   library tests, and `ctest -j 8 --repeat until-fail:5` for the extras, which
   take about a second. `gtest_discover_tests` makes every test case its own
@@ -229,8 +233,9 @@ a cache-miss run is several minutes slower than a warm one.
   that caches them carries those commits.
 - **Random123 is unpinned in the core lanes**, which clone its default
   branch, so bumping `-v<N>` is also how they pick up a new Random123.
-- **The core-macos key carries an "accelerate" tag**, because earlier caches
-  hold dependencies built without `-Dblas=accelerate`.
+- **The core-macos key carries "accelerate" and "ilp64" tags**, because
+  earlier caches hold dependencies built without `-Dblas=accelerate`, or
+  LP64.
 - **The Windows keys use MANUAL revision literals** (plus the pinned
   BLAS++/LAPACK++ commits), never `hashFiles()`. That helper resolves paths
   relative to the workspace root, and the install-script workflow checks the

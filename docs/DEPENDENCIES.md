@@ -19,7 +19,7 @@ you need the details.
 
 ## Tested setups
 
-Last updated: 2026-10-26.
+Last updated: 2026-10-27.
 
 | Hardware | OS | Compiler | Backend, integer width | OpenMP | Built with | Where, when |
 |---|---|---|---|---|---|---|
@@ -27,7 +27,7 @@ Last updated: 2026-10-26.
 | x86-64 | Ubuntu 24.04.5 | GCC 13.3.0 | OpenBLAS 0.3.26 (`libopenblas64`), ILP64 | on | installer | CI [install-script] `install-linux-openblas64`; 2026-10-26 |
 | Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, ILP64 | on (Homebrew `libomp`) | installer | CI [install-script] `install-macos`; 2026-10-26 |
 | Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, LP64 | on (Homebrew `libomp`) | installer | CI [install-script] `install-macos-lp64`; 2026-10-26 |
-| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, LP64 | off | by hand (Release, and Debug + ASan) | CI [core-macos] `build` and `build-asan`; 2026-10-26 |
+| Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Accelerate, ILP64 | off | by hand (Release, and Debug + ASan) | CI [core-macos] `build` and `build-asan`; 2026-10-27 |
 | Apple Silicon (arm64) | macOS 26.6.2 | Apple Clang 21.0.0 | Homebrew OpenBLAS 0.3.34, LP64 | on (Homebrew `libomp`) | installer (`--blas=openblas`) | CI [install-script] `install-macos-openblas`; 2026-10-26 |
 | x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | oneMKL 2026.1, ILP64 | on | installer; by hand | CI [install-script] `install-windows`, [core-windows] `build-windows`; 2026-10-26 |
 | x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | oneMKL 2026.1, ILP64 | off | by hand, also with oneMKL under a path with spaces | CI [core-windows] `build-windows` and `windows-spaced-path`; 2026-10-26 |
