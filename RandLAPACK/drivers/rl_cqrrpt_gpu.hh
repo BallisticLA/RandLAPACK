@@ -4,7 +4,6 @@
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
-#include "rl_hqrrp.hh"
 
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
@@ -44,14 +43,33 @@ class CQRRPT_GPU_alg {
         ) = 0;
 };
 
+// Struct outside of the CQRRPT_GPU class to make symbols shorter
+struct CQRRPT_GPU_Subroutines {
+    // The QRCP of the d by n sketch A_hat, on the device; CQRRPT_GPU's member 'qrcp' picks one.
+    enum QRCP {
+        // The default. The column pivots come from a row-pivoted LU of the transpose of G * A_hat, where G is
+        // an n by d Gaussian that the host applies to A_hat; an unpivoted QR of the pivoted A_hat then gives R,
+        // as in each block of BQRRP_GPU. The LU sees this Gaussian mix of the sketch rather than the sketch
+        // itself because a sparse sketch can have zero rows, which stall LU with partial pivoting: at such a
+        // step it finds no pivot and keeps the next column in place, even a zero or a dependent one.
+        // With these pivots, the rank estimate can come out a little higher than with GEQP3, CQRRPT's default,
+        // on numerically rank-deficient inputs, while the factors stay accurate.
+        luqr
+    };
+};
+
 template <typename T, typename RNG>
 class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
     public:
 
-        /// The sketch and its QRCP run on the host; the rest of the algorithm runs on the device.
-        /// The QRCP of the sketch is LAPACK's GEQP3 when 'no_hqrrp' is nonzero (the default), and HQRRP
-        /// otherwise, tuned by 'nb_alg', 'oversampling', 'panel_pivoting' and 'use_cholqr'.
+        using Subroutines = CQRRPT_GPU_Subroutines;
+
+        /// The sketch runs on the host, as RandBLAS does not sketch on a GPU yet; everything after it
+        /// runs on the device. The QRCP of the sketch is chosen by 'qrcp', luqr by default; see
+        /// CQRRPT_GPU_Subroutines::QRCP.
         /// The sparse sketching operator has 'nnz' nonzeros per column, 2 by default, as in CQRRPT.
+        /// A in pinned host memory (cudaMallocHost) is copied to the device while the host sketches it;
+        /// the driver does not pin A itself.
         ///
         /// @param[in] verb
         ///     Stored in 'verbosity'; the algorithm prints nothing.
@@ -69,11 +87,7 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
             verbosity = verb;
             timing = time_subroutines;
             eps = ep;
-            no_hqrrp = 1;
-            nb_alg = 64;
-            oversampling = 10;
-            use_cholqr = 0;
-            panel_pivoting = 1;
+            qrcp = Subroutines::QRCP::luqr;
             nnz = 2;
             rank = 0;
         }
@@ -108,8 +122,14 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         ///     Rows 0:rank hold the upper-trapezoidal R factor; all other entries
         ///     of the n-by-n block are zero.
         ///
+        /// @param[in,out] state
+        ///     RNG state of the sketching operators. A call on a nonempty A advances it past the sparse operator
+        ///     and past the Gaussian one, which is drawn from where the sparse one ends, so the two are independent
+        ///     and the same state gives the same result; an empty A leaves it unchanged. CQRRPT with its default
+        ///     QRCP (GEQP3) draws only the sparse operator, so the state it returns differs.
+        ///
         /// @param[out] J
-        ///     Stores n integer type pivot index entries. For an empty A (m = 0 or n = 0),
+        ///     Stores n integer type pivot index entries. For an empty A (m = 0 or n = 0) or a zero A,
         ///     J = 1, ..., n and the rank is 0.
         ///
         /// @return = 0: successful exit. If the Cholesky factorization fails, the rank
@@ -141,12 +161,8 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         int num_threads;
         int64_t nnz;
 
-        // HQRRP-related
-        int no_hqrrp;
-        int64_t nb_alg;
-        int64_t oversampling;
-        int64_t panel_pivoting;
-        int64_t use_cholqr;
+        // QRCP of the sketch
+        Subroutines::QRCP qrcp;
 };
 
 // -----------------------------------------------------------------------------
@@ -209,28 +225,44 @@ int CQRRPT_GPU<T, RNG>::call(
     if(this -> timing)
         total_t_start = steady_clock::now();
 
-    int i;
     int64_t k = n;
     int64_t d = d_factor * n;
+    // The most rows that one launch of col_swap_gpu's gather covers: it runs a thread block per 8 rows,
+    // and a grid holds at most 65,535 blocks in y.
+    const int64_t max_gather_rows = 8 * 65535;
     // A constant for initial rank estimation.
     T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
     // Rank estimated a posteriori.
     int64_t new_rank;
 
-    T* A_hat = new T[d * n]();
-    T* tau   = new T[n]();
+    // Rows of the Gaussian sketch of the sketch, which guides the QRCP of the sketch.
+    int64_t d_sk = n;
 
-    // geqp3 reads jpvt on entry (nonzero marks a fixed column), so zero the
-    // caller's J to keep its prior contents from steering the pivoting.
-    std::fill(J, J + n, (int64_t) 0);
+    // The host buffers of this call, freed on every exit, exceptions included.
+    struct HostBuffers {
+        T* A_hat = nullptr;
+        T* A_hat_sk = nullptr;
+        T* R_sp_diag = nullptr;
+        char* work_getrf = nullptr;
+        char* work_geqrf = nullptr;
+        ~HostBuffers() {
+            delete[] A_hat;
+            delete[] A_hat_sk;
+            delete[] R_sp_diag;
+            delete[] work_getrf;
+            delete[] work_geqrf;
+        }
+    } host;
+    host.A_hat = new T[d * n]();
+    host.A_hat_sk = new T[d_sk * n]();
 
     /******************************DEVICE SETUP*********************************/
-    // The sketch and its QRCP run on the host: RandBLAS does not sketch on a GPU yet, and no GPU
-    // library offers GEQP3. Everything else runs on the device.
     using lapack::device_info_int;
-    // One queue (one stream) for all device work: trsm, syrk, potrf, trsm and trmm
-    // each read what the previous call wrote, and only same-stream launches are ordered.
+    using lapack::device_pivot_int;
+    // One queue (one stream) for all device work: each call reads what the previous ones wrote,
+    // and only same-stream launches are ordered.
     lapack::Queue lapack_queue(0);
+    cudaStream_t strm = lapack_queue.stream();
 
     // The device buffers of this call. The destructor runs on every exit from here on, exceptions
     // included: unless the call's final sync has run, it waits for the queue, whose copy of A may still
@@ -243,17 +275,23 @@ int CQRRPT_GPU<T, RNG>::call(
         T* R = nullptr;
         T* R_sp = nullptr;
         T* W = nullptr;
+        T* A_sk = nullptr;
+        T* A_sk_work = nullptr;
+        T* A_sk_sk = nullptr;
+        T* tau = nullptr;
         int64_t* J = nullptr;
+        device_pivot_int* J_lu = nullptr;
+        int64_t* rank = nullptr;
+        bool* zero = nullptr;
         device_info_int* info = nullptr;
+        char* work_getrf = nullptr;
+        char* work_geqrf = nullptr;
         ~DeviceBuffers() {
             if (!synced)
                 cudaStreamSynchronize(queue.stream());
-            cudaFree(A);
-            cudaFree(R);
-            cudaFree(R_sp);
-            cudaFree(W);
-            cudaFree(J);
-            cudaFree(info);
+            for (void* p : {(void*) A, (void*) R, (void*) R_sp, (void*) W, (void*) A_sk, (void*) A_sk_work, (void*) A_sk_sk, (void*) tau,
+                            (void*) J, (void*) J_lu, (void*) rank, (void*) zero, (void*) info, (void*) work_getrf, (void*) work_geqrf})
+                cudaFree(p);
         }
     } dev{lapack_queue};
 
@@ -266,18 +304,43 @@ int CQRRPT_GPU<T, RNG>::call(
         ~NvtxStep() { end(); }
     } step;
 
+    // Gathers the columns J of the rows by n src into dst, at most max_gather_rows rows per launch.
+    auto gather_rows = [&](int64_t rows, T* dst, int64_t ldd, T* src, int64_t lds) {
+        for (int64_t r0 = 0; r0 < rows; r0 += max_gather_rows)
+            RandLAPACK::cuda_kernels::col_swap_gpu(strm, std::min(max_gather_rows, rows - r0), n, n, &dst[r0], ldd, &src[r0], lds, dev.J);
+    };
+
     // All device memory is allocated here, before any work is queued, and freed after the last sync.
     // A and R keep their leading dimensions on the device. R_sp, sized for k = n, holds the k by k
     // preconditioner, and then the Cholesky factor, with leading dimension k. W is the gather buffer
-    // for pivoting A, rb rows at a time: rb keeps the gather's grid within 65,535 blocks of 8 rows,
-    // and W within 2^25 entries (256 MB in double).
-    int64_t rb = std::min({m, (int64_t) 524280, std::max((int64_t) 1, ((int64_t) 1 << 25) / n)});
-    dev.A    = blas::device_malloc< T >( lda * n, lapack_queue );
-    dev.R    = blas::device_malloc< T >( ldr * n, lapack_queue );
-    dev.R_sp = blas::device_malloc< T >( n * n, lapack_queue );
-    dev.W    = blas::device_malloc< T >( rb * n, lapack_queue );
-    dev.J    = blas::device_malloc< int64_t >( n, lapack_queue );
-    dev.info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    // for pivoting A, rb rows at a time: rb keeps each block of rows to one gather, and W within 2^25
+    // entries (256 MB in double). A_sk is the d by n sketch, and A_sk_sk the d_sk by n sketch of the
+    // sketch. A_sk_work holds the n by d_sk transpose of A_sk_sk for the LU, and then the pivoted sketch
+    // and its QR, with leading dimension d.
+    int64_t rb = std::min({m, max_gather_rows, std::max((int64_t) 1, ((int64_t) 1 << 25) / n)});
+    dev.A         = blas::device_malloc< T >( lda * n, lapack_queue );
+    dev.R         = blas::device_malloc< T >( ldr * n, lapack_queue );
+    dev.R_sp      = blas::device_malloc< T >( n * n, lapack_queue );
+    dev.W         = blas::device_malloc< T >( rb * n, lapack_queue );
+    dev.A_sk      = blas::device_malloc< T >( d * n, lapack_queue );
+    dev.A_sk_work = blas::device_malloc< T >( d * n, lapack_queue );
+    dev.A_sk_sk   = blas::device_malloc< T >( d_sk * n, lapack_queue );
+    dev.tau       = blas::device_malloc< T >( n, lapack_queue );
+    dev.J         = blas::device_malloc< int64_t >( n, lapack_queue );
+    dev.J_lu      = blas::device_malloc< device_pivot_int >( n, lapack_queue );
+    dev.rank      = blas::device_malloc< int64_t >( 1, lapack_queue );
+    dev.zero      = blas::device_malloc< bool >( 1, lapack_queue );
+    dev.info      = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    // Workspaces of the LU of the n by d_sk transpose and of the QR of the d by n pivoted sketch.
+    size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
+    lapack::getrf_work_size_bytes(n, d_sk, dev.A_sk_work, n, &d_size_getrf, &h_size_getrf, lapack_queue);
+    lapack::geqrf_work_size_bytes(d, n, dev.A_sk_work, d, &d_size_geqrf, &h_size_geqrf, lapack_queue);
+    dev.work_getrf = blas::device_malloc< char >( d_size_getrf, lapack_queue );
+    dev.work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
+    if (h_size_getrf > 0)
+        host.work_getrf = new char[h_size_getrf];
+    if (h_size_geqrf > 0)
+        host.work_geqrf = new char[h_size_geqrf];
     // potrf grows the queue's workspace when it is too small, which syncs the queue and allocates.
     // Size it now, with the query potrf makes (under the same cuSOLVER version guard), for n. Should
     // the query fail, or the k by k factor need more, potrf grows the workspace itself.
@@ -298,17 +361,29 @@ int CQRRPT_GPU<T, RNG>::call(
     // when the default stream does not synchronize with other streams (per-thread default stream).
     blas::device_copy_matrix(m, n, A, lda, dev.A, lda, lapack_queue);
 
-    /// Generating a SASO
-    RandBLAS::SparseDist DS(d, m, this->nnz);
-    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    RandBLAS::fill_sparse(S);
-    state = S.next_state;
+    // The sketching operators live in this block only: the Gaussian one holds d_sk by d entries.
+    {
+        /// Generating a SASO
+        RandBLAS::SparseDist DS(d, m, this->nnz);
+        RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+        RandBLAS::fill_sparse(S);
+        state = S.next_state;
 
-    /// Applying a SASO
-    RandBLAS::sketch_general(
-        Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
-    );
+        /// Applying a SASO
+        RandBLAS::sketch_general(
+            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, host.A_hat, d
+        );
+
+        // The Gaussian sketch of the sketch, G * A_hat with G d_sk by d, whose rows mix all of A_hat's.
+        RandBLAS::DenseDist D_sk(d_sk, d);
+        RandBLAS::DenseSkOp<T, RNG> S_sk(D_sk, state);
+        state = S_sk.next_state;
+        RandBLAS::sketch_general(
+            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            d_sk, n, d, (T) 1.0, S_sk, 0, 0, host.A_hat, d, (T) 0.0, host.A_hat_sk, d_sk
+        );
+    }
 
     step.end();
     if(this -> timing) {
@@ -317,52 +392,55 @@ int CQRRPT_GPU<T, RNG>::call(
     }
     step.begin("qrcp");
 
-    /// Performing QRCP on a sketch
-    if(this->no_hqrrp) {
-        lapack::geqp3(d, n, A_hat, d, J, tau);
-    } else {
-        hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
-    }
+    blas::device_copy_matrix(d, n, host.A_hat, d, dev.A_sk, d, lapack_queue);
+    blas::device_copy_matrix(d_sk, n, host.A_hat_sk, d_sk, dev.A_sk_sk, d_sk, lapack_queue);
+    // QRCP of the sketch through LUQR, as in a block of BQRRP_GPU: the row pivots of an LU of the
+    // transpose of the sketch of the sketch, which is left in A_sk_work, are the column pivots J; then
+    // an unpivoted QR of the pivoted sketch, gathered into A_sk_work, gives R_sk in its upper triangle.
+    RandLAPACK::cuda_kernels::transposition_gpu(strm, d_sk, n, dev.A_sk_sk, d_sk, dev.A_sk_work, n, 0);
+    lapack::getrf(n, d_sk, dev.A_sk_work, n, dev.J_lu, dev.work_getrf, d_size_getrf, host.work_getrf, h_size_getrf, dev.info, lapack_queue);
+    RandLAPACK::cuda_kernels::LUQRCP_piv_process_gpu(strm, d_sk, n, dev.J, dev.J_lu);
+    gather_rows(d, dev.A_sk_work, d, dev.A_sk, d);
+    lapack::geqrf(d, n, dev.A_sk_work, d, dev.tau, dev.work_geqrf, d_size_geqrf, host.work_geqrf, h_size_geqrf, dev.info, lapack_queue);
+    T* R_sk = dev.A_sk_work;
 
     step.end();
     if(this -> timing) {
+        lapack_queue.sync();
         qrcp_t_stop = steady_clock::now();
         rank_reveal_t_start = steady_clock::now();
     }
-
-    // Check if the input is all zeros, as CQRRPT does. dev waits for the copy of A and frees.
-    if (!A_hat[0]) {
-        this->rank = 0;
-        delete[] A_hat;
-        delete[] tau;
-        return 0;
-    }
-
     step.begin("rank_est");
+
+    // Check if the input is all zeros, as CQRRPT does, on the sketch itself: with LU pivoting,
+    // R_sk(0, 0) = 0 does not imply a zero sketch. A NaN entry counts as nonzero.
+    RandLAPACK::cuda_kernels::all_of_async(strm, d * n, (T) 0.0, dev.A_sk, dev.zero);
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
-    /// The actual rank estimate k will be computed a posteriori. 
-    /// Using R[i,i] to approximate the i-th singular value of A_hat. 
+    /// The actual rank estimate k will be computed a posteriori.
+    /// Using R[i,i] to approximate the i-th singular value of A_hat.
     /// Truncate at the largest i where R[i,i] / R[0,0] >= eps.
-    for(i = 0; i < n; ++i) {
-        if(std::abs(A_hat[i * d + i]) / std::abs(A_hat[0]) < eps_initial_rank_estimation) {
-            k = i;
-            break;
-        }
+    RandLAPACK::cuda_kernels::naive_rank_est_async(strm, n, eps_initial_rank_estimation, R_sk, d, dev.rank);
+    bool sketch_zero = false;
+    blas::device_memcpy(&sketch_zero, dev.zero, 1, lapack_queue);
+    blas::device_memcpy(&k, dev.rank, 1, lapack_queue);
+    lapack_queue.sync();
+
+    step.end();
+    // dev waits for the copy of A and frees.
+    if (sketch_zero) {
+        this->rank = 0;
+        std::iota(J, J + n, (int64_t) 1);
+        return 0;
     }
     this->rank = k;
 
-    step.end();
     if(this -> timing)
         rank_reveal_t_stop = steady_clock::now();
 
-    /// Extracting a k by n R representation (k by k upper-triangular, rest - general)
-    lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R, ldr);
-    lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[ldr * k], ldr);
-
-    // Only rows 0:n of R are copied.
-    blas::device_copy_matrix(n, n, R, ldr, dev.R, ldr, lapack_queue);
-    blas::device_memcpy(dev.J, J, n, lapack_queue);
-    // The preconditioner is R's leading k by k block, zero below the diagonal.
+    // R = [R_sk(0:k, 0:k) upper triangular, R_sk(0:k, k:n)], zero elsewhere. The preconditioner is its
+    // leading k by k block.
+    blas::device_memset(dev.R, 0, ldr * n, lapack_queue);
+    RandLAPACK::cuda_kernels::copy_mat_gpu(strm, k, n, R_sk, d, dev.R, ldr, true);
     blas::device_copy_matrix(k, k, dev.R, ldr, dev.R_sp, k, lapack_queue);
 
     if(this -> timing) {
@@ -375,7 +453,7 @@ int CQRRPT_GPU<T, RNG>::call(
     // back. Column j of A[:, J] is column J[j] - 1 of A, as util::col_swap gives on the host.
     for (int64_t r0 = 0; r0 < m; r0 += rb) {
         int64_t rows = std::min(rb, m - r0);
-        RandLAPACK::cuda_kernels::col_swap_gpu(lapack_queue.stream(), rows, n, n, dev.W, rb, &dev.A[r0], lda, dev.J);
+        gather_rows(rows, dev.W, rb, &dev.A[r0], lda);
         blas::device_copy_matrix(rows, n, dev.W, rb, &dev.A[r0], lda, lapack_queue);
     }
 
@@ -412,11 +490,10 @@ int CQRRPT_GPU<T, RNG>::call(
     if (info > 0) {
         // In elements: the host pitch is 1, since we have a column vector; the device pitch is k + 1, so each
         // "row" starts at a diagonal entry of the k by k matrix; each of the k rows is 1 element wide.
-        T* R_sp_diag = new T[k]();
-        blas::device_memcpy_2d(R_sp_diag, (int64_t) 1, dev.R_sp, k + 1, (int64_t) 1, k, lapack_queue);
+        host.R_sp_diag = new T[k]();
+        blas::device_memcpy_2d(host.R_sp_diag, (int64_t) 1, dev.R_sp, k + 1, (int64_t) 1, k, lapack_queue);
         lapack_queue.sync();
-        new_rank = util::cholqr_failure_rank(k, R_sp_diag, (int64_t) 1, (int64_t) info, this->eps);
-        delete[] R_sp_diag;
+        new_rank = util::cholqr_failure_rank(k, host.R_sp_diag, (int64_t) 1, (int64_t) info, this->eps);
     }
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, dev.R_sp, k, dev.A, lda, lapack_queue);
@@ -460,14 +537,12 @@ int CQRRPT_GPU<T, RNG>::call(
     step.begin("copy_back");
     blas::device_copy_matrix(m, n, dev.A, lda, A, lda, lapack_queue);
     blas::device_copy_matrix(n, n, dev.R, ldr, R, ldr, lapack_queue);
+    blas::device_memcpy(J, dev.J, n, lapack_queue);
     lapack_queue.sync();
     dev.synced = true;
     step.end();
     // Rows past the rank hold leftovers of the sketch's R factor.
     lapack::laset(MatrixType::General, n - new_rank, n, (T) 0.0, (T) 0.0, &R[new_rank], ldr);
-
-    delete[] A_hat;
-    delete[] tau;
 
     return 0;
 }

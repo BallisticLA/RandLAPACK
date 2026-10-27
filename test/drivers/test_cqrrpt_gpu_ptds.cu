@@ -36,7 +36,6 @@ TEST(TestCQRRPTPerThreadStream, CQRRPT_GPU_copies_ordered_on_its_queue) {
 
         RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
         CQRRPT_GPU.nnz = 2;
-        CQRRPT_GPU.no_hqrrp = 1;
         for (int rep = 0; rep < num_reps; ++rep) {
             std::vector<double> Q(A), R(n * n, 0.0), AP(A);
             std::vector<int64_t> J(n, 0);
@@ -89,7 +88,6 @@ TEST(TestCQRRPTPerThreadStream, CQRRPT_GPU_pinned_matches_pageable) {
 
         RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
         CQRRPT_GPU.nnz = 2;
-        CQRRPT_GPU.no_hqrrp = 1;
         std::vector<double> Q(A), R(n * n, 0.0), R_pin(n * n, 0.0);
         std::vector<int64_t> J(n, 0), J_pin(n, 0);
         auto state = RandBLAS::RNGState();
