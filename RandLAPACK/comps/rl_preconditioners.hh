@@ -53,12 +53,14 @@ void rpc_data_svd(
         lda_sk = d;
     }
     RandBLAS::util::safe_scal(d*n, (T) 0.0, A_sk);
+    // isometry_scale makes sigma_sk estimate sigma(A), which make_right_orthogonalizer combines with mu.
+    // For left sketching (d <= m) it is right for SparseSkOp, and for DenseSkOp only with Axis::Long.
     RandBLAS::sketch_general(
         layout,
         Op::NoTrans,
         Op::NoTrans,
         d, n, m,
-        1.0, S, 0, 0,
+        (T) S.dist.isometry_scale, S, 0, 0,
         A, lda,
         (T) 0.0, A_sk, lda_sk
     );
@@ -125,7 +127,9 @@ void rpc_data_svd(
  *      represented in "layout" format with leading dimension n.
  * @param[out] sigma_sk
  *      A buffer of size >= n.
- *      On exit, contains all n singular values of a sketch of A.
+ *      On exit, contains all n singular values of a sketch of A. The
+ *      sketching operator is scaled by its distribution's isometry_scale,
+ *      so for d <= m these values estimate the singular values of A.
  * @param[in] state
  *      The RNGState used to generate the sketching operator.
  * @returns

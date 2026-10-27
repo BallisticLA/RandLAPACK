@@ -15,7 +15,8 @@ void check_condnum_after_precond(
     std::vector<T> &M_wk,
     int64_t rank,
     int64_t m,
-    int64_t n
+    int64_t n,
+    T max_cond = 10.0
 ) {
     std::vector<T> A_pc(m * rank, 0.0);
     bool is_colmajor = layout == blas::Layout::ColMajor;
@@ -42,7 +43,7 @@ void check_condnum_after_precond(
         );
     }
     T cond = s[0] / s[rank-1];
-    EXPECT_LE(cond, 10.0);
+    EXPECT_LE(cond, max_cond);
 }
 
 
@@ -169,6 +170,49 @@ class Test_rpc_svd : public ::testing::Test
 
         check_condnum_after_precond(blas::Layout::RowMajor, A_aug, M_wk, rank, m + n, n);
     }
+
+    /*
+     * Generate a 500-by-10 matrix "A" whose j-th column is scaled by 10^-j,
+     * so its singular values straddle sqrt(mu) = 1e-4.
+     *
+     * make_right_orthogonalizer combines the sketch's singular values with mu,
+     * so they must estimate those of A. Check that cond([A; sqrt(mu)*I]*M) <= 2
+     * (an unscaled sketch gives about 3.3).
+     */
+    virtual void test_reg_uses_isometry_scale(
+        uint64_t key_index
+    ){
+        int64_t d_reg = 100;
+        double mu_reg = 1e-8;
+        std::vector<double> A(m*n, 0.0);
+        double *a = A.data();
+        RandBLAS::DenseDist D(m, n, RandBLAS::ScalarDist::Uniform);
+        auto state = RandBLAS::RNGState(99);
+        RandBLAS::fill_dense(D, a, state);
+        for (int64_t j = 0; j < n; ++j)
+            blas::scal(m, std::pow(10.0, -j), &a[j*m], 1);
+
+        std::vector<double> M_wk(d_reg*n, 0.0);
+        std::vector<double> sigma_sk(n, 0.0);
+        auto alg_state = RandBLAS::RNGState(keys[key_index]);
+        RandLAPACK::rpc_data_svd_saso(
+            blas::Layout::ColMajor, m, n, d_reg, 8,
+            A.data(), m, M_wk.data(), sigma_sk.data(), alg_state
+        );
+        int64_t rank = RandLAPACK::make_right_orthogonalizer(
+            blas::Layout::ColMajor,
+            n, M_wk.data(), sigma_sk.data(), mu_reg
+        );
+        EXPECT_EQ(rank, n);
+
+        std::vector<double> A_aug((m + n)*n, 0.0);
+        double sqrt_mu = std::sqrt(mu_reg);
+        for (int64_t j = 0; j < n; ++j) {
+            blas::copy(m, &a[j*m], 1, &A_aug[j*(m + n)], 1);
+            A_aug[m + j + j*(m + n)] = sqrt_mu;
+        }
+        check_condnum_after_precond(blas::Layout::ColMajor, A_aug, M_wk, rank, m + n, n, 2.0);
+    }
 };
 
 TEST_F(Test_rpc_svd, FullRankNoReg_rowmajor_double)
@@ -187,6 +231,12 @@ TEST_F(Test_rpc_svd, FullRankAfterReg)
 {
     test_full_rank_after_reg(0);
     test_full_rank_after_reg(1);
+}
+
+TEST_F(Test_rpc_svd, RegUsesIsometryScale)
+{
+    test_reg_uses_isometry_scale(0);
+    test_reg_uses_isometry_scale(1);
 }
 
 class TestNystromPrecond : public ::testing::Test
