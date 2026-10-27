@@ -300,9 +300,8 @@ int CQRRPT_GPU<T, RNG>::call(
     T* R_device;
     T* R_sp_device;
 
-    // Variables for a posteriori rank estimation.
+    // Rank estimated a posteriori.
     int64_t new_rank;
-    T running_max, running_min, curr_entry;
 
     using lapack::device_info_int;
     // One queue (one stream) for all device work: trsm, syrk, potrf, trsm and trmm
@@ -341,12 +340,8 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::device_memcpy(&info, d_info, 1, lapack_queue);
     lapack_queue.sync();
 
-    // Re-estimate rank after we have the R-factor form Cholesky QR.
-    // The strategy here is the same as in naive rank estimation.
-    // As in CQRRPT, this happens only if potrf failed. potrf completes only the leading
-    // info - 1 columns, and cuSOLVER may leave NaN past them, so the scan stops there.
-    // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
-    // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
+    // If CholQR failed, re-estimate the rank a posteriori from the completed part of R_sp's diagonal,
+    // with CQRRPT's rule; cuSOLVER may leave NaN past the failed column, which the rule never keeps.
     //
     // The approach is slightly complicated due the fact that R_sp is currently allocated on device.
     // In order to avoid creating a specialized kerken function, we would copy the diagonal of R_sp 
@@ -358,24 +353,7 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::device_memcpy_2d(R_sp_diag, (int64_t) 1, R_sp_device, k + 1, (int64_t) 1, k, lapack_queue);
     lapack_queue.sync();
 
-    new_rank = k;
-    if(info > 0) {
-        T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
-        running_max = R_sp_diag[0];
-        running_min = R_sp_diag[0];
-
-        for(i = 0; i < k; ++i) {
-            curr_entry = std::abs(R_sp_diag[i]);
-            running_max = std::max(running_max, curr_entry);
-            running_min = std::min(running_min, curr_entry);
-            if((i >= info - 1 || running_min * cond_threshold < running_max) && i > 1) {
-                new_rank = i - 1;
-                break;
-            }
-        }
-        // Never keep a column at or past the failed one.
-        new_rank = std::min<int64_t>(new_rank, info - 1);
-    }
+    new_rank = util::cholqr_failure_rank(k, R_sp_diag, (int64_t) 1, (int64_t) info, this->eps);
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, R_sp_device, k, A_device, lda, lapack_queue);
 

@@ -7,9 +7,6 @@
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
-#if defined(RandBLAS_HAS_OpenMP)
-#include <omp.h>
-#endif
 
 using Subroutines = RandLAPACK::CQRRPTSubroutines;
 
@@ -505,44 +502,60 @@ TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_R_consistent) {
     }
 }
 
-#if defined(RandBLAS_HAS_OpenMP)
-// After a failed potrf, the Cholesky diagonal at and past the failed column is not part of a
-// factor, and its values depend on how potrf divides its work among threads. The rank scan must
-// stop at the failed column, so the rank does not depend on the thread count. On this input potrf
-// fails at column 45, and at these tolerances the ratio test does not cut before it, so a scan
-// that read the failed pivot gave 43 or 44 by thread count. A BLAS not threaded by OpenMP may
-// ignore the thread count set here.
-TEST_F(TestCQRRPT, CQRRPT_cholesky_failure_rank_independent_of_threads) {
-    int64_t m = 600;
-    int64_t n = 60;
-    uint32_t seed = 7;
-    std::vector<double> A = cqrrpt_test::sketch_defeating_input(m, n, 2, 2.0, seed, 1.0);
-    const int saved_dynamic = omp_get_dynamic();
-    const int saved_threads = omp_get_max_threads();
-    omp_set_dynamic(0);
-
-    for (double tol : {1e-3, 3e-4, 1e-6}) {
-        SCOPED_TRACE(tol);
-        std::vector<int64_t> ranks;
-        for (int threads : {1, 2, 4, 8}) {
-            omp_set_num_threads(threads);
-            std::vector<double> Q(A), R(n * n, 0.0);
-            std::vector<int64_t> J(n, 0);
-            RandBLAS::RNGState<r123::Philox4x32> state(seed);
-            RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-            CQRRPT.nnz = 2;
-            EXPECT_EQ(CQRRPT.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state), 0);
-            ranks.push_back(CQRRPT.rank);
+// util::cholqr_failure_rank, the rule of both drivers, on synthetic diagonals with potrf failed at
+// column info: the rank must not depend on the failed pivot or anything past it, and must be the same
+// for a contiguous diagonal (as CQRRPT_GPU passes it) and the diagonal of a padded matrix (CQRRPT).
+TEST_F(TestCQRRPT, CQRRPT_cholqr_failure_rank_rule) {
+    auto check = [](auto zero, auto tol) {
+        using T = decltype(zero);
+        const T thr = std::sqrt(tol / std::numeric_limits<T>::epsilon());
+        const T inf = std::numeric_limits<T>::infinity();
+        const T nan = std::numeric_limits<T>::quiet_NaN();
+        const T huge = std::numeric_limits<T>::max();
+        // Completed entries, with max/min 1.5, far below the ratio threshold thr.
+        const T base[] = {1.0, 0.9, 1.1, 0.8, 1.2, 0.95, 1.05, 0.85};
+        // Diagonal base[0:k], with base[pos] replaced by value if pos >= 0.
+        struct Case { const char* name; int64_t k, info, pos; T value; int64_t rank; };
+        const Case cases[] = {
+            {"no failure",                          8, 0, -1, 0,             8},
+            {"info = 1",                            8, 1, -1, 0,             0},
+            {"info = 2",                            8, 2, -1, 0,             1},
+            {"info = 3",                            8, 3, -1, 0,             1},
+            {"info = 5",                            8, 5, -1, 0,             3},
+            {"info = k",                            8, 8, -1, 0,             6},
+            {"k = 2, info = 2",                     2, 2, -1, 0,             1},
+            {"k = 1, info = 1",                     1, 1, -1, 0,             0},
+            {"small entry cuts before failure",     8, 7,  3, 1 / (4 * thr), 2},
+            {"large entry cuts before failure",     8, 7,  4, 4 * thr,       3},
+            {"ratio below threshold, no cut",       8, 7,  3, 4 / thr,       5},
+            {"ratio trips at i = 1, cut at i = 2",  8, 6,  1, 1 / (4 * thr), 1},
+        };
+        for (const auto& c : cases) {
+            for (T failed : {-huge, (T) -1, (T) 0, nan}) {
+                for (T past : {nan, inf, -inf, (T) 0, (T) 1, huge, 1 / (4 * thr)}) {
+                    SCOPED_TRACE(::testing::Message() << (sizeof(T) == 8 ? "double, " : "float, ") << c.name
+                                                      << ", failed pivot " << failed << ", entries past it " << past);
+                    std::vector<T> diag(base, base + c.k);
+                    if (c.pos >= 0)
+                        diag[c.pos] = c.value;
+                    if (c.info > 0) {
+                        diag[c.info - 1] = failed;
+                        for (int64_t i = c.info; i < c.k; ++i)
+                            diag[i] = past;
+                    }
+                    int64_t ldr = c.k + 3;
+                    std::vector<T> R(ldr * c.k, nan);
+                    for (int64_t i = 0; i < c.k; ++i)
+                        R[i + i * ldr] = diag[i];
+                    EXPECT_EQ(RandLAPACK::util::cholqr_failure_rank(c.k, diag.data(), (int64_t) 1, c.info, (T) tol), c.rank);
+                    EXPECT_EQ(RandLAPACK::util::cholqr_failure_rank(c.k, R.data(), ldr + 1, c.info, (T) tol), c.rank);
+                }
+            }
         }
-        std::cout << "tol " << std::scientific << std::setprecision(1) << tol << ":  RANK AT 1, 2, 4, 8 THREADS "
-                  << ranks[0] << ", " << ranks[1] << ", " << ranks[2] << ", " << ranks[3] << "\n";
-        EXPECT_LT(ranks[0], n) << "input no longer makes CholQR fail; the test does not exercise the failure path";
-        EXPECT_EQ(ranks, std::vector<int64_t>(ranks.size(), ranks[0])) << "rank at 1, 2, 4 and 8 threads";
-    }
-    omp_set_num_threads(saved_threads);
-    omp_set_dynamic(saved_dynamic);
+    };
+    check(0.0, 1e-6);
+    check(0.0f, 1e-5f);
 }
-#endif
 
 // A full-rank m-by-2 A on which potrf fails at column 2, exactly and on any BLAS (built by
 // cholesky_failure_k2_input from the count sketch, nnz = 1). With k = 2 the ratio scan, which
