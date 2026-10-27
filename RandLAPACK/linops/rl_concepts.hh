@@ -19,7 +19,7 @@ namespace RandLAPACK::linops {
 // SymmetricLinearOperator accept any of these interchangeably.
 //
 // The concrete types also support multiplication with RandBLAS sketching
-// operators and sparse matrices, plus block-view extraction — but those
+// operators and sparse matrices, plus block-view extraction, but those
 // capabilities are not part of the concept itself.
 
 /*********************************************************/
@@ -54,6 +54,19 @@ concept SymmetricLinearOperator = requires(LinOp A) {
     // If layout is ColMajor then an error will be thrown if min(ldb, ldc) < A.dim.
     //
     { A(layout, n, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
+};
+
+/*********************************************************/
+/*                                                       */
+/*         Optional capability: explicit columns         */
+/*                                                       */
+/*********************************************************/
+// A.materialize_cols(col_start, col_count, buf, ldb) writes columns [col_start, col_start +
+// col_count) of A into the column-major buf (ldb >= A.n_rows) without a product. Code that
+// would apply A to identity columns calls it instead when A provides it.
+template<typename LinOp, typename T = LinOp::scalar_t>
+concept HasMaterializeCols = requires(LinOp A, int64_t col_start, int64_t col_count, T* buf, int64_t ldb) {
+    { A.materialize_cols(col_start, col_count, buf, ldb) } -> std::same_as<void>;
 };
 
 } // end namespace RandLAPACK::linops
