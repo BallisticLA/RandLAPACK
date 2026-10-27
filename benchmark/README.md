@@ -24,10 +24,6 @@ RandLAPACK through `find_package`, exactly as user code does.
     RandLAPACK config, also pass `-Dblaspp_DIR`, `-Dlapackpp_DIR` and
     `-DRandom123_DIR`; the installer builds all three under
     `RandNLA-project/install/`.
-  - If RandLAPACK was built without GPU support but the machine has a CUDA
-    Toolkit, add `-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=TRUE`, as
-    `install.sh` does. Otherwise the project tries to build the GPU benchmark
-    and fails.
   - With oneMKL, load its environment first (`source <oneapi>/setvars.sh`;
     [USING.md](../docs/USING.md#building-it)).
   - On macOS with Homebrew's `libomp`, add the OpenMP settings of
@@ -57,12 +53,9 @@ FetchContent. Some benchmarks also borrow headers from `extras/`.
 
 Prerequisites: RandLAPACK installed with CUDA support (`--gpu` in the
 installer, or `-DRequireCUDA=ON` manually), the CUDA Toolkit, and a GPU. The
-benchmark project builds the GPU benchmark only when CMake finds the CUDA
-Toolkit.
-
-**Known issue:** in the current version the GPU benchmark does not compile,
-so a GPU install has to skip this project for now
-([INSTALL_SCRIPT.md, section 2](../docs/INSTALL_SCRIPT.md#2-requirements)).
+benchmark project builds the GPU benchmarks only when CMake finds the CUDA
+Toolkit and RandLAPACK's BLAS++ and LAPACK++ were built with CUDA; otherwise
+it skips them and says why.
 
 ### BQRRP GPU benchmark
 
@@ -100,9 +93,7 @@ Examples:
 ./BQRRP_GPU_benchmark mat_size 0 1
 ```
 
-### Output files
-
-Written to the current working directory:
+Output files, written to the current working directory:
 
 | File | Contents |
 |---|---|
@@ -110,6 +101,31 @@ Written to the current working directory:
 | `BQRRP_GPU_speed_comparisons_mat_size_*.txt` | matrix size sweep results |
 | `_BQRRP_GPU_runtime_breakdown_qrf_*.txt` | detailed profiling with QRF (profiling enabled) |
 | `_BQRRP_GPU_runtime_breakdown_cholqr_*.txt` | detailed profiling with CholQR (profiling enabled) |
+
+### CQRRPT GPU benchmark
+
+```shell
+./CQRRPT_GPU_benchmark num_rows num_columns [num_runs] [d_factor] [bqrrp_block_sizes]
+```
+
+It times CPU CQRRPT and CQRRPT_GPU in double and float, with A in pageable
+and in pinned host memory. CQRRPT_GPU runs with each QRCP of the sketch:
+`luqr`, and `bqrrp` at each block size in the comma-separated list
+`bqrrp_block_sizes` (default `64,256,0`, where 0 is CQRRPT's rule). It also
+compares the pivot quality of each method against CPU CQRRPT. The defaults
+are 3 runs and `d_factor` 2.0. The `bqrrp` methods are skipped when the
+sketch has more than 524,280 rows (`d_factor` times `num_columns`).
+
+```shell
+./CQRRPT_GPU_benchmark 100000 1000 5 2.0 64,256,0
+```
+
+Output files, written to the current working directory:
+
+| File | Contents |
+|---|---|
+| `*_CQRRPT_GPU_speed_double_<rows>_<columns>.txt`, `*_CQRRPT_GPU_speed_float_<rows>_<columns>.txt` | best time, rank, errors and CQRRPT_GPU's step times for each method |
+| `*_CQRRPT_GPU_pivot_quality_<rows>_<columns>.txt` | pivot quality of each method against CPU CQRRPT, in double |
 
 ## Pinned downloads (for maintainers)
 

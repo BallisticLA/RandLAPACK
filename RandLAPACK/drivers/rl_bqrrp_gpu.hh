@@ -350,6 +350,14 @@ int BQRRP_GPU<T, RNG>::call(
     int64_t* J_copy_col_swap;
     cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
     int64_t* J_copy_col_swap_work = J_copy_col_swap;
+
+    // Device results of the zero-block test and the rank estimate, copied back on strm.
+    T* col_ref_device;
+    cudaMallocAsync(&col_ref_device, sizeof(T), strm);
+    bool* block_zero_device;
+    cudaMallocAsync(&block_zero_device, sizeof(bool), strm);
+    int64_t* block_rank_device;
+    cudaMallocAsync(&block_rank_device, sizeof(int64_t), strm);
     
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
     cudaStreamSynchronize(strm);
@@ -468,11 +476,14 @@ int BQRRP_GPU<T, RNG>::call(
         
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
-        if (iter == 0)
-            RandLAPACK::cuda_kernels::max_abs(strm, rows, A_work, col_ref);
+        if (iter == 0) {
+            RandLAPACK::cuda_kernels::max_abs_async(strm, rows, A_work, col_ref_device);
+            cudaMemcpyAsync(&col_ref, col_ref_device, sizeof(T), cudaMemcpyDeviceToHost, strm);
+            cudaStreamSynchronize(strm);
+        }
         // A NaN entry counts as nonzero, and an Inf in the first pivot column (col_ref Inf) judges
         // no block zero, so the Inf and NaN reach the output.
-        block_zero = RandLAPACK::cuda_kernels::block_is_zero(strm, rows, this -> tol, col_ref, A_work);
+        block_zero = RandLAPACK::cuda_kernels::block_is_zero_async(strm, rows, this -> tol, col_ref, A_work, block_zero_device);
         if(block_zero){
             // Need to update the pivot vector, same as below.
             if(iter == 0) {
@@ -544,6 +555,9 @@ int BQRRP_GPU<T, RNG>::call(
             cudaFree(A_copy_col_swap);
             cudaFree(A_sk_copy_col_swap);
             cudaFree(J_copy_col_swap);
+            cudaFree(col_ref_device);
+            cudaFree(block_zero_device);
+            cudaFree(block_rank_device);
 
             // Freeing workspace info variables
             blas::device_free(d_info, lapack_queue);
@@ -559,6 +573,11 @@ int BQRRP_GPU<T, RNG>::call(
                     blas::device_free(d_work_geqrf_opt, lapack_queue);
                 }
             }
+            // End the open NVTX ranges, piv_A (with timing on) and this iteration's, so that the caller's
+            // ranges stay balanced.
+            if(this -> timing)
+                nvtxRangePop();
+            nvtxRangePop();
             return 0;
         }
         
@@ -574,7 +593,9 @@ int BQRRP_GPU<T, RNG>::call(
         // If this happens, we will terminate at the end of the current iteration.
         // If the internal_nb, used in gemqrt and orhr_col is larger than the updated block_rank, it would need to be updated as well.
         // Updating block_rank affects the way the preconditioning is done, which, in its turn, affects CholQR, ORHR_COL, updating A and updating R.
-        RandLAPACK::cuda_kernels::naive_rank_est(strm, b_sz, this -> tol, R_sk, d, block_rank);
+        RandLAPACK::cuda_kernels::naive_rank_est_async(strm, b_sz, this -> tol, R_sk, d, block_rank_device);
+        cudaMemcpyAsync(&block_rank, block_rank_device, sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+        cudaStreamSynchronize(strm);
 
         if(this -> timing) {
             cudaStreamSynchronize(strm);
@@ -595,7 +616,6 @@ int BQRRP_GPU<T, RNG>::call(
                 nvtxRangePop();
                 updating_J_t_stop  = steady_clock::now();
                 updating_J_t_dur  += duration_cast<microseconds>(updating_J_t_stop - updating_J_t_start).count();
-                nvtxRangePushA("update_R");
             }
         } else {
             if(this -> timing) {
@@ -914,6 +934,9 @@ int BQRRP_GPU<T, RNG>::call(
             cudaFree(A_copy_col_swap);
             cudaFree(A_sk_copy_col_swap); 
             cudaFree(J_copy_col_swap);
+            cudaFree(col_ref_device);
+            cudaFree(block_zero_device);
+            cudaFree(block_rank_device);
 
             // Freeing workspace info variables
             blas::device_free(d_info, lapack_queue);
@@ -926,6 +949,8 @@ int BQRRP_GPU<T, RNG>::call(
             if(this -> qr_tall != GPUSubroutine::QRTall::cholqr){
                 blas::device_free(d_work_geqrf_opt, lapack_queue);
             }
+            // End this iteration's NVTX range, so that the caller's ranges stay balanced.
+            nvtxRangePop();
             return 0;
         }
         if(this -> timing) {

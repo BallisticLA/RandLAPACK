@@ -1,7 +1,8 @@
 foreach(test_name IN LISTS RandLAPACK_tests_gpu_TESTS)
     if(test_name MATCHES "(^|/)TestCQRRPT\\.CQRRPT_GPU_timing_covers_device_work$")
         set_tests_properties("${test_name}" PROPERTIES RUN_SERIAL TRUE LABELS exclusive)
-    elseif(test_name MATCHES "(^|/)TestBQRRP\\.BQRRP_GPU_(repeated_calls_no_leak|empty_input)$")
+    elseif(test_name MATCHES "(^|/)TestBQRRP\\.BQRRP_GPU_(repeated_calls_no_leak|empty_input)$"
+           OR test_name MATCHES "(^|/)TestCQRRPT\\.CQRRPT_GPU_repeated_calls_no_leak$")
         set_tests_properties("${test_name}" PROPERTIES LABELS exclusive)
     endif()
 endforeach()

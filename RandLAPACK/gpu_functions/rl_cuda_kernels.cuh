@@ -564,6 +564,32 @@ __global__ void copy_mat_gpu(
 }
 #endif
 
+// The three reductions below come in two forms. The _async form takes a device pointer for the
+// result and only launches on the stream: it neither allocates nor synchronizes, and the caller
+// copies the result back on the same stream when it needs it. The other form returns the result
+// on the host, through stream-ordered allocation and copies, and synchronizes the stream. The
+// names differ so that a host pointer cannot select the device form.
+
+// Stream-ordered: writes to rank_device the first i with |A(i, i)| / |A(0, 0)| < alpha, or n.
+template <typename T>
+void naive_rank_est_async(
+    cudaStream_t stream,
+    int64_t n,
+    const T alpha,
+    const T* A,
+    int64_t lda,
+    int64_t* rank_device
+) {
+#ifdef USE_CUDA
+    // One block covers the whole diagonal; the kernel's shared array assumes 128 threads.
+    constexpr int threadsPerBlock{128};
+    naive_rank_est<<<1, threadsPerBlock, 0, stream>>>(n, alpha, A, lda, rank_device);
+    check_cuda_error_nosync("Failed to launch naive_rank_est.")
+#else
+    throw std::runtime_error("No CUDA support available.");
+#endif
+}
+
 template <typename T>
 void naive_rank_est(
     cudaStream_t stream, 
@@ -575,18 +601,31 @@ void naive_rank_est(
 ) {
 #ifdef USE_CUDA
     int64_t* rank_device;
-    cudaMalloc(&rank_device, sizeof(int64_t));
+    cudaMallocAsync(&rank_device, sizeof(int64_t), stream);
+    naive_rank_est_async(stream, n, alpha, A, lda, rank_device);
+    cudaMemcpyAsync(&rank, rank_device, sizeof(int64_t), cudaMemcpyDeviceToHost, stream);
+    cudaFreeAsync(rank_device, stream);
+    cudaStreamSynchronize(stream);
+    check_cuda_error_nosync("Failed to run naive_rank_est.")
+#else
+    throw std::runtime_error("No CUDA support available.");
+#endif
+}
 
-    // One block covers the whole diagonal; the kernel's shared array assumes 128 threads.
+// Stream-ordered: writes to all_small_device whether every |A[i]| of the n entries is at most alpha.
+template <typename T>
+void all_of_async(
+    cudaStream_t stream,
+    int64_t n,
+    const T alpha,
+    const T* A,
+    bool* all_small_device
+) {
+#ifdef USE_CUDA
+    // One block covers all n entries.
     constexpr int threadsPerBlock{128};
-    naive_rank_est<<<1, threadsPerBlock, 0, stream>>>(n, alpha, A, lda, rank_device);
-
-    // It seems that these synchs are required, after all
-    cudaStreamSynchronize(stream);
-    cudaMemcpy(&rank, rank_device, sizeof(int64_t), cudaMemcpyDeviceToHost);
-    cudaStreamSynchronize(stream);
-    cudaFree(rank_device);
-    check_cuda_error_nosync("Failed to launch naive_rank_est.")
+    all_of<<<1, threadsPerBlock, 0, stream>>>(n, alpha, A, all_small_device);
+    check_cuda_error_nosync("Failed to launch all_greater.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -602,16 +641,30 @@ void all_of(
 ) {
 #ifdef USE_CUDA
     bool* all_greater_device;
-    cudaMalloc(&all_greater_device, sizeof(bool));
+    cudaMallocAsync(&all_greater_device, sizeof(bool), stream);
+    all_of_async(stream, n, alpha, A, all_greater_device);
+    cudaMemcpyAsync(&all_greater, all_greater_device, sizeof(bool), cudaMemcpyDeviceToHost, stream);
+    cudaFreeAsync(all_greater_device, stream);
+    cudaStreamSynchronize(stream);
+    check_cuda_error_nosync("Failed to run all_greater.")
+#else
+    throw std::runtime_error("No CUDA support available.");
+#endif
+}
 
-    // One block covers all n entries.
+// Stream-ordered: writes to result_device the largest |A[i]| over the n entries of the vector A.
+template <typename T>
+void max_abs_async(
+    cudaStream_t stream,
+    int64_t n,
+    const T* A,
+    T* result_device
+) {
+#ifdef USE_CUDA
+    // One block covers all n entries; the kernel's shared array assumes 128 threads.
     constexpr int threadsPerBlock{128};
-    all_of<<<1, threadsPerBlock, 0, stream>>>(n, alpha, A, all_greater_device);
-    cudaStreamSynchronize(stream);
-    cudaMemcpy(&all_greater, all_greater_device, sizeof(bool), cudaMemcpyDeviceToHost);
-    cudaStreamSynchronize(stream);
-    cudaFree(all_greater_device);
-    check_cuda_error_nosync("Failed to launch all_greater.")
+    max_abs<<<1, threadsPerBlock, 0, stream>>>(n, A, result_device);
+    check_cuda_error_nosync("Failed to launch max_abs.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -627,15 +680,12 @@ void max_abs(
 ) {
 #ifdef USE_CUDA
     T* result_device;
-    cudaMalloc(&result_device, sizeof(T));
-
-    // One block covers all n entries; the kernel's shared array assumes 128 threads.
-    constexpr int threadsPerBlock{128};
-    max_abs<<<1, threadsPerBlock, 0, stream>>>(n, A, result_device);
+    cudaMallocAsync(&result_device, sizeof(T), stream);
+    max_abs_async(stream, n, A, result_device);
+    cudaMemcpyAsync(&result, result_device, sizeof(T), cudaMemcpyDeviceToHost, stream);
+    cudaFreeAsync(result_device, stream);
     cudaStreamSynchronize(stream);
-    cudaMemcpy(&result, result_device, sizeof(T), cudaMemcpyDeviceToHost);
-    cudaFree(result_device);
-    check_cuda_error_nosync("Failed to launch max_abs.")
+    check_cuda_error_nosync("Failed to run max_abs.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -643,6 +693,26 @@ void max_abs(
 
 // BQRRP_GPU's zero-block test: whether every |A[i]| of the n entries is at most tol * col_ref.
 // A NaN entry counts as exceeding it, and a col_ref that is Inf or NaN judges no block zero.
+// block_is_zero_async runs all_of_async on all_small_device, device workspace for one bool, and
+// copies the result back on the stream, which it then synchronizes; it allocates nothing.
+template <typename T>
+bool block_is_zero_async(
+    cudaStream_t stream,
+    int64_t n,
+    const T tol,
+    const T col_ref,
+    const T* A,
+    bool* all_small_device
+) {
+    bool block_zero = false;
+    if (std::isfinite(col_ref)) {
+        all_of_async(stream, n, tol * col_ref, A, all_small_device);
+        cudaMemcpyAsync(&block_zero, all_small_device, sizeof(bool), cudaMemcpyDeviceToHost, stream);
+        cudaStreamSynchronize(stream);
+    }
+    return block_zero;
+}
+
 template <typename T>
 bool block_is_zero(
     cudaStream_t stream,
