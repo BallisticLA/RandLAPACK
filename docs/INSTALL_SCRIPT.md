@@ -1,0 +1,395 @@
+# Installing with `install.sh` (Linux and macOS)
+
+`install.sh` builds RandLAPACK and everything around it with one command: its
+dependencies (BLAS++, LAPACK++, Random123), the `extras/` and `benchmark/`
+projects, and, when GoogleTest is found, the test suite. On native Windows use
+`installers\install.ps1` instead ([INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)).
+To build each piece by hand (an advanced, riskier option), see
+[INSTALL_MANUAL.md](INSTALL_MANUAL.md).
+[DEPENDENCIES.md](DEPENDENCIES.md#key-terms) explains the key terms used
+here.
+
+The script lives at `installers/install.sh`; a small wrapper at the
+repository root keeps `bash install.sh` working.
+
+## 1. Quick start
+
+1. Install the requirements (section 2).
+2. Clone RandLAPACK and run the installer from inside the clone:
+   ```shell
+   mkdir -p ~/RandNLA
+   cd ~/RandNLA
+   git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
+   cd RandLAPACK
+   bash install.sh
+   ```
+   To build a development branch, run `git checkout <branch-name>` before
+   the script.
+3. Check the install by running the test suite:
+   ```shell
+   OMP_NUM_THREADS=1 ctest --test-dir ~/RandNLA/RandNLA-project/build/RandLAPACK-build -j 4
+   ```
+   This runs four tests at a time, each limited to one OpenMP thread
+   (Accelerate on macOS still threads internally), and the suite should
+   pass, typically in a minute or two. Plain `ctest` runs one test at a
+   time, each with many threads, and can take far longer, especially on a
+   busy machine. If you set `RANDNLA_PROJECT_DIR`, the build directory is
+   under it instead; the installer's final summary prints it.
+
+Good to know:
+
+- On a terminal the script may ask questions, for example whether to build
+  with CUDA support when it detects GPU hardware. Section 3 shows how to skip
+  them, and how to reuse dependencies you already installed.
+- Everything goes into `~/RandNLA/RandNLA-project/`, next to your clone
+  (section 4). Re-running the script is an incremental rebuild.
+
+## 2. Requirements
+
+- **A C++20 compiler.** GCC 13.3.0 is the reference version, and GCC 13 the
+  floor: GCC 11 and 12 do not compile the current version. The script notes
+  other versions and continues, and warns below GCC 13.
+- **CMake** 3.24 or later (3.31 recommended). With
+  `--no-extras --no-benchmarks`, 3.21 is enough.
+- **Git.**
+- **A backend**, the BLAS/LAPACK library that does the arithmetic:
+  - on Linux, OpenBLAS or Intel oneMKL 2022 or later. oneMKL is chosen by
+    default when `MKLROOT` is set, which loading oneAPI's environment does
+    (`source <oneapi>/setvars.sh`, or only oneMKL's
+    `<oneapi>/mkl/latest/env/vars.sh`). Keep it loaded wherever you later
+    build or run programs that use RandLAPACK
+    ([USING.md](USING.md#building-it));
+  - on macOS, Apple's Accelerate (macOS 13.3 or later), which needs nothing
+    installed.
+
+  Section 6 covers the choices.
+- **GoogleTest** (optional but recommended). Without it, no tests are built.
+- **For GPU support (optional):** the CUDA Toolkit, an NVIDIA driver and a
+  GCC version your CUDA release accepts, as listed in
+  [DEPENDENCIES.md, "CUDA and GCC versions"](DEPENDENCIES.md#cuda-and-gcc-versions).
+
+On Ubuntu 24.04 and macOS, the [README](../README.md#install) gives the
+package-manager command that installs everything but CUDA.
+
+### Installing the requirements with Spack
+
+Elsewhere, we recommend [Spack](https://github.com/spack/spack). Install,
+load and register the compiler **before** anything else. Loading it does not
+make Spack build with it, so name it (`%gcc@13`) in each spec that Spack
+compiles; oneMKL and CUDA are prebuilt binaries and take no compiler:
+
+```shell
+# Step 1: Install the compiler FIRST
+spack install gcc@13
+
+# Step 2: Load it and register it with Spack
+spack load gcc@13
+spack compiler find
+
+# Step 3: Install all other dependencies with the new compiler
+spack install cmake@3.31 %gcc@13
+spack install intel-oneapi-mkl
+spack install googletest %gcc@13
+
+# For GPU support
+spack install cuda@12.9.0
+```
+
+After installation, load the environment, compiler first. Consider adding
+these lines to your shell startup file:
+
+```shell
+spack load gcc@13
+spack load cmake@3.31
+spack load intel-oneapi-mkl
+spack load googletest
+spack load cuda@12.9.0  # If GPU support needed
+```
+
+## 3. Options
+
+Run `bash install.sh --help` for the full list. Each flag has an
+environment-variable equivalent. The main flags:
+
+| Flag | Effect | Default |
+|---|---|---|
+| `--blas=BACKEND` | backend: `auto`, `openblas`, `mkl`, `accelerate` or `custom` | `auto`: Accelerate on macOS; on Linux, oneMKL when `MKLROOT` is set, otherwise OpenBLAS |
+| `--blas-int=WIDTH` | integer width: `ilp64` or `lp64` (section 6) | `ilp64` where the backend can provide it |
+| `--blas-libraries=L` | link line for `--blas=custom`, used for both BLAS and LAPACK | |
+| `--gpu`, `--no-gpu` | decide GPU support without asking | |
+| `--project-dir=DIR` | place or find `RandNLA-project` at `DIR` | `$RANDNLA_PROJECT_DIR` if set, else `../RandNLA-project` |
+| `--prefix=DIR` | install RandLAPACK itself in `DIR` | `<project-dir>/install/RandLAPACK-install` |
+| `-j`, `--jobs N` | parallel build jobs; lower it if the build runs out of memory | number of cores |
+| `--fresh` | clear the build directories and rebuild the dependencies the script built itself | reuse what matches, so a re-run is an incremental rebuild |
+| `--no-extras`, `--no-benchmarks` | skip the extras or the benchmark project | both are built |
+| `--no-openmp` | configure without OpenMP; to switch an existing install either way, add `--fresh` | |
+| `-y`, `--yes` | skip prompts and accept each default | |
+| `--modify-rc` | append `export` lines to your shell config: `RANDNLA_PROJECT_DIR` and an unused GPU flag | never touch it; the summary prints the lines to add yourself |
+| `--no-progress` | plain one-line-per-step output, no redrawing | |
+
+The extras and benchmark projects need CMake 3.24 or later, and download
+Eigen, fast_matrix_market and Spectra on their first configure (section 5,
+step 7). If either is a problem, skip them with
+`--no-extras --no-benchmarks`.
+
+### Reusing preinstalled dependencies (discovery)
+
+If you already have BLAS++, LAPACK++ or Random123 installed, point the script
+at them and it skips those builds:
+
+```shell
+BLASPP_INSTALL_DIR=/path/to/blaspp-install \
+LAPACKPP_INSTALL_DIR=/path/to/lapackpp-install \
+RANDOM123_INSTALL_DIR=/path/to/random123 \
+bash install.sh
+```
+
+Each variable names an install root: the directory containing
+`lib*/cmake/<pkg>/` or, for Random123, `include/Random123/`. Dependencies the
+script installed on an earlier run are reused automatically. RandBLAS is not
+covered, on purpose: it stays a pinned submodule (see
+[DEPENDENCIES.md, "RandBLAS is a pinned submodule"](DEPENDENCIES.md#randblas-is-a-pinned-submodule)).
+
+### Sharing one dependency tree with RandBLAS
+
+RandLAPACK's and RandBLAS's installers use the same `RandNLA-project` layout,
+and both honour `RANDNLA_PROJECT_DIR`, so setting it once keeps everything in
+one place:
+
+```shell
+export RANDNLA_PROJECT_DIR=$HOME/RandNLA-project
+```
+
+That shares the *location*, not the builds. Each project builds its own
+BLAS++ into a separately named directory (`blaspp-mkl-cpu-install` here,
+`blaspp-mkl-install` for RandBLAS), so that neither can overwrite the other's
+copy while that copy's provenance stamp (section 5) still describes the
+original. To reuse one BLAS++ for both, name it:
+
+```shell
+BLASPP_INSTALL_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-mkl-install bash install.sh
+```
+
+The script then checks that choice by compiling, linking and running against
+it, rather than trusting it.
+
+### Running without prompts
+
+Prompts appear only when stdin is a terminal. Piped and CI runs are already
+non-interactive, with safe defaults (NVIDIA GPU detected: GPU build, but see
+the known issue in section 2; AMD GPU or none: CPU build), so there is no
+need to pipe `yes` into the script:
+
+```shell
+bash install.sh < /dev/null      # or simply: bash install.sh --yes
+```
+
+## 4. After the install
+
+### Where everything is
+
+With the quick-start commands, the layout is:
+
+```
+~/RandNLA/
+├── RandLAPACK/               # Your clone. The script does NOT move it.
+└── RandNLA-project/          # Created automatically
+    ├── lib/
+    │   ├── blaspp/           # Source, fetched at a pinned commit
+    │   ├── lapackpp/         # Source, fetched at a pinned commit
+    │   └── RandLAPACK -> ~/RandNLA/RandLAPACK   # Symlink to your clone
+    ├── install/
+    │   ├── blaspp-<backend>-<cpu|cuda>-install
+    │   ├── lapackpp-<backend>-<cpu|cuda>-install
+    │   ├── random123/
+    │   └── RandLAPACK-install
+    ├── build/                # Build directories and download caches
+    └── install.log           # Full build log, appended on every run
+```
+
+- **Your clone stays where you put it.** `lib/RandLAPACK` is only a symlink
+  to it, so git worktrees keep working.
+- **The dependency install directories are named after their backend and GPU
+  setting**, so a oneMKL and an OpenBLAS build, or a CUDA and a CPU build, sit
+  side by side. The integer width is recorded in each directory's provenance
+  stamp (section 5), so a build of the other width is rebuilt rather than
+  reused.
+
+| What | Where |
+|---|---|
+| Installed headers and CMake config | `~/RandNLA/RandNLA-project/install/RandLAPACK-install/` (or the `--prefix` directory). The config file is under `lib*/cmake/RandLAPACK/`. RandLAPACK is header-only, so there is no library archive. |
+| Test executables | `~/RandNLA/RandNLA-project/build/RandLAPACK-build/bin/` |
+| Extras test executable | `~/RandNLA/RandNLA-project/build/extras-build/test/RandLAPACK_extras_tests` |
+| Benchmark executables | `~/RandNLA/RandNLA-project/build/benchmark-build/`; [`benchmark/README.md`](../benchmark/README.md) explains how to run them, including the GPU benchmarks and their output formats |
+
+### Running only the GPU tests
+
+With GPU support enabled, the GPU tests run as part of the suite. To run only
+them:
+
+```shell
+~/RandNLA/RandNLA-project/build/RandLAPACK-build/bin/RandLAPACK_tests_gpu
+```
+
+A few GPU tests, a timing check and device-memory leak checks, assume that
+nothing else is using the machine or the GPU. They carry the ctest label
+`exclusive`; on a shared machine, skip them with `ctest -LE exclusive`.
+
+### Rebuilding after code changes
+
+After you modify RandLAPACK's source:
+
+```shell
+cmake --build ~/RandNLA/RandNLA-project/build/RandLAPACK-build -j 4 --target install
+```
+
+The install step matters. RandLAPACK is header-only, and the extras, the
+benchmarks and your own projects use the *installed* headers, so they see a
+change only after an install. Re-running `bash install.sh` from your clone
+works too, since re-runs are incremental. Either way, use a shell with the
+same environment you installed from (compiler, CMake, oneMKL if you use it,
+and CUDA if you enabled it).
+
+### Using RandLAPACK in your own CMake project
+
+[USING.md](USING.md) shows how, with a minimal example program. Your
+project needs one flag, `-DRandLAPACK_DIR`, and the installer's final
+summary prints its value for your machine. USING.md also covers oneMKL's
+environment and macOS with Homebrew's `libomp`.
+
+## 5. What the script does
+
+1. **Checks the toolchain** (compiler, CMake 3.21+, Git; extras and benchmarks need 3.24, section 2), reporting
+   everything missing at once rather than failing on the first item.
+2. **Creates the layout** of section 4 and initialises the RandBLAS
+   submodule. RandBLAS stays a pinned submodule, built and installed together
+   with RandLAPACK rather than separately; its own installer exists for
+   people who want RandBLAS alone.
+3. **Builds BLAS++** at a pinned commit, with the selected backend and integer
+   width, then **reads back the width it actually built** (section 6.2).
+4. **Builds LAPACK++** at a pinned commit, against that BLAS++.
+5. **Installs Random123** (header-only) at a pinned tag.
+6. **Builds and installs RandLAPACK, then runs it.** A small test program is
+   compiled, linked and executed against the finished install, checking a
+   BLAS++ `gemm` and a LAPACK++ `gesdd` numerically. A configuration that
+   configures cleanly can still be broken in ways no inspection catches;
+   section 6.3 gives the most important case.
+7. **Builds the extras and benchmark projects**, unless `--no-extras` or
+   `--no-benchmarks` is given. Their first configure downloads Eigen,
+   fast_matrix_market and (for the benchmarks) Spectra, each a pinned,
+   checksummed archive, into `<project-dir>/build/fetchcontent-cache/`, which
+   the two projects share. `--fresh` deletes it with the rest of `build/`.
+
+**When a dependency is reused.** Every dependency is fetched at an immutable
+ref and stamped with its provenance (the source and configuration it was
+built from). It is reused only when it came from the same source *in the
+same configuration*: backend, integer width and GPU setting all count.
+Switching from `--no-gpu` to `--gpu` therefore rebuilds BLAS++ rather than
+silently reusing a CPU-only one.
+
+**Where BLAS++ and LAPACK++ come from.** The BallisticLA forks, at the
+commits (and tag) pinned in
+[`installers/dependency-pins.env`](../installers/dependency-pins.env).
+[DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks) explains why.
+
+## 6. Integer width, backends, and tested setups
+
+### 6.1 What we test
+
+[DEPENDENCIES.md](DEPENDENCIES.md#tested-setups) lists the setups where
+RandLAPACK has been tested, in CI and locally, and [CI.md](CI.md) describes
+the CI lanes. A setup not listed there may well work; it is simply
+untested. No CI job uses a GPU, so `--gpu` is tested locally only.
+
+### 6.2 Which integer width you get, and why
+
+A backend uses either 32-bit (**LP64**) or 64-bit (**ILP64**) integers for
+matrix dimensions. The installer prefers ILP64 wherever the backend can
+genuinely provide it:
+
+| `--blas=` | Width you get | Why |
+|---|---|---|
+| `mkl` | ILP64 | `mkl_intel_ilp64` is a separate library, so requesting it actually selects it |
+| `openblas` | LP64 with a warning, or ILP64 when `libopenblas64` is the only OpenBLAS installed | BLAS++ tries plain `-lopenblas` first; see below |
+| `accelerate` | ILP64 | Apple's new interface (macOS 13.3 or later) ships ILP64 in the framework, and the pinned BLAS++ and LAPACK++ support it ([DEPENDENCIES.md](DEPENDENCIES.md#why-blas-and-lapack-come-from-forks)). Older macOS lacks the new interface entirely, and the installer refuses the legacy one (section 6.4) |
+| `custom` | whatever you pass | you named the library, so its width is yours to state |
+
+**Why OpenBLAS usually gives LP64.** The pinned BLAS++ looks for plain
+`-lopenblas` first and for the ILP64 `-lopenblas64` second
+([blaspp#129](https://github.com/icl-utk-edu/blaspp/pull/129)). Its `int64`
+BLAS probe cannot tell the widths apart, so an LP64 `libopenblas` passes it
+by accident. The LAPACK probe then
+catches the mismatch and fails the whole configure before `-lopenblas64` is
+ever tried, and the installer falls back to LP64 and says so. With
+`libopenblas64` as the only OpenBLAS installed (on Debian/Ubuntu,
+`libopenblas64-dev` without `libopenblas-dev`), `--blas=openblas` gives ILP64.
+Either way, after building, the installer reads the width back out of
+BLAS++'s generated `blas/defines.h` and reports what it actually produced.
+
+**With both installed**, or with an ILP64 OpenBLAS under another name, name
+the library yourself:
+
+```shell
+bash install.sh --blas=custom --blas-int=ilp64 \
+  --blas-libraries=/usr/lib/x86_64-linux-gnu/libopenblas64.so
+```
+
+**An OpenBLAS whose symbols carry a suffix**, such as conda-forge's
+`libopenblas64_` (`dgemm_64_`), needs BLAS++'s `blas_symbol_suffix` option,
+which the installer does not set. Build BLAS++ and LAPACK++ by hand
+([INSTALL_MANUAL.md, "ILP64 OpenBLAS"](INSTALL_MANUAL.md#ilp64-openblas)) and point the
+installer at them with `BLASPP_INSTALL_DIR` and `LAPACKPP_INSTALL_DIR`
+([section 3](#reusing-preinstalled-dependencies-discovery)).
+
+### 6.3 Does LP64 limit RandLAPACK?
+
+Rarely. LP64 limits each matrix dimension, not the number of elements, to
+about 2.1 billion, so a 100,000 x 100,000 matrix is fine. Past that, BLAS++ and LAPACK++ throw an error
+rather than truncate the value.
+
+A *mismatch* is worse: if BLAS++ was built for one width and the backend it
+loads uses the other, there is no such error, and runs fail in confusing
+ways. The installer's verification step (section 5, step 6) is a small
+smoke test that can catch a mismatch, not a guarantee.
+
+### 6.4 macOS: Accelerate, through Apple's new interface only
+
+The macOS default is Accelerate, through Apple's **new** interface (macOS
+13.3 or later), which the pinned BLAS++ and LAPACK++ support. No Homebrew
+BLAS is needed. RandLAPACK does not support Apple's legacy interface, whose
+`gesdd` returns wrong results on Apple Silicon;
+[INSTALL_MANUAL.md, "Apple Accelerate"](INSTALL_MANUAL.md#apple-accelerate-macos) gives the
+details.
+
+- **ILP64 by default.** The installer builds BLAS++ with `-Dblas_int=int64`,
+  and falls back to LP64 with a warning only if that configure fails. Pass
+  `--blas-int=lp64` for an LP64 build.
+- **No silent fallback to the legacy interface.** The installer refuses a
+  build in which BLAS++ fell back to it. It checks BLAS++'s generated
+  `defines.h` right after the build, and again numerically with the `gesdd`
+  check of the verification step (section 5, step 6).
+- **On macOS older than 13.3**, use `--blas=openblas` (after
+  `brew install openblas`).
+- **OpenMP needs Homebrew's `libomp`**, which the installer uses when
+  present: Apple Clang ships no OpenMP runtime. Without it, RandLAPACK's own
+  loops run on one thread, while Accelerate still uses all cores.
+
+## 7. When something goes wrong
+
+- **Read the log.** All compiler output goes to `<project-dir>/install.log`
+  automatically, while the console shows one line per step. Any failure
+  prints the log path and the last lines of the log, so there is no need to
+  `tee` the output yourself.
+- **Common messages**, here and in manual builds:
+
+| Message | Cause and fix |
+|---|---|
+| "BLAS++ requires LAPACK for [cz]rot, [cz]syr, [cz]symv" | BLAS++ was asked for a width the backend does not provide, usually ILP64 (`--blas-int=ilp64`, `-Dblas_int=int64`) with an LP64 OpenBLAS. Drop the request, or install an ILP64 backend (section 6.2). |
+| "static assertion failed: ... index type must match MKL_INT size" | BLAS++ was built LP64 against oneMKL. Rebuild it ILP64: `--blas-int=ilp64` (the default with `--blas=mkl`), or `-Dblas_int=int64` by hand. |
+| "Could not find a package configuration file provided by "blaspp"" (or `lapackpp`, `RandLAPACK`) | The `<package>_DIR` flag names the wrong directory. It must contain `<package>Config.cmake`, sometimes under `lib64` rather than `lib`. |
+| `ctest` reports "No tests were found" | GoogleTest was not found when RandLAPACK was configured. Install it and re-run the installer. |
+| "unsupported GNU version" from `nvcc` | Your GCC is too new for your CUDA release; see the [compatibility table](DEPENDENCIES.md#cuda-and-gcc-versions). |
+| "Could NOT find OpenMP", configuring your own project on macOS | See [USING.md, "macOS with Homebrew's `libomp`"](USING.md#macos-with-homebrews-libomp). |
+
+- **For a manual build**, see also
+  [INSTALL_MANUAL.md, section 7](INSTALL_MANUAL.md#7-troubleshooting).

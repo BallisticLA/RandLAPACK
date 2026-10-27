@@ -144,7 +144,7 @@ jobs:
   # ILP64 OpenBLAS through BLAS++'s own discovery (icl-utk-edu/blaspp#129):
   # with Debian/Ubuntu's libopenblas64 as the only OpenBLAS, --blas=openblas
   # must resolve to ILP64. An LP64 libopenblas beside it would be tried first
-  # and win (INSTALL_SCRIPT.md, section 6.2), so the lane checks there is none.
+  # and win (docs/INSTALL_SCRIPT.md, section 6.2), so the lane checks there is none.
   install-linux-openblas64:
     runs-on: ubuntu-latest
     steps:

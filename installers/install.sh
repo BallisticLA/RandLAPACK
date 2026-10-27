@@ -18,7 +18,8 @@
 # submodule pinned to an exact commit, and that pinned copy stays authoritative.
 # RandBLAS's own installer is for people who want RandBLAS on its own.
 #
-# Prerequisites and tested configurations are listed in INSTALL_SCRIPT.md.
+# Prerequisites are listed in docs/INSTALL_SCRIPT.md, tested setups in
+# docs/DEPENDENCIES.md.
 
 set -euo pipefail
 # macOS ships bash 3.2, where expanding an EMPTY array under `set -u` is an
@@ -240,13 +241,13 @@ if (( ${#MISSING[@]} )); then
         printf '  sudo apt install g++ gfortran cmake git      # Debian, Ubuntu\n' >&2
         printf '  sudo dnf install gcc-c++ gcc-gfortran cmake git  # Fedora, RHEL\n\n' >&2
     fi
-    printf 'See INSTALL_SCRIPT.md for the full prerequisite list.\n' >&2
+    printf 'See docs/INSTALL_SCRIPT.md for the full prerequisite list.\n' >&2
     exit 1
 fi
 
 CMAKE_VERSION="$(cmake --version | head -n1 | awk '{print $3}')"
 if [[ "$(printf '%s\n3.21\n' "$CMAKE_VERSION" | sort -V | head -n1)" != "3.21" ]]; then
-    die "CMake 3.21 or later is required (found $CMAKE_VERSION). See INSTALL_SCRIPT.md."
+    die "CMake 3.21 or later is required (found $CMAKE_VERSION). See docs/INSTALL_SCRIPT.md."
 fi
 
 # GCC 13.3.0 is the reference version. Warn rather than block: newer usually

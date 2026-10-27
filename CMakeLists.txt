@@ -58,7 +58,7 @@ set(RandLAPACK_lapackpp_DIR "${lapackpp_DIR}" CACHE INTERNAL "Location of lapack
 # copy is the only RandBLAS configuration RandLAPACK is developed and tested
 # against. Do not point RandLAPACK at a RandBLAS working copy, and do not
 # develop RandBLAS inside the submodule checkout; clone RandBLAS separately
-# for that (see INSTALL.md, section "RandBLAS is a pinned submodule").
+# for that (see docs/DEPENDENCIES.md, section "RandBLAS is a pinned submodule").
 #
 # RandLAPACK_EXTERNAL_RandBLAS exists for package maintainers only (Spack,
 # conda-forge, ...), whose recipes build RandBLAS as its own package. The
@@ -111,7 +111,7 @@ if (RandLAPACK_EXTERNAL_RandBLAS)
             "pin). Version skew between the two is not supported. Build the "
             "external RandBLAS from exactly the pinned commit, or drop "
             "RandLAPACK_EXTERNAL_RandBLAS to use the submodule. This option "
-            "is intended for package maintainers; see INSTALL.md, section "
+            "is intended for package maintainers; see docs/DEPENDENCIES.md, section "
             "\"RandBLAS is a pinned submodule\".")
     endif()
     message(STATUS "RandBLAS: external install at ${RandBLAS_DIR} (commit ${RandBLAS_COMMIT_HASH}, matches the submodule pin)")

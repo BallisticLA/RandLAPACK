@@ -2,7 +2,7 @@
 # message containing -Expect. Used by core-windows.yaml's guard job to prove
 # the architecture check is wired end to end, not just correct in isolation.
 #
-# The installer is launched exactly as INSTALL_WINDOWS.md prescribes -- via
+# The installer is launched exactly as docs/INSTALL_WINDOWS.md prescribes -- via
 # cmd with -ExecutionPolicy Bypass -- so the documented invocation stays under
 # test alongside the guard itself.
 
