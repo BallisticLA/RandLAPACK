@@ -9,6 +9,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "rl_bench_utils.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -106,7 +107,7 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
         
         std::ofstream file(output_filename, std::ios::out | std::ios::app);
-        file << dur_hqrrp << ",  " << dur_gemm << ",\n";
+        RandLAPACK::bench::write_row(file, dur_hqrrp, dur_gemm);
     }
 }
 
@@ -119,15 +120,10 @@ int main(int argc, char *argv[]) {
     }
 
     // Declare parameters
-    // Fill the block size vector
-    std::vector<int64_t> m_sz;
-    for (int i = 0; i < argc-3; ++i)
-        m_sz.push_back(std::stoi(argv[i + 3]));
+    std::vector<int64_t> m_sz(argc - 3);
+    RandLAPACK::bench::parse_sizes(argc, argv, 3, m_sz.data());
     // Save elements in string for logging purposes
-    std::ostringstream oss;
-    for (const auto &val : m_sz)
-        oss << val << ", ";
-    std::string m_sz_string = oss.str();
+    std::string m_sz_string = RandLAPACK::bench::sizes_string(m_sz.data(), m_sz.size());
 
     auto state          = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
@@ -146,12 +142,7 @@ int main(int argc, char *argv[]) {
     // Declare a data file
     std::string output_filename = "_HQRRP_GEMM_speed_comparisons_mat_size_num_info_lines_" + std::to_string(7) + ".txt";
 
-    std::string path;
-    if (std::string(argv[1]) != ".") {
-        path = std::string(argv[1]) + output_filename;
-    } else {
-        path = output_filename;
-    }
+    std::string path = RandLAPACK::bench::output_path(argv[1], output_filename);
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
@@ -171,8 +162,5 @@ int main(int argc, char *argv[]) {
     for (;i < m_sz.size(); ++i) {
         call_all_algs(m_info, numruns, m_sz[i], m_sz[i], all_data, state_constant, path);
     }
-    auto stop_time_all = steady_clock::now();
-    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
-    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
-    file.flush();   
+    RandLAPACK::bench::write_total_time(file, start_time_all);
 }

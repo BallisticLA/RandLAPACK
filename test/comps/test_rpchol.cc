@@ -45,10 +45,10 @@ class TestRPCholesky : public ::testing::Test {
 
         vector<T> Arecovered(F);
         full_gram(n, Arecovered, blas::Op::NoTrans, k);
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, n, n, Abuff, n, Arecovered.data(), n, __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
-        );
+        ), "");
         // Check that the pivots are reasonable and nontrivial (i.e., not the sequence from 0 to n-1).
         std::set<int64_t> selection_unique{};
         for (auto pivot : selection) {
@@ -103,6 +103,9 @@ class TestRPCholesky : public ::testing::Test {
             atol = std::max(atol, std::min(val1, val2));
         }
         atol = std::sqrt(n) * atol;
+        // potrf can reproduce the Kahan matrix exactly (atol = 0), while rp_cholesky's
+        // reconstruction still rounds; the Gram entries are about 1 in magnitude.
+        atol = std::max(atol, (T) n * std::numeric_limits<T>::epsilon());
 
         T* Abuff = Avec.data();
         auto A = [Abuff, n](int64_t i, int64_t j) { return Abuff[i + n*j]; };
@@ -132,8 +135,7 @@ TEST_F(TestRPCholesky, test_exact_diag_b2) {
         run_exact_diag<T>(100, 2, 2, i);
     }
 }
-// TEMPORARILY DISABLED PER REPEATED FAILURE
-/*
+
 TEST_F(TestRPCholesky, test_exact_kahan_gram_b1) {
     using T = float;
     for (uint32_t i = 2012; i < 2019; ++i) {
@@ -141,7 +143,7 @@ TEST_F(TestRPCholesky, test_exact_kahan_gram_b1) {
         run_exact_kahan_gram<T>(10, 1, i);
     }
 }
-*/
+
 TEST_F(TestRPCholesky, test_exact_kahan_gram_b2) {
     using T = float;
     for (uint32_t i = 2012; i < 2019; ++i) {
@@ -155,12 +157,7 @@ TEST_F(TestRPCholesky, test_exact_kahan_gram_b3) {
     using T = float;
     for (uint32_t i = 2012; i < 2019; ++i) {
         run_exact_kahan_gram<T>(9,   3, i);
-        if (i != 2017) {
-            // This fails when i==2017 due to nontrivial
-            // (but esoteric) numerical issues. So we just
-            // skip the n=10, b=3 case when when i==2017.
-            run_exact_kahan_gram<T>(10,  3, i);
-        }
+        run_exact_kahan_gram<T>(10,  3, i);
         run_exact_kahan_gram<T>(11,  3, i);
         run_exact_kahan_gram<T>(12,  3, i);
     }

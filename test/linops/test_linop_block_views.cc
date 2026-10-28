@@ -81,12 +81,16 @@ protected:
             }
         }
 
-        RandBLAS::testing::matrices_approx_equal(
+        // The two gemms may block each n-term dot product differently: error ~ n*eps*|C|.
+        T atol = 100 * std::numeric_limits<T>::epsilon();
+        T rtol = 10 * std::numeric_limits<T>::epsilon();
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_block.data(), row_count,
             C_expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
-        );
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
+            atol, rtol
+        ), "");
     }
 
     /// Test DenseLinOp::col_block by comparing B * A_view against
@@ -137,12 +141,16 @@ protected:
             }
         }
 
-        RandBLAS::testing::matrices_approx_equal(
+        // The two gemms may block each m-term dot product differently: error ~ m*eps*|C|.
+        T atol = 100 * std::numeric_limits<T>::epsilon();
+        T rtol = 10 * std::numeric_limits<T>::epsilon();
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, k, col_count,
             C_block.data(), k,
             C_expected.data(), k,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
-        );
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
+            atol, rtol
+        ), "");
     }
 
     /// Test DenseLinOp::submatrix by verifying that it extracts the correct
@@ -192,12 +200,12 @@ protected:
                    alpha, A_sub_dense.data(), ld_sub, B.data(), ldb,
                    beta, C_expected.data(), ldc);
 
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_block.data(), row_count,
             C_expected.data(), row_count,
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
-        );
+        ), "");
     }
 };
 
@@ -345,13 +353,13 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_block.data(), row_count,
             C_expected.data(), row_count,
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
-        );
+        ), "");
     }
 
     /// Test csr_split_row_blocks: split and verify all blocks are correct.
@@ -402,13 +410,13 @@ protected:
 
             T atol = 100 * std::numeric_limits<T>::epsilon();
             T rtol = 10 * std::numeric_limits<T>::epsilon();
-            RandBLAS::testing::matrices_approx_equal(
+            EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
                 Layout::ColMajor, Op::NoTrans, block_size, k,
                 C_block.data(), block_size,
                 C_expected.data(), block_size,
                 __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
                 atol, rtol
-            );
+            ), "");
         }
     }
 };
@@ -543,13 +551,13 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, k, col_count,
             C_block.data(), k,
             C_expected.data(), k,
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
-        );
+        ), "");
     }
 
     /// Test csc_split_col_blocks: split and verify all blocks are correct.
@@ -600,13 +608,13 @@ protected:
 
             T atol = 100 * std::numeric_limits<T>::epsilon();
             T rtol = 10 * std::numeric_limits<T>::epsilon();
-            RandBLAS::testing::matrices_approx_equal(
+            EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
                 Layout::ColMajor, Op::NoTrans, k, block_size,
                 C_block.data(), k,
                 C_expected.data(), k,
                 __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
                 atol, rtol
-            );
+            ), "");
         }
     }
 };
@@ -775,13 +783,13 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, k,
             C_block.data(), m,
             C_expected.data(), m,
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
-        );
+        ), "");
     }
 
     /// Test csr_split_col_blocks: split and verify all blocks are correct.
@@ -1100,11 +1108,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, n,
             blk_dense.data(), row_count,
             expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     /// Test SparseLinOp<CSR>::col_block by comparing densified result
@@ -1127,11 +1135,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, col_count,
             blk_dense.data(), m,
             expected.data(), m,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     /// Test SparseLinOp<CSR>::submatrix by comparing densified result
@@ -1155,11 +1163,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, col_count,
             blk_dense.data(), row_count,
             expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     // ---------------------------------------------------------------
@@ -1185,11 +1193,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, n,
             blk_dense.data(), row_count,
             expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     /// Test SparseLinOp<CSC>::col_block (natural direction for CSC).
@@ -1211,11 +1219,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, col_count,
             blk_dense.data(), m,
             expected.data(), m,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     /// Test SparseLinOp<CSC>::submatrix.
@@ -1238,11 +1246,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, col_count,
             blk_dense.data(), row_count,
             expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 };
 
@@ -1390,11 +1398,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_blk.data(), row_count,
             C_expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     /// Test CompositeOperator<Dense,Dense>::col_block.
@@ -1443,11 +1451,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, k, col_count,
             C_blk.data(), k,
             C_expected.data(), k,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     /// Test CompositeOperator<Dense,Dense>::submatrix.
@@ -1498,11 +1506,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_blk.data(), row_count,
             C_expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     // ---------------------------------------------------------------
@@ -1544,11 +1552,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_blk.data(), row_count,
             C_expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     // ---------------------------------------------------------------
@@ -1592,11 +1600,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, k, col_count,
             C_blk.data(), k,
             C_expected.data(), k,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 
     /// Test CompositeOperator<Dense,Sparse(CSC)>::submatrix.
@@ -1644,11 +1652,11 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        RandBLAS::testing::matrices_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_blk.data(), row_count,
             C_expected.data(), row_count,
-            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol);
+            __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol), "");
     }
 };
 

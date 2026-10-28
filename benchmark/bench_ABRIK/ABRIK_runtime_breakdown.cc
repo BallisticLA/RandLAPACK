@@ -27,7 +27,7 @@ Usage:
 #include "rl_blaspp.hh"
 #include "rl_linops.hh"
 #include "ext_matrix_io.hh"
-#include "abrik_bench_common.hh"
+#include "rl_bench_utils.hh"
 
 #include <RandBLAS.hh>
 #include <chrono>
@@ -90,7 +90,7 @@ static void run_all_configs(
 
 template <typename T>
 static int run_benchmark(int argc, char* argv[]) {
-    if (argc < 7) return abrik_usage(argv[0], kUsage);
+    if (argc < 7) return RandLAPACK::bench::usage_error(argv[0], kUsage);
 
     std::string output_dir = argv[2];
     std::string input_path = argv[3];
@@ -99,7 +99,7 @@ static int run_benchmark(int argc, char* argv[]) {
     int num_mm             = std::stoi(argv[6]);
     if (num_runs < 1 || num_b_sz < 1 || num_mm < 1 || argc < 7 + num_b_sz + num_mm) {
         std::cerr << "Error: num_runs, num_block_sizes and num_matmul_sizes must be >= 1, with every size given\n";
-        return abrik_usage(argv[0], kUsage);
+        return RandLAPACK::bench::usage_error(argv[0], kUsage);
     }
     std::vector<int64_t> block_sizes, matmul_counts;
     for (int i = 0; i < num_b_sz; ++i)
@@ -124,7 +124,7 @@ static int run_benchmark(int argc, char* argv[]) {
     int64_t n = mat.n;
 
     std::ofstream outfile;
-    std::string out_path = abrik_open_csv(output_dir, "ABRIK_runtime_breakdown", outfile);
+    std::string out_path = RandLAPACK::bench::open_csv(output_dir, "ABRIK_runtime_breakdown", outfile);
     if (!outfile) return 1;
 
     std::ostringstream oss_b, oss_m;
@@ -132,7 +132,7 @@ static int run_benchmark(int argc, char* argv[]) {
     for (auto v : matmul_counts) oss_m << v << ", ";
 
     outfile << "# ABRIK runtime breakdown\n"
-            << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
+            << "# RANDLAPACK_GIT_COMMIT=" << RandLAPACK::bench::build_commit() << "\n"
             << "# Precision: " << argv[1] << "\n"
             << "# Input matrix: " << input_path << "\n"
             << "# Input size: " << m << " x " << n << "\n"
@@ -169,5 +169,5 @@ static int run_benchmark(int argc, char* argv[]) {
 }
 
 int main(int argc, char* argv[]) {
-    return abrik_bench_main(argc, argv, kUsage, run_benchmark<double>, run_benchmark<float>);
+    return RandLAPACK::bench::precision_main(argc, argv, kUsage, run_benchmark<double>, run_benchmark<float>);
 }

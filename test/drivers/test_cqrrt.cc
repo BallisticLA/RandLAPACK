@@ -2,11 +2,15 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include <RandLAPACK/testing/rl_test_utils.hh>
 
 #include <RandBLAS.hh>
 #include <fstream>
 #include <iomanip>
 #include <gtest/gtest.h>
+
+using RandLAPACK::testing::QR_test_data;
+using RandLAPACK::testing::norm_and_copy_computational_helper;
 
 class TestCQRRT : public ::testing::Test
 {
@@ -16,81 +20,14 @@ class TestCQRRT : public ::testing::Test
 
     virtual void TearDown() {};
 
-    template <typename T>
-    struct CQRRTTestData {
-        int64_t row;
-        int64_t col;
-        int64_t rank; // has to be modifiable
-        std::vector<T> A;
-        std::vector<T> R;
-        std::vector<T> A_cpy1;
-        std::vector<T> A_cpy2;
-        std::vector<T> I_ref;
-
-        CQRRTTestData(int64_t m, int64_t n, int64_t k) :
-        A(m * n, 0.0), 
-        R(n * n, 0.0),
-        A_cpy1(m * n, 0.0),
-        A_cpy2(m * n, 0.0),
-        I_ref(k * k, 0.0) 
-        {
-            row = m;
-            col = n;
-            rank = k;
-        }
-    };
-
-    template <typename T>
-    static void norm_and_copy_computational_helper(T &norm_A, CQRRTTestData<T> &all_data) {
-        auto m = all_data.row;
-        auto n = all_data.col;
-
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
-        norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-    }
-
-
-    /// This routine also appears in benchmarks, but idk if it should be put into utils
+    /// Prints and checks the error metrics of A = QR, over all n columns of Q.
     template <typename T>
     static void
-    error_check(T &norm_A, CQRRTTestData<T> &all_data) {
+    error_check(T &norm_A, QR_test_data<T> &all_data) {
 
-        auto m = all_data.row;
         auto n = all_data.col;
-        auto k = n;
+        auto [norm_AQR, max_col_norm, col_norm_A, norm_0] = RandLAPACK::testing::qr_test_errors(all_data, n, all_data.A, n);
 
-        RandLAPACK::util::upsize(k * k, all_data.I_ref);
-        RandLAPACK::util::eye(k, k, all_data.I_ref);
-
-        T* A_dat         = all_data.A_cpy1.data();
-        T const* A_cpy_dat = all_data.A_cpy2.data();
-        T const* Q_dat   = all_data.A.data();
-        T const* R_dat   = all_data.R.data();
-        T* I_ref_dat     = all_data.I_ref.data();
-
-        // Check orthogonality of Q
-        // Q' * Q  - I = 0
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, I_ref_dat, k);
-        T norm_0 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
-
-        // A - QR
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, n, -1.0, A_dat, m);
-        
-        // Implementing max col norm metric
-        T max_col_norm = 0.0;
-        T col_norm = 0.0;
-        int max_idx = 0;
-        for(int i = 0; i < n; ++i) {
-            col_norm = blas::nrm2(m, &A_dat[m * i], 1);
-            if(max_col_norm < col_norm) {
-                max_col_norm = col_norm;
-                max_idx = i;
-            }
-        }
-        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
-        T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
-        
         std::cout << "REL NORM OF A - QR:    " << std::scientific << std::setw(15) << norm_AQR / norm_A << "\n";
         std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(15) << max_col_norm / col_norm_A << "\n";
         std::cout << "FRO NORM OF (Q'Q - I)/sqrt(n): " << std::scientific << std::setw(2) << norm_0 / std::sqrt((T) n) << "\n\n";
@@ -110,14 +47,14 @@ class TestCQRRT : public ::testing::Test
     static void test_CQRRT_general(
         T d_factor, 
         T norm_A,
-        CQRRTTestData<T> &all_data,
+        QR_test_data<T> &all_data,
         alg_type &CQRRT,
         RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, d_factor, state);
+        CQRRT.call(m, n, all_data.A, m, all_data.R, n, d_factor, state);
 
         error_check(norm_A, all_data); 
     }
@@ -133,7 +70,7 @@ TEST_F(TestCQRRT, CQRRT_full_rank_no_hqrrp) {
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRTTestData<double> all_data(m, n, k);
+    QR_test_data<double> all_data(m, n, k);
     RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
     CQRRT.nnz = 2;
 
@@ -141,7 +78,7 @@ TEST_F(TestCQRRT, CQRRT_full_rank_no_hqrrp) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
 
@@ -158,7 +95,7 @@ TEST_F(TestCQRRT, CQRRT_large_full_rank) {
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRTTestData<double> all_data(m, n, k);
+    QR_test_data<double> all_data(m, n, k);
     RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
     CQRRT.nnz = 2;
 
@@ -166,7 +103,7 @@ TEST_F(TestCQRRT, CQRRT_large_full_rank) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
 
@@ -183,12 +120,12 @@ TEST_F(TestCQRRT, CQRRT_single_column) {
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRTTestData<double> all_data(m, n, n);
+    QR_test_data<double> all_data(m, n, n);
     RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
     CQRRT.nnz = 2;
 
     RandBLAS::DenseDist D(m, n);
-    state = RandBLAS::fill_dense(D, all_data.A.data(), state);
+    state = RandBLAS::fill_dense(D, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
 
