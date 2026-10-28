@@ -53,10 +53,12 @@ FetchContent. Some benchmarks also borrow headers from `extras/`.
 
 Shared scaffolding lives in `rl_bench_utils.hh` at the root of this directory
 (namespace `RandLAPACK::bench`). It is part of the benchmark project and does
-not install with the library. It holds the argument and output-path helpers,
-the timestamp prefix of result files, the row and footer writers, the
-`QR_benchmark_data` struct with its regeneration routine, and the QR
-error-analysis and pivot-quality helpers. Use these instead of copying them
+not install with the library. It holds the argument and usage helpers, the
+`main()` that dispatches on `double` or `float`, the output-path helpers, the
+timestamp prefix of result files and the timestamped CSV opener, the
+build-commit stamp, the row and footer writers, the `QR_benchmark_data`
+struct with its regeneration routine, and the QR error-analysis and
+pivot-quality helpers. Use these instead of copying them
 from a neighboring driver: external plotting and campaign scripts parse the
 file names and row formats they write.
 

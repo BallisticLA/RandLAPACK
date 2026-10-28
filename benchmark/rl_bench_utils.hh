@@ -11,7 +11,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
+#include <exception>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -23,6 +26,30 @@ namespace bench {
 // ============================================================================
 // Command line and output files
 // ============================================================================
+
+/// Prints the usage line and returns the exit status of an argument error.
+inline int usage_error(const char* argv0, const char* usage) {
+    std::cerr << "Usage: " << argv0 << " " << usage << "\n";
+    return 2;
+}
+
+/// A main() that dispatches on argv[1], "double" or "float" ("single" is a synonym), to run
+/// functions that return the exit status. An exception (an unparsable number, a bad input
+/// file, a library precondition) is reported and exits with 1 instead of aborting.
+inline int precision_main(int argc, char* argv[], const char* usage,
+                          int (*run_double)(int, char**), int (*run_float)(int, char**)) {
+    if (argc < 2) return usage_error(argv[0], usage);
+    std::string precision = argv[1];
+    try {
+        if (precision == "double") return run_double(argc, argv);
+        if (precision == "float" || precision == "single") return run_float(argc, argv);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
+    std::cerr << "Error: precision must be 'double' or 'float', got '" << precision << "'\n";
+    return usage_error(argv[0], usage);
+}
 
 /// Reads argv[first], ..., argv[argc - 1] as sizes into the argc - first entries of sizes.
 inline void parse_sizes(int argc, char* argv[], int first, int64_t* sizes) {
@@ -50,10 +77,12 @@ void grow(T*& buf, int64_t& buf_sz, int64_t needed) {
     buf_sz = needed;
 }
 
-/// Output path in a directory given on the command line. The directory is
-/// prepended verbatim, so it must end in a separator; "." means no prefix.
-inline std::string output_path(const std::string& dir, const std::string& filename) {
-    return (dir != ".") ? dir + filename : filename;
+/// Output path from a prefix given on the command line, prepended verbatim rather than
+/// joined as a directory: campaign scripts pass a directory and the start of a file name,
+/// so <dir>/<date> gives <dir>/<date><filename>. A bare directory must end in a
+/// separator; "." means no prefix.
+inline std::string output_path(const std::string& prefix, const std::string& filename) {
+    return (prefix != ".") ? prefix + filename : filename;
 }
 
 /// Local time as "YYYYmmdd_HHMMSS_", the prefix of timestamped result files.
@@ -68,6 +97,27 @@ inline std::string timestamp_prefix() {
     char prefix[20];
     std::strftime(prefix, sizeof(prefix), "%Y%m%d_%H%M%S_", &local);
     return std::string(prefix);
+}
+
+/// Opens <dir>/<YYYYmmdd_HHMMSS>_<name>.csv for writing and returns its path. Unlike
+/// output_path, dir is a directory: "/" is added unless it already ends in one, and "."
+/// means no prefix. The caller checks the stream: a missing directory leaves it closed.
+inline std::string open_csv(const std::string& dir, const std::string& name, std::ofstream& out) {
+    bool ends_in_separator = !dir.empty() && dir.back() == '/';
+    std::string prefix = (dir == "." || ends_in_separator) ? dir : dir + "/";
+    std::string path   = output_path(prefix, timestamp_prefix() + name + ".csv");
+    out.open(path);
+    if (!out) std::cerr << "Error: cannot open " << path << " for writing\n";
+    return path;
+}
+
+/// The commit the binary was built from, read from the environment variable
+/// RANDLAPACK_GIT_COMMIT that the launching script exports; "unknown" when it is unset or
+/// empty. Read at run time rather than baked in at configure time, so a broken chain
+/// shows "unknown" instead of a stale SHA.
+inline std::string build_commit() {
+    const char* v = std::getenv("RANDLAPACK_GIT_COMMIT");
+    return (v && *v) ? std::string(v) : std::string("unknown");
 }
 
 /// Writes one result row: values separated by ",  ", terminated by ",\n".
