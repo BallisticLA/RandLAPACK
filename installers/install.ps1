@@ -188,7 +188,10 @@ $configureArgs = @(
     "-Dlapackpp_DIR=$env:lapackpp_DIR",
     "-DRandom123_DIR=$env:Random123_DIR",
     "-DCMAKE_PREFIX_PATH=$env:googletest_PREFIX",
-    "-DRANDLAPACK_RUNTIME_DLL_DIRS=$stageDllDirs")
+    "-DRANDLAPACK_RUNTIME_DLL_DIRS=$stageDllDirs",
+    # The RandBLAS submodule's own tests are covered by RandBLAS's CI, and
+    # install.sh skips them the same way.
+    "-DBUILD_TESTS=OFF")
 # OpenMP is ON by default. RandLAPACK's CMake selects MSVC's /openmp:llvm
 # mode, the only one that accepts its 64-bit loop indices and collapse
 # clauses; core-windows exercises that configuration on every run. With the
