@@ -285,6 +285,12 @@ jobs:
           ctest --test-dir RandNLA-project/build/RandLAPACK-build \
                 --output-on-failure
 
+      # The extras tests take about a second; this is Accelerate LP64's only run of them.
+      - name: test the extras
+        run: |
+          ctest --test-dir RandNLA-project/build/extras-build \
+                --output-on-failure
+
       - name: show install.log on failure
         if: failure()
         run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true

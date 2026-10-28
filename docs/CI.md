@@ -26,7 +26,7 @@ installer one.
 | install-script | `install-linux-openblas64` | ubuntu-latest | `install.sh --blas=openblas` with Debian/Ubuntu's `libopenblas64` as the only OpenBLAS: BLAS++ must come out ILP64 and link `libopenblas64`, then the test suite | no |
 | install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, an explicit `--blas-int=ilp64` re-run | **yes** |
 | install-script | `install-macos-openblas` | macos-latest | `install.sh --blas=openblas` with Homebrew's OpenBLAS, which is LP64 only, so the installer must fall back to LP64; then the test suite | no |
-| install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, extras and benchmarks built, then the test suite | no |
+| install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, extras and benchmarks built, then the library and extras tests | no |
 | install-script | `install-windows` | windows-2022 | `installers/install.ps1`: fresh install, idempotent re-run | no |
 
 ## Required checks
@@ -81,9 +81,9 @@ installer one.
 - **core-macos builds BLAS++ ILP64** (`-Dblas_int=int64`), the width
   `install.sh` picks on macOS by default, and checks `defines.h` for
   `BLAS_ILP64` the same way. `install-macos-lp64` is the one lane that builds
-  Accelerate LP64; it runs the test suite and builds the extras and
-  benchmarks, but Accelerate LP64 has no AddressSanitizer run and no extras
-  test run.
+  Accelerate LP64; it runs the library and extras tests and builds the
+  benchmarks, always with OpenMP. Accelerate LP64 has no AddressSanitizer run
+  and no build without OpenMP.
 - **core-linux runs its tests in parallel**: `ctest -j "$(nproc)"` for the
   library tests, and `ctest -j 8 --repeat until-fail:5` for the extras, which
   take about a second. `gtest_discover_tests` makes every test case its own
