@@ -16,6 +16,7 @@
 #include <math.h>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 #include <vector>
 
 #include <iostream>
@@ -42,6 +43,10 @@ void rpc_data_svd(
     T* A_sk = V_sk;
     if (m < n)
         throw std::invalid_argument("Input matrix A must have at least as many rows as columns.");
+    // For d <= m, isometry_scale is a left-sketching scale for sparse S, and for dense S only on Axis::Long.
+    randlapack_require(d <= m) << "sketching dimension d=" << d << " must be <= m=" << m;
+    if constexpr (std::is_same_v<std::remove_cvref_t<decltype(S.dist)>, RandBLAS::DenseDist>)
+        randlapack_require(S.dist.major_axis == RandBLAS::Axis::Long) << "a dense sketching operator must use Axis::Long";
 
     // step 1
     int64_t lda_sk;
@@ -53,12 +58,13 @@ void rpc_data_svd(
         lda_sk = d;
     }
     RandBLAS::util::safe_scal(d*n, (T) 0.0, A_sk);
+    // isometry_scale makes sigma_sk estimate sigma(A), which make_right_orthogonalizer combines with mu.
     RandBLAS::sketch_general(
         layout,
         Op::NoTrans,
         Op::NoTrans,
         d, n, m,
-        1.0, S, 0, 0,
+        (T) S.dist.isometry_scale, S, 0, 0,
         A, lda,
         (T) 0.0, A_sk, lda_sk
     );
@@ -109,7 +115,7 @@ void rpc_data_svd(
  * @param[in] n
  *      The number of columns in A (and rows in V_sk).
  * @param[in] d
- *      The number of rows in the sketched data matrix; must be >= n.
+ *      The number of rows in the sketched data matrix; must satisfy n <= d <= m.
  * @param[in] k
  *      The number of nonzeros per column in the sketching operator
  *      A common value is k=8 when n is on the order of a couple thousand.
@@ -125,7 +131,9 @@ void rpc_data_svd(
  *      represented in "layout" format with leading dimension n.
  * @param[out] sigma_sk
  *      A buffer of size >= n.
- *      On exit, contains all n singular values of a sketch of A.
+ *      On exit, contains all n singular values of a sketch of A. The
+ *      sketching operator is scaled by its distribution's isometry_scale,
+ *      so these values estimate the singular values of A.
  * @param[in] state
  *      The RNGState used to generate the sketching operator.
  * @returns

@@ -15,7 +15,8 @@ void check_condnum_after_precond(
     std::vector<T> &M_wk,
     int64_t rank,
     int64_t m,
-    int64_t n
+    int64_t n,
+    T max_cond = 10.0
 ) {
     std::vector<T> A_pc(m * rank, 0.0);
     bool is_colmajor = layout == blas::Layout::ColMajor;
@@ -42,7 +43,7 @@ void check_condnum_after_precond(
         );
     }
     T cond = s[0] / s[rank-1];
-    EXPECT_LE(cond, 10.0);
+    EXPECT_LE(cond, max_cond);
 }
 
 
@@ -169,6 +170,45 @@ class Test_rpc_svd : public ::testing::Test
 
         check_condnum_after_precond(blas::Layout::RowMajor, A_aug, M_wk, rank, m + n, n);
     }
+
+    /*
+     * Columns scaled by 10^-j, so A's singular values straddle sqrt(mu) and a
+     * mis-scaled sketch unbalances them against mu. Check cond <= 2.
+     */
+    virtual void test_reg_uses_isometry_scale(
+        uint64_t key_index
+    ){
+        int64_t d_reg = 100;
+        double mu_reg = 1e-8;
+        std::vector<double> A(m*n, 0.0);
+        double *a = A.data();
+        RandBLAS::DenseDist D(m, n, RandBLAS::ScalarDist::Uniform);
+        auto state = RandBLAS::RNGState(99);
+        RandBLAS::fill_dense(D, a, state);
+        for (int64_t j = 0; j < n; ++j)
+            blas::scal(m, std::pow(10.0, -j), &a[j*m], 1);
+
+        std::vector<double> M_wk(d_reg*n, 0.0);
+        std::vector<double> sigma_sk(n, 0.0);
+        auto alg_state = RandBLAS::RNGState(keys[key_index]);
+        RandLAPACK::rpc_data_svd_saso(
+            blas::Layout::ColMajor, m, n, d_reg, 8,
+            A.data(), m, M_wk.data(), sigma_sk.data(), alg_state
+        );
+        int64_t rank = RandLAPACK::make_right_orthogonalizer(
+            blas::Layout::ColMajor,
+            n, M_wk.data(), sigma_sk.data(), mu_reg
+        );
+        EXPECT_EQ(rank, n);
+
+        std::vector<double> A_aug((m + n)*n, 0.0);
+        double sqrt_mu = std::sqrt(mu_reg);
+        for (int64_t j = 0; j < n; ++j) {
+            blas::copy(m, &a[j*m], 1, &A_aug[j*(m + n)], 1);
+            A_aug[m + j + j*(m + n)] = sqrt_mu;
+        }
+        check_condnum_after_precond(blas::Layout::ColMajor, A_aug, M_wk, rank, m + n, n, 2.0);
+    }
 };
 
 TEST_F(Test_rpc_svd, FullRankNoReg_rowmajor_double)
@@ -187,6 +227,45 @@ TEST_F(Test_rpc_svd, FullRankAfterReg)
 {
     test_full_rank_after_reg(0);
     test_full_rank_after_reg(1);
+}
+
+TEST_F(Test_rpc_svd, RegUsesIsometryScale)
+{
+    test_reg_uses_isometry_scale(0);
+    test_reg_uses_isometry_scale(1);
+}
+
+TEST_F(Test_rpc_svd, SketchScaleExactOnCoordinateVector)
+{
+    // S * (c e_j) is c times one column of S, which has exactly k entries of +-1.
+    int64_t m_c = 50, d_c = 10;
+    double c = 3.0;
+    for (int64_t k : {1, 3, 8}) {
+        std::vector<double> A(m_c, 0.0);
+        A[7] = c;
+        std::vector<double> V_sk(d_c, 0.0);
+        std::vector<double> sigma_sk(1, 0.0);
+        RandLAPACK::rpc_data_svd_saso(
+            blas::Layout::ColMajor, m_c, 1, d_c, k, A.data(), m_c,
+            V_sk.data(), sigma_sk.data(), RandBLAS::RNGState(keys[0])
+        );
+        EXPECT_NEAR(sigma_sk[0], c, 10 * std::numeric_limits<double>::epsilon() * c) << "k=" << k;
+    }
+}
+
+TEST_F(Test_rpc_svd, RejectsOperatorsWithoutLeftIsometryScale)
+{
+    std::vector<double> A(m * n, 1.0);
+    std::vector<double> V_sk((m + 1) * n, 0.0);
+    std::vector<double> sigma_sk(n, 0.0);
+    RandBLAS::SparseDist tall(m + 1, m, 8, RandBLAS::Axis::Short);
+    RandBLAS::SparseSkOp<double> S_tall(tall, RandBLAS::RNGState(keys[0]));
+    EXPECT_THROW(RandLAPACK::rpc_data_svd(
+        blas::Layout::ColMajor, m, n, A.data(), m, S_tall, V_sk.data(), sigma_sk.data()), RandLAPACK::Error);
+    RandBLAS::DenseDist dense_short(d, m, RandBLAS::ScalarDist::Gaussian, RandBLAS::Axis::Short);
+    RandBLAS::DenseSkOp<double> S_short(dense_short, RandBLAS::RNGState(keys[0]));
+    EXPECT_THROW(RandLAPACK::rpc_data_svd(
+        blas::Layout::ColMajor, m, n, A.data(), m, S_short, V_sk.data(), sigma_sk.data()), RandLAPACK::Error);
 }
 
 class TestNystromPrecond : public ::testing::Test
