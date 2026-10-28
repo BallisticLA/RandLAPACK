@@ -13,45 +13,14 @@ Records the best timing, saves that into a file.
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "rl_bench_utils.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
 
 using Subroutines = RandLAPACK::BQRRPSubroutines;
-
-template <typename T>
-struct QR_benchmark_data {
-    int64_t row;
-    int64_t col;
-    int64_t b_sz;
-    T sampling_factor;
-    std::vector<T> A;
-    std::vector<T> tau;
-    std::vector<int64_t> J;
-
-    QR_benchmark_data(int64_t m, int64_t n, int64_t block_size, T d_factor) :
-    A(m * n, 0.0),
-    tau(n, 0.0),
-    J(n, 0)
-    {
-        row             = m;
-        col             = n;
-        b_sz            = block_size;
-        sampling_factor = d_factor;
-    }
-};
-
-// Re-generate and clear data
-template <typename T, typename RNG>
-static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
-                                        QR_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state) {
-
-    std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-    std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    std::fill(all_data.J.begin(), all_data.J.end(), 0);
-}
+using RandLAPACK::bench::QR_benchmark_data;
+using RandLAPACK::bench::data_regen;
 
 template <typename T, typename RNG>
 static void call_all_algs(
@@ -97,7 +66,7 @@ static void call_all_algs(
 
         // Testing GEQRF
         auto start_geqrf = steady_clock::now();
-        lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
+        lapack::geqrf(m, n, all_data.A, m, all_data.tau);
         auto stop_geqrf = steady_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
         std::cout << "TOTAL TIME FOR GEQRF " << dur_geqrf << "\n";
@@ -112,7 +81,7 @@ static void call_all_algs(
             BQRRP.qr_tall = Subroutines::QRTall::geqrf;
             BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
             auto start_bqrrp_qrf = steady_clock::now();
-            BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+            BQRRP.call(m, n, all_data.A, m, d_factor, all_data.tau, all_data.J, state_alg);
             auto stop_bqrrp_qrf = steady_clock::now();
             dur_bqrrp_qrf = duration_cast<microseconds>(stop_bqrrp_qrf - start_bqrrp_qrf).count();
             std::cout << "TOTAL TIME FOR BQRRP_QRF " << dur_bqrrp_qrf << "\n";
@@ -127,7 +96,7 @@ static void call_all_algs(
             BQRRP.qr_tall = Subroutines::QRTall::cholqr;
             BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
             auto start_bqrrp_cholqr = steady_clock::now();
-            BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+            BQRRP.call(m, n, all_data.A, m, d_factor, all_data.tau, all_data.J, state_alg);
             auto stop_bqrrp_cholqr = steady_clock::now();
             dur_bqrrp_cholqr = duration_cast<microseconds>(stop_bqrrp_cholqr - start_bqrrp_cholqr).count();
             std::cout << "TOTAL TIME FOR BQRRP_CHOLQR " << dur_bqrrp_cholqr << "\n";
@@ -141,7 +110,7 @@ static void call_all_algs(
         
         // Testing HQRRP DEFAULT
         auto start_hqrrp = steady_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 0, state_alg, (T**) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A, m, all_data.J, all_data.tau, hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 0, state_alg, (T**) nullptr);
         auto stop_hqrrp = steady_clock::now();
         dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
         std::cout << "TOTAL TIME FOR HQRRP " << dur_hqrrp << "\n";
@@ -155,7 +124,7 @@ static void call_all_algs(
         if (operation_mode == "full") {
             // Testing HQRRP with GEQRF
             auto start_hqrrp_geqrf = steady_clock::now();
-            RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 1, state_alg, (T**) nullptr);
+            RandLAPACK::hqrrp(m, n, all_data.A, m, all_data.J, all_data.tau, hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 1, state_alg, (T**) nullptr);
             auto stop_hqrrp_geqrf = steady_clock::now();
             dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
             std::cout << "TOTAL TIME FOR HQRRP WITH GEQRF " << dur_hqrrp_geqrf << "\n";
@@ -168,7 +137,7 @@ static void call_all_algs(
 
             // Testing HQRRP with CholQR
             auto start_hqrrp_cholqr = steady_clock::now();
-            RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 2, state_alg, (T**) nullptr);
+            RandLAPACK::hqrrp(m, n, all_data.A, m, all_data.J, all_data.tau, hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 2, state_alg, (T**) nullptr);
             auto stop_hqrrp_cholqr = steady_clock::now();
             dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
             std::cout << "TOTAL TIME FOR HQRRP WITH CHOLQRQ " << dur_hqrrp_cholqr << "\n";
@@ -183,7 +152,7 @@ static void call_all_algs(
         if (i <= 2) {
             // Testing GEQP3
             auto start_geqp3 = steady_clock::now();
-            lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+            lapack::geqp3(m, n, all_data.A, m, all_data.J, all_data.tau);
             auto stop_geqp3 = steady_clock::now();
             dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
             std::cout << "TOTAL TIME FOR GEQP3 " << dur_geqp3 << "\n";
@@ -193,7 +162,7 @@ static void call_all_algs(
         }
         
         std::ofstream file(output_filename, std::ios::out | std::ios::app);
-        file << dur_bqrrp_cholqr << ",  " << dur_bqrrp_qrf << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_cholqr << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
+        RandLAPACK::bench::write_row(file, dur_bqrrp_cholqr, dur_bqrrp_qrf, dur_hqrrp, dur_hqrrp_geqrf, dur_hqrrp_cholqr, dur_geqrf, dur_geqp3);
     }
 }
 
@@ -207,15 +176,10 @@ int main(int argc, char *argv[]) {
     }
 
     // Declare parameters
-    // Fill the block size vector
-    std::vector<int64_t> m_sz;
-    for (int i = 0; i < argc-6; ++i)
-        m_sz.push_back(std::stoi(argv[i + 6]));
+    std::vector<int64_t> m_sz(argc - 6);
+    RandLAPACK::bench::parse_sizes(argc, argv, 6, m_sz.data());
     // Save elements in string for logging purposes
-    std::ostringstream oss;
-    for (const auto &val : m_sz)
-        oss << val << ", ";
-    std::string m_sz_string = oss.str();
+    std::string m_sz_string = RandLAPACK::bench::sizes_string(m_sz.data(), m_sz.size());
 
     double d_factor     = 1.0;
     auto state          = RandBLAS::RNGState<r123::Philox4x32>();
@@ -230,20 +194,15 @@ int main(int argc, char *argv[]) {
     int64_t m_max = *std::max_element(m_sz.begin(), m_sz.end());
     if (column_size_ratio < 1) 
         m_max = m_max / column_size_ratio;
-    QR_benchmark_data<double> all_data(m_max, m_max, m_max / std::stol(argv[5]), d_factor);
+    QR_benchmark_data<double> all_data(m_max, m_max, {.d_factor = d_factor});
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m_max, m_max, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     // Declare a data file
     std::string output_filename = "_BQRRP_speed_comparisons_mat_size_num_info_lines_" + std::to_string(7) + ".txt";
 
-    std::string path;
-    if (std::string(argv[1]) != ".") {
-        path = std::string(argv[1]) + output_filename;
-    } else {
-        path = output_filename;
-    }
+    std::string path = RandLAPACK::bench::output_path(argv[1], output_filename);
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
@@ -267,8 +226,5 @@ int main(int argc, char *argv[]) {
         b_sz = columns / std::stof(argv[5]);
         call_all_algs(m_info, numruns, m_sz[i], columns, b_sz, all_data, argv[2], state_constant, path);
     }
-    auto stop_time_all = steady_clock::now();
-    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
-    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
-    file.flush();   
+    RandLAPACK::bench::write_total_time(file, start_time_all);
 }

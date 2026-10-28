@@ -2,6 +2,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include <RandLAPACK/testing/rl_test_utils.hh>
 
 #include <RandBLAS.hh>
 #include <algorithm>
@@ -10,6 +11,8 @@
 #include <gtest/gtest.h>
 
 using Subroutines = RandLAPACK::BQRRPSubroutines;
+using RandLAPACK::testing::QR_householder_test_data;
+using RandLAPACK::testing::norm_and_copy_computational_helper;
 
 class TestBQRRP : public ::testing::Test
 {
@@ -19,85 +22,14 @@ class TestBQRRP : public ::testing::Test
 
     virtual void TearDown() {};
 
-    template <typename T>
-    struct BQRRPTestData {
-        int64_t row;
-        int64_t col;
-        int64_t rank; // has to be modifiable
-        std::vector<T> A;
-        std::vector<T> Q;
-        std::vector<T> R;
-        std::vector<T> tau;
-        std::vector<int64_t> J;
-        std::vector<T> A_cpy1;
-        std::vector<T> A_cpy2;
-        std::vector<T> I_ref;
-
-        BQRRPTestData(int64_t m, int64_t n, int64_t k) :
-        A(m * n, 0.0),
-        Q(m * n, 0.0),
-        tau(n, 0.0),
-        J(n, 0),
-        A_cpy1(m * n, 0.0),
-        A_cpy2(m * n, 0.0),
-        I_ref(k * k, 0.0) 
-        {
-            row = m;
-            col = n;
-            rank = k;
-        }
-    };
-
-    template <typename T>
-    static void norm_and_copy_computational_helper(T &norm_A, BQRRPTestData<T> &all_data) {
-        auto m = all_data.row;
-        auto n = all_data.col;
-
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
-        norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-    }
-
-
-    /// This routine also appears in benchmarks, but idk if it should be put into utils
+    /// Prints and checks the error metrics of A[:, J] = QR.
     template <typename T>
     static void
-    error_check(T &norm_A, BQRRPTestData<T> &all_data, T atol) {
+    error_check(T &norm_A, QR_householder_test_data<T> &all_data, T atol) {
 
-        auto m = all_data.row;
         auto n = all_data.col;
         auto k = all_data.rank;
-
-        RandLAPACK::util::upsize(k * k, all_data.I_ref);
-        RandLAPACK::util::eye(k, k, all_data.I_ref);
-
-        T* A_dat           = all_data.A_cpy1.data();
-        T const* A_cpy_dat = all_data.A_cpy2.data();
-        T const* Q_dat     = all_data.Q.data();
-        T const* R_dat     = all_data.R.data();
-        T* I_ref_dat       = all_data.I_ref.data();
-
-        // Check orthogonality of Q
-        // Q' * Q  - I = 0
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, I_ref_dat, k);
-        T norm_0 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
-
-        // A - QR
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, k, -1.0, A_dat, m);
-        
-        // Implementing max col norm metric
-        T max_col_norm = 0.0;
-        T col_norm = 0.0;
-        int max_idx = 0;
-        for(int i = 0; i < n; ++i) {
-            col_norm = blas::nrm2(m, &A_dat[m * i], 1);
-            if(max_col_norm < col_norm) {
-                max_col_norm = col_norm;
-                max_idx = i;
-            }
-        }
-        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
-        T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
+        auto [norm_AQR, max_col_norm, col_norm_A, norm_0] = RandLAPACK::testing::qr_test_errors(all_data, k, all_data.Q, k);
 
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(14) << norm_AQR / norm_A << "\n";
         std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(14) << max_col_norm / col_norm_A << "\n";
@@ -114,7 +46,7 @@ class TestBQRRP : public ::testing::Test
     static void test_BQRRP_general(
         T d_factor, 
         T norm_A,
-        BQRRPTestData<T> &all_data,
+        QR_householder_test_data<T> &all_data,
         alg_type &BQRRP,
         RandBLAS::RNGState<RNG> &state) {
 
@@ -122,7 +54,7 @@ class TestBQRRP : public ::testing::Test
         auto n = all_data.col;
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
 
-        BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
+        BQRRP.call(m, n, all_data.A, m, d_factor, all_data.tau, all_data.J, state);
 
         if(BQRRP.rank == 0) {
             for(int i = 0; i < m * n; ++i) {
@@ -132,16 +64,16 @@ class TestBQRRP : public ::testing::Test
             all_data.rank = BQRRP.rank;
             std::cout << "RANK AS RETURNED BY BQRRP " << std::setw(4) << all_data.rank << "\n";
 
-            RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+            RandLAPACK::testing::grow(all_data.R, all_data.R_sz, all_data.rank * n);
 
-            lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
+            lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A, m, all_data.R, all_data.rank);
 
-            lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A.data(), m, all_data.tau.data());
+            lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A, m, all_data.tau);
             
-            lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
+            lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A, m, all_data.Q, m);
 
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1, m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2, m, all_data.J);
 
             error_check(norm_A, all_data, atol);
         }
@@ -296,12 +228,12 @@ TEST_F(TestBQRRP, BQRRP_full_rank_basic) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -317,12 +249,12 @@ TEST_F(TestBQRRP, BQRRP_full_rank_block_change) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -340,7 +272,7 @@ TEST_F(TestBQRRP, BQRRP_low_rank) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
     BQRRP.tol     = 1e-10;
@@ -349,7 +281,7 @@ TEST_F(TestBQRRP, BQRRP_low_rank) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -366,7 +298,7 @@ TEST_F(TestBQRRP, BQRRP_pivot_qual) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall    = Subroutines::QRTall::cholqr;
     BQRRP.qrcp_wide  = Subroutines::QRCPWide::geqp3;
@@ -375,7 +307,7 @@ TEST_F(TestBQRRP, BQRRP_pivot_qual) {
     m_info.cond_num = std::pow(10, 10);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -391,14 +323,14 @@ TEST_F(TestBQRRP, BQRRP_gemqrt) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall       = Subroutines::QRTall::cholqr;
     BQRRP.apply_trans_q = Subroutines::ApplyTransQ::gemqrt;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -414,12 +346,12 @@ TEST_F(TestBQRRP, BQRRP_near_zero_input_qp3) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall   = Subroutines::QRTall::cholqr;
     BQRRP.qrcp_wide = Subroutines::QRCPWide::geqp3;
 
-    std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
+    std::fill(all_data.A, all_data.A + m * n, 0.0);
     all_data.A[1000*200 + 10] = 1;
 
     norm_and_copy_computational_helper(norm_A, all_data);
@@ -436,11 +368,11 @@ TEST_F(TestBQRRP, BQRRP_near_zero_luqr) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
-    std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
+    std::fill(all_data.A, all_data.A + m * n, 0.0);
     //all_data.A[1000*200 + 10] = 1;
     all_data.A[10*5 + 1] = 1;
 
@@ -458,13 +390,13 @@ TEST_F(TestBQRRP, BQRRP_half_zero_luqr) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-    std::fill(&(all_data.A.data())[m * n / 2], &(all_data.A.data())[m * n], 0.0);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    std::fill(all_data.A + m * n / 2, all_data.A + m * n, 0.0);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -480,11 +412,11 @@ TEST_F(TestBQRRP, BQRRP_zero_mat) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
-    std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
+    std::fill(all_data.A, all_data.A + m * n, 0.0);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -499,13 +431,13 @@ TEST_F(TestBQRRP, BQRRP_qrf) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::geqrf;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -520,13 +452,13 @@ TEST_F(TestBQRRP, BQRRP_qrt) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::geqrt;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -541,13 +473,13 @@ TEST_F(TestBQRRP, BQRRP_cholqr_nb) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
     BQRRP.internal_nb = 7;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
@@ -569,12 +501,12 @@ TEST_F(TestBQRRP, BQRRP_wide_aspect) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    BQRRPTestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::geqrf;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);

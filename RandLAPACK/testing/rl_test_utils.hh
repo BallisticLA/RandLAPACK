@@ -1,8 +1,9 @@
 // Testing utilities for RandLAPACK tests
 //
 // This header provides helper functions for verifying correctness of linear
-// operator implementations. It is not part of the public RandLAPACK API and
-// should only be used in test code.
+// operator implementations and QR factorizations, and the data and error
+// metrics shared by the QR driver tests. It is not part of the public
+// RandLAPACK API and should only be used in test code.
 //
 // Note: Most of these utilities exist in the RandBLAS tests/ folder as well
 // but are not packaged with a RandBLAS installation. Once RandBLAS exposes
@@ -16,6 +17,7 @@
 #include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
+#include <algorithm>
 #include <vector>
 #include <fstream>
 #include <string>
@@ -310,6 +312,148 @@ int64_t max_orthonormal_cols(const T* Q, int64_t m, int64_t n) {
     }
     delete[] G;
     return max_cols;
+}
+
+// ============================================================================
+// QR Driver Test Data and Error Metrics
+// ============================================================================
+
+/// Grows buf to at least needed entries, keeping its contents and zero-filling the rest.
+template <typename T>
+void grow(T*& buf, int64_t& buf_sz, int64_t needed) {
+    if (needed <= buf_sz)
+        return;
+    T* new_buf = new T[needed]();
+    ::std::copy(buf, buf + buf_sz, new_buf);
+    delete[] buf;
+    buf    = new_buf;
+    buf_sz = needed;
+}
+
+/// Input and outputs of a QR driver test, allocated zeroed: A, J, an n x n R, two copies of A
+/// for the error check, and a k x k buffer for Q'Q - I. CQRRPT and CQRRT overwrite A with Q.
+template <typename T>
+struct QR_test_data {
+    int64_t row;
+    int64_t col;
+    int64_t rank;
+    T*       A      = nullptr; int64_t A_sz      = 0;  // m x n
+    T*       R      = nullptr; int64_t R_sz      = 0;  // n x n
+    int64_t* J      = nullptr; int64_t J_sz      = 0;  // n
+    T*       A_cpy1 = nullptr; int64_t A_cpy1_sz = 0;  // m x n
+    T*       A_cpy2 = nullptr; int64_t A_cpy2_sz = 0;  // m x n
+    T*       I_ref  = nullptr; int64_t I_ref_sz  = 0;  // k x k
+
+    QR_test_data(int64_t m, int64_t n, int64_t k) : QR_test_data(m, n, k, n * n) {}
+
+    QR_test_data(const QR_test_data&) = delete;
+    QR_test_data& operator=(const QR_test_data&) = delete;
+
+    ~QR_test_data() {
+        delete[] A;
+        delete[] R;
+        delete[] J;
+        delete[] A_cpy1;
+        delete[] A_cpy2;
+        delete[] I_ref;
+    }
+
+    protected:
+    QR_test_data(int64_t m, int64_t n, int64_t k, int64_t R_size) :
+    row(m),
+    col(n),
+    rank(k)
+    {
+        alloc(A, A_sz, m * n);
+        alloc(R, R_sz, R_size);
+        alloc(J, J_sz, n);
+        alloc(A_cpy1, A_cpy1_sz, m * n);
+        alloc(A_cpy2, A_cpy2_sz, m * n);
+        alloc(I_ref, I_ref_sz, k * k);
+    }
+
+    template <typename U>
+    static void alloc(U*& buf, int64_t& buf_sz, int64_t sz) {
+        buf    = new U[sz]();
+        buf_sz = sz;
+    }
+};
+
+/// QR_test_data for drivers that return Householder reflectors in A and tau (BQRRP, HQRRP).
+/// Adds tau and a Q that the test forms; R starts empty, and the test grows it to rank x n.
+template <typename T>
+struct QR_householder_test_data : QR_test_data<T> {
+    T* Q   = nullptr; int64_t Q_sz   = 0;  // m x n
+    T* tau = nullptr; int64_t tau_sz = 0;  // n
+
+    QR_householder_test_data(int64_t m, int64_t n, int64_t k) : QR_test_data<T>(m, n, k, 0) {
+        QR_test_data<T>::alloc(Q, Q_sz, m * n);
+        QR_test_data<T>::alloc(tau, tau_sz, n);
+    }
+
+    ~QR_householder_test_data() {
+        delete[] Q;
+        delete[] tau;
+    }
+};
+
+/// Copies A into A_cpy1 and A_cpy2 and sets norm_A = ||A||_F.
+template <typename T>
+void norm_and_copy_computational_helper(T &norm_A, QR_test_data<T> &all_data) {
+    auto m = all_data.row;
+    auto n = all_data.col;
+
+    ::lapack::lacpy(::lapack::MatrixType::General, m, n, all_data.A, m, all_data.A_cpy1, m);
+    ::lapack::lacpy(::lapack::MatrixType::General, m, n, all_data.A, m, all_data.A_cpy2, m);
+    norm_A = ::lapack::lange(::lapack::Norm::Fro, m, n, all_data.A, m);
+}
+
+/// Unnormalized error metrics of a QR driver test; see qr_test_errors.
+template <typename T>
+struct QR_test_errors {
+    T norm_AQR;      // ||A[:, J] - Q R||_F
+    T max_col_norm;  // largest column norm of A[:, J] - Q R
+    T col_norm_A;    // norm of that column of A[:, J]
+    T norm_0;        // ||Q(:, 1:k)' Q(:, 1:k) - I||_F
+};
+
+/// Error metrics of A[:, J] = Q(:, 1:k) R(1:k, :), with Q m x k (leading dimension m) and R of
+/// leading dimension ldr. Expects A[:, J] in A_cpy1, which the residual overwrites, and in A_cpy2.
+template <typename T>
+QR_test_errors<T> qr_test_errors(QR_test_data<T> &all_data, int64_t k, const T* Q, int64_t ldr) {
+    auto m = all_data.row;
+    auto n = all_data.col;
+
+    grow(all_data.I_ref, all_data.I_ref_sz, k * k);
+    ::RandLAPACK::util::eye(k, k, all_data.I_ref);
+
+    T* A_dat           = all_data.A_cpy1;
+    T const* A_cpy_dat = all_data.A_cpy2;
+    T const* R_dat     = all_data.R;
+    T* I_ref_dat       = all_data.I_ref;
+
+    // Q' * Q - I
+    ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans, k, m, (T) 1.0, Q, m, (T) -1.0, I_ref_dat, k);
+    T norm_0 = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, k, I_ref_dat, k);
+
+    // A[:, J] - Q * R
+    ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans, m, n, k, (T) 1.0, Q, m, R_dat, ldr, (T) -1.0, A_dat, m);
+
+    // The residual column of largest norm, and the same column of A[:, J]
+    T max_col_norm = 0.0;
+    T col_norm = 0.0;
+    int64_t max_idx = 0;
+    for (int64_t i = 0; i < n; ++i) {
+        col_norm = ::blas::nrm2(m, &A_dat[m * i], 1);
+        if (max_col_norm < col_norm) {
+            max_col_norm = col_norm;
+            max_idx = i;
+        }
+    }
+    T col_norm_A = ::blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
+    T norm_AQR = ::lapack::lange(::lapack::Norm::Fro, m, n, A_dat, m);
+
+    return {norm_AQR, max_col_norm, col_norm_A, norm_0};
 }
 
 // ============================================================================

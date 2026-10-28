@@ -41,7 +41,7 @@ Example (block widths 8 and 32, kappa from 1e2 to 1e12):
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
-#include "abrik_bench_common.hh"
+#include "rl_bench_utils.hh"
 
 #include <RandBLAS.hh>
 #include <algorithm>
@@ -103,7 +103,7 @@ static int run_candidate(const std::string &name, int64_t l, int64_t b, const T*
 
 template <typename T>
 static int run_pilot(int argc, char* argv[]) {
-    if (argc < 7) return abrik_usage(argv[0], kUsage);
+    if (argc < 7) return RandLAPACK::bench::usage_error(argv[0], kUsage);
 
     std::string output_dir = argv[2];
     int64_t l              = std::stoll(argv[3]);
@@ -111,7 +111,7 @@ static int run_pilot(int argc, char* argv[]) {
     int     num_b          = std::stoi(argv[5]);
     if (l < 1 || num_runs < 1 || num_b < 1 || argc < 7 + num_b) {
         std::cerr << "Error: l, num_runs and num_block_sizes must be >= 1, with every block width given\n";
-        return abrik_usage(argv[0], kUsage);
+        return RandLAPACK::bench::usage_error(argv[0], kUsage);
     }
     std::vector<int64_t> blocks;
     for (int i = 0; i < num_b; ++i)
@@ -119,7 +119,7 @@ static int run_pilot(int argc, char* argv[]) {
     int num_conds = std::stoi(argv[6 + num_b]);
     if (num_conds < 1 || argc != 7 + num_b + num_conds) {
         std::cerr << "Error: num_conds must be >= 1, with exactly that many log10(kappa) values after it\n";
-        return abrik_usage(argv[0], kUsage);
+        return RandLAPACK::bench::usage_error(argv[0], kUsage);
     }
     std::vector<T> kappas;
     for (int i = 0; i < num_conds; ++i)
@@ -132,10 +132,10 @@ static int run_pilot(int argc, char* argv[]) {
     }
 
     std::ofstream file;
-    std::string path = abrik_open_csv(output_dir, "ABRIK_orth_pilot", file);
+    std::string path = RandLAPACK::bench::open_csv(output_dir, "ABRIK_orth_pilot", file);
     if (!file) return 1;
     file << "# ABRIK orthogonalization pilot\n"
-         << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
+         << "# RANDLAPACK_GIT_COMMIT=" << RandLAPACK::bench::build_commit() << "\n"
          << "# Precision: " << argv[1] << "\n"
          << "# rows: " << l << "\n"
          << "# runs: " << num_runs << "\n"
@@ -174,5 +174,5 @@ static int run_pilot(int argc, char* argv[]) {
 }
 
 int main(int argc, char* argv[]) {
-    return abrik_bench_main(argc, argv, kUsage, run_pilot<double>, run_pilot<float>);
+    return RandLAPACK::bench::precision_main(argc, argv, kUsage, run_pilot<double>, run_pilot<float>);
 }
