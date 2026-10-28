@@ -103,7 +103,9 @@ The repository builds as three CMake projects, not one:
    behind the `RandLAPACK_EXTERNAL_RandBLAS` commit gate; see
    [DEPENDENCIES.md](DEPENDENCIES.md#randblas-is-a-pinned-submodule)).
 2. **benchmark/** measures RandLAPACK's performance (the harnesses behind
-   the papers). Some benchmarks borrow headers from `extras/`.
+   the papers). Its shared helpers, `benchmark/rl_bench_utils.hh`, belong
+   to it and do not install with the library. Some benchmarks borrow
+   headers from `extras/`.
 3. **extras/** is a holding area for functionality that currently needs
    third-party libraries (Eigen, fast_matrix_market) that core RandLAPACK
    will not depend on; [extras/README.md](../extras/README.md) gives the

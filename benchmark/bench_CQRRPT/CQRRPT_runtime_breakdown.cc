@@ -12,47 +12,14 @@ There are 6 things that we time:
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "rl_bench_utils.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
 
 using Subroutines = RandLAPACK::CQRRPTSubroutines;
-
-template <typename T>
-struct QR_benchmark_data {
-    int64_t row;
-    int64_t col;
-    T       tolerance;
-    T       sampling_factor;
-    std::vector<T> A;
-    std::vector<T> R;
-    std::vector<T> tau;
-    std::vector<int64_t> J;
-
-    QR_benchmark_data(int64_t m, int64_t n, T tol, T d_factor) :
-    A(m * n, 0.0),
-    R(n * n, 0.0),
-    tau(n, 0.0),
-    J(n, 0)
-    {
-        row             = m;
-        col             = n;
-        tolerance       = tol;
-        sampling_factor = d_factor;
-    }
-};
-
-// Re-generate and clear data
-template <typename T, typename RNG>
-static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
-                                        QR_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state) {
-
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-    std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
-    std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    std::fill(all_data.J.begin(), all_data.J.end(), 0);
-}
+using RandLAPACK::bench::QR_benchmark_data;
+using RandLAPACK::bench::data_regen;
 
 template <typename T, typename RNG>
 static void call_all_algs(
@@ -83,18 +50,17 @@ static void call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         std::cout << "\nITERATION " << i << ", N_SZ " << n << "\n";
-        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
+        CQRRPT.call(m, n, all_data.A, m, all_data.R, n, all_data.J, d_factor, state_alg);
         
         std::ofstream file(output_filename, std::ios::app);
-        file << CQRRPT.times[0] << ",  " << CQRRPT.times[1] << ",  " << CQRRPT.times[2] << ",  " 
-             << CQRRPT.times[3] << ",  " << CQRRPT.times[4] << ",  " << CQRRPT.times[5] << ",  " 
-             << CQRRPT.times[6] << ",  " << CQRRPT.times[7] << ",\n";
+        RandLAPACK::bench::write_row(file, CQRRPT.times[0], CQRRPT.times[1], CQRRPT.times[2], CQRRPT.times[3],
+                                     CQRRPT.times[4], CQRRPT.times[5], CQRRPT.times[6], CQRRPT.times[7]);
 
         // Making sure the states are unchanged
         state_alg = state;
         state_gen = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen, false);
     }
 }
 
@@ -109,15 +75,10 @@ int main(int argc, char *argv[]) {
 
     // Declare parameters
     int64_t m = std::stol(argv[4]);
-    // Fill the block size vector
-    std::vector<int64_t> n_sz;
-    for (int i = 0; i < argc-4; ++i)
-    n_sz.push_back(std::stoi(argv[i + 4]));
+    std::vector<int64_t> n_sz(argc - 4);
+    RandLAPACK::bench::parse_sizes(argc, argv, 4, n_sz.data());
     // Save elements in string for logging purposes
-    std::ostringstream oss;
-    for (const auto &val : n_sz)
-        oss << val << ", ";
-    std::string n_sz_string = oss.str();
+    std::string n_sz_string = RandLAPACK::bench::sizes_string(n_sz.data(), n_sz.size());
 
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -131,10 +92,10 @@ int main(int argc, char *argv[]) {
 
     // Allocate basic workspace at its max size.
     int64_t n_max = *std::max_element(n_sz.begin(), n_sz.end());
-    QR_benchmark_data<double> all_data(m, n_max, tol, d_factor);
+    QR_benchmark_data<double> all_data(m, n_max, {.d_factor = d_factor, .tol = tol, .R = true});
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n_max, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     // Declare a data file
     std::string output_filename = RandLAPACK::util::get_current_date_time<double>() + "_CQRRPT_runtime_breakdown" 
@@ -159,8 +120,5 @@ int main(int argc, char *argv[]) {
     for (;i < n_sz.size(); ++i) {
         call_all_algs(m_info, numruns, n_sz[i], all_data, state_constant, qrcp, output_filename);
     }
-    auto stop_time_all = steady_clock::now();
-    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
-    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
-    file.flush();   
+    RandLAPACK::bench::write_total_time(file, start_time_all);
 }

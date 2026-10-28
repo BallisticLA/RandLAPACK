@@ -2,12 +2,14 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include <RandLAPACK/testing/rl_test_utils.hh>
 
 #include <RandBLAS.hh>
 #include <fstream>
 #include <iomanip>
 #include <gtest/gtest.h>
 
+using RandLAPACK::testing::QR_householder_test_data;
 
 class TestHQRRP : public ::testing::Test
 {
@@ -17,87 +19,22 @@ class TestHQRRP : public ::testing::Test
 
     virtual void TearDown() {};
 
+    // Also zeroes J.
     template <typename T>
-    struct HQRRPtestData {
-        int64_t row;
-        int64_t col;
-        int64_t rank; // has to be modifiable
-        std::vector<T> A;
-        std::vector<T> Q;
-        std::vector<T> R;
-        std::vector<T> tau;
-        std::vector<int64_t> J;
-        std::vector<T> A_cpy1;
-        std::vector<T> A_cpy2;
-        std::vector<T> I_ref;
-
-        HQRRPtestData(int64_t m, int64_t n, int64_t k) :
-        A(m * n, 0.0),
-        Q(m * n, 0.0),
-        tau(n, 0.0),
-        J(n, 0),
-        A_cpy1(m * n, 0.0),
-        A_cpy2(m * n, 0.0),
-        I_ref(k * k, 0.0) 
-        {
-            row = m;
-            col = n;
-            rank = k;
-        }
-    };
-
-    template <typename T>
-    static void norm_and_copy_computational_helper(T &norm_A, HQRRPtestData<T> &all_data) {
-        auto m = all_data.row;
-        auto n = all_data.col;
-
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
-        norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-        std::fill(all_data.J.begin(), all_data.J.end(), 0);
+    static void norm_and_copy_computational_helper(T &norm_A, QR_householder_test_data<T> &all_data) {
+        RandLAPACK::testing::norm_and_copy_computational_helper(norm_A, all_data);
+        std::fill(all_data.J, all_data.J + all_data.J_sz, 0);
     }
 
-
-    /// This routine also appears in benchmarks, but idk if it should be put into utils
+    /// Prints and checks the error metrics of A[:, J] = QR.
     template <typename T>
     static void
-    error_check(T &norm_A, HQRRPtestData<T> &all_data) {
+    error_check(T &norm_A, QR_householder_test_data<T> &all_data) {
 
-        auto m = all_data.row;
         auto n = all_data.col;
         auto k = all_data.rank;
+        auto [norm_AQR, max_col_norm, col_norm_A, norm_0] = RandLAPACK::testing::qr_test_errors(all_data, k, all_data.Q, k);
 
-        RandLAPACK::util::upsize(k * k, all_data.I_ref);
-        RandLAPACK::util::eye(k, k, all_data.I_ref);
-
-        T* A_dat         = all_data.A_cpy1.data();
-        T const* A_cpy_dat = all_data.A_cpy2.data();
-        T const* Q_dat   = all_data.Q.data();
-        T const* R_dat   = all_data.R.data();
-        T* I_ref_dat     = all_data.I_ref.data();
-
-        // Check orthogonality of Q
-        // Q' * Q  - I = 0
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, I_ref_dat, k);
-        T norm_0 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
-
-        // A - QR
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, k, -1.0, A_dat, m);
-        
-        // Implementing max col norm metric
-        T max_col_norm = 0.0;
-        T col_norm = 0.0;
-        int max_idx = 0;
-        for(int i = 0; i < n; ++i) {
-            col_norm = blas::nrm2(m, &A_dat[m * i], 1);
-            if(max_col_norm < col_norm) {
-                max_col_norm = col_norm;
-                max_idx = i;
-            }
-        }
-        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
-        T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
-        
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(14) << norm_AQR / norm_A << "\n";
         std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(14) << max_col_norm / col_norm_A << "\n";
         std::cout << "FRO NORM OF (Q'Q - I):  " << std::scientific << std::setw(14) << norm_0 / std::sqrt((T) n) << "\n\n";
@@ -117,25 +54,25 @@ class TestHQRRP : public ::testing::Test
         int64_t use_cholqr,
         int panel_pivoting,
         T norm_A,
-        HQRRPtestData<T> &all_data,
+        QR_householder_test_data<T> &all_data,
         RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
 
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state, (T**) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A, m, all_data.J, all_data.tau, b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state, (T**) nullptr);
 
-        RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
-        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
+        RandLAPACK::testing::grow(all_data.R, all_data.R_sz, all_data.rank * n);
+        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A, m, all_data.R, all_data.rank);
 
-        lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
-        lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
+        lapack::ungqr(m, n, n, all_data.A, m, all_data.tau);
+        lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A, m, all_data.Q, m);
 
         // I don't think hqrrp actually returns anything.
         //std::cout << "RANK AS RETURNED BY HQRRP " << std::setw(4) << all_data.rank << "\n";
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1, m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2, m, all_data.J);
 
         error_check(norm_A, all_data);
              
@@ -155,13 +92,13 @@ TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     double norm_A = 0;
     auto state = RandBLAS::RNGState();
 
-    HQRRPtestData<double> all_data(m, n, k);
+    QR_householder_test_data<double> all_data(m, n, k);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_HQRRP_general(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);

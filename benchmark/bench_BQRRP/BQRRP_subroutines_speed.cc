@@ -10,6 +10,7 @@ for a matrix with fixed number of rows and a varying number of columns.
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "rl_bench_utils.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -172,7 +173,7 @@ static void call_wide_qrcp(
         data_regen(m_info, all_data, state, state, 1);
     
         std::ofstream file(output_filename, std::ios::out | std::ios::app);
-        file << dur_geqp3 << ",  " << dur_luqr << ",\n";
+        RandLAPACK::bench::write_row(file, dur_geqp3, dur_luqr);
     }
 }
 
@@ -356,15 +357,10 @@ int main(int argc, char *argv[]) {
     size_t i = 0;
     // Declare parameters
     int64_t m = std::stol(argv[3]);
-    // Fill the n size vector
-    std::vector<int64_t> n_sz;
-    for (int i = 0; i < argc-4; ++i)
-        n_sz.push_back(std::stoi(argv[i + 4]));
+    std::vector<int64_t> n_sz(argc - 4);
+    RandLAPACK::bench::parse_sizes(argc, argv, 4, n_sz.data());
     // Save elements in string for logging purposes
-    std::ostringstream oss;
-    for (const auto &val : n_sz)
-        oss << val << ", ";
-    std::string n_sz_string = oss.str();
+    std::string n_sz_string = RandLAPACK::bench::sizes_string(n_sz.data(), n_sz.size());
 
     // Internal block size for ORMQR, will increase by 2 at every iteration
     int64_t nb_start      = n_sz[0];
@@ -388,12 +384,7 @@ int main(int argc, char *argv[]) {
     // Declare a data file
     std::string output_filename = "_BQRRP_subroutines_speed_num_info_lines_" + std::to_string(10) + ".txt";
 
-    std::string path;
-    if (std::string(argv[1]) != ".") {
-        path = std::string(argv[1]) + output_filename;
-    } else {
-        path = output_filename;
-    }
+    std::string path = RandLAPACK::bench::output_path(argv[1], output_filename);
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
@@ -421,8 +412,5 @@ int main(int argc, char *argv[]) {
     for (i = 0 ;i < n_sz.size(); ++i) 
         call_apply_q(m_info, numruns, n_sz[i], nb_start, all_data, state, state_B, path);
 
-    auto stop_time_all = steady_clock::now();
-    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
-    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
-    file.flush();   
+    RandLAPACK::bench::write_total_time(file, start_time_all);
 }

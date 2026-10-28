@@ -6,60 +6,13 @@ The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (htt
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "rl_bench_utils.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
 
-template <typename T>
-struct QR_benchmark_data {
-    int64_t              row;
-    int64_t              col;
-    T                    tolerance;
-    T                    sampling_factor;
-    std::vector<T>       A;
-    std::vector<T>       R;
-    std::vector<T>       tau;
-    std::vector<int64_t> J;
-    std::vector<T>       S;
-
-    QR_benchmark_data(int64_t m, int64_t n, T tol, T d_factor) :
-    A(m * n, 0.0),
-    R(n * n, 0.0),
-    tau(n, 0.0),
-    J(n, 0),
-    S(n, 0.0)
-    {
-        row             = m;
-        col             = n;
-        tolerance       = tol;
-        sampling_factor = d_factor;
-    }
-};
-
-// Re-generate and clear data
-template <typename T, typename RNG>
-static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
-                                        QR_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state) {
-
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-    std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
-    std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    std::fill(all_data.J.begin(), all_data.J.end(), 0);
-}
-
-// Re-generate and clear data
-template <typename T>
-static std::vector<T> get_norms(int64_t n, std::vector<T> Mat, int64_t lda) {
-
-    std::vector<T> R_norms (n, 0.0);
-    for (int i = 0; i < n; ++i) {
-        R_norms[i] = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, n - i, n - i, &Mat[(lda + 1) * i], lda);
-        if (i < 10)
-            std::cout << std::scientific << R_norms[i] << "\n";
-    }
-    return R_norms;
-}
+using RandLAPACK::bench::QR_benchmark_data;
+using RandLAPACK::bench::data_regen;
 
 template <typename T, typename RNG>
 static void R_norm_ratio(
@@ -80,19 +33,21 @@ static void R_norm_ratio(
     CQRRPT.nnz = 4;
 
     // Running GEQP3
-    lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
-    std::vector<T> R_norms_GEQP3 = get_norms(n, all_data.A, m);
+    lapack::geqp3(m, n, all_data.A, m, all_data.J, all_data.tau);
+    std::vector<T> R_norms_GEQP3(n, 0.0);
+    RandLAPACK::bench::trailing_R_norms(n, all_data.A, m, R_norms_GEQP3.data());
     std::cout << "\nDone with QP3\n";
 
     // Clear and re-generate data
     state_gen = state;
-    data_regen(m_info, all_data, state_gen);
+    data_regen(m_info, all_data, state_gen, false);
 
     std::cout << "\nStarting CQRRPT\n";
     // Running CQRRP
     state_alg = state;
-    CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
-    std::vector<T> R_norms_CQRRPT = get_norms(n, all_data.R, n);
+    CQRRPT.call(m, n, all_data.A, m, all_data.R, n, all_data.J, d_factor, state_alg);
+    std::vector<T> R_norms_CQRRPT(n, 0.0);
+    RandLAPACK::bench::trailing_R_norms(n, all_data.R, n, R_norms_CQRRPT.data());
 
     // Declare a data file
     std::ofstream file1(RandLAPACK::util::get_current_date_time<T>() + "_CQRRPT_pivot_quality_metric_1"
@@ -114,7 +69,7 @@ static void R_norm_ratio(
 
     // Clear and re-generate data
     state_gen = state;
-    data_regen(m_info, all_data, state_gen);
+    data_regen(m_info, all_data, state_gen, false);
 }
 
 template <typename T, typename RNG>
@@ -150,18 +105,18 @@ static void sv_ratio(
               "\n";
     file2.flush();
 
-    T* R_dat = all_data.A.data();
-    T* S_dat = all_data.S.data();
+    T* R_dat = all_data.A;
+    T* S_dat = all_data.S;
 
     // Running SVD
-    lapack::gesdd(Job::NoVec, m, n, all_data.A.data(), m, all_data.S.data(), (T*) nullptr, m, (T*) nullptr, n);
+    lapack::gesdd(Job::NoVec, m, n, all_data.A, m, all_data.S, (T*) nullptr, m, (T*) nullptr, n);
 
     // Clear and re-generate data
     state_gen = state;
-    data_regen(m_info, all_data, state_gen);
+    data_regen(m_info, all_data, state_gen, false);
 
     // Running GEQP3
-    lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+    lapack::geqp3(m, n, all_data.A, m, all_data.J, all_data.tau);
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
@@ -170,20 +125,20 @@ static void sv_ratio(
 
     // Clear and re-generate data
     state_gen = state;
-    data_regen(m_info, all_data, state_gen);
+    data_regen(m_info, all_data, state_gen, false);
 
     // Running CQRRP
     state_alg = state;
-    CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
+    CQRRPT.call(m, n, all_data.A, m, all_data.R, n, all_data.J, d_factor, state_alg);
 
-    R_dat = all_data.R.data();
+    R_dat = all_data.R;
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
         file2 << std::abs(R_dat[(n + 1) * i] / S_dat[i]) << ",  ";
 
     // Clear and re-generate data
     state_gen = state;
-    data_regen(m_info, all_data, state_gen);
+    data_regen(m_info, all_data, state_gen, false);
 }
 
 int main(int argc, char *argv[]) {
@@ -206,7 +161,7 @@ int main(int argc, char *argv[]) {
     std::vector<double> res2;
 
     // Allocate basic workspace
-    QR_benchmark_data<double> all_data(m, n, tol, d_factor);
+    QR_benchmark_data<double> all_data(m, n, {.d_factor = d_factor, .tol = tol, .R = true, .S = true});
     // Generate the input matrix: 
     // polynomial & step for low coherence; 
     // spiked for high coherence.
@@ -215,7 +170,7 @@ int main(int argc, char *argv[]) {
     m_info.rank = n;
     m_info.exponent = 2.0;
     m_info.scaling = std::pow(10, 10);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     R_norm_ratio<double>(m_info, all_data, state_constant1);
     std::cout << "R done\n";
