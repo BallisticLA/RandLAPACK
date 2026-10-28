@@ -4,8 +4,9 @@
 // Shared by the ABRIK benchmark drivers: the build provenance stamp, the timestamped
 // CSV file, and the precision dispatch of main().
 
+#include "rl_bench_utils.hh"
+
 #include <cstdlib>
-#include <ctime>
 #include <exception>
 #include <fstream>
 #include <iostream>
@@ -27,16 +28,7 @@ inline std::string abrik_build_commit() {
 /// The caller checks the stream: a missing directory leaves it closed.
 inline std::string abrik_open_csv(const std::string& output_dir, const std::string& name,
                                   std::ofstream& out) {
-    std::time_t now = std::time(nullptr);
-    std::tm local{};
-#ifdef _WIN32
-    localtime_s(&local, &now);
-#else
-    localtime_r(&now, &local);
-#endif
-    char prefix[20];
-    std::strftime(prefix, sizeof(prefix), "%Y%m%d_%H%M%S_", &local);
-    std::string filename = std::string(prefix) + name + ".csv";
+    std::string filename = RandLAPACK::bench::timestamp_prefix() + name + ".csv";
     std::string path = (output_dir != ".") ? output_dir + "/" + filename : filename;
     out.open(path);
     if (!out) std::cerr << "Error: cannot open " << path << " for writing\n";

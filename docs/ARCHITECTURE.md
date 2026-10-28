@@ -73,9 +73,10 @@ RandLAPACK/                     (repository root)
 |   |-- gpu_functions/          CUDA kernels and cuSOLVER dispatch helpers
 |   |                           (compiled only by a CUDA compiler)
 |   |-- misc/                   rl_util.hh, rl_pdkernels.hh
-|   `-- testing/                matrix generators, matrix file readers and
-|                               test utilities that ship with the library
-|                               (rl_gen.hh, rl_matrix_io.hh, ...)
+|   `-- testing/                matrix generators, matrix file readers, and
+|                               test and benchmark utilities that ship with
+|                               the library (rl_gen.hh, rl_matrix_io.hh,
+|                               rl_bench_utils.hh, ...)
 |-- RandBLAS/                   git submodule, pinned to an exact commit
 |-- test/                       GoogleTest suite, mirrors the source layout
 |-- benchmark/                  standalone CMake project (see its README)
