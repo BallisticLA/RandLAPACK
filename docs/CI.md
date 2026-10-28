@@ -26,7 +26,7 @@ installer one.
 | install-script | `install-linux-openblas64` | ubuntu-latest | `install.sh --blas=openblas` with Debian/Ubuntu's `libopenblas64` as the only OpenBLAS: BLAS++ must come out ILP64 and link `libopenblas64`, then the test suite | no |
 | install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, an explicit `--blas-int=ilp64` re-run | **yes** |
 | install-script | `install-macos-openblas` | macos-latest | `install.sh --blas=openblas` with Homebrew's OpenBLAS, which is LP64 only, so the installer must fall back to LP64; then the test suite | no |
-| install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, then the test suite | no |
+| install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, extras and benchmarks built, then the test suite | no |
 | install-script | `install-windows` | windows-2022 | `installers/install.ps1`: fresh install, idempotent re-run | no |
 
 ## Required checks
@@ -81,7 +81,9 @@ installer one.
 - **core-macos builds BLAS++ ILP64** (`-Dblas_int=int64`), the width
   `install.sh` picks on macOS by default, and checks `defines.h` for
   `BLAS_ILP64` the same way. `install-macos-lp64` is the one lane that builds
-  Accelerate LP64.
+  Accelerate LP64; it runs the test suite and builds the extras and
+  benchmarks, but Accelerate LP64 has no AddressSanitizer run and no extras
+  test run.
 - **core-linux runs its tests in parallel**: `ctest -j "$(nproc)"` for the
   library tests, and `ctest -j 8 --repeat until-fail:5` for the extras, which
   take about a second. `gtest_discover_tests` makes every test case its own
@@ -92,7 +94,7 @@ installer one.
   serially.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). RandBLAS's CI already tests the
-  pinned commit, and rebuilding its ~450 tests in every RandLAPACK job
+  pinned commit, and rebuilding its 483 tests in every RandLAPACK job
   roughly doubled job times. `install.sh` and `install.ps1` turn them off the
   same way, so every installer lane skips them too.
 - **No job builds or runs the GPU code**
@@ -193,8 +195,9 @@ installer one.
   test/benchmark executable (app-local deployment). The stripped-PATH CI step
   is the regression gate; do not remove it. A process-PATH prepend remains
   in `run-ci.ps1` and in `setup.ps1` (which `install.ps1` runs).
-  RandLAPACK's executables do not rely on it, but the RandBLAS submodule's
-  own test executables do, until RandBLAS gains the same staging.
+  RandLAPACK's executables do not rely on it. It was kept for the RandBLAS
+  submodule's own test executables, which no Windows build compiles since
+  `install.ps1` turned them off; removing it is a separate change.
 
 ### Dependencies
 

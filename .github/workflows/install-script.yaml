@@ -245,6 +245,7 @@ jobs:
           set -euo pipefail
           bash RandLAPACK/install.sh --yes --no-gpu --blas=openblas | tee installer.out
           grep -qE '^  Backend  *openblas, LP64' installer.out
+          grep -q 'No ILP64 openblas was available' installer.out
 
       - name: test the installed library
         run: |
@@ -271,8 +272,7 @@ jobs:
       - name: run the installer with --blas-int=lp64
         run: |
           set -euo pipefail
-          bash RandLAPACK/install.sh --yes --no-gpu --blas-int=lp64 \
-              --no-extras --no-benchmarks | tee installer.out
+          bash RandLAPACK/install.sh --yes --no-gpu --blas-int=lp64 | tee installer.out
           grep -qE '^  Backend  *accelerate, LP64' installer.out
           defines=RandNLA-project/install/blaspp-accelerate-cpu-install/include/blas/defines.h
           grep -q 'ACCELERATE_NEW_LAPACK' "$defines"

@@ -30,7 +30,7 @@ concurrency:
 #
 # The RandBLAS submodule's own test suite is disabled (-DBUILD_TESTS=OFF):
 # the pinned commit is already tested by RandBLAS's CI, and rebuilding and
-# rerunning its ~450 tests here roughly doubled the job time.
+# rerunning its 483 tests here roughly doubled the job time.
 
 jobs:
   build:
