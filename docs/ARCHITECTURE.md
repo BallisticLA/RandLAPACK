@@ -73,10 +73,9 @@ RandLAPACK/                     (repository root)
 |   |-- gpu_functions/          CUDA kernels and cuSOLVER dispatch helpers
 |   |                           (compiled only by a CUDA compiler)
 |   |-- misc/                   rl_util.hh, rl_pdkernels.hh
-|   `-- testing/                matrix generators, matrix file readers, and
-|                               test and benchmark utilities that ship with
-|                               the library (rl_gen.hh, rl_matrix_io.hh,
-|                               rl_bench_utils.hh, ...)
+|   `-- testing/                matrix generators, matrix file readers and
+|                               test utilities that ship with the library
+|                               (rl_gen.hh, rl_matrix_io.hh, ...)
 |-- RandBLAS/                   git submodule, pinned to an exact commit
 |-- test/                       GoogleTest suite, mirrors the source layout
 |-- benchmark/                  standalone CMake project (see its README)
@@ -104,7 +103,9 @@ The repository builds as three CMake projects, not one:
    behind the `RandLAPACK_EXTERNAL_RandBLAS` commit gate; see
    [DEPENDENCIES.md](DEPENDENCIES.md#randblas-is-a-pinned-submodule)).
 2. **benchmark/** measures RandLAPACK's performance (the harnesses behind
-   the papers). Some benchmarks borrow headers from `extras/`.
+   the papers). Its shared helpers, `benchmark/rl_bench_utils.hh`, belong
+   to it and do not install with the library. Some benchmarks borrow
+   headers from `extras/`.
 3. **extras/** is a holding area for functionality that currently needs
    third-party libraries (Eigen, fast_matrix_market) that core RandLAPACK
    will not depend on; [extras/README.md](../extras/README.md) gives the

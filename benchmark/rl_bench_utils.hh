@@ -1,4 +1,5 @@
-// Utilities shared by the benchmark programs under benchmark/; not public API.
+// Utilities shared by the benchmark programs in this directory. Part of the
+// benchmark project, not of RandLAPACK, so a RandLAPACK install leaves it out.
 // External plotting and campaign scripts parse the file names and row formats
 // written here, so any change to them changes every benchmark's output.
 

@@ -51,13 +51,14 @@ FetchContent. Some benchmarks also borrow headers from `extras/`.
 
 ## Writing a benchmark
 
-Shared scaffolding lives in `RandLAPACK/testing/rl_bench_utils.hh`
-(namespace `RandLAPACK::bench`), which installs with the library. It holds
-the argument and output-path helpers, the timestamp prefix of result files,
-the row and footer writers, the `QR_benchmark_data` struct with its
-regeneration routine, and the QR error-analysis and pivot-quality helpers.
-Use these instead of copying them from a neighboring driver: external plotting
-and campaign scripts parse the file names and row formats they write.
+Shared scaffolding lives in `rl_bench_utils.hh` at the root of this directory
+(namespace `RandLAPACK::bench`). It is part of the benchmark project and does
+not install with the library. It holds the argument and output-path helpers,
+the timestamp prefix of result files, the row and footer writers, the
+`QR_benchmark_data` struct with its regeneration routine, and the QR
+error-analysis and pivot-quality helpers. Use these instead of copying them
+from a neighboring driver: external plotting and campaign scripts parse the
+file names and row formats they write.
 
 ## GPU benchmarks
 
