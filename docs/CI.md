@@ -94,7 +94,7 @@ installer one.
   serially.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). RandBLAS's CI already tests the
-  pinned commit, and rebuilding its 483 tests in every RandLAPACK job
+  pinned commit, and rebuilding its roughly 480 tests in every RandLAPACK job
   roughly doubled job times. `install.sh` and `install.ps1` turn them off the
   same way, so every installer lane skips them too.
 - **No job builds or runs the GPU code**
