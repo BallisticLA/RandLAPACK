@@ -220,26 +220,45 @@ jobs:
           bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu --blas-int=ilp64 | tee ilp64.out
           grep -qE '^  Backend  *accelerate, ILP64' ilp64.out
 
-      # Homebrew OpenBLAS remains a supported route; keep it exercised.
-      - name: install with --blas=openblas into a second project
-        run: |
-          set -euo pipefail
-          brew install openblas
-          bash RandLAPACK/install.sh --yes --no-gpu --blas=openblas \
-              --project-dir "$GITHUB_WORKSPACE/RandNLA-project-openblas" | tee openblas.out
-          grep -qE '^  Backend  *openblas, ' openblas.out
-          ctest --test-dir RandNLA-project-openblas/build/RandLAPACK-build \
-                --output-on-failure
-
       # The installer sends each step's full output to install.log and prints
       # only progress lines, so on failure the log holds the actual error.
       - name: show install.log on failure
         if: failure()
         run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
 
+  # Homebrew OpenBLAS remains a supported route; keep it exercised. A job of
+  # its own runs beside install-macos instead of doubling that job's time.
+  install-macos-openblas:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+
+      - name: configure OS
+        run: brew install googletest libomp openblas
+
+      # Homebrew's OpenBLAS is LP64 only, so the installer falls back to LP64
+      # with a warning.
+      - name: run the installer with --blas=openblas
+        run: |
+          set -euo pipefail
+          bash RandLAPACK/install.sh --yes --no-gpu --blas=openblas | tee installer.out
+          grep -qE '^  Backend  *openblas, LP64' installer.out
+          grep -q 'No ILP64 openblas was available' installer.out
+
+      - name: test the installed library
+        run: |
+          ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --output-on-failure
+
+      - name: show install.log on failure
+        if: failure()
+        run: tail -n 200 "$GITHUB_WORKSPACE"/RandNLA-project*/install.log || true
+
   # The explicit-LP64 route on Accelerate stays supported and tested: with
-  # the default now resolving to ILP64, this is the one installer lane that
-  # still builds it (core-macos covers it without the installer).
+  # the default resolving to ILP64 (core-macos builds ILP64 too), this is the
+  # one lane that builds it.
   install-macos-lp64:
     runs-on: macos-latest
     steps:
@@ -253,8 +272,7 @@ jobs:
       - name: run the installer with --blas-int=lp64
         run: |
           set -euo pipefail
-          bash RandLAPACK/install.sh --yes --no-gpu --blas-int=lp64 \
-              --no-extras --no-benchmarks | tee installer.out
+          bash RandLAPACK/install.sh --yes --no-gpu --blas-int=lp64 | tee installer.out
           grep -qE '^  Backend  *accelerate, LP64' installer.out
           defines=RandNLA-project/install/blaspp-accelerate-cpu-install/include/blas/defines.h
           grep -q 'ACCELERATE_NEW_LAPACK' "$defines"
@@ -265,6 +283,12 @@ jobs:
       - name: test the installed library
         run: |
           ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --output-on-failure
+
+      # The extras tests take about a second; this is Accelerate LP64's only run of them.
+      - name: test the extras
+        run: |
+          ctest --test-dir RandNLA-project/build/extras-build \
                 --output-on-failure
 
       - name: show install.log on failure
