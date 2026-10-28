@@ -172,12 +172,8 @@ class Test_rpc_svd : public ::testing::Test
     }
 
     /*
-     * Generate a 500-by-10 matrix "A" whose j-th column is scaled by 10^-j,
-     * so its singular values straddle sqrt(mu) = 1e-4.
-     *
-     * make_right_orthogonalizer combines the sketch's singular values with mu,
-     * so they must estimate those of A. Check that cond([A; sqrt(mu)*I]*M) <= 2
-     * (an unscaled sketch gives about 3.3).
+     * Columns scaled by 10^-j, so A's singular values straddle sqrt(mu) and a
+     * mis-scaled sketch unbalances them against mu. Check cond <= 2.
      */
     virtual void test_reg_uses_isometry_scale(
         uint64_t key_index
@@ -237,6 +233,39 @@ TEST_F(Test_rpc_svd, RegUsesIsometryScale)
 {
     test_reg_uses_isometry_scale(0);
     test_reg_uses_isometry_scale(1);
+}
+
+TEST_F(Test_rpc_svd, SketchScaleExactOnCoordinateVector)
+{
+    // S * (c e_j) is c times one column of S, which has exactly k entries of +-1.
+    int64_t m_c = 50, d_c = 10;
+    double c = 3.0;
+    for (int64_t k : {1, 3, 8}) {
+        std::vector<double> A(m_c, 0.0);
+        A[7] = c;
+        std::vector<double> V_sk(d_c, 0.0);
+        std::vector<double> sigma_sk(1, 0.0);
+        RandLAPACK::rpc_data_svd_saso(
+            blas::Layout::ColMajor, m_c, 1, d_c, k, A.data(), m_c,
+            V_sk.data(), sigma_sk.data(), RandBLAS::RNGState(keys[0])
+        );
+        EXPECT_NEAR(sigma_sk[0], c, 10 * std::numeric_limits<double>::epsilon() * c) << "k=" << k;
+    }
+}
+
+TEST_F(Test_rpc_svd, RejectsOperatorsWithoutLeftIsometryScale)
+{
+    std::vector<double> A(m * n, 1.0);
+    std::vector<double> V_sk((m + 1) * n, 0.0);
+    std::vector<double> sigma_sk(n, 0.0);
+    RandBLAS::SparseDist tall(m + 1, m, 8, RandBLAS::Axis::Short);
+    RandBLAS::SparseSkOp<double> S_tall(tall, RandBLAS::RNGState(keys[0]));
+    EXPECT_THROW(RandLAPACK::rpc_data_svd(
+        blas::Layout::ColMajor, m, n, A.data(), m, S_tall, V_sk.data(), sigma_sk.data()), RandLAPACK::Error);
+    RandBLAS::DenseDist dense_short(d, m, RandBLAS::ScalarDist::Gaussian, RandBLAS::Axis::Short);
+    RandBLAS::DenseSkOp<double> S_short(dense_short, RandBLAS::RNGState(keys[0]));
+    EXPECT_THROW(RandLAPACK::rpc_data_svd(
+        blas::Layout::ColMajor, m, n, A.data(), m, S_short, V_sk.data(), sigma_sk.data()), RandLAPACK::Error);
 }
 
 class TestNystromPrecond : public ::testing::Test
