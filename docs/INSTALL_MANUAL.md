@@ -166,7 +166,7 @@ What the flags in the recipe mean:
 | `-Dlapackpp_DIR=X` | `X` contains `lapackppConfig.cmake`. |
 | `-DRandom123_DIR=X` | `X` contains a folder `Random123` with the Random123 headers: `X/Random123/philox.h` must exist. |
 | `-DCMAKE_INSTALL_PREFIX=X` | `X/include` receives the headers of RandLAPACK and RandBLAS. `X/lib/cmake/RandLAPACK` (`lib64` on some systems) receives `RandLAPACKConfig.cmake`, which Section 5 needs. |
-| `-DBUILD_TESTS=OFF` | Skips the RandBLAS submodule's own tests, as `install.sh` and CI do. |
+| `-DBUILD_TESTS=OFF` | Skips the RandBLAS submodule's own tests, as both installers and CI do. |
 
 Other optional flags:
 
