@@ -463,10 +463,10 @@ private:
                                err_beta, E, dims.ldc);
 
         // Compare results using componentwise bounds
-        RandBLAS::testing::buffs_approx_equal(
+        EXPECT_EQ(RandBLAS::testing::buffs_approx_equal(
             C_op, C_reference, E, m * n,
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
-        );
+        ), "");
 
         // Clean up
         delete[] A_dense;
