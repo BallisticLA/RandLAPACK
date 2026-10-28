@@ -30,6 +30,10 @@ concurrency:
 # 2026-08-27). The cache key carries an "accelerate" tag because earlier
 # caches hold dependencies built without -Dblas=accelerate, and the pinned
 # commit hashes so that changing a pin rebuilds them.
+#
+# BLAS++ is built ILP64 (-Dblas_int=int64), the width install.sh picks on
+# macOS by default; install-macos-lp64 covers LP64. The "ilp64" key tag keeps
+# older LP64 caches from being restored.
 # Cache paths start from runner.workspace; see core-linux.yaml for why.
 
 jobs:
@@ -62,7 +66,7 @@ jobs:
             ${{ runner.workspace }}/blaspp-install
             ${{ runner.workspace }}/lapackpp-install
             ${{ runner.workspace }}/Random123-install
-          key: core-deps-${{ runner.os }}-accelerate-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
+          key: core-deps-${{ runner.os }}-accelerate-ilp64-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++ (new Accelerate)
         if: steps.deps-cache.outputs.cache-hit != 'true'
@@ -74,10 +78,12 @@ jobs:
           bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$BLASPP_URL" "$BLASPP_REF" blaspp
           mkdir blaspp-build
           cd blaspp-build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dblas_int=int64 -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
           make -j$(sysctl -n hw.ncpu) install
           grep -q ACCELERATE_NEW_LAPACK ../blaspp-install/include/blas/defines.h \
             || { echo "::error::BLAS++ did not select Apple's new Accelerate interface"; exit 1; }
+          grep -q '^#define BLAS_ILP64' ../blaspp-install/include/blas/defines.h \
+            || { echo "::error::BLAS++ did not come out ILP64"; exit 1; }
 
       - name: install Random123
         if: steps.deps-cache.outputs.cache-hit != 'true'
@@ -172,7 +178,7 @@ jobs:
             ${{ runner.workspace }}/blaspp-install
             ${{ runner.workspace }}/lapackpp-install
             ${{ runner.workspace }}/Random123-install
-          key: core-deps-${{ runner.os }}-accelerate-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
+          key: core-deps-${{ runner.os }}-accelerate-ilp64-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
 
       - name: install BLAS++ (new Accelerate)
         if: steps.deps-cache.outputs.cache-hit != 'true'
@@ -184,10 +190,12 @@ jobs:
           bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$BLASPP_URL" "$BLASPP_REF" blaspp
           mkdir blaspp-build
           cd blaspp-build
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dblas=accelerate -Dblas_int=int64 -Dgpu_backend=none -Dbuild_tests=OFF ../blaspp
           make -j$(sysctl -n hw.ncpu) install
           grep -q ACCELERATE_NEW_LAPACK ../blaspp-install/include/blas/defines.h \
             || { echo "::error::BLAS++ did not select Apple's new Accelerate interface"; exit 1; }
+          grep -q '^#define BLAS_ILP64' ../blaspp-install/include/blas/defines.h \
+            || { echo "::error::BLAS++ did not come out ILP64"; exit 1; }
 
       - name: install Random123
         if: steps.deps-cache.outputs.cache-hit != 'true'

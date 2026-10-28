@@ -16,7 +16,7 @@ installer one.
 |----------|-----|--------|-----------|-----------------|
 | core-linux | `build` | ubuntu-latest | Release build + tests, extras build + tests, benchmark compile (OpenBLAS) | **yes** (`build`) |
 | core-linux | `build-asan` | ubuntu-latest | Debug + AddressSanitizer build and test run | no |
-| core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain (Accelerate new interface, LP64, no OpenMP) | **yes** (`build`) |
+| core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain (Accelerate new interface, ILP64, no OpenMP) | **yes** (`build`) |
 | core-macos | `build-asan` | macos-latest | Debug + AddressSanitizer build and test run | no |
 | core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial ("serial" = RandLAPACK's own loops; the BLAS backend is multithreaded in every leg); each leg ends with a stripped-PATH run of a staged test executable | no |
@@ -24,8 +24,9 @@ installer one.
 | dependency-pins | `pins` | ubuntu-latest | `installers/dependency-pins.env`: each commit exists at its URL, a non-empty tag points at its commit, and the pins match the RandBLAS submodule's | no |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
 | install-script | `install-linux-openblas64` | ubuntu-latest | `install.sh --blas=openblas` with Debian/Ubuntu's `libopenblas64` as the only OpenBLAS: BLAS++ must come out ILP64 and link `libopenblas64`, then the test suite | no |
-| install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, an explicit `--blas-int=ilp64` re-run, explicit `--blas=openblas` install | **yes** |
-| install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, then the test suite | no |
+| install-script | `install-macos` | macos-latest | `install.sh`: fresh install (default = Accelerate new interface, ILP64, no Homebrew BLAS), idempotent re-run, an explicit `--blas-int=ilp64` re-run | **yes** |
+| install-script | `install-macos-openblas` | macos-latest | `install.sh --blas=openblas` with Homebrew's OpenBLAS, which is LP64 only, so the installer must fall back to LP64; then the test suite | no |
+| install-script | `install-macos-lp64` | macos-latest | `install.sh --blas-int=lp64` on Accelerate: the new interface with an LP64 BLAS++, extras and benchmarks built, then the library and extras tests | no |
 | install-script | `install-windows` | windows-2022 | `installers/install.ps1`: fresh install, idempotent re-run | no |
 
 ## Required checks
@@ -34,10 +35,12 @@ installer one.
   `install-macos` fails, and it must be up to date with `main`.
 - Required-check names match **job** names, not "workflow / job" display
   names.
-- The Windows jobs, the `pins` job, the two `build-asan` jobs and the two
-  newest installer lanes (`install-linux-openblas64`, `install-macos-lp64`)
-  are deliberately not required yet. They become candidates once they have a
-  green track record.
+- The Windows jobs, the `pins` job, the two `build-asan` jobs and the
+  newest installer lanes (`install-linux-openblas64`, `install-macos-lp64`,
+  `install-macos-openblas`) are deliberately not required yet. They become
+  candidates once they have a green track record. `install-macos-openblas`
+  was split out of the required `install-macos`, so it is the first
+  candidate.
 
 ## Reproducing CI locally
 
@@ -75,6 +78,12 @@ installer one.
   explains). Both core-macos jobs therefore `grep` for
   `ACCELERATE_NEW_LAPACK` in the installed `defines.h` and fail loudly
   rather than let a silent fallback to the legacy interface back in.
+- **core-macos builds BLAS++ ILP64** (`-Dblas_int=int64`), the width
+  `install.sh` picks on macOS by default, and checks `defines.h` for
+  `BLAS_ILP64` the same way. `install-macos-lp64` is the one lane that builds
+  Accelerate LP64; it runs the library and extras tests and builds the
+  benchmarks, always with OpenMP. Accelerate LP64 has no AddressSanitizer run
+  and no build without OpenMP.
 - **core-linux runs its tests in parallel**: `ctest -j "$(nproc)"` for the
   library tests, and `ctest -j 8 --repeat until-fail:5` for the extras, which
   take about a second. `gtest_discover_tests` makes every test case its own
@@ -85,11 +94,9 @@ installer one.
   serially.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). RandBLAS's CI already tests the
-  pinned commit, and rebuilding its ~450 tests in every RandLAPACK job
-  roughly doubled job times. `install.sh` turns them off the same way, so
-  every Linux and macOS installer lane skips them too. `install.ps1` does
-  not, so `install-windows` builds and runs them, as a user's Windows install
-  does.
+  pinned commit, and rebuilding its roughly 480 tests in every RandLAPACK job
+  roughly doubled job times. `install.sh` and `install.ps1` turn them off the
+  same way, so every installer lane skips them too.
 - **No job builds or runs the GPU code**
   ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). No job
   configures with `-DRequireCUDA=ON`, and the GPU drivers compile only in
@@ -188,8 +195,9 @@ installer one.
   test/benchmark executable (app-local deployment). The stripped-PATH CI step
   is the regression gate; do not remove it. A process-PATH prepend remains
   in `run-ci.ps1` and in `setup.ps1` (which `install.ps1` runs).
-  RandLAPACK's executables do not rely on it, but the RandBLAS submodule's
-  own test executables do, until RandBLAS gains the same staging.
+  RandLAPACK's executables do not rely on it. It was kept for the RandBLAS
+  submodule's own test executables, which no Windows build compiles since
+  `install.ps1` turned them off; removing it is a separate change.
 
 ### Dependencies
 
@@ -228,8 +236,9 @@ a cache-miss run is several minutes slower than a warm one.
   that caches them carries those commits.
 - **Random123 is unpinned in the core lanes**, which clone its default
   branch, so bumping `-v<N>` is also how they pick up a new Random123.
-- **The core-macos key carries an "accelerate" tag**, because earlier caches
-  hold dependencies built without `-Dblas=accelerate`.
+- **The core-macos key carries "accelerate" and "ilp64" tags**, because
+  earlier caches hold dependencies built without `-Dblas=accelerate`, or
+  LP64.
 - **The Windows keys use MANUAL revision literals** (plus the pinned
   BLAS++/LAPACK++ commits), never `hashFiles()`. That helper resolves paths
   relative to the workspace root, and the install-script workflow checks the
