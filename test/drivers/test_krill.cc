@@ -60,9 +60,9 @@ class TestKrillIsh: public ::testing::Test {
         T tol_scale = std::sqrt((T)m);
         T atol = tol_scale * std::pow(std::numeric_limits<T>::epsilon(), 0.5);
         T rtol = tol_scale * atol;
-        RandBLAS::testing::buffs_approx_equal(X_init.data(), X_star.data(), m * s,
+        EXPECT_EQ(RandBLAS::testing::buffs_approx_equal(X_init.data(), X_star.data(), m * s,
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol
-        );
+        ), "");
         return;
     }
 
@@ -155,9 +155,9 @@ class TestKrillx: public ::testing::Test {
         T tol_scale = std::sqrt((T)m);
         T atol = tol_scale * std::pow(std::numeric_limits<T>::epsilon(), 0.5);
         T rtol = tol_scale * atol;
-        RandBLAS::testing::buffs_approx_equal(X_init.data(), X_star.data(), m * s,
+        EXPECT_EQ(RandBLAS::testing::buffs_approx_equal(X_init.data(), X_star.data(), m * s,
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol
-        );
+        ), "");
         return;
     }
 };
