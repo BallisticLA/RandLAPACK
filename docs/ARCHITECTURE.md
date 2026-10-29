@@ -128,6 +128,9 @@ library and runs its tests, but not extras or benchmarks; see
 ## Conventions
 
 Review enforces the layout, buffer, error and randomness rules for new code.
+[CONVENTIONS.md](CONVENTIONS.md) is the library-wide design that routines are being
+converted to (memory, workspace, results, configuration, errors); where it differs from
+the bullets below, it wins.
 
 - **Layout and types.** Column-major storage; `int64_t` for all dimensions,
   leading dimensions and indices; the element type is a template parameter

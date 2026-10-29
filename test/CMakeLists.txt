@@ -15,6 +15,10 @@ if (RandLAPACK_ENABLE_COVERAGE)
     add_link_options("$<$<LINK_LANGUAGE:CXX>:--coverage>")
 endif()
 
+# Every test program poisons workspace that library helpers hand out uninitialized, and enables the
+# test-only fault hooks (RandLAPACK/rl_memory.hh, RandLAPACK/rl_status.hh).
+add_compile_definitions(RandLAPACK_POISON_WORKSPACE RandLAPACK_ENABLE_TEST_HOOKS)
+
 set(tmp FALSE)
 if (GTest_FOUND)
     set(tmp TRUE)
@@ -56,6 +60,8 @@ if (GTest_FOUND)
         misc/test_memory_tracker.cc
         linops/test_linop_block_views.cc
         misc/test_instantiations.cc
+        misc/test_memory.cc
+        misc/test_status.cc
     )
     
     # Create non-CUDA test executable
