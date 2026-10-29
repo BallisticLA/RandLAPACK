@@ -1,8 +1,9 @@
 #pragma once
 
 // Thread-count caps for the memory-bound single-vector triangular solves inside iterative
-// solvers (the operator applies around them keep every thread). The guards act only under
-// RandBLAS_HAS_MKL and are no-ops elsewhere.
+// solvers, which MKL would otherwise spread over every core (the operator applies around them
+// keep every thread). No-ops without MKL: OpenBLAS runs these solves on one thread, and
+// Accelerate has no per-call thread control.
 
 #include <RandBLAS/config.h>
 
@@ -27,8 +28,8 @@
 namespace RandLAPACK {
 
 
-/// Calibrated level-2 caps: threading a dtrsv helps up to 8-16 threads and degrades past
-/// that, with the optimum growing with n.
+/// Calibrated level-2 caps (MKL, 64-core node): threading a dtrsv helps up to 8-16 threads and
+/// degrades past that, with the optimum growing with n.
 inline constexpr int kBlas2ThreadsSmall = 8;    ///< n <= kBlas2SmallDim
 inline constexpr int kBlas2ThreadsLarge = 16;   ///< n >  kBlas2SmallDim
 inline constexpr int64_t kBlas2SmallDim = 4000;
