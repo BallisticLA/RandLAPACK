@@ -59,8 +59,8 @@ RandLAPACK/                     (repository root)
 |   |-- rl_config.hh.in         configured into rl_config.hh at build time
 |   |-- drivers/                user-facing algorithms (rl_rsvd.hh,
 |   |                           rl_bqrrp.hh + rl_bqrrp_gpu.hh, rl_cqrrpt.hh
-|   |                           + rl_cqrrpt_gpu.hh, rl_cqrrt.hh,
-|   |                           rl_cqrrt_linops.hh, rl_cholqr_linops.hh,
+|   |                           + rl_cqrrpt_gpu.hh, rl_cqrrt.hh (CQRRT and
+|   |                           CQRRTO_linops), rl_cholqr_linops.hh,
 |   |                           rl_scholqr3_linops.hh, rl_blendenpik.hh,
 |   |                           rl_revd2.hh, rl_abrik.hh, rl_hqrrp.hh,
 |   |                           rl_krill.hh, ...)
