@@ -198,3 +198,44 @@ TEST_F(TestDetermiterLockBlockPCG, test_run_simple_lockstep_5_4) {
     run_simple_lockstep(5, 4, 1997);
     run_simple_lockstep(5, 4, 2024);
 }
+
+TEST(TestPsdSqrtPinv, reports_kernel_dimension_and_its_two_error_codes) {
+    constexpr int64_t n = 3;
+    double work[n];
+    // diag(2, 1, 0): positive semidefinite with a one-dimensional kernel.
+    double psd[] = {2, 0, 0, 0, 1, 0, 0, 0, 0};
+    EXPECT_EQ(RandLAPACK::psd_sqrt_pinv(n, psd, n, work), 1);
+    // diag(1, -1, 1): not positive semidefinite.
+    double indefinite[] = {1, 0, 0, 0, -1, 0, 0, 0, 1};
+    double zero[n * n] = {};
+    // Both failures are reported through the return value only, with nothing printed.
+    ::testing::internal::CaptureStdout();
+    EXPECT_EQ(RandLAPACK::psd_sqrt_pinv(n, indefinite, n, work), -(n + 1));
+    EXPECT_EQ(RandLAPACK::psd_sqrt_pinv(n, zero, n, work), -(n + 2));
+    EXPECT_EQ(::testing::internal::GetCapturedStdout(), "");
+}
+
+// A padded A (lda > n) gives the compact result and leaves the padding alone; float compiles and runs.
+TEST(TestPsdSqrtPinv, honors_lda_and_float) {
+    constexpr int64_t n = 3, lda = 4;
+    const double sym[] = {4, 1, 0, 1, 3, 0, 0, 0, 0};  // positive semidefinite, kernel of dimension 1
+    double compact[n * n], work[n], work_padded[n];
+    double padded[lda * n];
+    std::copy(sym, sym + n * n, compact);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i)
+            padded[i + j * lda] = sym[i + j * n];
+        padded[n + j * lda] = -7.0;
+    }
+    ASSERT_EQ(RandLAPACK::psd_sqrt_pinv(n, compact, n, work), 1);
+    ASSERT_EQ(RandLAPACK::psd_sqrt_pinv(n, padded, lda, work_padded), 1);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i)
+            EXPECT_DOUBLE_EQ(padded[i + j * lda], compact[i + j * n]) << "entry (" << i << ", " << j << ")";
+        EXPECT_EQ(padded[n + j * lda], -7.0) << "padding of column " << j;
+    }
+
+    float sym_f[n * n], work_f[n];
+    std::copy(sym, sym + n * n, sym_f);
+    EXPECT_EQ(RandLAPACK::psd_sqrt_pinv(n, sym_f, n, work_f), 1);
+}

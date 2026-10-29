@@ -6,6 +6,7 @@
 #include <RandLAPACK/testing/rl_test_utils.hh>
 
 #include <RandBLAS.hh>
+#include <cstring>
 #include <fstream>
 #include <gtest/gtest.h>
 
@@ -636,4 +637,174 @@ TEST_F(TestCQRRPT, CQRRPT_zero_input) {
     EXPECT_EQ(CQRRPT.rank, 0);
     EXPECT_EQ(R, std::vector<double>(n * n, 0.0));
     EXPECT_EQ(A, std::vector<double>(m * n, 0.0));
+    std::vector<int64_t> identity(n);
+    std::iota(identity.begin(), identity.end(), (int64_t) 1);
+    EXPECT_EQ(J, identity);
+}
+
+// An Inf or a NaN in A must be reported (code 2), not cut to rank 0 and returned as success, whatever the
+// QRCP of the sketch; a NaN in an otherwise zero A must not pass for the zero input.
+TEST_F(TestCQRRPT, CQRRPT_nonfinite_input_reported) {
+    int64_t m = 100;
+    int64_t n = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A_full(m * n, 0.0);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = n;
+    m_info.exponent = 2.0;
+    auto gen_state = RandBLAS::RNGState();
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_full.data(), gen_state);
+
+    const double inf = std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    struct Case { const char* name; Subroutines::QRCP qrcp; bool zero_A; double value; };
+    for (const Case& c : {Case{"Inf, geqp3", Subroutines::QRCP::geqp3, false, inf},
+                          Case{"NaN, geqp3", Subroutines::QRCP::geqp3, false, nan},
+                          Case{"Inf, hqrrp", Subroutines::QRCP::hqrrp, false, inf},
+                          Case{"NaN, hqrrp", Subroutines::QRCP::hqrrp, false, nan},
+                          Case{"Inf, bqrrp", Subroutines::QRCP::bqrrp, false, inf},
+                          Case{"NaN, bqrrp", Subroutines::QRCP::bqrrp, false, nan},
+                          Case{"NaN in a zero A", Subroutines::QRCP::geqp3, true, nan}}) {
+        SCOPED_TRACE(c.name);
+        std::vector<double> A = c.zero_A ? std::vector<double>(m * n, 0.0) : A_full;
+        A[37 + 6 * m] = c.value;
+        std::vector<double> R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        CQRRPT.qrcp = c.qrcp;
+        CQRRPT.rank = -7;
+        auto state = RandBLAS::RNGState();
+        EXPECT_EQ(CQRRPT.call(m, n, A.data(), m, R.data(), n, J.data(), 2.0, state), 2);
+        EXPECT_EQ(CQRRPT.rank, 0);
+    }
+}
+
+// With d > m (outside the documented m >= d >= n, but not rejected) a row of A can get no weight in the
+// sketch; a NaN there must still be reported, in an otherwise zero A and in a full-rank one.
+TEST_F(TestCQRRPT, CQRRPT_nonfinite_in_an_unweighted_row_reported) {
+    int64_t m = 8;
+    int64_t n = 8;
+    int64_t nnz = 2;
+    double d_factor = 1.25;
+    uint32_t seed = 0;
+    int64_t row = cqrrpt_test::unweighted_row((int64_t) (d_factor * n), m, nnz, seed);
+    ASSERT_GE(row, 0) << "no seed below 1000 leaves a row of A unweighted";
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    for (bool zero_A : {true, false}) {
+        SCOPED_TRACE(zero_A ? "zero A" : "full-rank A");
+        std::vector<double> A(m * n, 0.0), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        if (!zero_A)
+            for (int64_t i = 0; i < m; ++i)
+                A[i + i * m] = 1.0 + i;
+        A[row + 3 * m] = std::numeric_limits<double>::quiet_NaN();
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = nnz;
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        EXPECT_EQ(CQRRPT.call(m, n, A.data(), m, R.data(), n, J.data(), d_factor, state), 2);
+        EXPECT_EQ(CQRRPT.rank, 0);
+    }
+}
+
+// A finite A whose sketch overflows is reported too, also for d > m, where A itself is scanned as well.
+TEST_F(TestCQRRPT, CQRRPT_sketch_overflow_reported) {
+    int64_t m = 2;
+    int64_t n = 1;
+    int64_t nnz = 2;
+    double d_factor = 3.0;
+    std::vector<double> A0(m * n, std::numeric_limits<double>::max());
+    int64_t seed = cqrrpt_test::overflowing_sketch_seed(m, n, nnz, d_factor, A0);
+    ASSERT_GE(seed, 0) << "no seed below 1000 overflows the sketch";
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(A0), R(n * n, 0.0);
+    std::vector<int64_t> J(n, 0);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> alg(false, tol);
+    alg.nnz = nnz;
+    RandBLAS::RNGState<r123::Philox4x32> state((uint32_t) seed);
+    EXPECT_EQ(alg.call(m, n, A.data(), m, R.data(), n, J.data(), d_factor, state), 2);
+    EXPECT_EQ(alg.rank, 0);
+}
+
+// A finite sketch can still have a column norm above the largest double: with two nonzeros per column of S,
+// the sketch of 0.8 * DBL_MAX has norm about 1.13 * DBL_MAX, and the QRCP leaves R_sk(0, 0) non-finite.
+TEST_F(TestCQRRPT, CQRRPT_sketch_column_norm_overflow_reported) {
+    int64_t m = 4;
+    int64_t n = 1;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    for (auto qrcp : {Subroutines::QRCP::geqp3, Subroutines::QRCP::hqrrp, Subroutines::QRCP::bqrrp}) {
+        SCOPED_TRACE((int) qrcp);
+        std::vector<double> A(m * n, 0.0), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        A[0] = 0.8 * std::numeric_limits<double>::max();
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> alg(false, tol);
+        alg.nnz = 2;
+        alg.qrcp = qrcp;
+        auto state = RandBLAS::RNGState();
+        EXPECT_EQ(alg.call(m, n, A.data(), m, R.data(), n, J.data(), 3.0, state), 2);
+        EXPECT_EQ(alg.rank, 0);
+    }
+}
+
+// A nonzero sketch is never reported as a zero A (success with rank 0). BQRRP's own Gaussian sketch of the
+// sketch can underflow (an A of denormals) or overflow (an A near the largest double) and leave R_sk zero;
+// CQRRPT then reports the failed QRCP (code 1). The zero test is made on the sketch itself.
+TEST_F(TestCQRRPT, CQRRPT_nonzero_sketch_never_reported_as_zero) {
+    int64_t m = 8;
+    int64_t n = 2;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    const double tiny = std::numeric_limits<double>::denorm_min();
+    const double big = std::numeric_limits<double>::max();
+    std::vector<double> denormal(m * n, 0.0), large(m * n, 0.0);
+    denormal[m + 3] = tiny;
+    large[m + 1] = 0.6 * big;
+    large[m + 4] = -0.6 * big;
+    struct Case { const char* name; const std::vector<double>* A; int64_t nnz; uint32_t first_seed, seeds; };
+    for (const Case& c : {Case{"denormal", &denormal, 2, 0, 20}, Case{"large", &large, 1, 75, 1}}) {
+        for (auto qrcp : {Subroutines::QRCP::geqp3, Subroutines::QRCP::hqrrp, Subroutines::QRCP::bqrrp}) {
+            for (uint32_t seed = c.first_seed; seed < c.first_seed + c.seeds; ++seed) {
+                SCOPED_TRACE(std::string(c.name) + ", qrcp " + std::to_string((int) qrcp) + ", seed " + std::to_string(seed));
+                std::vector<double> A(*c.A), R(n * n, 0.0);
+                std::vector<int64_t> J(n, 0);
+                RandLAPACK::CQRRPT<double, r123::Philox4x32> alg(false, tol);
+                alg.nnz = c.nnz;
+                alg.qrcp = qrcp;
+                RandBLAS::RNGState<r123::Philox4x32> state(seed);
+                int code = alg.call(m, n, A.data(), m, R.data(), n, J.data(), 2.0, state);
+                EXPECT_FALSE(code == 0 && alg.rank == 0) << "code " << code;
+            }
+        }
+    }
+}
+
+// A non-finite diagonal of the Gram matrix is reported as well: finite data can still overflow once
+// preconditioned, and potrf's failure there is not a rank deficiency. The fault point plants a NaN on
+// that diagonal; the same call without it succeeds at full rank.
+TEST_F(TestCQRRPT, CQRRPT_nonfinite_gram_reported) {
+    int64_t m = 100;
+    int64_t n = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    std::vector<double> A(m * n, 0.0);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = n;
+    m_info.exponent = 2.0;
+    auto gen_state = RandBLAS::RNGState();
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), gen_state);
+
+    for (bool fault : {false, true}) {
+        SCOPED_TRACE(fault ? "NaN planted" : "no fault");
+        std::vector<double> Q(A), R(n * n, 0.0);
+        std::vector<int64_t> J(n, 0);
+        RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+        CQRRPT.nnz = 2;
+        auto state = RandBLAS::RNGState();
+        if (fault)
+            RandLAPACK::test_hooks::fault = [](const char* name) { return std::strcmp(name, "CQRRPT.gram_nan") == 0; };
+        int code = CQRRPT.call(m, n, Q.data(), m, R.data(), n, J.data(), 2.0, state);
+        RandLAPACK::test_hooks::fault = nullptr;
+        EXPECT_EQ(code, fault ? 2 : 0);
+        EXPECT_EQ(CQRRPT.rank, fault ? 0 : n);
+    }
 }

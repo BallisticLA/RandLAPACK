@@ -45,6 +45,7 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_exceptions.hh"
 
 #include <RandBLAS.hh>
 #include <lapack/fortran.h>
@@ -839,11 +840,6 @@ int64_t hqrrp(
     T* timing_QR   = nullptr;
 
     if(timing != nullptr) {
-        timing_QRCP  = new T[10]();
-        timing_QR    = new T[10]();
-    }
-
-    if(timing != nullptr) {
         total_t_start = steady_clock::now();
         preallocation_t_start = steady_clock::now();
     }
@@ -864,13 +860,10 @@ int64_t hqrrp(
     // Executable Statements.
 
     // Check arguments.
-    if( m_A < 0 ) {
-        std::cerr << "ERROR in hqrrp: m_A is < 0.\n";
-    } if( n_A < 0 ) {
-        std::cerr << "ERROR in hqrrp: n_A is < 0.\n";
-    } if( ldim_A < std::max<int64_t>( 1, m_A ) ) {
-        std::cerr << "ERROR in hqrrp: ldim_A is < std::max<int64_t>( 1, m_A ).\n";
-    }
+    randlapack_require(m_A >= 0) << "hqrrp: m_A=" << m_A << " must be >= 0";
+    randlapack_require(n_A >= 0) << "hqrrp: n_A=" << n_A << " must be >= 0";
+    randlapack_require(ldim_A >= std::max<int64_t>(1, m_A))
+        << "hqrrp: ldim_A=" << ldim_A << " must be >= max(1, m_A=" << m_A << ")";
 
     // Some initializations.
     mn_A   = std::min( m_A, n_A );
@@ -880,6 +873,12 @@ int64_t hqrrp(
     // Quick return.
     if( mn_A == 0 ) {
         return 0;
+    }
+
+    // Allocated after the checks and the quick return, which would otherwise leak them.
+    if(timing != nullptr) {
+        timing_QRCP  = new T[10]();
+        timing_QR    = new T[10]();
     }
 
     // Create auxiliary objects.

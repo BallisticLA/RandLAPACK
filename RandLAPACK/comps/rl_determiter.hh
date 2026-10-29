@@ -163,8 +163,8 @@ void zero_off_diagonal(T* mat, int64_t s) {
 /**
  * A is a symmetric column-major matrix represented by its lower triangle.
  * 
- * If A is not PSD then this function returns an error code -(n+2).
- * If A is (near) zero then this function returns an error code -(n+1).
+ * If A is not PSD then this function returns an error code -(n+1).
+ * If A is (near) zero then this function returns an error code -(n+2).
  * In all other cases this function returns k = dim(ker(A)).
  * 
  * If A is PSD then its trailing n - k columns will be overwritten by a 
@@ -186,18 +186,16 @@ int64_t psd_sqrt_pinv(
 ) {
     lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, n, A, lda, work);
     T rel_tol = 10 * std::numeric_limits<T>::epsilon();
-    T abs_tol = rel_tol * std::max(1.0, work[n - 1]);
+    T abs_tol = rel_tol * std::max((T) 1.0, work[n - 1]);
     if (work[0] < -abs_tol) {
-        std::cout << "The input matrix was not positive semidefinite." << std::endl;
         return -(n + 1);
     } else if (work[n - 1] < abs_tol) {
-        std::cout << "The input matrix is zero, up to numerical precision." << std::endl;
         return -(n + 2);
     }
     int ker = n;
     while(ker > 0) {
         if (work[ker - 1] > abs_tol) {
-            blas::scal(n, 1/std::sqrt(work[ker - 1]), &A[(ker - 1) * n], 1);
+            blas::scal(n, 1/std::sqrt(work[ker - 1]), &A[(ker - 1) * lda], 1);
             ker = ker - 1;
         } else {
             break;

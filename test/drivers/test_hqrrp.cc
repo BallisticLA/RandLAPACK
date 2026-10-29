@@ -103,3 +103,26 @@ TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_HQRRP_general(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
 }
+
+TEST_F(TestHQRRP, HQRRP_rejects_invalid_arguments) {
+    auto state = RandBLAS::RNGState();
+    double tau[2];
+    int64_t J[2] = {};
+    auto run = [&](int64_t m, int64_t n, int64_t lda) {
+        double A[4] = {1, 0, 0, 1};
+        RandLAPACK::hqrrp(m, n, A, lda, J, tau, (int64_t) 2, (int64_t) 2, 0, 0, state, (double**) nullptr);
+    };
+    EXPECT_THROW(run(-1, 2, 2), RandLAPACK::Error);
+    EXPECT_THROW(run(2, -1, 2), RandLAPACK::Error);
+    EXPECT_THROW(run(2, 2, 1), RandLAPACK::Error);
+    EXPECT_NO_THROW(run(2, 2, 2));
+
+    // With timing requested, a rejected call and the quick return for an empty A allocate nothing
+    // (the AddressSanitizer build reports a leak otherwise) and leave the timing pointer alone.
+    double* timing = nullptr;
+    double A[4] = {1, 0, 0, 1};
+    EXPECT_THROW(RandLAPACK::hqrrp((int64_t) 2, (int64_t) 2, A, (int64_t) 1, J, tau, (int64_t) 2, (int64_t) 2, 0, 0, state, &timing),
+                 RandLAPACK::Error);
+    EXPECT_EQ(RandLAPACK::hqrrp((int64_t) 0, (int64_t) 2, A, (int64_t) 1, J, tau, (int64_t) 2, (int64_t) 2, 0, 0, state, &timing), 0);
+    EXPECT_EQ(timing, nullptr);
+}

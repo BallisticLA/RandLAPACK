@@ -143,6 +143,16 @@ bool diag_is_nonzero(int64_t n, const T* R, int64_t ldr) {
     return true;
 }
 
+/// Returns true if no entry of the m-by-n matrix A is an Inf or a NaN.
+/// With m = 1 and lda = ldr + 1 it checks the diagonal of an n-by-n R.
+template <typename T>
+bool all_finite(int64_t m, int64_t n, const T* A, int64_t lda) {
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < m; ++i)
+            if (!std::isfinite(A[i + j * lda])) return false;
+    return true;
+}
+
 /// One step of incremental condition estimation, as LAPACK's xLAIC1: for a unit x with ||L x||_2 = sest, L lower
 /// triangular, returns sestpr and sets s and c, with s^2 + c^2 = 1, so that ||Lhat [s x; c]||_2 = sestpr is the
 /// largest (largest = true) or smallest such norm, for Lhat = [L 0; w' gamma] and alpha = w' x.
@@ -665,7 +675,7 @@ T estimate_spectral_norm(
 ///
 /// @param sp_mat - Sparse matrix (COO, CSR, or CSC format)
 /// @param layout - Memory layout for dense output (ColMajor or RowMajor)
-/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
+/// @param dense_mat - Output dense matrix (pre-allocated; every entry is written)
 template <RandBLAS::sparse_data::SparseMatrix SpMat, typename T = typename SpMat::scalar_t>
 void sparse_to_dense(
     const SpMat &sp_mat,
