@@ -356,6 +356,50 @@ TEST_F(TestVStackLinOp, sketch_reads_columns_directly) {
     EXPECT_EQ(top.direct_cols, 2 * n);
 }
 
+// A SparseLinOp top gives the stack materialize_cols, so the sketch overload copies the sparse
+// columns; it equals the product path (the top behind ProductsOnly) to rounding of the sketch
+// alone, and the explicit stacked matrix.
+TEST_F(TestVStackLinOp, sparse_top_sketch_reads_columns) {
+    const int64_t mt = 23, n = 11, d = 9, mr = mt + n, ldc = d + 2;
+    const double mu = 0.3, alpha = 1.5, beta = -0.5;
+    RNGState<> state(77);
+    auto A_coo = RandLAPACK::gen::gen_sparse_coo<double>(mt, n, 0.3, state);
+    auto A_csr = A_coo.as_owning_csr();
+    using SpOp = rl::SparseLinOp<RandBLAS::sparse_data::CSRMatrix<double>>;
+    SpOp top(mt, n, A_csr);
+    RandLAPACK::testing::ProductsOnly<SpOp> top_products(top);
+    rl::ScaledIdentityLinOp<double> bot(n, mu);
+    rl::VStackLinOp<SpOp, rl::ScaledIdentityLinOp<double>> direct(top, bot);
+    rl::VStackLinOp<RandLAPACK::testing::ProductsOnly<SpOp>, rl::ScaledIdentityLinOp<double>> products(top_products, bot);
+    static_assert(rl::HasMaterializeCols<decltype(direct)>);
+    static_assert(!rl::HasMaterializeCols<decltype(products)>);
+    direct.block_size = products.block_size = 4;
+
+    vector<double> A(mt * n, 0.0), Ahat_explicit(mr * n, 0.0);
+    RandLAPACK::util::sparse_to_dense(A_csr, Layout::ColMajor, A.data());
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < mt; ++i) Ahat_explicit[i + j * mr] = A[i + j * mt];
+        Ahat_explicit[mt + j + j * mr] = mu;
+    }
+    vector<double> C0(ldc * n);
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(ldc, n), C0.data(), state);
+    auto check = [&](auto& S, auto& S_prod, auto& S_ref) {
+        vector<double> C = C0, C_prod = C0, C_ref = C0;
+        direct(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, mr, alpha, S, beta, C.data(), ldc);
+        products(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, mr, alpha, S_prod, beta, C_prod.data(), ldc);
+        RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, mr,
+                                 alpha, S_ref, Ahat_explicit.data(), mr, beta, C_ref.data(), ldc);
+        EXPECT_LE(rel_fro_error(C.data(), C_prod.data(), ldc * n), 4 * std::numeric_limits<double>::epsilon());
+        EXPECT_LE(rel_fro_error(C.data(), C_ref.data(), ldc * n), 1e-12);
+    };
+    RandBLAS::SparseDist SD(d, mr, 3);
+    RandBLAS::SparseSkOp<double> S_sp(SD, RNGState<>(5)), S_sp2(SD, RNGState<>(5)), S_sp_ref(SD, RNGState<>(5));
+    check(S_sp, S_sp2, S_sp_ref);
+    RandBLAS::DenseDist DD(d, mr);
+    RandBLAS::DenseSkOp<double> S_de(DD, RNGState<>(6)), S_de2(DD, RNGState<>(6)), S_de_ref(DD, RNGState<>(6));
+    check(S_de, S_de2, S_de_ref);
+}
+
 // [Top; mu I] in both layouts, NoTrans and Trans, padded leading dimensions, alpha and beta,
 // against gemm on the explicit stacked matrix; instantiated for float and double.
 template <typename T>

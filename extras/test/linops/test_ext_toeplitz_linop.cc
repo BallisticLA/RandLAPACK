@@ -17,6 +17,7 @@ using std::vector;
 using blas::Layout;
 using blas::Op;
 using RandBLAS::RNGState;
+using RandLAPACK::testing::ProductsOnly;
 using RandLAPACK::testing::rel_fro_error;
 
 namespace ext = RandLAPACK_extras::linops;
@@ -283,21 +284,6 @@ TEST_F(TestToeplitzLinOp, zero_columns_is_a_noop) {
     EXPECT_EQ(C, 3.0);
 }
 
-namespace {
-// The operator's products only, hiding materialize_cols, so callers take their product path.
-template <typename LinOp>
-struct ProductsOnly {
-    using scalar_t = typename LinOp::scalar_t;
-    const int64_t n_rows;
-    const int64_t n_cols;
-    LinOp& op;
-    void operator()(Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k, scalar_t alpha,
-                    const scalar_t* B, int64_t ldb, scalar_t beta, scalar_t* C, int64_t ldc) {
-        op(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
-    }
-};
-} // namespace
-
 static_assert(RandLAPACK::linops::HasMaterializeCols<ext::ToeplitzLinOp<double>>);
 static_assert(!RandLAPACK::linops::HasMaterializeCols<ProductsOnly<ext::ToeplitzLinOp<double>>>);
 
@@ -373,7 +359,7 @@ TEST_F(TestToeplitzLinOp, vstack_reads_columns_directly) {
     const double mu = 0.5;
     Case cs = make_case(m, n, 621);
     ext::ToeplitzLinOp<double> Top(cs.c.data(), m, cs.r.data(), n);
-    ProductsOnly<ext::ToeplitzLinOp<double>> Top_prod{m, n, Top};
+    ProductsOnly<ext::ToeplitzLinOp<double>> Top_prod(Top);
     rll::ScaledIdentityLinOp<double> mu_I(n, mu);
     rll::VStackLinOp<ext::ToeplitzLinOp<double>, rll::ScaledIdentityLinOp<double>> A_hat(Top, mu_I);
     rll::VStackLinOp<ProductsOnly<ext::ToeplitzLinOp<double>>, rll::ScaledIdentityLinOp<double>> A_prod(Top_prod, mu_I);
@@ -432,7 +418,7 @@ TEST_F(TestToeplitzLinOp, cholqr_family_reads_columns_directly) {
     const double mu = 5.0, tol = 1e-12;
     Case cs = make_case(m, n, 651);
     ext::ToeplitzLinOp<double> Top(cs.c.data(), m, cs.r.data(), n);
-    ProductsOnly<ext::ToeplitzLinOp<double>> Top_prod{m, n, Top};
+    ProductsOnly<ext::ToeplitzLinOp<double>> Top_prod(Top);
     rll::ScaledIdentityLinOp<double> mu_I(n, mu);
     rll::VStackLinOp<ext::ToeplitzLinOp<double>, rll::ScaledIdentityLinOp<double>> A_hat(Top, mu_I);
     rll::VStackLinOp<ProductsOnly<ext::ToeplitzLinOp<double>>, rll::ScaledIdentityLinOp<double>> A_prod(Top_prod, mu_I);

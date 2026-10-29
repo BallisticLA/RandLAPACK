@@ -24,6 +24,8 @@
 #include <iomanip>
 #include <stdexcept>
 #include <cmath>
+#include <concepts>
+#include <utility>
 
 namespace RandLAPACK {
 namespace testing {
@@ -176,10 +178,10 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 // ============================================================================
 
 /// Materialize a linear operator into a dense column-major matrix via
-/// RandLAPACK::materialize, which dispatches on the operator type. SparseLinOp and
-/// CompositeOperator materialize directly from their storage, and an operator that
-/// provides materialize_cols (DenseLinOp among them) through it; anything else goes
-/// through the generic fallback, A_dense = A_linop * I.
+/// RandLAPACK::materialize, which dispatches on the operator type. CompositeOperator
+/// materializes from its operands, and an operator that provides materialize_cols
+/// (DenseLinOp and SparseLinOp among them) through it; anything else goes through
+/// the generic fallback, A_dense = A_linop * I.
 ///
 /// WARNING: the generic fallback materializes through operator(), so for the
 /// types that take it this function cannot be used to test operator() itself
@@ -191,6 +193,21 @@ void materialize_linop(LinOp& A_linop, T* A_dense) {
     std::fill(A_dense, A_dense + m * n, (T)0.0);
     ::RandLAPACK::materialize(A_linop, m, n, A_dense, m);
 }
+
+/// Forwards every product the borrowed operator has (Side and sketch overloads included) and
+/// hides its materialize_cols, so a caller that would copy the operator's columns applies it to
+/// identity columns instead. A call the operator does not accept is not accepted either.
+template <typename LinOp>
+struct ProductsOnly {
+    using scalar_t = typename LinOp::scalar_t;
+    const int64_t n_rows;
+    const int64_t n_cols;
+    LinOp& op;
+    explicit ProductsOnly(LinOp& A) : n_rows(A.n_rows), n_cols(A.n_cols), op(A) {}
+    template <typename... Args>
+        requires std::invocable<LinOp&, Args...>
+    void operator()(Args&&... args) { op(std::forward<Args>(args)...); }
+};
 
 /// Compute singular values of a dense column-major matrix via gesdd.
 /// Note: input matrix is destroyed on output.

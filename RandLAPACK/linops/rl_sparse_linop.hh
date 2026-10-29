@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: SparseLinOp — linear operator backed by a sparse matrix (CSR, CSC, or COO).
+// Public API: SparseLinOp, a linear operator backed by a sparse matrix (CSR, CSC, or COO).
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
@@ -9,6 +9,7 @@
 #include "rl_util.hh"
 
 #include <RandBLAS.hh>
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <type_traits>
@@ -30,6 +31,7 @@ namespace RandLAPACK::linops {
 /// - Both ColMajor and RowMajor memory layouts
 /// - Transpose operations (Op::NoTrans, Op::Trans)
 /// - Sparse-dense and sparse-sparse multiplications
+/// - Copies of its columns (materialize_cols, see HasMaterializeCols)
 ///
 /// The operator delegates to RandBLAS sparse BLAS routines for optimal performance.
 ///
@@ -386,6 +388,89 @@ public:
             }
 
             delete[] A_dense;
+        }
+    }
+
+    /// Below this many entries touched (zeroed plus scattered), a loop of materialize_cols runs
+    /// on the calling thread.
+    static constexpr int64_t kMaterializeColsParallelMin = int64_t(1) << 15;
+
+    /// @brief Write columns [col_start, col_start + col_count) of A into the column-major buf
+    /// (ldb >= n_rows) with no product (see HasMaterializeCols): those columns are zeroed, then
+    /// every stored entry in range is added, so duplicates are summed. Rows n_rows..ldb-1 of buf
+    /// are not written. Like the sparse-dense products, a COO operator reads the leading
+    /// n_rows x n_cols window of a larger matrix, and a one-based matrix is rejected.
+    void materialize_cols(int64_t col_start, int64_t col_count, T* buf, int64_t ldb) const {
+        using CSR = RandBLAS::sparse_data::CSRMatrix<T, sint_t>;
+        using CSC = RandBLAS::sparse_data::CSCMatrix<T, sint_t>;
+        using COO = RandBLAS::sparse_data::COOMatrix<T, sint_t>;
+        constexpr bool is_coo = std::is_same_v<SpMat, COO>;
+        constexpr bool is_csc = std::is_same_v<SpMat, CSC>;
+        randlapack_require(col_start >= 0 && col_start <= n_cols
+                           && col_count >= 0 && col_count <= n_cols - col_start)
+            << "SparseLinOp::materialize_cols: col_start=" << col_start << ", col_count="
+            << col_count << " must select columns within [0, " << n_cols << ")";
+        randlapack_require(ldb >= n_rows) << "SparseLinOp::materialize_cols: ldb=" << ldb
+                                          << " must be >= n_rows=" << n_rows;
+        randlapack_require(is_coo ? (A_sp.n_rows >= n_rows && A_sp.n_cols >= n_cols)
+                                  : (A_sp.n_rows == n_rows && A_sp.n_cols == n_cols))
+            << "SparseLinOp::materialize_cols: the operator is " << n_rows << " x " << n_cols
+            << " but its matrix is " << A_sp.n_rows << " x " << A_sp.n_cols
+            << (is_coo ? " (a COO matrix may be larger)" : "");
+        randlapack_require(A_sp.index_base == RandBLAS::sparse_data::IndexBase::Zero)
+            << "SparseLinOp::materialize_cols: the matrix is one-based; RandBLAS's sparse products"
+            << " take zero-based matrices only";
+        if (col_count == 0 || n_rows == 0) return;   // nothing to write
+
+        // Each output entry is written by one thread, which adds its duplicates in storage
+        // order, so the result does not depend on the thread count.
+        #if defined(RandBLAS_HAS_OpenMP)
+        const int64_t max_t = omp_get_max_threads();
+        #else
+        const int64_t max_t = 1;
+        #endif
+        auto threads = [&](int64_t items, int64_t touched) {
+            return (max_t > 1 && touched >= kMaterializeColsParallelMin) ? (int)std::min(max_t, items) : 1;
+        };
+        const int64_t fill = n_rows * col_count;
+        if (!is_csc || A_sp.nnz == 0) {
+            const int nt = threads(col_count, fill);
+            (void) nt;   // read only by the OpenMP pragma
+            #pragma omp parallel for num_threads(nt) schedule(static) if(nt > 1)
+            for (int64_t j = 0; j < col_count; ++j)
+                std::fill_n(buf + j * ldb, n_rows, (T)0);
+            if (A_sp.nnz == 0) return;   // the index arrays of an empty matrix may be null
+        }
+        if constexpr (is_csc) {
+            // Each column is zeroed and filled by one thread.
+            const int64_t in_cols = A_sp.colptr[col_start + col_count] - A_sp.colptr[col_start];
+            const int nt = threads(col_count, fill + in_cols);
+            (void) nt;
+            #pragma omp parallel for num_threads(nt) schedule(static) if(nt > 1)
+            for (int64_t j = 0; j < col_count; ++j) {
+                T* col = buf + j * ldb;
+                std::fill_n(col, n_rows, (T)0);
+                for (int64_t ell = A_sp.colptr[col_start + j]; ell < A_sp.colptr[col_start + j + 1]; ++ell)
+                    col[A_sp.rowidxs[ell]] += A_sp.vals[ell];
+            }
+        } else if constexpr (std::is_same_v<SpMat, CSR>) {
+            // Each row is scanned in full by one thread: its column indices need not be sorted.
+            const int nt = threads(n_rows, A_sp.nnz);
+            (void) nt;
+            #pragma omp parallel for num_threads(nt) schedule(static) if(nt > 1)
+            for (int64_t i = 0; i < n_rows; ++i)
+                for (int64_t ell = A_sp.rowptr[i]; ell < A_sp.rowptr[i + 1]; ++ell) {
+                    const int64_t j = (int64_t)A_sp.colidxs[ell] - col_start;
+                    if (j >= 0 && j < col_count) buf[i + j * ldb] += A_sp.vals[ell];
+                }
+        } else if constexpr (is_coo) {
+            for (int64_t ell = 0; ell < A_sp.nnz; ++ell) {   // serial: entries in any order
+                const int64_t i = A_sp.rows[ell], j = (int64_t)A_sp.cols[ell] - col_start;
+                if (i < n_rows && j >= 0 && j < col_count) buf[i + j * ldb] += A_sp.vals[ell];
+            }
+        } else {
+            static_assert(!std::is_same_v<SpMat, SpMat>,
+                "materialize_cols only supports CSR, CSC, and COO sparse formats");
         }
     }
 

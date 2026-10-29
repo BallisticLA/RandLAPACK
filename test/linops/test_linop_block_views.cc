@@ -4,7 +4,7 @@
 //   - CSCColBlockView / csc_col_block / csc_split_col_blocks
 //   - CSRColBlock / csr_col_block / csr_split_col_blocks (cross-direction)
 //   - CSCRowBlock / csc_row_block / csc_split_row_blocks (cross-direction)
-//   - SparseLinOp::row_block, col_block, submatrix (dispatch to free functions)
+//   - SparseLinOp::row_block, col_block, submatrix (dispatch to free functions), materialize_cols
 //   - CompositeOperator::row_block, col_block, submatrix (delegation to operands)
 
 #include <blas.hh>
@@ -15,6 +15,7 @@
 #include <lapack.hh>
 #include <RandBLAS/testing/comparison.hh>
 #include "../../RandLAPACK/testing/rl_test_utils.hh"
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -1435,6 +1436,349 @@ TEST_F(TestSparseLinOpBlocks, csc_submatrix_corner) {
 
 TEST_F(TestSparseLinOpBlocks, csc_submatrix_end) {
     test_csc_linop_submatrix<double>(20, 15, 0.3, 12, 9, 8, 6);
+}
+
+
+// ============================================================================
+// SparseLinOp::materialize_cols Tests
+// ============================================================================
+
+namespace {
+
+using RandBLAS::sparse_data::CSRMatrix;
+using RandBLAS::sparse_data::CSCMatrix;
+using RandBLAS::sparse_data::COOMatrix;
+using RandBLAS::sparse_data::IndexBase;
+
+struct SpEntry { int64_t i, j; double v; };
+
+// 7 x 6 with row 5 and column 3 empty, three entries at (1, 2) and two at (6, 1), listed out of
+// row and column order. The values are dyadic, so every sum is exact in any order.
+const vector<SpEntry> kSpEntries = {
+    {0, 5, 1.5}, {0, 0, -2.0}, {1, 2, 0.25}, {1, 4, 3.0}, {1, 2, 0.5}, {3, 0, 1.0},
+    {1, 2, -1.0}, {4, 5, 2.5}, {6, 1, -0.75}, {6, 5, 4.0}, {3, 4, -3.5}, {4, 1, 1.25},
+    {6, 1, 0.125}, {2, 4, -0.5}, {6, 0, 0.375}};
+
+// The CSR, CSC and COO forms of an entry list, and its dense column-major form with duplicates
+// summed. CSR keeps each row's entries, and CSC each column's, in list order, so they are
+// unsorted.
+template <typename T>
+struct SparseForms {
+    int64_t m, n, nnz;
+    vector<int64_t> rowptr, colidxs, colptr, rowidxs, rows, cols;
+    vector<T> csr_vals, csc_vals, coo_vals, dense;
+    SparseForms(int64_t m_, int64_t n_, const vector<SpEntry>& e)
+        : m(m_), n(n_), nnz((int64_t)e.size()), rowptr(m_ + 1, 0), colidxs(nnz), colptr(n_ + 1, 0),
+          rowidxs(nnz), rows(nnz), cols(nnz), csr_vals(nnz), csc_vals(nnz), coo_vals(nnz),
+          dense(m_ * n_, (T)0) {
+        for (const auto& x : e) { ++rowptr[x.i + 1]; ++colptr[x.j + 1]; }
+        for (int64_t i = 0; i < m; ++i) rowptr[i + 1] += rowptr[i];
+        for (int64_t j = 0; j < n; ++j) colptr[j + 1] += colptr[j];
+        vector<int64_t> r_at(rowptr.begin(), rowptr.end() - 1), c_at(colptr.begin(), colptr.end() - 1);
+        for (int64_t k = 0; k < nnz; ++k) {
+            const SpEntry& x = e[k];
+            colidxs[r_at[x.i]] = x.j;  csr_vals[r_at[x.i]++] = (T)x.v;
+            rowidxs[c_at[x.j]] = x.i;  csc_vals[c_at[x.j]++] = (T)x.v;
+            rows[k] = x.i;  cols[k] = x.j;  coo_vals[k] = (T)x.v;
+            dense[x.i + x.j * m] += (T)x.v;
+        }
+    }
+    CSRMatrix<T> csr() { return CSRMatrix<T>(m, n, nnz, csr_vals.data(), rowptr.data(), colidxs.data()); }
+    CSCMatrix<T> csc() { return CSCMatrix<T>(m, n, nnz, csc_vals.data(), rowidxs.data(), colptr.data()); }
+    COOMatrix<T> coo() { return COOMatrix<T>(m, n, nnz, coo_vals.data(), rows.data(), cols.data()); }
+};
+
+template <typename SpMat>
+using SpLinOp = RandLAPACK::linops::SparseLinOp<SpMat>;
+
+// materialize_cols at the start, middle and end, over the empty column and with no columns:
+// rows 0..m-1 of the written columns equal D's, and the padding rows and the columns past the
+// count keep their fill.
+template <typename T, typename SpOp>
+void check_sparse_materialize_cols(const SpOp& op, const vector<T>& D, int64_t m, int64_t n) {
+    const int64_t ldb = m + 2;
+    const T pad = (T)-42;
+    for (auto [c0, cnt] : {std::pair<int64_t, int64_t>{0, n}, {0, 2}, {2, 3}, {n - 2, 2}, {3, 1}, {4, 0}, {n, 0}}) {
+        vector<T> buf(ldb * n, pad);
+        op.materialize_cols(c0, cnt, buf.data(), ldb);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < ldb; ++i) {
+                const T want = (j < cnt && i < m) ? D[i + (c0 + j) * m] : pad;
+                ASSERT_EQ(buf[i + j * ldb], want) << "cols " << c0 << "+" << cnt << " at " << i << "," << j;
+            }
+    }
+}
+
+// materialize_cols against the product with identity columns [c0, c0 + cnt), as the Gram loop
+// forms it, entry for entry: for finite data both are exact.
+template <typename T, typename SpOp>
+void check_sparse_cols_equal_identity_product(SpOp& op, int64_t m, int64_t n) {
+    for (auto [c0, cnt] : {std::pair<int64_t, int64_t>{0, n}, {1, n / 2}, {n - 3, 3}}) {
+        vector<T> I_blk(n * cnt, (T)0), prod(m * cnt, (T)7), buf(m * cnt, (T)-42);
+        for (int64_t j = 0; j < cnt; ++j) I_blk[(c0 + j) + j * n] = (T)1;
+        op(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, cnt, n, (T)1, I_blk.data(), n, (T)0, prod.data(), m);
+        op.materialize_cols(c0, cnt, buf.data(), m);
+        for (int64_t k = 0; k < m * cnt; ++k)
+            ASSERT_EQ(buf[k], prod[k]) << "cols " << c0 << "+" << cnt << " at " << k;
+    }
+}
+
+template <typename T>
+void check_sparse_materialize_cols_formats() {
+    SparseForms<T> f(7, 6, kSpEntries);
+    auto A_csr = f.csr();
+    auto A_csc = f.csc();
+    auto A_coo = f.coo();
+    SpLinOp<CSRMatrix<T>> op_csr(f.m, f.n, A_csr);
+    SpLinOp<CSCMatrix<T>> op_csc(f.m, f.n, A_csc);
+    SpLinOp<COOMatrix<T>> op_coo(f.m, f.n, A_coo);
+    check_sparse_materialize_cols<T>(op_csr, f.dense, f.m, f.n);
+    check_sparse_materialize_cols<T>(op_csc, f.dense, f.m, f.n);
+    check_sparse_materialize_cols<T>(op_coo, f.dense, f.m, f.n);
+    // MKL's CSC product (mkl_sparse_d_mm, transposed, on the CSR of A^T) lost one of two
+    // duplicates stored next to each other in a column in probes, so CSC meets the product
+    // only on duplicate-free data.
+    check_sparse_cols_equal_identity_product<T>(op_csr, f.m, f.n);
+    check_sparse_cols_equal_identity_product<T>(op_coo, f.m, f.n);
+}
+
+} // namespace
+
+static_assert(RandLAPACK::linops::HasMaterializeCols<SpLinOp<CSRMatrix<double>>>);
+static_assert(RandLAPACK::linops::HasMaterializeCols<const SpLinOp<CSCMatrix<float>>>);
+static_assert(RandLAPACK::linops::HasMaterializeCols<SpLinOp<COOMatrix<double>>>);
+static_assert(RandLAPACK::linops::HasMaterializeCols<
+    RandLAPACK::linops::VStackLinOp<SpLinOp<CSRMatrix<double>>, RandLAPACK::linops::ScaledIdentityLinOp<double>>>);
+static_assert(!RandLAPACK::linops::HasMaterializeCols<
+    RandLAPACK::linops::CompositeOperator<RandLAPACK::linops::DenseLinOp<double>, SpLinOp<CSRMatrix<double>>>>);
+
+// Every format, with duplicates and unsorted indices: duplicates sum, and the CSR and COO
+// columns equal the product exactly.
+TEST(TestSparseMaterializeCols, formats_duplicates_and_unsorted_indices) {
+    check_sparse_materialize_cols_formats<double>();
+}
+
+TEST(TestSparseMaterializeCols, formats_duplicates_and_unsorted_indices_float) {
+    check_sparse_materialize_cols_formats<float>();
+}
+
+// materialize_cols, and so materialize, reject a one-based matrix, as RandBLAS's sparse products
+// do. SparseLinOp's view keeps the zero base until the index-base fix, so the test sets it.
+TEST(TestSparseMaterializeCols, one_based_matrix_is_rejected) {
+    SparseForms<double> f(7, 6, kSpEntries);
+    auto A_csr = f.csr();
+    auto A_csc = f.csc();
+    auto A_coo = f.coo();
+    SpLinOp<CSRMatrix<double>> op_csr(f.m, f.n, A_csr);
+    SpLinOp<CSCMatrix<double>> op_csc(f.m, f.n, A_csc);
+    SpLinOp<COOMatrix<double>> op_coo(f.m, f.n, A_coo);
+    op_csr.A_sp.index_base = op_csc.A_sp.index_base = op_coo.A_sp.index_base = IndexBase::One;
+    vector<double> buf(f.m * f.n, -42.0);
+    auto check = [&](auto& op) {
+        EXPECT_THROW(op.materialize_cols(0, f.n, buf.data(), f.m), RandLAPACK::Error);
+        EXPECT_THROW(RandLAPACK::materialize(op, f.m, f.n, buf.data(), f.m), RandLAPACK::Error);
+    };
+    check(op_csr);
+    check(op_csc);
+    check(op_coo);
+    for (double v : buf) ASSERT_EQ(v, -42.0);
+}
+
+// A COO operator smaller than its matrix reads the leading n_rows x n_cols window, as its
+// sparse-dense products do; the columns equal that window and the product with identity columns.
+TEST(TestSparseMaterializeCols, coo_window_of_a_larger_matrix) {
+    SparseForms<double> f(7, 6, kSpEntries);
+    const int64_t mw = 5, nw = 5;
+    auto A_coo = f.coo();
+    SpLinOp<COOMatrix<double>> op(mw, nw, A_coo);
+    vector<double> window(mw * nw);
+    for (int64_t j = 0; j < nw; ++j)
+        for (int64_t i = 0; i < mw; ++i) window[i + j * mw] = f.dense[i + j * f.m];
+    check_sparse_materialize_cols<double>(op, window, mw, nw);
+    check_sparse_cols_equal_identity_product<double>(op, mw, nw);
+}
+
+// On random finite data with no duplicates the columns equal the product with identity columns
+// in each format.
+TEST(TestSparseMaterializeCols, equals_identity_product_on_random_data) {
+    const int64_t m = 40, n = 12;
+    RNGState state(31);
+    auto A_coo = RandLAPACK::gen::gen_sparse_coo<double>(m, n, 0.3, state);
+    auto A_csr = A_coo.as_owning_csr();
+    auto A_csc = A_coo.as_owning_csc();
+    SpLinOp<COOMatrix<double>> op_coo(m, n, A_coo);
+    SpLinOp<CSRMatrix<double>> op_csr(m, n, A_csr);
+    SpLinOp<CSCMatrix<double>> op_csc(m, n, A_csc);
+    check_sparse_cols_equal_identity_product<double>(op_coo, m, n);
+    check_sparse_cols_equal_identity_product<double>(op_csr, m, n);
+    check_sparse_cols_equal_identity_product<double>(op_csc, m, n);
+}
+
+// Large enough that every loop of the full-range copy is threaded, run on at least 4 OpenMP
+// threads: with three stored entries per row (a duplicate pair among them), the CSR scatter
+// (3 m entries), the zero fill (m n) and CSC's fill and scatter all pass
+// kMaterializeColsParallelMin. The copy equals the dense form, and for CSR and COO the product
+// with identity columns, entry for entry.
+TEST(TestSparseMaterializeCols, threaded_copy) {
+    constexpr int64_t min_par = SpLinOp<CSRMatrix<double>>::kMaterializeColsParallelMin;
+    constexpr int64_t m = min_par / 2, n = 10;
+    static_assert(3 * m >= min_par && m * n >= min_par);
+    #if defined(RandBLAS_HAS_OpenMP)
+    struct Threads {   // at least 4 OpenMP threads for this test, restored on exit
+        int saved = omp_get_max_threads();
+        Threads() { omp_set_num_threads(std::max(saved, 4)); }
+        ~Threads() { omp_set_num_threads(saved); }
+    } threads;
+    #endif
+    vector<SpEntry> e;
+    for (int64_t i = 0; i < m; ++i) {
+        e.push_back({i, (3 * i) % n, -0.25});
+        e.push_back({i, i % n, 0.5});
+        e.push_back({i, i % n, 0.125 * (double)(i % 7)});
+    }
+    SparseForms<double> f(m, n, e);
+    auto A_csr = f.csr();
+    auto A_csc = f.csc();
+    auto A_coo = f.coo();
+    SpLinOp<CSRMatrix<double>> op_csr(m, n, A_csr);
+    SpLinOp<CSCMatrix<double>> op_csc(m, n, A_csc);
+    SpLinOp<COOMatrix<double>> op_coo(m, n, A_coo);
+    check_sparse_materialize_cols<double>(op_csr, f.dense, m, n);
+    check_sparse_materialize_cols<double>(op_csc, f.dense, m, n);
+    check_sparse_materialize_cols<double>(op_coo, f.dense, m, n);
+    check_sparse_cols_equal_identity_product<double>(op_csr, m, n);
+    check_sparse_cols_equal_identity_product<double>(op_coo, m, n);
+}
+
+// Inf and NaN land in their own entries only, with the rest of their rows as stored (a product
+// with identity columns may turn those into NaN, Inf * 0). A stored -0.0 adds to the zeroed
+// entry and reads +0.0, as in the product.
+TEST(TestSparseMaterializeCols, inf_nan_and_signed_zero) {
+    const double inf = std::numeric_limits<double>::infinity(), nan = std::numeric_limits<double>::quiet_NaN();
+    const vector<SpEntry> e = {{0, 1, 2.0}, {2, 0, inf}, {2, 3, 5.0}, {4, 3, nan}, {4, 0, -1.5}, {1, 1, -0.0}};
+    SparseForms<double> f(5, 4, e);
+    auto A_csr = f.csr();
+    auto A_csc = f.csc();
+    auto A_coo = f.coo();
+    SpLinOp<CSRMatrix<double>> op_csr(f.m, f.n, A_csr);
+    SpLinOp<CSCMatrix<double>> op_csc(f.m, f.n, A_csc);
+    SpLinOp<COOMatrix<double>> op_coo(f.m, f.n, A_coo);
+    auto check = [&](const auto& op) {
+        vector<double> buf(f.m * f.n, -42.0);
+        op.materialize_cols(0, f.n, buf.data(), f.m);
+        for (int64_t j = 0; j < f.n; ++j)
+            for (int64_t i = 0; i < f.m; ++i) {
+                const double got = buf[i + j * f.m];
+                if (i == 4 && j == 3) ASSERT_TRUE(std::isnan(got));
+                else ASSERT_EQ(got, f.dense[i + j * f.m]) << i << "," << j;
+            }
+        EXPECT_EQ(buf[2], inf);
+        EXPECT_EQ(buf[2 + 3 * f.m], 5.0);
+        EXPECT_EQ(buf[4], -1.5);
+        EXPECT_FALSE(std::signbit(buf[1 + 1 * f.m]));
+    };
+    check(op_csr);
+    check(op_csc);
+    check(op_coo);
+}
+
+// materialize goes through materialize_cols: duplicates sum in every format (sparse_to_dense
+// keeps only the last one in CSR and CSC), and the padding rows stay untouched.
+TEST(TestSparseMaterializeCols, materialize_sums_duplicates) {
+    SparseForms<double> f(7, 6, kSpEntries);
+    auto A_csr = f.csr();
+    auto A_csc = f.csc();
+    auto A_coo = f.coo();
+    SpLinOp<CSRMatrix<double>> op_csr(f.m, f.n, A_csr);
+    SpLinOp<CSCMatrix<double>> op_csc(f.m, f.n, A_csc);
+    SpLinOp<COOMatrix<double>> op_coo(f.m, f.n, A_coo);
+    const int64_t ldb = f.m + 3;
+    auto check = [&](auto& op) {
+        vector<double> buf(ldb * f.n, -42.0);
+        RandLAPACK::materialize(op, f.m, f.n, buf.data(), ldb);
+        for (int64_t j = 0; j < f.n; ++j)
+            for (int64_t i = 0; i < ldb; ++i)
+                ASSERT_EQ(buf[i + j * ldb], i < f.m ? f.dense[i + j * f.m] : -42.0) << i << "," << j;
+    };
+    check(op_csr);
+    check(op_csc);
+    check(op_coo);
+    EXPECT_EQ(f.dense[1 + 2 * f.m], -0.25);   // the three entries at (1, 2)
+}
+
+TEST(TestSparseMaterializeCols, invalid_arguments) {
+    SparseForms<double> f(7, 6, kSpEntries);
+    const int64_t m = f.m, n = f.n;
+    auto A_csr = f.csr();
+    auto A_csc = f.csc();
+    auto A_coo = f.coo();
+    const SpLinOp<CSRMatrix<double>> op_csr(m, n, A_csr);
+    const SpLinOp<CSCMatrix<double>> op_csc(m, n, A_csc);
+    const SpLinOp<COOMatrix<double>> op_coo(m, n, A_coo);
+    // CSR and CSC operators whose dimensions differ from their matrix's, and a COO operator
+    // larger than its matrix.
+    const SpLinOp<CSRMatrix<double>> short_csr(m - 1, n, A_csr), narrow_csr(m, n - 1, A_csr);
+    const SpLinOp<CSCMatrix<double>> short_csc(m - 1, n, A_csc);
+    const SpLinOp<COOMatrix<double>> tall_coo(m + 1, n, A_coo), wide_coo(m, n + 1, A_coo);
+    vector<double> buf(m * n, -42.0);
+    const int64_t big = std::numeric_limits<int64_t>::max();
+    auto check = [&](const auto& op) {
+        EXPECT_THROW(op.materialize_cols(-1, 2, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op.materialize_cols(0, -1, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op.materialize_cols(n + 1, 0, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op.materialize_cols(n - 1, 2, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op.materialize_cols(0, 1, buf.data(), m - 1), RandLAPACK::Error);
+        // The range check cannot overflow: start + count is never formed.
+        EXPECT_THROW(op.materialize_cols(big, 1, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op.materialize_cols(1, big, buf.data(), m), RandLAPACK::Error);
+    };
+    check(op_csr);
+    check(op_csc);
+    check(op_coo);
+    EXPECT_THROW(short_csr.materialize_cols(0, 1, buf.data(), m), RandLAPACK::Error);
+    EXPECT_THROW(narrow_csr.materialize_cols(0, 1, buf.data(), m), RandLAPACK::Error);
+    EXPECT_THROW(short_csc.materialize_cols(0, 1, buf.data(), m), RandLAPACK::Error);
+    EXPECT_THROW(tall_coo.materialize_cols(0, 1, buf.data(), m + 1), RandLAPACK::Error);
+    EXPECT_THROW(wide_coo.materialize_cols(0, 1, buf.data(), m), RandLAPACK::Error);
+    for (double v : buf) ASSERT_EQ(v, -42.0);   // every failed call stopped before writing
+}
+
+// An operator with no rows writes nothing (buf may be null). A matrix with no stored entries,
+// whose index arrays are null, gives zero columns.
+TEST(TestSparseMaterializeCols, zero_count_zero_rows_and_no_entries) {
+    const int64_t n = 4, m = 5, ldb = m + 1;
+    vector<int64_t> rowptr0(1, 0), colptr0(n + 1, 0);
+    CSRMatrix<double> E_csr(0, n, 0, nullptr, rowptr0.data(), nullptr);
+    CSCMatrix<double> E_csc(0, n, 0, nullptr, nullptr, colptr0.data());
+    COOMatrix<double> E_coo(0, n, 0, nullptr, nullptr, nullptr);
+    const SpLinOp<CSRMatrix<double>> op_csr(0, n, E_csr);
+    const SpLinOp<CSCMatrix<double>> op_csc(0, n, E_csc);
+    const SpLinOp<COOMatrix<double>> op_coo(0, n, E_coo);
+    auto check_empty = [&](const auto& op) {
+        op.materialize_cols(1, 2, nullptr, 0);
+        op.materialize_cols(0, n, nullptr, 0);
+        EXPECT_THROW(op.materialize_cols(n - 1, 2, nullptr, 0), RandLAPACK::Error);
+    };
+    check_empty(op_csr);
+    check_empty(op_csc);
+    check_empty(op_coo);
+
+    CSRMatrix<double> Z_csr(m, n);   // standard constructor: no arrays until reserve
+    CSCMatrix<double> Z_csc(m, n);
+    COOMatrix<double> Z_coo(m, n);
+    const SpLinOp<CSRMatrix<double>> z_csr(m, n, Z_csr);
+    const SpLinOp<CSCMatrix<double>> z_csc(m, n, Z_csc);
+    const SpLinOp<COOMatrix<double>> z_coo(m, n, Z_coo);
+    auto check_zero = [&](const auto& op) {
+        vector<double> buf(ldb * n, -42.0);
+        op.materialize_cols(1, 3, buf.data(), ldb);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < ldb; ++i)
+                ASSERT_EQ(buf[i + j * ldb], (j < 3 && i < m) ? 0.0 : -42.0) << i << "," << j;
+    };
+    check_zero(z_csr);
+    check_zero(z_csc);
+    check_zero(z_coo);
 }
 
 
