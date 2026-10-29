@@ -71,7 +71,8 @@ void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, 
     A.materialize_cols(0, n, buf, ldb);
 }
 
-/// Specialization for SparseLinOp: zero-init + sparse_to_dense.
+/// Specialization for SparseLinOp: zero-init + sparse_to_dense. The operator's matrix must have
+/// its dimensions; a one-based CSR or CSC matrix is rejected by sparse_to_dense.
 template <RandBLAS::sparse_data::SparseMatrix SpMat>
 void materialize(linops::SparseLinOp<SpMat>& A, int64_t m, int64_t n,
                  typename SpMat::scalar_t* buf, int64_t ldb) {
@@ -79,6 +80,9 @@ void materialize(linops::SparseLinOp<SpMat>& A, int64_t m, int64_t n,
     randlapack_require(m == A.n_rows) << "m=" << m << " must equal A.n_rows=" << A.n_rows << " for materialize specialization";
     randlapack_require(n == A.n_cols) << "n=" << n << " must equal A.n_cols=" << A.n_cols << " for materialize specialization";
     randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
+    randlapack_require(A.A_sp.n_rows == m && A.A_sp.n_cols == n)
+        << "materialize: the SparseLinOp is " << m << " x " << n << " but its matrix is "
+        << A.A_sp.n_rows << " x " << A.A_sp.n_cols;
     // Zero the output buffer.
     for (int64_t j = 0; j < n; ++j)
         for (int64_t i = 0; i < m; ++i)

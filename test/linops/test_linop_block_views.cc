@@ -5,6 +5,7 @@
 //   - CSRColBlock / csr_col_block / csr_split_col_blocks (cross-direction)
 //   - CSCRowBlock / csc_row_block / csc_split_row_blocks (cross-direction)
 //   - SparseLinOp::row_block, col_block, submatrix (dispatch to free functions)
+//   - SparseLinOp index base (kept by the operator and its blocks; products, sketch, materialize)
 //   - CompositeOperator::row_block, col_block, submatrix (delegation to operands)
 
 #include <blas.hh>
@@ -17,6 +18,8 @@
 #include "../../RandLAPACK/testing/rl_test_utils.hh"
 #include <cmath>
 #include <limits>
+#include <string>
+#include <type_traits>
 #include <utility>
 
 using std::vector;
@@ -1435,6 +1438,222 @@ TEST_F(TestSparseLinOpBlocks, csc_submatrix_corner) {
 
 TEST_F(TestSparseLinOpBlocks, csc_submatrix_end) {
     test_csc_linop_submatrix<double>(20, 15, 0.3, 12, 9, 8, 6);
+}
+
+
+// ============================================================================
+// SparseLinOp Index Base Tests
+// ============================================================================
+
+namespace {
+
+using RandBLAS::sparse_data::CSRMatrix;
+using RandBLAS::sparse_data::CSCMatrix;
+using RandBLAS::sparse_data::COOMatrix;
+using RandBLAS::sparse_data::IndexBase;
+
+// A one-based block holds the minor indices of the same block of the zero-based matrix plus 1,
+// with the same pointers and values, and keeps the base.
+template <typename SpMat>
+void check_one_based_block(const SpMat& one, const SpMat& zero) {
+    ASSERT_EQ(one.index_base, IndexBase::One);
+    ASSERT_EQ(zero.index_base, IndexBase::Zero);
+    ASSERT_EQ(one.nnz, zero.nnz);
+    ASSERT_EQ(one.n_rows, zero.n_rows);
+    ASSERT_EQ(one.n_cols, zero.n_cols);
+    for (int64_t k = 0; k < one.nnz; ++k) ASSERT_EQ(one.vals[k], zero.vals[k]) << k;
+    if constexpr (std::is_same_v<SpMat, CSRMatrix<double>>) {
+        for (int64_t i = 0; i <= one.n_rows; ++i) ASSERT_EQ(one.rowptr[i], zero.rowptr[i]) << i;
+        for (int64_t k = 0; k < one.nnz; ++k) ASSERT_EQ(one.colidxs[k], zero.colidxs[k] + 1) << k;
+    } else {
+        for (int64_t j = 0; j <= one.n_cols; ++j) ASSERT_EQ(one.colptr[j], zero.colptr[j]) << j;
+        for (int64_t k = 0; k < one.nnz; ++k) ASSERT_EQ(one.rowidxs[k], zero.rowidxs[k] + 1) << k;
+    }
+}
+
+} // namespace
+
+namespace {
+// The call throws, and its message names the index base (RandBLAS's and RandLAPACK's checks
+// both print IndexBase), so an unrelated failure does not pass for the rejection.
+template <typename F>
+void expect_index_base_error(F&& call) {
+    try {
+        call();
+        ADD_FAILURE() << "no exception";
+    } catch (const std::exception& e) {
+        EXPECT_NE(std::string(e.what()).find("IndexBase"), std::string::npos) << e.what();
+    }
+}
+} // namespace
+
+// A SparseLinOp keeps its matrix's index base, and so do its row, column and submatrix blocks.
+// RandBLAS's sparse-dense products reject a one-based matrix, and so do the sparse-sparse
+// products for a one-based operator. A one-based input is densified through sparse_to_dense,
+// also under MKL, by the sketch with a sparse S, by the sparse-sparse products for B_sp, and by
+// materialize, so a one-based COO matrix works there and a one-based CSR or CSC one throws.
+TEST(TestSparseLinOpIndexBase, one_based_matrices_work_or_throw) {
+    using SpCSR = RandLAPACK::linops::SparseLinOp<CSRMatrix<double>>;
+    using SpCSC = RandLAPACK::linops::SparseLinOp<CSCMatrix<double>>;
+    using SpCOO = RandLAPACK::linops::SparseLinOp<COOMatrix<double>>;
+    const int64_t m = 13, n = 9, d = 5, nB = 4;
+    RNGState state(61);
+    auto coo = RandLAPACK::gen::gen_sparse_coo<double>(m, n, 0.4, state);
+    auto csr0 = coo.as_owning_csr(), csr1 = coo.as_owning_csr();
+    auto csc0 = coo.as_owning_csc(), csc1 = coo.as_owning_csc();
+    auto coo0 = coo.deepcopy(), coo1 = coo.deepcopy();
+    RandBLAS::sparse_data::reindex_inplace(csr1, IndexBase::One);
+    RandBLAS::sparse_data::reindex_inplace(csc1, IndexBase::One);
+    RandBLAS::sparse_data::reindex_inplace(coo1, IndexBase::One);
+    SpCSR op0_csr(m, n, csr0), op1_csr(m, n, csr1);
+    SpCSC op0_csc(m, n, csc0), op1_csc(m, n, csc1);
+    SpCOO op0_coo(m, n, coo0), op1_coo(m, n, coo1);
+    EXPECT_EQ(op1_csr.A_sp.index_base, IndexBase::One);
+    EXPECT_EQ(op1_csc.A_sp.index_base, IndexBase::One);
+    EXPECT_EQ(op1_coo.A_sp.index_base, IndexBase::One);
+
+    vector<double> X(n * 2, 1.0), Y(m * 2);
+    auto product = [&](auto& op) {
+        op(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, 2, n, 1.0, X.data(), n, 0.0, Y.data(), m);
+    };
+    expect_index_base_error([&] { product(op1_csr); });
+    expect_index_base_error([&] { product(op1_csc); });
+    expect_index_base_error([&] { product(op1_coo); });
+
+    check_one_based_block(op1_csr.row_block(2, 6).A_sp, op0_csr.row_block(2, 6).A_sp);
+    check_one_based_block(op1_csr.col_block(1, 5).A_sp, op0_csr.col_block(1, 5).A_sp);
+    check_one_based_block(op1_csr.submatrix(3, 2, 8, 4).A_sp, op0_csr.submatrix(3, 2, 8, 4).A_sp);
+    check_one_based_block(op1_csc.row_block(2, 6).A_sp, op0_csc.row_block(2, 6).A_sp);
+    check_one_based_block(op1_csc.col_block(1, 5).A_sp, op0_csc.col_block(1, 5).A_sp);
+    check_one_based_block(op1_csc.submatrix(3, 2, 8, 4).A_sp, op0_csc.submatrix(3, 2, 8, 4).A_sp);
+
+    // Sketch with a sparse S.
+    RandBLAS::SparseDist SD(d, m, 2);
+    RandBLAS::SparseSkOp<double> S1(SD, RNGState<>(3)), S0(SD, RNGState<>(3)), S_csr(SD, RNGState<>(3));
+    vector<double> SA1(d * n), SA0(d * n);
+    op1_coo(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S1, 0.0, SA1.data(), d);
+    op0_coo(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S0, 0.0, SA0.data(), d);
+    EXPECT_LE(rel_fro_error(SA1.data(), SA0.data(), d * n), 1e-14);
+    expect_index_base_error([&] {
+        op1_csr(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S_csr, 0.0, SA1.data(), d); });
+
+    // Side::Left sparse-sparse, C = A * B with B n x nB: a one-based COO B is densified, a
+    // one-based CSR B and a one-based operator are rejected.
+    auto Bcoo = RandLAPACK::gen::gen_sparse_coo<double>(n, nB, 0.5, state);
+    auto B0 = Bcoo.deepcopy(), B1 = Bcoo.deepcopy();
+    auto B1_csr = Bcoo.as_owning_csr();
+    RandBLAS::sparse_data::reindex_inplace(B1, IndexBase::One);
+    RandBLAS::sparse_data::reindex_inplace(B1_csr, IndexBase::One);
+    vector<double> AB1(m * nB), AB0(m * nB);
+    op0_csr(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, nB, n, 1.0, B1, 0.0, AB1.data(), m);
+    op0_csr(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, nB, n, 1.0, B0, 0.0, AB0.data(), m);
+    EXPECT_LE(rel_fro_error(AB1.data(), AB0.data(), m * nB), 1e-14);
+    expect_index_base_error([&] {
+        op0_csr(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, nB, n, 1.0, B1_csr, 0.0, AB1.data(), m); });
+    expect_index_base_error([&] {
+        op1_csr(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, nB, n, 1.0, B0, 0.0, AB1.data(), m); });
+
+    // Side::Right sparse-sparse with trans_A == NoTrans (the case MKL would take), C = B * A with
+    // B nB x m: the same outcomes.
+    auto Rcoo = RandLAPACK::gen::gen_sparse_coo<double>(nB, m, 0.5, state);
+    auto R0 = Rcoo.deepcopy(), R1 = Rcoo.deepcopy();
+    RandBLAS::sparse_data::reindex_inplace(R1, IndexBase::One);
+    vector<double> BA1(nB * n), BA0(nB * n);
+    op0_csr(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, nB, n, m, 1.0, R1, 0.0, BA1.data(), nB);
+    op0_csr(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, nB, n, m, 1.0, R0, 0.0, BA0.data(), nB);
+    EXPECT_LE(rel_fro_error(BA1.data(), BA0.data(), nB * n), 1e-14);
+    expect_index_base_error([&] {
+        op1_csr(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, nB, n, m, 1.0, R0, 0.0, BA1.data(), nB); });
+
+    // materialize, with ldb == m and with a padded ldb (densified through a temporary).
+    vector<double> D1(m * n), D0(m * n), Dp((m + 2) * n);
+    RandLAPACK::materialize(op1_coo, m, n, D1.data(), m);
+    RandLAPACK::materialize(op0_coo, m, n, D0.data(), m);
+    for (int64_t k = 0; k < m * n; ++k) ASSERT_EQ(D1[k], D0[k]) << k;
+    expect_index_base_error([&] { RandLAPACK::materialize(op1_csr, m, n, D1.data(), m); });
+    expect_index_base_error([&] { RandLAPACK::materialize(op1_csc, m, n, D1.data(), m); });
+    expect_index_base_error([&] { RandLAPACK::materialize(op1_csr, m, n, Dp.data(), m + 2); });
+    expect_index_base_error([&] { RandLAPACK::materialize(op1_csc, m, n, Dp.data(), m + 2); });
+}
+
+// A COO operator smaller than its matrix: the sparse-dense product reads the leading window, but
+// the sketch with a sparse S, the sparse-sparse products, materialize and fro_nrm, which read the
+// whole matrix, reject it, zero- or one-based.
+TEST(TestSparseLinOpIndexBase, coo_window_only_in_sparse_dense_products) {
+    using SpCOO = RandLAPACK::linops::SparseLinOp<COOMatrix<double>>;
+    const int64_t m = 7, n = 6, mw = 5, nw = 5, d = 3;
+    RNGState state(62);
+    auto coo0 = RandLAPACK::gen::gen_sparse_coo<double>(m, n, 0.5, state);
+    auto coo1 = coo0.deepcopy();
+    RandBLAS::sparse_data::reindex_inplace(coo1, IndexBase::One);
+    SpCOO win0(mw, nw, coo0), win1(mw, nw, coo1);
+
+    vector<double> D(m * n, 0.0), eye(nw * nw, 0.0), W(mw * nw);
+    RandLAPACK::util::sparse_to_dense(coo0, Layout::ColMajor, D.data());
+    for (int64_t j = 0; j < nw; ++j) eye[j + j * nw] = 1.0;
+    win0(Layout::ColMajor, Op::NoTrans, Op::NoTrans, mw, nw, nw, 1.0, eye.data(), nw, 0.0, W.data(), mw);
+    for (int64_t j = 0; j < nw; ++j)
+        for (int64_t i = 0; i < mw; ++i) ASSERT_EQ(W[i + j * mw], D[i + j * m]) << i << "," << j;
+
+    RandBLAS::SparseDist SD(d, mw, 2);
+    RandBLAS::SparseSkOp<double> S0(SD, RNGState<>(4)), S1(SD, RNGState<>(4));
+    vector<double> SA(d * nw);
+    EXPECT_THROW(win0(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, nw, mw, 1.0, S0, 0.0,
+                      SA.data(), d), RandLAPACK::Error);
+    EXPECT_THROW(win1(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, nw, mw, 1.0, S1, 0.0,
+                      SA.data(), d), RandLAPACK::Error);
+
+    auto B = RandLAPACK::gen::gen_sparse_coo<double>(nw, 2, 0.5, state);
+    vector<double> AB(mw * 2), M(mw * nw);
+    EXPECT_THROW(win0(Layout::ColMajor, Op::NoTrans, Op::NoTrans, mw, 2, nw, 1.0, B, 0.0, AB.data(), mw),
+                 RandLAPACK::Error);
+    EXPECT_THROW(RandLAPACK::materialize(win0, mw, nw, M.data(), mw), RandLAPACK::Error);
+    EXPECT_THROW(win0.fro_nrm(), RandLAPACK::Error);
+}
+
+TEST(TestSparseLinOpIndexBase, sparse_sparse_partial_products_match_the_sparse_dense_ones) {
+    // A product with a leading block of op(A) must not reach spgemm, which multiplies all of A
+    // into the caller's smaller C. It behaves as the sparse-dense product: COO multiplies the
+    // block, CSR needs the whole matrix and throws.
+    using SpCOO = RandLAPACK::linops::SparseLinOp<COOMatrix<double>>;
+    using SpCSR = RandLAPACK::linops::SparseLinOp<CSRMatrix<double>>;
+    const int64_t m = 7, n = 6, mp = 5, kp = 4, nb = 2;
+    RNGState state(63);
+    auto coo = RandLAPACK::gen::gen_sparse_coo<double>(m, n, 0.6, state);
+    CSRMatrix<double> csr(m, n);
+    RandBLAS::sparse_data::conversions::coo_to_csr(coo, csr);
+    SpCOO A(m, n, coo);
+    SpCSR A_csr(m, n, csr);
+    vector<double> D(m * n, 0.0);
+    RandLAPACK::util::sparse_to_dense(coo, Layout::ColMajor, D.data());
+
+    // Side::Left: C (mp x nb) = A[0:mp, 0:kp] * B with B kp x nb.
+    auto BL = RandLAPACK::gen::gen_sparse_coo<double>(kp, nb, 0.7, state);
+    vector<double> DBL(kp * nb, 0.0), CL(mp * nb, -1.0);
+    RandLAPACK::util::sparse_to_dense(BL, Layout::ColMajor, DBL.data());
+    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, mp, nb, kp, 1.0, BL, 0.0, CL.data(), mp);
+    for (int64_t j = 0; j < nb; ++j)
+        for (int64_t i = 0; i < mp; ++i) {
+            double ref = 0.0;
+            for (int64_t l = 0; l < kp; ++l) ref += D[i + l * m] * DBL[l + j * kp];
+            EXPECT_NEAR(CL[i + j * mp], ref, 1e-12) << "left " << i << "," << j;
+        }
+    EXPECT_THROW(A_csr(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, mp, nb, kp, 1.0, BL, 0.0,
+                       CL.data(), mp), RandBLAS::Error);
+
+    // Side::Right: C (nb x kp) = B * A[0:mp, 0:kp] with B nb x mp.
+    auto BR = RandLAPACK::gen::gen_sparse_coo<double>(nb, mp, 0.7, state);
+    vector<double> DBR(nb * mp, 0.0), CR(nb * kp, -1.0);
+    RandLAPACK::util::sparse_to_dense(BR, Layout::ColMajor, DBR.data());
+    A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, nb, kp, mp, 1.0, BR, 0.0, CR.data(), nb);
+    for (int64_t j = 0; j < kp; ++j)
+        for (int64_t i = 0; i < nb; ++i) {
+            double ref = 0.0;
+            for (int64_t l = 0; l < mp; ++l) ref += DBR[i + l * nb] * D[l + j * m];
+            EXPECT_NEAR(CR[i + j * nb], ref, 1e-12) << "right " << i << "," << j;
+        }
+    EXPECT_THROW(A_csr(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, nb, kp, mp, 1.0, BR, 0.0,
+                       CR.data(), nb), RandBLAS::Error);
 }
 
 
