@@ -261,16 +261,16 @@ int CQRRPT_GPU<T, RNG>::call(
     struct HostBuffers {
         T* A_hat = nullptr;
         T* A_hat_sk = nullptr;
-        T* R_sp_diag = nullptr;
+        T* R_sp_lead = nullptr;
         char* work_getrf = nullptr;
         char* work_geqrf = nullptr;
         void release() {
             delete[] A_hat;
             delete[] A_hat_sk;
-            delete[] R_sp_diag;
+            delete[] R_sp_lead;
             delete[] work_getrf;
             delete[] work_geqrf;
-            A_hat = A_hat_sk = R_sp_diag = nullptr;
+            A_hat = A_hat_sk = R_sp_lead = nullptr;
             work_getrf = work_geqrf = nullptr;
         }
         ~HostBuffers() { release(); }
@@ -524,16 +524,19 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::device_memcpy(&info, dev.info, 1, lapack_queue);
     lapack_queue.sync();
 
-    // If CholQR failed, re-estimate the rank a posteriori from the completed part of R_sp's diagonal,
-    // with CQRRPT's rule; cuSOLVER may leave NaN past the failed column, which the rule never keeps.
+    // If CholQR failed, re-estimate the rank a posteriori from the completed columns of R_sp, with CQRRPT's
+    // rule; cuSOLVER may leave NaN from the failed column on, which the rule never reads.
     new_rank = k;
     if (info > 0) {
-        // In elements: the host pitch is 1, since we have a column vector; the device pitch is k + 1, so each
-        // "row" starts at a diagonal entry of the k by k matrix; each of the k rows is 1 element wide.
-        host.R_sp_diag = new T[k]();
-        blas::device_memcpy_2d(host.R_sp_diag, (int64_t) 1, dev.R_sp, k + 1, (int64_t) 1, k, lapack_queue);
+        // Copy the leading (info - 1)-by-(info - 1) block, all of which the rule reads: in elements, each of its
+        // b columns (a "row" of the 2D copy) is b wide, at pitch k on the device and pitch b on the host.
+        int64_t b = (int64_t) info - 1;
+        int64_t ld_lead = std::max(b, (int64_t) 1);
+        host.R_sp_lead = new T[ld_lead * b]();
+        if (b > 0)
+            blas::device_memcpy_2d(host.R_sp_lead, ld_lead, dev.R_sp, k, b, b, lapack_queue);
         lapack_queue.sync();
-        new_rank = util::cholqr_failure_rank(k, host.R_sp_diag, (int64_t) 1, (int64_t) info, this->eps);
+        new_rank = util::cholqr_failure_rank(k, host.R_sp_lead, ld_lead, (int64_t) info, this->eps);
     }
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, dev.R_sp, k, dev.A, lda, lapack_queue);

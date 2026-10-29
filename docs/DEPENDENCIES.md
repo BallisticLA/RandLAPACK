@@ -19,7 +19,7 @@ you need the details.
 
 ## Tested setups
 
-Last updated: 2026-10-26.
+Last updated: 2026-10-28.
 
 | Hardware | OS | Compiler | Backend, integer width | OpenMP | Built with | Where, when |
 |---|---|---|---|---|---|---|
@@ -34,12 +34,15 @@ Last updated: 2026-10-26.
 | x86-64 | Windows Server 2022 | MSVC 19.44 (Visual Studio 2022) | OpenBLAS 0.3.34, LP64 | off | by hand | CI [core-windows] `build-windows`; 2026-10-26 |
 | x86-64 (Intel Core Ultra 9 386H) | Ubuntu 26.04 under WSL2 | GCC 15.2.0 | oneMKL 2026.0, ILP64 | on | installer (`--blas=mkl`); by hand (the recipe in [INSTALL_MANUAL.md](INSTALL_MANUAL.md)) | local; 2026-10-26 |
 | x86-64 (Intel Core Ultra 9 386H), NVIDIA GeForce RTX 5070 Ti Laptop GPU (driver 610.88) | Ubuntu 26.04 under WSL2 | GCC 15.2.0, CUDA 13.3 | oneMKL 2026.0, ILP64 | on | installer (`--gpu --no-benchmarks --blas=mkl`) | local; 2026-10-26 |
+| x86-64 (AMD EPYC 9734) | RHEL 8.10 | GCC 13.4.0 | OpenBLAS 0.3.12, LP64 | on | installer (`--no-gpu --no-extras --no-benchmarks --blas=openblas --blas-int=lp64`) | ISAAC cluster; 2026-10-28 |
+| x86-64 (AMD EPYC 9734) | RHEL 8.10 | GCC 13.4.0 | oneMKL 2026.0, ILP64 | on | installer (`--no-gpu --no-extras --no-benchmarks --blas=mkl`) | ISAAC cluster; 2026-10-28 |
 
 Other setups may work, but are untested; report results on
 [our Discord server](https://discord.gg/R4qj8Er9YW) or in a
 [GitHub issue](https://github.com/BallisticLA/RandLAPACK/issues).
 
-- **In every row, RandLAPACK's full test suite passed.** In "Built with",
+- **In every row, RandLAPACK's full test suite passed**, apart from the
+  one check the ISAAC rows skipped (below). In "Built with",
   "installer" means `install.sh` or `install.ps1`
   ([README](../README.md#install)), and "by hand" means a step-by-step
   CMake build, as in [INSTALL_MANUAL.md](INSTALL_MANUAL.md) or CI's core
@@ -47,6 +50,9 @@ Other setups may work, but are untested; report results on
 - **CI** rows ran on GitHub's hosted runners. Each workflow name links to
   its run, where every job's log can be checked; [CI.md](CI.md) describes
   each lane.
+- **ISAAC** rows ran on one compute node of the University of Tennessee's
+  ISAAC cluster. They ran `RandLAPACK_tests`, all 492 tests, but not the
+  separate `test_pcgls` check.
 - **GPU.** No CI job builds or runs the GPU code
   ([#215](https://github.com/BallisticLA/RandLAPACK/issues/215)). The GPU row
   is a fresh clone of `main` installed with `install.sh`; all 498 tests

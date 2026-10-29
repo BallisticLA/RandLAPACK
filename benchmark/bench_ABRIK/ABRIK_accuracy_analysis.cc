@@ -70,7 +70,7 @@ plus ABRIK's outputs.
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "ext_matrix_io.hh"
-#include "abrik_bench_common.hh"
+#include "rl_bench_utils.hh"
 
 #include <RandBLAS.hh>
 #include <chrono>
@@ -122,7 +122,7 @@ static T sin_angle_via_qr(const T* x1, const T* x2, int64_t len, T* work_buf, T*
 
 template <typename T>
 static int run_analysis(int argc, char* argv[]) {
-    if (argc < 9) return abrik_usage(argv[0], kUsage);
+    if (argc < 9) return RandLAPACK::bench::usage_error(argv[0], kUsage);
 
     std::string output_dir = argv[2];
     std::string input_path = argv[3];
@@ -156,11 +156,11 @@ static int run_analysis(int argc, char* argv[]) {
     // Open and head the output before the expensive GESDD, so a bad path fails fast and
     // a kill during GESDD leaves a readable file.
     std::ofstream file;
-    std::string path = abrik_open_csv(output_dir, "ABRIK_accuracy_analysis", file);
+    std::string path = RandLAPACK::bench::open_csv(output_dir, "ABRIK_accuracy_analysis", file);
     if (!file) return 1;
     file << std::setprecision(15);
     file << "# ABRIK per-triplet accuracy analysis\n"
-         << "# RANDLAPACK_GIT_COMMIT=" << abrik_build_commit() << "\n"
+         << "# RANDLAPACK_GIT_COMMIT=" << RandLAPACK::bench::build_commit() << "\n"
          << "# Precision: " << argv[1] << "\n"
          << "# Input matrix: " << input_path << "\n"
          << "# Input size: " << m << " x " << n << "\n"
@@ -287,5 +287,5 @@ static int run_analysis(int argc, char* argv[]) {
 }
 
 int main(int argc, char* argv[]) {
-    return abrik_bench_main(argc, argv, kUsage, run_analysis<double>, run_analysis<float>);
+    return RandLAPACK::bench::precision_main(argc, argv, kUsage, run_analysis<double>, run_analysis<float>);
 }

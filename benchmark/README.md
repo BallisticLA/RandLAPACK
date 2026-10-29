@@ -49,6 +49,19 @@ FetchContent. Some benchmarks also borrow headers from `extras/`.
   the default installer lanes) but never runs them. Run them on quiet,
   pinned hardware if you intend to quote numbers.
 
+## Writing a benchmark
+
+Shared scaffolding lives in `rl_bench_utils.hh` at the root of this directory
+(namespace `RandLAPACK::bench`). It is part of the benchmark project and does
+not install with the library. It holds the argument and usage helpers, the
+`main()` that dispatches on `double` or `float`, the output-path helpers, the
+timestamp prefix of result files and the timestamped CSV opener, the
+build-commit stamp, the row and footer writers, the `QR_benchmark_data`
+struct with its regeneration routine, and the QR error-analysis and
+pivot-quality helpers. Use these instead of copying them
+from a neighboring driver: external plotting and campaign scripts parse the
+file names and row formats they write.
+
 ## GPU benchmarks
 
 Prerequisites: RandLAPACK installed with CUDA support (`--gpu` in the

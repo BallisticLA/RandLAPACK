@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(benchmark)
+project(benchmark LANGUAGES CXX)
 
 # Benchmark is a standalone project, needs its own C++ standard
 set(CMAKE_CXX_STANDARD 20)
@@ -73,8 +73,8 @@ function(add_benchmark)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CXX_SOURCES})
     target_compile_options(${TGT_NAME} PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang>:-g>)
-    # Include directories come from target_link_libraries, plus the extras loader path
-    # added below for the ABRIK drivers.
+    # Include directories come from target_link_libraries, plus two paths added below:
+    # the extras loader path for the ABRIK drivers and the benchmark root for rl_bench_utils.hh.
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     # On Windows the RandLAPACK package config provides DLL staging so the
     # benchmark runs without PATH preparation.
@@ -144,6 +144,8 @@ FetchContent_MakeAvailable(
 
 # The ABRIK drivers include the extras matrix loader by bare name.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../extras/misc)
+# The drivers include the shared rl_bench_utils.hh, at this directory's root, by bare name.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 set(
     Benchmark_libs

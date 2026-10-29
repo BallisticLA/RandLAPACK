@@ -3,6 +3,7 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 #include "cqrrpt_test_inputs.hh"
+#include <RandLAPACK/testing/rl_test_utils.hh>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -19,6 +20,8 @@
 // The GPU drivers and kernels come in with RandLAPACK.hh, under its __CUDACC__ guard.
 
 using cqrrpt_test::sketch_defeating_input;
+using RandLAPACK::testing::QR_test_data;
+using RandLAPACK::testing::norm_and_copy_computational_helper;
 
 class TestCQRRPT : public ::testing::Test
 {
@@ -28,83 +31,14 @@ class TestCQRRPT : public ::testing::Test
 
     virtual void TearDown() {};
 
-    template <typename T>
-    struct CQRRPTTestData {
-        int64_t row;
-        int64_t col;
-        int64_t rank; // has to be modifiable
-        std::vector<T> A;
-        std::vector<T> R;
-        std::vector<int64_t> J;
-        std::vector<T> A_cpy1;
-        std::vector<T> A_cpy2;
-        std::vector<T> I_ref;
-
-        CQRRPTTestData(int64_t m, int64_t n, int64_t k) :
-        A(m * n, 0.0), 
-        R(n * n, 0.0),
-        J(n, 0),  
-        A_cpy1(m * n, 0.0),
-        A_cpy2(m * n, 0.0),
-        I_ref(k * k, 0.0) 
-        {
-            row = m;
-            col = n;
-            rank = k;
-        }
-    };
-
-    template <typename T, typename RNG>
-    static void norm_and_copy_computational_helper(T &norm_A, CQRRPTTestData<T> &all_data) {
-        auto m = all_data.row;
-        auto n = all_data.col;
-
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
-        norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-    }
-
-
-    /// This routine also appears in benchmarks, but idk if it should be put into utils
+    /// Prints and checks the error metrics of A[:, J] = QR.
     template <typename T>
     static void
-    error_check(T &norm_A, CQRRPTTestData<T> &all_data) {
+    error_check(T &norm_A, QR_test_data<T> &all_data) {
 
-        auto m = all_data.row;
         auto n = all_data.col;
-        auto k = all_data.rank;
+        auto [norm_AQR, max_col_norm, col_norm_A, norm_0] = RandLAPACK::testing::qr_test_errors(all_data, all_data.rank, all_data.A, n);
 
-        RandLAPACK::util::upsize(k * k, all_data.I_ref);
-        RandLAPACK::util::eye(k, k, all_data.I_ref);
-
-        T* A_dat         = all_data.A_cpy1.data();
-        T const* A_cpy_dat = all_data.A_cpy2.data();
-        T const* Q_dat   = all_data.A.data();
-        T const* R_dat   = all_data.R.data();
-        T* I_ref_dat     = all_data.I_ref.data();
-
-        // Check orthogonality of Q
-        // Q' * Q  - I = 0
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, I_ref_dat, k);
-        T norm_0 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
-
-        // A - QR
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, n, -1.0, A_dat, m);
-        
-        // Implementing max col norm metric
-        T max_col_norm = 0.0;
-        T col_norm = 0.0;
-        int max_idx = 0;
-        for(int i = 0; i < n; ++i) {
-            col_norm = blas::nrm2(m, &A_dat[m * i], 1);
-            if(max_col_norm < col_norm) {
-                max_col_norm = col_norm;
-                max_idx = i;
-            }
-        }
-        T col_norm_A = blas::nrm2(m, &A_cpy_dat[m * max_idx], 1);
-        T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
-        
         std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(15) << norm_AQR / norm_A << "\n";
         std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(15) << max_col_norm / col_norm_A << "\n";
         std::cout << "FRO NORM OF (Q'Q - I)/sqrt(n): " << std::scientific << std::setw(2) << norm_0 / std::sqrt((T) n) << "\n\n";
@@ -121,20 +55,20 @@ class TestCQRRPT : public ::testing::Test
     static void test_CQRRPT_general(
         T d_factor, 
         T norm_A,
-        CQRRPTTestData<T> &all_data,
+        QR_test_data<T> &all_data,
         alg_type &CQRRPT_GPU,
         RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRPT_GPU.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
+        CQRRPT_GPU.call(m, n, all_data.A, m, all_data.R, n, all_data.J, d_factor, state);
 
         all_data.rank = CQRRPT_GPU.rank;
         std::cout << "RANK AS RETURNED BY CQRRPT " << all_data.rank << "\n";
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1, m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2, m, all_data.J);
 
         error_check(norm_A, all_data);
     }
@@ -369,7 +303,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank) {
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTTestData<double> all_data(m, n, k);
+    QR_test_data<double> all_data(m, n, k);
     RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
     CQRRPT_GPU.nnz = 2;
     CQRRPT_GPU.num_threads = 4;
@@ -378,9 +312,9 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
 }
 
@@ -394,7 +328,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_float) {
     float tol = std::pow(std::numeric_limits<float>::epsilon(), (float) 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTTestData<float> all_data(m, n, k);
+    QR_test_data<float> all_data(m, n, k);
     RandLAPACK::CQRRPT_GPU<float, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
     CQRRPT_GPU.nnz = 2;
     CQRRPT_GPU.num_threads = 4;
@@ -403,9 +337,9 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_float) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A, state);
 
-    norm_and_copy_computational_helper<float, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general<float, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<float, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
     EXPECT_EQ(all_data.rank, k);
 }
@@ -430,8 +364,8 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_dirty_J_rank_deficient) {
 
     int64_t rank_ref = -1;
     for (int trial = 0; trial < 3; ++trial) {
-        CQRRPTTestData<double> all_data(m, n, k);
-        lapack::lacpy(MatrixType::General, m, n, A_orig.data(), m, all_data.A.data(), m);
+        QR_test_data<double> all_data(m, n, k);
+        lapack::lacpy(MatrixType::General, m, n, A_orig.data(), m, all_data.A, m);
 
         // Trial 0 keeps the zero-initialized J; trials 1 and 2 dirty it with
         // different nonzero garbage.
@@ -445,7 +379,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_dirty_J_rank_deficient) {
         CQRRPT_GPU.num_threads = 4;
 
         double norm_A = 0;
-        norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+        norm_and_copy_computational_helper(norm_A, all_data);
         // Same RNG state in every trial, so any difference is due to J alone.
         auto state = RandBLAS::RNGState();
         test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
@@ -511,7 +445,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_repeated_calls_stable) {
 
 // After a failed potrf, CQRRPT_GPU must return a valid factorization of the columns it keeps. On
 // cholesky_failure_input with p = 3 and q = 7, potrf fails at column 8, the last, exactly and on any BLAS, and with
-// tol = 1e-6 the ratio test cuts at the large diagonal entry of column 4: rank 2, which shows that the failure
+// tol = 1e-6 the condition test cuts at the large diagonal entry of column 4: rank 2, which shows that the failure
 // path ran. J must be 1..n, R zero below the diagonal and past the rank, Q(:, 0:2) orthonormal, R(0:2, :) =
 // Q(:, 0:2)' A[:, J], and A[:, J(0:2)] = Q(:, 0:2) R(0:2, 0:2), to 10 u; with both QRCPs of the sketch.
 TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_handled) {
@@ -585,9 +519,9 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_success_keeps_rank) {
 // After a failed potrf, CQRRPT cuts the rank a posteriori, with the rule that CQRRPT_GPU shares. On an input on
 // which potrf fails at column 7 exactly, on any BLAS, and whose sketch both drivers' pivots keep in order
 // (cholesky_failure_input), CQRRPT_GPU must report CQRRPT's rank, with Q orthonormal and R = Q' A[:, J]:
-// - for tol from u^0.85 to 1e-3, the ratio test cuts at the large diagonal entry of column 5: rank 3;
-// - for tol <= u, it cuts at its first allowed index: rank 1;
-// - for tol = 32 it never holds, so the scan stops at the failed column: rank 5.
+// - for tol from u^0.85 to 1e-3, the condition test cuts at the large diagonal entry of column 5: rank 3;
+// - for tol = u / 2, it cuts at its first tested block, of order 3: rank 1;
+// - for tol = 32 no block within the completed columns fails it: rank 5.
 // The sketch-defeating inputs no longer make potrf fail here: luqr's pivots reorder their columns.
 TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
     int64_t m = 64, n = 8, d = 16;
@@ -625,7 +559,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
 }
 
 // The two-column input of CQRRPT_cholesky_failure_k2_drops_failed_column, on which potrf fails at
-// column 2, exactly and on any BLAS. With k = 2 the scan, which starts at i = 2, cannot cut the
+// column 2, exactly and on any BLAS. With k = 2 the condition test, which starts at order 3, cannot cut the
 // rank, so only the cap at the failed column keeps CQRRPT_GPU from keeping it: rank 1, as in CQRRPT.
 TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_k2_drops_failed_column) {
     int64_t m = 32;
@@ -658,10 +592,10 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_k2_drops_failed_column) {
     EXPECT_LE(err_qr, 1e-8) << "rank " << r;
 }
 
-// With tol <= u the ratio threshold sqrt(tol/u) is at most 1, so the scan's ratio test holds from
-// its first entry. When potrf succeeds there is no scan, and the rank is the sketch's. When it
-// fails, the scan cuts at its first allowed index, i = 2, so the rank is 1, as in CQRRPT; it must
-// not cut at i = 0, which gives rank -1.
+// With tol = u / 2 the threshold sqrt(tol/u) is below 1, so every block fails the condition test.
+// When potrf succeeds there is no test, and the rank is the sketch's. When it fails, the rule
+// cuts at its first tested block, of order 3, so the rank is 1, as in CQRRPT; it must not return
+// a negative rank.
 TEST_F(TestCQRRPT, CQRRPT_GPU_tol_at_most_unit_roundoff) {
     double tol = std::numeric_limits<double>::epsilon() / 2;
     struct Input { const char* name; int64_t m, n; std::vector<double> A; uint32_t seed; int64_t rank; int64_t nnz; };

@@ -14,7 +14,7 @@ a tall matrix).
 
 ```cmake
 cmake_minimum_required(VERSION 3.21)
-project(myexec)
+project(myexec LANGUAGES CXX)
 
 find_package(RandLAPACK REQUIRED)
 
