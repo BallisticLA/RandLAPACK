@@ -343,8 +343,10 @@ TEST_F(TestCQRRTOLinops, block_vs_full_agreement) {
 
 namespace {
 
-// Every preconditioner inversion, with the Gram's left factor by one TRSM (trsm_identity, trtri)
-// or by per-block GEMMs (gram_left_gemm; always for geqp3 and bqrrp, which need Z_buf).
+// Every preconditioner inversion, with the Gram's left factor by TRSM (trsm_identity, trtri) or
+// by per-block GEMMs (gram_left_gemm; always for geqp3 and bqrrp, which need Z_buf), with the
+// Gram symmetrized or not (unsymmetrized, the TRSM route solves only the upper triangle, in
+// panels of the block width, and mirrors it for the retries the driver allows).
 template <typename T>
 void check_precond_methods() {
     using M = RandLAPACK::CholQRPrecondMethod;
@@ -355,15 +357,19 @@ void check_precond_methods() {
 
     for (M method : {M::trsm_identity, M::trtri, M::geqp3, M::bqrrp}) {
         for (bool left_gemm : {false, true}) {
-            SCOPED_TRACE(::testing::Message() << "method " << (int)method << ", gram_left_gemm " << left_gemm);
-            std::vector<T> R(n * n, T(0));
-            RandLAPACK::CQRRTO_linops<T> algo(false, default_tol<T>(), true);
-            algo.precond_method = method;
-            algo.gram_left_gemm = left_gemm;
-            algo.block_size = 16;
-            RandBLAS::RNGState<> sk_state(11);
-            ASSERT_EQ(algo.call(A_linop, R.data(), n, T(2), sk_state), 0);
-            assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+            for (bool symmetrize : {true, false}) {
+                SCOPED_TRACE(::testing::Message() << "method " << (int)method << ", gram_left_gemm " << left_gemm
+                             << ", symmetrize " << symmetrize);
+                std::vector<T> R(n * n, T(0));
+                RandLAPACK::CQRRTO_linops<T> algo(false, default_tol<T>(), true);
+                algo.precond_method  = method;
+                algo.gram_left_gemm  = left_gemm;
+                algo.symmetrize_gram = symmetrize;
+                algo.block_size = 16;
+                RandBLAS::RNGState<> sk_state(11);
+                ASSERT_EQ(algo.call(A_linop, R.data(), n, T(2), sk_state), 0);
+                assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+            }
         }
     }
 }
@@ -967,7 +973,7 @@ TEST_F(TestCholQR2Linops, second_pass_restores_orthogonality) {
     EXPECT_LT(orth2, 1e-3 * orth1);
 }
 
-// The two left-factor routes of the preconditioned passes (one TRSM with P after the Gram
+// The two left-factor routes of the preconditioned passes (TRSM with P after the Gram
 // loop, or a GEMM with R_pre^T per block) and the unsymmetrized Gram all give a valid QR.
 TEST_F(TestCholQR2Linops, gram_options_all_factor) {
     int64_t m = 120, n = 30;

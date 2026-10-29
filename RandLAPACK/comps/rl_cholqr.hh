@@ -48,7 +48,7 @@ inline int64_t gram_block_width(int64_t block_size, int64_t n) {
 /// Whether a preconditioned Gram applies its left factor R_pre^T by a GEMM per block, which
 /// needs Z_buf (n x b). Always for geqp3 and bqrrp: a TRSM with an ill-conditioned P would
 /// reintroduce the error their construction avoids. trsm_identity and trtri do so only with
-/// gram_left_gemm, and otherwise apply P^{-T} as one TRSM after the Gram loop.
+/// gram_left_gemm, and otherwise apply P^{-T} by TRSM after the Gram loop.
 inline bool gram_left_by_gemm(CholQRPrecondMethod method, bool gram_left_gemm) {
     return gram_left_gemm || method == CholQRPrecondMethod::geqp3 || method == CholQRPrecondMethod::bqrrp;
 }
@@ -88,7 +88,8 @@ struct CholQROptions {
     int  max_retries     = 0;      ///< retries with a grown shift after a non-PD pivot; < 0: until
                                    ///< positive definite, at most kMaxShiftAttempts attempts
     T    shift_growth    = T(10);  ///< shift multiplier per retry; must be > 1
-    bool symmetrize_gram = true;   ///< factor (G + G^T)/2 rather than G's upper triangle as formed
+    bool symmetrize_gram = true;   ///< factor (G + G^T)/2 rather than G's upper triangle as formed;
+                                   ///< off, the left factor by TRSM solves only that triangle
     bool gram_left_gemm  = false;  ///< trsm_identity/trtri: apply R_pre^T to each Gram block by
                                    ///< GEMM (see gram_left_by_gemm)
 };
@@ -229,6 +230,27 @@ inline void trmm_upper_upper_left(const T* U, int64_t ldu, T* B, int64_t ldb,
     }
 }
 
+// Upper triangle of B := U^{-T} B (U n x n upper triangular), solving only the leading j+b rows of
+// each column panel [j, j+b): about n^3/3 flops for b << n instead of n^3, equal to the full-width
+// trsm in exact arithmetic. Rows below each panel keep B, or with mirror receive the transpose of
+// the solved upper entries (B ends symmetric). U's strict lower triangle is not read.
+template <typename T>
+inline void trsm_upper_trans_left_upper_part(const T* U, int64_t ldu, T* B, int64_t ldb,
+                                             int64_t n, int64_t b_panel, bool mirror) {
+    if (n <= 0) return;
+    const int64_t b = std::max<int64_t>(1, std::min(b_panel, n));
+    for (int64_t j = 0; j < n; j += b) {
+        const int64_t bj   = std::min(b, n - j);
+        const int64_t lead = j + bj;
+        blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit,
+                   lead, bj, T(1), U, ldu, B + j * ldb, ldb);
+        if (mirror)   // B(c, r) := B(r, c) for r < c, c in the panel: contiguous writes down column r
+            for (int64_t r = 0; r < lead; ++r)
+                for (int64_t c = std::max(j, r + 1); c < lead; ++c)
+                    B[c + r * ldb] = B[r + c * ldb];
+    }
+}
+
 
 // ============================================================================
 // cholqr_primitive: Q-less (preconditioned) Cholesky QR
@@ -243,15 +265,21 @@ inline void trmm_upper_upper_left(const T* U, int64_t ldu, T* B, int64_t ldb,
 // trsm_identity with the left factor by TRSM (the default) never forms R_pre: the Gram solves
 // each column panel of P^{-1} just before applying A to it, with the same TRSMs.
 //
+// The left factor by TRSM (trsm_identity or trtri, see gram_left_by_gemm) is a solve with P^T
+// after the Gram loop. Without opts.symmetrize_gram it solves only the upper triangle potrf
+// reads (trsm_upper_trans_left_upper_part), in column panels of the Gram's block width, or of
+// kDefaultGramBlockSize when the Gram is unblocked.
+//
 // Chaining passes with the previous R as P (CholQR2, sCholQR3) accumulates R_k ... R_1.
 //
 // Adaptive shift: the first attempt factors G + s I with s = shift_factor * trace(G). On a
 // non-PD pivot the shift factor is grown by opts.shift_growth (seeded at eps when it is 0) and
 // potrf retried, up to opts.max_retries times. G is formed once: a failed attempt is undone
-// from G's untouched strict lower triangle plus an O(n) copy of its diagonal. With a nonzero
-// shift s the output satisfies R^T R = A^T A + s P^T P in exact arithmetic (P = I when
-// unpreconditioned), so A R^{-1} is only near-orthonormal: a shifted success does not certify
-// orthogonality. The record reports the shift.
+// from G's untouched strict lower triangle (after the upper-only solve, a mirror of the solved
+// upper one) plus an O(n) copy of its diagonal. With a nonzero shift s the output satisfies
+// R^T R = A^T A + s P^T P in exact arithmetic (P = I when unpreconditioned), so A R^{-1} is
+// only near-orthonormal: a shifted success does not certify orthogonality. The record reports
+// the shift.
 //
 // P is n x n upper triangular with leading dimension ldp; only its upper triangle is read. P
 // may be R itself (ldp == ldr), as cholqr_iterate passes the previous pass's factor.
@@ -390,13 +418,24 @@ int cholqr_primitive(
                                         fwd_us, adj_us, left_us, panel_inv_us, timing);
     if (timing) precond_inv_us += panel_inv_us;
 
+    // Left factor by TRSM: G := P^{-T} G. Unsymmetrized, potrf reads only the upper triangle, so
+    // only that is solved, and mirrored into the strict lower one when a retry may restore from
+    // it. An unblocked Gram (b_eff = n) still solves in panels, of the default block width.
+    const bool can_retry = (opts.max_retries != 0);
     if (use_trsm_at_end)
         detail::timed_us(timing, left_us, [&] {
-            blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, T(1), P, ldp, G, n); });
+            if (opts.symmetrize_gram) {
+                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, T(1), P, ldp, G, n);
+            } else {
+                const int64_t b_solve = (b_eff < n) ? b_eff : std::min<int64_t>(n, kDefaultGramBlockSize);
+                trsm_upper_trans_left_upper_part<T>(P, ldp, G, n, n, b_solve, /*mirror=*/can_retry);
+            }
+        });
 
-    // G <- (G + G^T)/2 in both triangles, so a retry restores exactly the matrix attempt 0
-    // factored. Without symmetrization a retry restores the upper triangle from the strict
-    // lower one, which differs from it by formation rounding only.
+    // G <- (G + G^T)/2 in both triangles. A retry restores the unshifted Gram from the strict
+    // lower triangle and the saved diagonal before applying its new shift: exactly when G was
+    // symmetrized, or mirrored on the TRSM route, and otherwise (unpreconditioned, or the GEMM
+    // route) up to formation rounding.
     if (opts.symmetrize_gram)
         detail::timed_us(timing, left_us, [&] {
             for (int64_t j = 0; j < n; ++j) {
@@ -411,7 +450,7 @@ int cholqr_primitive(
     // ---- Step 3: Cholesky with adaptive-shift retry ----
     // potrf(Upper) reads and overwrites only the upper triangle, so G's strict lower triangle
     // survives a failed attempt and, with the saved diagonal, restores the upper.
-    std::unique_ptr<T[]> diag_backup((opts.max_retries != 0) ? new T[n] : nullptr);
+    std::unique_ptr<T[]> diag_backup(can_retry ? new T[n] : nullptr);
     T trace_G = 0;
     for (int64_t i = 0; i < n; ++i) {
         T d = G[i * (n + 1)];
@@ -493,11 +532,12 @@ int cholqr_primitive(
 //
 // iter_times (optional, length 5*num_iters): per pass [fwd, adj, left, chol, upd], where fwd
 // is A's products (or, on pass 1 with an operator that provides materialize_cols, its column
-// copy), left is the Gram's left factor (its TRSM or GEMMs) plus the symmetrization and upd is
-// the preconditioner inversion plus the R update; left and upd are always 0 for pass 1 (its
-// symmetrization is not recorded). records (optional, length num_iters): each pass's shift
-// record, default-initialized for passes not reached. pass_status (optional):
-// cholqr_primitive's return code for the failed pass, 0 on success.
+// copy), left is the Gram's left factor (by TRSM or GEMMs) plus the symmetrization or the
+// mirror of the solved upper triangle, and upd is the preconditioner inversion plus the R
+// update; left and upd are always 0 for pass 1 (its symmetrization is not recorded). records
+// (optional, length num_iters): each pass's shift record, default-initialized for passes not
+// reached. pass_status (optional): cholqr_primitive's return code for the failed pass, 0 on
+// success.
 //
 // Returns 0 on success, or the 1-based index of the pass that failed; R then holds the factor
 // of the last successful pass (untouched if pass 1 failed or a shift factor was invalid).

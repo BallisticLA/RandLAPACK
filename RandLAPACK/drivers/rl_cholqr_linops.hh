@@ -63,7 +63,7 @@ class CholQR2_linops : public CholQRLinopsBase<T, 2> {
         /// negative or NaN value fails the call with kCholQRInvalidShift.
         T    shift_factor_iter1 = T(0);
         T    shift_factor_iter2 = T(0);
-        bool gram_left_gemm     = false;  ///< pass 2: apply R_pre^T by GEMM per block instead of one TRSM
+        bool gram_left_gemm     = false;  ///< pass 2: apply R_pre^T by GEMM per block instead of by TRSM
 
         /// @param ep  unused; kept for call-site compatibility with the other QR drivers.
         CholQR2_linops(bool time_subroutines, T ep, bool enable_test_mode = false)

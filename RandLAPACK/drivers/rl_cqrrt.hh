@@ -320,7 +320,8 @@ int CQRRT<T, RNG>::call(
 /// Q is formed only in test mode.
 ///
 /// times (11 entries): alloc, sketch, qr, tri_inv, fwd, adj, left (the Gram's left factor, by
-/// TRSM or GEMMs, plus the symmetrization), chol, finalize, rest, total.
+/// TRSM or GEMMs, plus the symmetrization or the mirror of the solved upper triangle), chol,
+/// finalize, rest, total.
 template <typename T, typename RNG = RandBLAS::DefaultRNG>
 class CQRRTO_linops : public CholQRLinopsBase<T, 1> {
     public:
@@ -332,7 +333,7 @@ class CQRRTO_linops : public CholQRLinopsBase<T, 1> {
         T bqrrp_block_ratio = T(1);   ///< in (0, 1]; 1.0 selects an n-dependent default (see
                                       ///< cholqr_primitive)
         bool gram_left_gemm = false;  ///< trsm_identity, trtri: apply R_pre^T by GEMM per block
-                                      ///< instead of one TRSM (see gram_left_by_gemm)
+                                      ///< instead of by TRSM (see gram_left_by_gemm)
 
         /// @param ep  unused; kept for call-site compatibility with the other QR drivers.
         CQRRTO_linops(bool time_subroutines, T ep, bool enable_test_mode = false)
