@@ -11,6 +11,7 @@ if (GTest_FOUND)
         comps/test_qb.cc
         comps/test_preconditioners.cc
         comps/test_rf.cc
+        comps/test_cholqr.cc
         comps/test_syrf.cc
         comps/test_rpchol.cc
         comps/test_bk.cc

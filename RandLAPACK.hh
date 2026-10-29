@@ -39,6 +39,7 @@
 #include "RandLAPACK/comps/rl_orth.hh"
 #include "RandLAPACK/comps/rl_rpchol.hh"
 #include "RandLAPACK/comps/rl_lsqr.hh"
+#include "RandLAPACK/comps/rl_cholqr.hh"
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"

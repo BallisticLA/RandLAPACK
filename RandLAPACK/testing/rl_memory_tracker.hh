@@ -5,7 +5,9 @@
 // - Analytical peak working memory computation for each algorithm
 
 #include "rl_exceptions.hh"
+#include "rl_cholqr.hh"
 
+#include <algorithm>
 #include <fstream>
 #include <string>
 #include <thread>
@@ -168,26 +170,45 @@ static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_fac
     return bytes / 1024;
 }
 
-// CholQR_linops: I_mat(n*n) + A_temp(m*b_eff)
+// CholQR_linops: G(n*n) + A_temp(m*b), with the Gram's identity block I_block(n*b) during the
+// Gram loop (none for an operator with materialize_cols, materializes_cols = true) and the
+// retry copy of diag(G) (n) after it.
 template <typename T>
-static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
-    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * ((long)n * n + (long)m * b_eff);
-    return bytes / 1024;
+static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n,
+                                               int64_t block_size = kDefaultGramBlockSize,
+                                               bool materializes_cols = false) {
+    int64_t b = gram_block_width(block_size, n);
+    long elems = (long)n * n + (long)m * b + (materializes_cols ? (long)n : std::max<long>((long)n * b, n));
+    return static_cast<long>(sizeof(T)) * elems / 1024;
 }
 
-// sCholQR3_linops (fully-blocked): G(n*n) + R_temp(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
-// No m x n buffer during QR iterations; all Gram matrices computed through blocked linop calls.
+// CholQR2_linops: pass 1 as CholQR_linops. Pass 2 reads pass 1's R as its preconditioner and
+// solves each column panel of its inverse in the Gram loop (n*b, then the retry copy of diag(G),
+// n), so its peak is pass 1's with an identity block, whatever the operator; with
+// gram_left_gemm it forms R_pre (n*n) and Z_buf (n*b) instead, alive with the diag(G) copy.
 template <typename T>
-static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
-    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (3L * n * n + (long)(m + n) * b_eff);
-    return bytes / 1024;
+static inline long cholqr2_linops_analytical_kb(int64_t m, int64_t n,
+                                                int64_t block_size = kDefaultGramBlockSize,
+                                                bool gram_left_gemm = false) {
+    int64_t b = gram_block_width(block_size, n);
+    long common = (long)n * n + (long)m * b;
+    long pass1  = common + std::max<long>((long)n * b, n);
+    bool explicit_inverse = gram_left_by_gemm(CholQRPrecondMethod::trsm_identity, gram_left_gemm);
+    long pass2  = explicit_inverse ? common + (long)n * n + (long)n * b + n : pass1;
+    return static_cast<long>(sizeof(T)) * std::max(pass1, pass2) / 1024;
+}
+
+// sCholQR3_linops: passes 2 and 3 reuse CholQR2_linops's buffers.
+template <typename T>
+static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n,
+                                                 int64_t block_size = kDefaultGramBlockSize,
+                                                 bool gram_left_gemm = false) {
+    return cholqr2_linops_analytical_kb<T>(m, n, block_size, gram_left_gemm);
 }
 
 // sCholQR3_linops_basic: Q_buf(m*n) + G(n*n) + R_temp(n*n) + M(n*n)
 // Materializes Q = A * R1^{-1} after iteration 1, then uses dense syrk for iterations 2-3.
-// No blocking — always O(m*n + n^2) peak.
+// No blocking: always O(m*n + n^2) peak.
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
     long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 3L * n * n);

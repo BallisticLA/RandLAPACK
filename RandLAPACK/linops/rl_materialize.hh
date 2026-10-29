@@ -1,12 +1,12 @@
 #pragma once
 
-// Public API: materialize — write the dense representation of a linear operator
+// Public API: materialize, which writes the dense representation of a linear operator
 // into a caller-provided buffer.
 //
 // Generic fallback: multiply by the identity matrix.
 // Overloaded specializations avoid that cost when the underlying storage is
-// directly accessible (DenseLinOp, SparseLinOp) or reachable through the
-// operands (CompositeOperator).
+// directly accessible (DenseLinOp, SparseLinOp), reachable through the
+// operands (CompositeOperator), or written by the operator's materialize_cols.
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
@@ -18,6 +18,7 @@
 #include "rl_util.hh"
 
 #include <cstdint>
+#include <memory>
 
 
 namespace RandLAPACK {
@@ -31,7 +32,8 @@ inline constexpr int64_t MATERIALIZE_IDENTITY_MAX_DIM = 16384;
 /// Materialize a linear operator into a dense column-major buffer.
 ///
 /// Generic fallback: forms buf = A * I  by applying the operator to the
-/// identity matrix.  Works for any type satisfying the LinearOperator concept.
+/// identity matrix through the concept-required overload, so it works for any
+/// type satisfying the LinearOperator concept.
 ///
 /// @param[in]  A    Linear operator (m-by-n).
 /// @param[in]  m    Number of rows.
@@ -51,13 +53,21 @@ void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, 
     for (int64_t j = 0; j < n; ++j)
         for (int64_t i = 0; i < m; ++i)
             buf[i + j * ldb] = (T)0.0;
-    // Build identity matrix.
-    T* Eye = new T[n * n]();
-    RandLAPACK::util::eye(n, n, Eye);
+    std::unique_ptr<T[]> Eye(new T[n * n]);
+    RandLAPACK::util::eye(n, n, Eye.get());
     // buf = 1.0 * A * I + 0.0 * buf
-    A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-      m, n, n, (T)1.0, Eye, n, (T)0.0, buf, ldb);
-    delete[] Eye;
+    A(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+      m, n, n, (T)1.0, Eye.get(), n, (T)0.0, buf, ldb);
+}
+
+/// Overload for operators that provide materialize_cols (HasMaterializeCols): writes all
+/// columns through it, with no identity and no cap.
+template <linops::HasMaterializeCols LinOp>
+void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, int64_t ldb) {
+    randlapack_require(m == A.n_rows && n == A.n_cols) << "m=" << m << ", n=" << n
+        << " must equal the operator's " << A.n_rows << " x " << A.n_cols;
+    randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
+    A.materialize_cols(0, n, buf, ldb);
 }
 
 /// Specialization for DenseLinOp: copy directly via lacpy (ColMajor) or
@@ -94,10 +104,9 @@ void materialize(linops::SparseLinOp<SpMat>& A, int64_t m, int64_t n,
         RandLAPACK::util::sparse_to_dense(A.A_sp, blas::Layout::ColMajor, buf);
     } else {
         // Non-contiguous leading dimension: materialize into temp, then copy.
-        T* tmp = new T[m * n]();
-        RandLAPACK::util::sparse_to_dense(A.A_sp, blas::Layout::ColMajor, tmp);
-        lapack::lacpy(lapack::MatrixType::General, m, n, tmp, m, buf, ldb);
-        delete[] tmp;
+        std::unique_ptr<T[]> tmp(new T[m * n]());
+        RandLAPACK::util::sparse_to_dense(A.A_sp, blas::Layout::ColMajor, tmp.get());
+        lapack::lacpy(lapack::MatrixType::General, m, n, tmp.get(), m, buf, ldb);
     }
 }
 
@@ -112,14 +121,11 @@ void materialize(linops::CompositeOperator<LinOp1, LinOp2>& A, int64_t m, int64_
     randlapack_require(n == A.n_cols) << "n=" << n << " must equal A.n_cols=" << A.n_cols << " for materialize specialization";
     randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     int64_t k = A.left_op.n_cols;
-    T* L = new T[m * k]();
-    T* R = new T[k * n]();
-    materialize(A.left_op, m, k, L, m);
-    materialize(A.right_op, k, n, R, k);
+    std::unique_ptr<T[]> L(new T[m * k]), R(new T[k * n]);
+    materialize(A.left_op, m, k, L.get(), m);
+    materialize(A.right_op, k, n, R.get(), k);
     blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-               m, n, k, (T)1.0, L, m, R, k, (T)0.0, buf, ldb);
-    delete[] L;
-    delete[] R;
+               m, n, k, (T)1.0, L.get(), m, R.get(), k, (T)0.0, buf, ldb);
 }
 
 } // end namespace RandLAPACK
