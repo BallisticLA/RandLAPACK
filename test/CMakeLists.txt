@@ -32,6 +32,8 @@ if (GTest_FOUND)
         linops/test_svd_residual.cc
         linops/test_linops.cc
         linops/test_downdatable_linop.cc
+        linops/test_power_linop.cc
+        linops/test_transposed_linop.cc
         linops/test_linop_unified.cc
         misc/test_gen.cc
         misc/test_matrix_io.cc
