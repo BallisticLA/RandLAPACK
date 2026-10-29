@@ -72,7 +72,7 @@ RandLAPACK/                     (repository root)
 |   |                           operators) used by matrix-free drivers
 |   |-- gpu_functions/          CUDA kernels and cuSOLVER dispatch helpers
 |   |                           (compiled only by a CUDA compiler)
-|   |-- misc/                   rl_util.hh, rl_pdkernels.hh
+|   |-- misc/                   rl_util.hh, rl_pdkernels.hh, rl_thread_caps.hh
 |   `-- testing/                matrix generators, matrix file readers and
 |                               test utilities that ship with the library
 |                               (rl_gen.hh, rl_matrix_io.hh, ...)
