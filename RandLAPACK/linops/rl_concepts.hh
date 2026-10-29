@@ -63,7 +63,8 @@ concept SymmetricLinearOperator = requires(LinOp A) {
 /*********************************************************/
 // A.materialize_cols(col_start, col_count, buf, ldb) writes columns [col_start, col_start +
 // col_count) of A into the column-major buf (ldb >= A.n_rows) without a product. Code that
-// would apply A to identity columns calls it instead when A provides it.
+// would apply A to identity columns calls it instead when A provides it. DenseLinOp and
+// ScaledIdentityLinOp provide it, and VStackLinOp does when both of its blocks do.
 template<typename LinOp, typename T = LinOp::scalar_t>
 concept HasMaterializeCols = requires(LinOp A, int64_t col_start, int64_t col_count, T* buf, int64_t ldb) {
     { A.materialize_cols(col_start, col_count, buf, ldb) } -> std::same_as<void>;

@@ -176,9 +176,9 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 // ============================================================================
 
 /// Materialize a linear operator into a dense column-major matrix via
-/// RandLAPACK::materialize, which dispatches on the operator type. DenseLinOp,
-/// SparseLinOp and CompositeOperator materialize directly from their storage, and
-/// an operator that provides materialize_cols through it; anything else goes
+/// RandLAPACK::materialize, which dispatches on the operator type. SparseLinOp and
+/// CompositeOperator materialize directly from their storage, and an operator that
+/// provides materialize_cols (DenseLinOp among them) through it; anything else goes
 /// through the generic fallback, A_dense = A_linop * I.
 ///
 /// WARNING: the generic fallback materializes through operator(), so for the

@@ -423,11 +423,14 @@ struct KWBackwardErrorRef {
 
 /// Forms SA (d x n, sketch_nnz capped at min(d, m) nonzeros per column) one column block of A
 /// at a time (from materialize_cols when A provides it, otherwise A applied to identity
-/// columns), ||A||_F alongside, and the SVD of SA.
+/// columns through the product the LinearOperator concept requires), ||A||_F alongside, and
+/// the SVD of SA. m and n must be A's dimensions.
 template <typename T, typename RNG, typename GLO>
 KWBackwardErrorRef<T> build_kw_reference(GLO& A, int64_t m, int64_t n, int64_t d,
                                          int64_t sketch_nnz, RandBLAS::RNGState<RNG> state,
                                          int64_t block_size) {
+    randlapack_require(m == A.n_rows && n == A.n_cols) << "build_kw_reference: m=" << m << ", n=" << n
+        << " must equal the operator's " << A.n_rows << " x " << A.n_cols;
     randlapack_require(d >= n) << "build_kw_reference: d=" << d << " must be >= n=" << n;
     KWBackwardErrorRef<T> ref;
     ref.n = n; ref.d = d; ref.nnz = std::min({sketch_nnz, d, m});
@@ -445,7 +448,7 @@ KWBackwardErrorRef<T> build_kw_reference(GLO& A, int64_t m, int64_t n, int64_t d
             A.materialize_cols(j0, bk, Y.data(), m);
         } else {
             for (int64_t j = 0; j < bk; ++j) E[(size_t)(j0 + j) + (size_t)j * n] = T(1);
-            A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+            A(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
               m, bk, n, T(1), E.data(), n, T(0), Y.data(), m);
             for (int64_t j = 0; j < bk; ++j) E[(size_t)(j0 + j) + (size_t)j * n] = T(0);
         }

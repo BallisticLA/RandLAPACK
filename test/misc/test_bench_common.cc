@@ -150,12 +150,14 @@ TEST_F(TestKWBackwardError, estimates_bracket_the_exact_backward_error) {
 
 
 // An operator with materialize_cols gives the reference its columns with no product: the same
-// ||A||_F and singular values as the DenseLinOp path, whose identity products are exact.
+// ||A||_F and singular values as the product path, whose identity products are exact.
 TEST_F(TestKWBackwardError, reference_reads_columns_directly) {
     test_helpers::MaterializeColsProbe<T> probe{m, n, A.data()};
     auto ref_cols = bench::build_kw_reference<T, RNG>(probe, m, n, 2 * n, bench::kKWSketchNNZ,
                                                       RandBLAS::RNGState<RNG>(bench::kKWSeed), 7);
-    auto ref = reference();
+    test_helpers::ConceptOnlyLinOp<T> products{m, n, A.data()};
+    auto ref = bench::build_kw_reference<T, RNG>(products, m, n, 2 * n, bench::kKWSketchNNZ,
+                                                 RandBLAS::RNGState<RNG>(bench::kKWSeed), 7);
     EXPECT_EQ(probe.product_cols, 0);
     EXPECT_EQ(probe.direct_cols, n);
     const T eps = std::numeric_limits<T>::epsilon();
@@ -177,6 +179,17 @@ TEST_F(TestKWBackwardError, small_n_caps_the_sketch_nonzeros) {
     EXPECT_EQ(ref.nnz, 6);
     EXPECT_EQ(ref.d, 6);
     EXPECT_GT(ref.sigma[n3 - 1], 0.0);
+}
+
+
+// m and n must be the operator's dimensions.
+TEST_F(TestKWBackwardError, reference_rejects_mismatched_dimensions) {
+    DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
+    const RandBLAS::RNGState<RNG> state(bench::kKWSeed);
+    EXPECT_THROW((bench::build_kw_reference<T, RNG>(Aop, m + 1, n, 2 * n, bench::kKWSketchNNZ, state, 7)),
+                 RandLAPACK::Error);
+    EXPECT_THROW((bench::build_kw_reference<T, RNG>(Aop, m, n - 1, 2 * n, bench::kKWSketchNNZ, state, 7)),
+                 RandLAPACK::Error);
 }
 
 
