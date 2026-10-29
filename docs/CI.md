@@ -215,6 +215,10 @@ installer one.
   revision than a miss builds.
 - **Every other Windows dependency is pinned to an immutable ref** and comes
   from its canonical upstream.
+- **No lane builds the extras against MKL.** The extras `ToeplitzLinOp` and
+  its test need MKL's FFT and are built only when RandBLAS has MKL support;
+  core-linux's extras build uses OpenBLAS and skips them, and the Windows
+  MKL legs build core only. Run that test locally.
 
 ## Caches
 

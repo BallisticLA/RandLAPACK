@@ -18,6 +18,14 @@ if (GTest_FOUND)
         misc/test_ext_matrix_io.cc
     )
 
+    # ToeplitzLinOp calls MKL's FFT directly. RandBLAS with MKL support exports MKL's
+    # include directory, so the test needs nothing more.
+    if (RandBLAS_HAS_MKL)
+        list(APPEND RandLAPACK_extras_test_srcs linops/test_ext_toeplitz_linop.cc)
+    else()
+        message(STATUS "RandBLAS has no MKL support; skipping the ToeplitzLinOp test")
+    endif()
+
     # Create test executable
     add_executable(RandLAPACK_extras_tests ${RandLAPACK_extras_test_srcs})
     target_link_libraries(RandLAPACK_extras_tests
