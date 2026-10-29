@@ -6,13 +6,13 @@
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
 #include "rl_downdatable_linop.hh"
+#include "rl_memory.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
-#include <new>
 #include <vector>
 
 namespace RandLAPACK {
@@ -127,6 +127,8 @@ class QB : public QBalg<T, RNG> {
 
         /// LinOp-based QB: builds a QB factorization of an abstract linear operator.
         /// The operator is wrapped in a DowndatableLinOp that handles deflation implicitly.
+        /// Q and B^T grow with the rank reached (capacity doubling, capped at k), so a large k
+        /// that is only an upper bound does not cost k columns of storage.
         /// norm_A must be the positive Frobenius norm, supplied by the caller.
         /// Requires an RF range finder using RS, with valid pass counts. Custom
         /// dense-only algorithms are rejected with Error; dense calls are unchanged.
@@ -148,6 +150,8 @@ class QB : public QBalg<T, RNG> {
         RandLAPACK::Stabilization<T> &orth;
         bool verbose;
         bool orth_check;
+        /// Diagnostic: columns allocated for Q and B^T by the last LinOp-based call.
+        int64_t result_capacity = 0;
 };
 
 // -----------------------------------------------------------------------------
@@ -311,6 +315,7 @@ int QB<T, RNG>::call(
 ){
     int64_t m = A_op.n_rows;
     int64_t n = A_op.n_cols;
+    result_capacity = 0;
 
     randlapack_require(k > 0 && k <= std::min(m, n)) << "QB rank must be in [1, min(m,n)]";
     if (b_sz <= 0)
@@ -326,7 +331,8 @@ int QB<T, RNG>::call(
     b_sz = std::min(b_sz, k);
 
     // Wrap in DowndatableLinOp: all matmuls go through this, so RS/RF
-    // automatically see the deflated operator at each iteration.
+    // automatically see the deflated operator at each iteration. It reads the
+    // accepted columns of Q and B^T in place.
     linops::DowndatableLinOp<T, LinOp> dd_op(A_op, k);
 
     int64_t curr_sz = 0;
@@ -340,10 +346,15 @@ int QB<T, RNG>::call(
     if(BT) free(BT);
     Q = nullptr;
     BT = nullptr;
-    Q  = ( T * ) calloc(m * b_sz, sizeof( T ) );
-    if (!Q) throw std::bad_alloc();
-    BT = ( T * ) calloc(n * b_sz, sizeof( T ) );
-    if (!BT) throw std::bad_alloc();
+    util::MallocBuffer<T> Q_buf, BT_buf;
+    int64_t cap = 0;
+    // Every return hands Q and B^T to the caller, who frees them with std::free.
+    auto finish = [&](int code) {
+        result_capacity = cap;
+        Q = Q_buf.release();
+        BT = BT_buf.release();
+        return code;
+    };
     std::vector<T> QtQi(b_sz * b_sz);
     T* Q_i;
     T* BT_i;
@@ -352,40 +363,38 @@ int QB<T, RNG>::call(
         b_sz = std::min(b_sz, k - curr_sz);
         next_sz = curr_sz + b_sz;
 
-        if (curr_sz != 0) {
-            // Retain ownership of the old allocation if realloc fails, so the
-            // caller can release it while propagating the allocation exception.
-            T* resized = ( T * ) realloc(Q, next_sz * m * sizeof( T ));
-            if (!resized) throw std::bad_alloc();
-            Q = resized;
-            resized = ( T * ) realloc(BT, next_sz * n * sizeof( T ));
-            if (!resized) throw std::bad_alloc();
-            BT = resized;
-            QtQi.resize(next_sz * b_sz);
+        if (next_sz > cap) {
+            cap = std::min(k, std::max(next_sz, 2 * cap));
+            Q_buf.grow(util::checked_mul(m, cap), m * curr_sz);
+            BT_buf.grow(util::checked_mul(n, cap), n * curr_sz);
         }
+        // Deflate by the accepted columns, wherever the storage now lives.
+        dd_op.set_factors(Q_buf.data(), BT_buf.data(), curr_sz);
+        QtQi.resize(next_sz * b_sz);
+        T* Qp = Q_buf.data();
 
-        Q_i = &Q[m * curr_sz];
-        BT_i = &BT[n * curr_sz];
+        Q_i = &Qp[m * curr_sz];
+        BT_i = &BT_buf.data()[n * curr_sz];
 
         // RangeFinder via LinOp path: uses the deflated operator
         if(rf_linop(*rf_concrete, dd_op, b_sz, Q_i, state)) {
             k = curr_sz;
-            return 6;
+            return finish(6);
         }
 
         if(this->orth_check) {
             if (util::orthogonality_check(m, b_sz, Q_i, this->verbose)) {
                 k = curr_sz;
-                return 4;
+                return finish(4);
             }
         }
 
         if(curr_sz != 0) {
-            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, b_sz, m, (T) 1.0, Q, m, Q_i, m, (T) 0.0, QtQi.data(), next_sz);
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_sz, curr_sz, (T) -1.0, Q, m, QtQi.data(), next_sz, (T) 1.0, Q_i, m);
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, b_sz, m, (T) 1.0, Qp, m, Q_i, m, (T) 0.0, QtQi.data(), next_sz);
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_sz, curr_sz, (T) -1.0, Qp, m, QtQi.data(), next_sz, (T) 1.0, Q_i, m);
             if (this->orth.call(m, b_sz, Q_i)) {
                 k = curr_sz;
-                return 6;
+                return finish(6);
             }
         }
 
@@ -399,13 +408,13 @@ int QB<T, RNG>::call(
 
         if ((curr_sz > 0) && (approx_err > prev_err)) {
             k = curr_sz;
-            return 2;
+            return finish(2);
         }
 
         if(this->orth_check) {
-            if (util::orthogonality_check(m, next_sz, Q, this->verbose)) {
+            if (util::orthogonality_check(m, next_sz, Qp, this->verbose)) {
                 k = curr_sz;
-                return 5;
+                return finish(5);
             }
         }
 
@@ -413,14 +422,11 @@ int QB<T, RNG>::call(
 
         if (approx_err < tol) {
             k = curr_sz;
-            return 0;
+            return finish(0);
         }
-
-        // Update the DowndatableLinOp instead of explicit deflation
-        dd_op.update(b_sz, Q_i, BT_i);
     }
 
-    return 3;
+    return finish(3);
 }
 
 } // end namespace RandLAPACK

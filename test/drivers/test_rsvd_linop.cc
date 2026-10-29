@@ -3,6 +3,8 @@
 #include "rl_sparse_linop.hh"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <vector>
 
@@ -359,4 +361,114 @@ TEST(TestRSVDLinearOperator, PreservesOutputsAndPropagatesAllocationException) {
 
 TEST(TestRSVDLinearOperator, PreservesOutputsAndPropagatesLAPACKException) {
     check_component_exception<lapack::Error>();
+}
+
+namespace {
+// A = diag(r, r-1, ..., 1, 0, ..., 0), an exactly rank-r n x n matrix; returns ||A||_F.
+double diagonal_low_rank(int64_t n, int64_t r, std::vector<double>& a) {
+    a.assign(n * n, 0.0);
+    double norm_sq = 0;
+    for (int64_t i = 0; i < r; ++i) {
+        a[i + n * i] = double(r - i);
+        norm_sq += a[i + n * i] * a[i + n * i];
+    }
+    return std::sqrt(norm_sq);
+}
+
+double max_reconstruction_error(int64_t n, int64_t k, const std::vector<double>& a,
+                                const double* q, const double* bt) {
+    double err = 0;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < n; ++i) {
+            double qb = 0;
+            for (int64_t l = 0; l < k; ++l)
+                qb += q[i + n * l] * bt[j + n * l];
+            const double d = std::abs(qb - a[i + n * j]);
+            if (std::isnan(d))
+                return d;
+            err = std::max(err, d);
+        }
+    return err;
+}
+} // namespace
+
+// QB's storage follows the rank it reaches, not the rank bound it is given.
+TEST(TestQBLinearOperator, StorageScalesWithTheReachedRank) {
+    constexpr int64_t n = 200, rank = 6, block = 2;
+    std::vector<double> a;
+    const double norm = diagonal_low_rank(n, rank, a);
+    RandLAPACK::linops::DenseLinOp<double> op(n, n, a.data(), n, Layout::ColMajor);
+    RandLAPACK::HQRQ<double> orth(false, false);
+    RandLAPACK::RS<double,RNG> rs(orth, 1, 1, false, false);
+    RandLAPACK::RF<double,RNG> rf(rs, orth, false, false);
+    RandLAPACK::QB<double,RNG> qb(rf, orth, false, true);
+    auto state = RandBLAS::RNGState<RNG>();
+    int64_t k = n;
+    double *q = nullptr, *bt = nullptr;
+    ASSERT_EQ(qb.call(op, k, block, 1e-6, norm, q, bt, state), 0);
+    EXPECT_EQ(k, rank);
+    EXPECT_LE(qb.result_capacity, std::max(block, 2 * k));
+    EXPECT_LT(max_reconstruction_error(n, k, a, q, bt), 1e-10);
+    std::free(q); std::free(bt);
+}
+
+// One-column blocks grow the storage to 1, 2 and 4 columns; the fourth block fits without growing.
+TEST(TestQBLinearOperator, AcceptsBlocksAcrossCapacityDoublings) {
+    constexpr int64_t n = 50, rank = 4;
+    std::vector<double> a;
+    const double norm = diagonal_low_rank(n, rank, a);
+    RandLAPACK::linops::DenseLinOp<double> op(n, n, a.data(), n, Layout::ColMajor);
+    RandLAPACK::HQRQ<double> orth(false, false);
+    RandLAPACK::RS<double,RNG> rs(orth, 2, 1, false, false);
+    RandLAPACK::RF<double,RNG> rf(rs, orth, false, false);
+    RandLAPACK::QB<double,RNG> qb(rf, orth, false, true);
+    auto state = RandBLAS::RNGState<RNG>();
+    int64_t k = n;
+    double *q = nullptr, *bt = nullptr;
+    ASSERT_EQ(qb.call(op, k, 1, 1e-6, norm, q, bt, state), 0);
+    EXPECT_EQ(k, rank);
+    EXPECT_EQ(qb.result_capacity, 4);
+    EXPECT_LT(max_reconstruction_error(n, k, a, q, bt), 1e-10);
+    std::free(q); std::free(bt);
+}
+
+// Operator QB deflates through borrowed views of its growing factors; on a matrix whose spectrum decays it
+// reaches the accuracy of dense QB, which deflates an explicit copy of A.
+TEST(TestQBLinearOperator, MatchesDenseQBOnADecayingSpectrum) {
+    constexpr int64_t m = 120, n = 80, block = 4;
+    std::vector<double> a(m * n);
+    RandBLAS::DenseDist dist(m, n);
+    RandBLAS::RNGState<RNG> seed(11);
+    RandBLAS::fill_dense(dist, a.data(), seed);
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < m; ++i)
+            a[i + m * j] *= std::pow(0.7, double(j));
+    const double norm = lapack::lange(lapack::Norm::Fro, m, n, a.data(), m);
+    auto relative_error = [&](int64_t k, const double* q, const double* bt) {
+        std::vector<double> r(a);
+        blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::Trans, m, n, k,
+                   -1.0, q, m, bt, n, 1.0, r.data(), m);
+        return lapack::lange(lapack::Norm::Fro, m, n, r.data(), m) / norm;
+    };
+    RandLAPACK::HQRQ<double> orth(false, false);
+    RandLAPACK::RS<double,RNG> rs(orth, 1, 1, false, false);
+    RandLAPACK::RF<double,RNG> rf(rs, orth, false, false);
+    RandLAPACK::QB<double,RNG> qb(rf, orth, false, true);
+
+    RandLAPACK::linops::DenseLinOp<double> op(m, n, a.data(), m, Layout::ColMajor);
+    auto state = RandBLAS::RNGState<RNG>(3);
+    int64_t k_op = n;
+    double *q_op = nullptr, *bt_op = nullptr;
+    ASSERT_EQ(qb.call(op, k_op, block, 1e-6, norm, q_op, bt_op, state), 0);
+
+    std::vector<double> a_dense(a);
+    state = RandBLAS::RNGState<RNG>(3);
+    int64_t k_dense = n;
+    double *q_dense = nullptr, *bt_dense = nullptr;
+    ASSERT_EQ(qb.call(m, n, a_dense.data(), k_dense, block, 1e-6, q_dense, bt_dense, state), 0);
+
+    EXPECT_LE(std::abs(k_op - k_dense), block);
+    EXPECT_LT(relative_error(k_op, q_op, bt_op), 1e-5);
+    EXPECT_LT(relative_error(k_dense, q_dense, bt_dense), 1e-5);
+    std::free(q_op); std::free(bt_op); std::free(q_dense); std::free(bt_dense);
 }
