@@ -203,6 +203,18 @@ template <typename T>
     return sigma;
 }
 
+/// ||a - b||_F / ||b||_F over n entries, accumulated in double; ||a - b||_F when b is zero.
+template <typename T>
+double rel_fro_error(const T* a, const T* b, int64_t n) {
+    double err = 0.0, ref = 0.0;
+    for (int64_t i = 0; i < n; ++i) {
+        const double d = (double)a[i] - (double)b[i];
+        err += d * d;
+        ref += (double)b[i] * (double)b[i];
+    }
+    return (ref > 0) ? ::std::sqrt(err / ref) : ::std::sqrt(err);
+}
+
 // ============================================================================
 // QR Factorization Verification
 // ============================================================================

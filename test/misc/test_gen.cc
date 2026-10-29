@@ -326,3 +326,31 @@ TEST_F(TestGenSpectra, bad_cholqr_legacy_call_signatures) {
             EXPECT_DOUBLE_EQ(A[i + j * m], i == j ? expected[i] : 0.0);
     }
 }
+
+TEST(TestGenTridiagCSR, structure_and_values) {
+    const int64_t n = 5;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    ASSERT_EQ(A.n_rows, n);
+    ASSERT_EQ(A.n_cols, n);
+    ASSERT_EQ(A.nnz, 3 * n - 2);
+    std::vector<double> dense(n * n, 0.0);
+    for (int64_t i = 0; i < n; ++i) {
+        for (int64_t p = A.rowptr[i]; p < A.rowptr[i + 1]; ++p) {
+            if (p > A.rowptr[i]) {
+                ASSERT_LT(A.colidxs[p - 1], A.colidxs[p]) << "columns must ascend in row " << i;
+            }
+            dense[i + A.colidxs[p] * n] = A.vals[p];
+        }
+    }
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < n; ++i)
+            EXPECT_EQ(dense[i + j * n], i == j ? 2.0 : (std::abs(i - j) == 1 ? -1.0 : 0.0));
+}
+
+TEST(TestGenTridiagCSR, one_by_one) {
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(1, 3.0, -1.0);
+    ASSERT_EQ(A.nnz, 1);
+    EXPECT_EQ(A.colidxs[0], 0);
+    EXPECT_EQ(A.vals[0], 3.0);
+    EXPECT_THROW(RandLAPACK::gen::gen_tridiag_csr<double>(0, 1.0, 0.0), RandLAPACK::Error);
+}

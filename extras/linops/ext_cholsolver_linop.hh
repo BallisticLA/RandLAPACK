@@ -3,18 +3,22 @@
 #include "ext_solver_linop_util.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
+#include "rl_exceptions.hh"
 #include "../misc/ext_util.hh"
 
 #include <RandBLAS.hh>
 #include <RandBLAS/sparse_data/trsm_dispatch.hh>
+#include <limits>
 #include <string>
+#include <vector>
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
 
 namespace RandLAPACK_extras::linops {
 
 /// Linear operator representing A^{-1} (or L^{-1} in half-solve mode) for a sparse
-/// symmetric positive definite matrix A loaded from a Matrix Market file.
+/// symmetric positive definite matrix A, read from a Matrix Market file or taken from a
+/// RandBLAS CSR matrix.
 ///
 /// Full-solve mode (default):
 ///   A^{-1} * x = L^{-T} * L^{-1} * x  (forward then backward substitution).
@@ -34,7 +38,7 @@ namespace RandLAPACK_extras::linops {
 /// Operator dispatch summary:
 ///
 ///   The inverse is ALWAYS applied via sparse L factor (RandBLAS sparse TRSM).
-///   There is no dense L path -- A is loaded from a sparse Matrix Market file.
+///   There is no dense L path; A is always sparse.
 ///
 ///   The B input determines which operator() overload is called:
 ///
@@ -91,6 +95,12 @@ struct CholSolverLinOp {
 
     bool factorization_done;
 
+    /// True when the operator was built from an in-memory CSR matrix rather than a file.
+    bool in_memory = false;
+
+    /// The in-memory matrix, held only until factorize() succeeds (solves use L).
+    Eigen::SparseMatrix<T> A_mem;
+
     /// Constructor: reads dimensions from the Matrix Market file header.
     /// The matrix data is NOT loaded until factorize() is called (lazy initialization).
     /// @param half_solve  If true, applies L^{-1} only (forward substitution).
@@ -103,7 +113,38 @@ struct CholSolverLinOp {
         matrix_file(filename),
         half_solve(half_solve),
         factorization_done(false) {
-        randblas_require(n_rows == n_cols); // Must be square for Cholesky
+        randlapack_require(n_rows == n_cols)
+            << "CholSolverLinOp: matrix must be square, got " << n_rows << " x " << n_cols;
+    }
+
+    /// Constructor from an in-memory, zero-based RandBLAS CSR matrix, which must be
+    /// symmetric positive definite (only its lower triangle is read; rows may list their
+    /// columns in any order). Its lower triangle is copied, converted to T, into Eigen storage
+    /// for factorize(); solves use RandBLAS sparse TRSM as for a file. The source scalar type S
+    /// may differ from T.
+    template <typename S, typename sint_t>
+    explicit CholSolverLinOp(
+        const RandBLAS::sparse_data::CSRMatrix<S, sint_t>& A_csr,
+        bool half_solve = false
+    ) : n_rows(A_csr.n_rows),
+        n_cols(A_csr.n_cols),
+        half_solve(half_solve),
+        factorization_done(false),
+        in_memory(true) {
+        randlapack_require(n_rows == n_cols)
+            << "CholSolverLinOp: matrix must be square, got " << n_rows << " x " << n_cols;
+        randlapack_require(A_csr.index_base == RandBLAS::sparse_data::IndexBase::Zero)
+            << "CholSolverLinOp: CSR constructor requires a zero-based index";
+        randlapack_require(A_csr.nnz > 0) << "CholSolverLinOp: CSR matrix has no stored entries";
+        randlapack_require(A_csr.nnz <= std::numeric_limits<int>::max())
+            << "CholSolverLinOp: nnz=" << A_csr.nnz << " exceeds Eigen's int sparse indices";
+        // The CSR arrays viewed as a row-major Eigen matrix, copied to the column-major A_mem in
+        // O(nnz) and pruned to the lower triangle. A triangularView of the view would stop each
+        // row at its first upper entry, dropping later lower ones in rows not sorted by column.
+        Eigen::Map<const Eigen::SparseMatrix<S, Eigen::RowMajor, sint_t>> A_view(
+            n_rows, n_cols, A_csr.nnz, A_csr.rowptr, A_csr.colidxs, A_csr.vals);
+        A_mem = A_view.template cast<T>();
+        A_mem.prune([](Eigen::Index r, Eigen::Index c, const T&) { return r >= c; });
     }
 
 private:
@@ -129,8 +170,8 @@ public:
 
     /// Compute the sparse Cholesky factorization A = L * L^T.
     ///
-    /// Reads the sparse matrix from the Matrix Market file, performs Cholesky
-    /// factorization via Eigen, and extracts L as a compressed sparse matrix
+    /// Takes the matrix from memory or reads it from the Matrix Market file, performs
+    /// Cholesky factorization via Eigen, and extracts L as a compressed sparse matrix
     /// for subsequent use with RandBLAS sparse TRSM.
     ///
     /// This is called lazily on first use if not called explicitly.
@@ -139,25 +180,33 @@ public:
             return;
         }
 
-        // Step 1: Read the sparse matrix from Matrix Market file into Eigen format.
-        Eigen::SparseMatrix<T, Eigen::ColMajor> A_eigen;
-        RandLAPACK_extras::eigen_sparse_from_matrix_market<T>(matrix_file, A_eigen);
-
-        // Validate dimensions match what the constructor read from the header.
-        randblas_require(A_eigen.rows() == n_rows);
-        randblas_require(A_eigen.cols() == n_cols);
-
-        // Step 2: Perform sparse Cholesky factorization (A = L * L^T).
-        chol_solver.compute(A_eigen);
+        // Steps 1+2: obtain the sparse matrix and factorize A = L L^T. A_mem is released
+        // only after a successful factorization, so a retried factorize() fails the same way.
+        if (in_memory) {
+            chol_solver.compute(A_mem);
+        } else {
+            Eigen::SparseMatrix<T, Eigen::ColMajor> A_eigen;
+            RandLAPACK_extras::eigen_sparse_from_matrix_market<T>(matrix_file, A_eigen);
+            randblas_require(A_eigen.rows() == n_rows);
+            randblas_require(A_eigen.cols() == n_cols);
+            chol_solver.compute(A_eigen);
+        }
 
         if (chol_solver.info() != Eigen::Success) {
-            randblas_require(false);
+            std::string source = in_memory ? "the in-memory CSR matrix" : ("file " + matrix_file);
+            randlapack_require(false)
+                << "CholSolverLinOp::factorize: Eigen Cholesky failed with info="
+                << static_cast<int>(chol_solver.info()) << " on " << source
+                << "; is the matrix symmetric positive definite?";
         }
 
         // Step 3: Extract L as a concrete sparse matrix so we can access its raw arrays.
         // chol_solver.matrixL() returns a view; assigning materializes it.
         L_sparse = chol_solver.matrixL();
         randblas_require(L_sparse.isCompressed());
+
+        if (in_memory)
+            A_mem = Eigen::SparseMatrix<T>();   // frees the storage
 
         // Step 4: Extract permutation vectors from P A P^T = L L^T.
         // Eigen permutation convention: P_sigma(e_i) = e_{sigma(i)}, so
