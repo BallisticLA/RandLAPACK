@@ -445,7 +445,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_repeated_calls_stable) {
 
 // After a failed potrf, CQRRPT_GPU must return a valid factorization of the columns it keeps. On
 // cholesky_failure_input with p = 3 and q = 7, potrf fails at column 8, the last, exactly and on any BLAS, and with
-// tol = 1e-6 the ratio test cuts at the large diagonal entry of column 4: rank 2, which shows that the failure
+// tol = 1e-6 the condition test cuts at the large diagonal entry of column 4: rank 2, which shows that the failure
 // path ran. J must be 1..n, R zero below the diagonal and past the rank, Q(:, 0:2) orthonormal, R(0:2, :) =
 // Q(:, 0:2)' A[:, J], and A[:, J(0:2)] = Q(:, 0:2) R(0:2, 0:2), to 10 u; with both QRCPs of the sketch.
 TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_handled) {
@@ -519,9 +519,9 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_success_keeps_rank) {
 // After a failed potrf, CQRRPT cuts the rank a posteriori, with the rule that CQRRPT_GPU shares. On an input on
 // which potrf fails at column 7 exactly, on any BLAS, and whose sketch both drivers' pivots keep in order
 // (cholesky_failure_input), CQRRPT_GPU must report CQRRPT's rank, with Q orthonormal and R = Q' A[:, J]:
-// - for tol from u^0.85 to 1e-3, the ratio test cuts at the large diagonal entry of column 5: rank 3;
-// - for tol <= u, it cuts at its first allowed index: rank 1;
-// - for tol = 32 it never holds, so the scan stops at the failed column: rank 5.
+// - for tol from u^0.85 to 1e-3, the condition test cuts at the large diagonal entry of column 5: rank 3;
+// - for tol = u / 2, it cuts at its first tested block, of order 3: rank 1;
+// - for tol = 32 no block within the completed columns fails it: rank 5.
 // The sketch-defeating inputs no longer make potrf fail here: luqr's pivots reorder their columns.
 TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
     int64_t m = 64, n = 8, d = 16;
@@ -559,7 +559,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_rank_matches_cpu) {
 }
 
 // The two-column input of CQRRPT_cholesky_failure_k2_drops_failed_column, on which potrf fails at
-// column 2, exactly and on any BLAS. With k = 2 the scan, which starts at i = 2, cannot cut the
+// column 2, exactly and on any BLAS. With k = 2 the condition test, which starts at order 3, cannot cut the
 // rank, so only the cap at the failed column keeps CQRRPT_GPU from keeping it: rank 1, as in CQRRPT.
 TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_k2_drops_failed_column) {
     int64_t m = 32;
@@ -592,10 +592,10 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_cholesky_failure_k2_drops_failed_column) {
     EXPECT_LE(err_qr, 1e-8) << "rank " << r;
 }
 
-// With tol <= u the ratio threshold sqrt(tol/u) is at most 1, so the scan's ratio test holds from
-// its first entry. When potrf succeeds there is no scan, and the rank is the sketch's. When it
-// fails, the scan cuts at its first allowed index, i = 2, so the rank is 1, as in CQRRPT; it must
-// not cut at i = 0, which gives rank -1.
+// With tol = u / 2 the threshold sqrt(tol/u) is below 1, so every block fails the condition test.
+// When potrf succeeds there is no test, and the rank is the sketch's. When it fails, the rule
+// cuts at its first tested block, of order 3, so the rank is 1, as in CQRRPT; it must not return
+// a negative rank.
 TEST_F(TestCQRRPT, CQRRPT_GPU_tol_at_most_unit_roundoff) {
     double tol = std::numeric_limits<double>::epsilon() / 2;
     struct Input { const char* name; int64_t m, n; std::vector<double> A; uint32_t seed; int64_t rank; int64_t nnz; };

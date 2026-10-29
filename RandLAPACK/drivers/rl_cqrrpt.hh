@@ -315,8 +315,8 @@ int CQRRPT<T, RNG>::call(
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A, lda, (T) 0.0, R_sp, ldr);
     int64_t info = lapack::potrf(Uplo::Upper, k, R_sp, ldr);
-    // If CholQR failed, re-estimate the rank a posteriori from the completed part of R_sp's diagonal.
-    new_rank = util::cholqr_failure_rank(k, R_sp, ldr + 1, info, this->eps);
+    // If CholQR failed, re-estimate the rank a posteriori from the completed columns of R_sp.
+    new_rank = util::cholqr_failure_rank(k, R_sp, ldr, info, this->eps);
 
     // Set the rank parameter to the value computed a posteriori.
     this->rank = new_rank;

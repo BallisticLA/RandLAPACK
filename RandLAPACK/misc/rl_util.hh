@@ -142,29 +142,84 @@ bool diag_is_nonzero(int64_t n, const T* R, int64_t ldr) {
     return true;
 }
 
-/// CQRRPT's and CQRRPT_GPU's rank after potrf returned info (failed column, 1-based; 0 is success, rank k) on a
-/// k-by-k factor with diagonal R_diag[0], R_diag[inc], ...: i - 1 at the first i >= 2 where i = info - 1 or
-/// max/min of |R_diag| over entries 0 to i exceeds sqrt(tol / u), and at most info - 1.
+/// One step of incremental condition estimation, as LAPACK's xLAIC1: for a unit x with ||L x||_2 = sest, L lower
+/// triangular, returns sestpr and sets s and c, with s^2 + c^2 = 1, so that ||Lhat [s x; c]||_2 = sestpr is the
+/// largest (largest = true) or smallest such norm, for Lhat = [L 0; w' gamma] and alpha = w' x.
 template <typename T>
-int64_t cholqr_failure_rank(int64_t k, const T* R_diag, int64_t inc, int64_t info, T tol) {
+T ice_step(bool largest, T sest, T alpha, T gamma, T& s, T& c) {
+    // [s; c] is a unit eigenvector of [sest^2 + alpha^2, alpha gamma; alpha gamma, gamma^2], and sestpr^2 its
+    // eigenvalue; sest, alpha and gamma are scaled by mu, the largest of their magnitudes.
+    T mu = std::max(sest, std::max(std::abs(alpha), std::abs(gamma)));
+    if (mu == 0) {
+        s = 0;
+        c = 1;
+        return 0;
+    }
+    T a = sest / mu, al = alpha / mu, g = gamma / mu;
+    T d1 = a * a + al * al, d2 = g * g, b = al * g;
+    T l_max = (d1 + d2) / 2 + std::hypot((d1 - d2) / 2, b);
+    // The smallest eigenvalue is det / l_max = (a g)^2 / l_max, which avoids cancellation.
+    T l = largest ? l_max : (a * g) * (a * g) / l_max;
+    T sestpr = largest ? mu * std::sqrt(l_max) : mu * a * std::abs(g) / std::sqrt(l_max);
+    // Two forms of the eigenvector; the longer is the more accurate. Both vanish only for a multiple of I.
+    T s1 = b, c1 = l - d1, s2 = l - d2, c2 = b;
+    T n1 = std::hypot(s1, c1), n2 = std::hypot(s2, c2);
+    if (n1 >= n2 && n1 > 0) {
+        s = s1 / n1;
+        c = c1 / n1;
+    } else if (n2 > 0) {
+        s = s2 / n2;
+        c = c2 / n2;
+    } else {
+        s = 1;
+        c = 0;
+    }
+    return sestpr;
+}
+
+/// CQRRPT's and CQRRPT_GPU's rank after potrf returned info (failed column, 1-based; 0 is success, rank k) on the
+/// upper-triangular Cholesky factor R: b - 1 for the largest b, from 2 to info - 1, whose leading b-by-b block has
+/// an incremental 2-norm condition estimate of at most sqrt(tol / u) (b = 2 is not tested), capped at info - 1.
+/// Reads only the leading (info - 1)-by-(info - 1) block of R, which may be all that R holds.
+template <typename T>
+int64_t cholqr_failure_rank(int64_t k, const T* R, int64_t ldr, int64_t info, T tol) {
     if (info <= 0)
         return k;
-    // Q loses orthogonality like u * cond(R)^2. Entries at and past the failed column cannot change the result.
+    // Q loses orthogonality like u * cond(R)^2.
     T cond_threshold = std::sqrt(tol / std::numeric_limits<T>::epsilon());
-    T running_max = R_diag[0];
-    T running_min = R_diag[0];
-    int64_t rank = k;
-    for (int64_t i = 0; i < k; ++i) {
-        T curr_entry = std::abs(R_diag[i * inc]);
-        running_max = std::max(running_max, curr_entry);
-        running_min = std::min(running_min, curr_entry);
-        if ((i >= info - 1 || running_min * cond_threshold < running_max) && i > 1) {
-            rank = i - 1;
-            break;
+    int64_t done = info - 1;
+    int64_t b = 2;
+    if (done > 2) {
+        // Incremental estimates of the extreme singular values of the leading blocks, with their approximate
+        // singular vectors (of the blocks' transposes): in exact arithmetic, the condition estimate is nondecreasing
+        // in the order and at most the true condition number. O(done^2) in all.
+        T* x_max = new T[2 * done];
+        T* x_min = x_max + done;
+        x_max[0] = x_min[0] = 1;
+        T s_max = std::abs(R[0]);
+        T s_min = s_max;
+        for (int64_t j = 1; j < done; ++j) {
+            const T* w = &R[j * ldr];
+            T alpha_max = blas::dot(j, x_max, 1, w, 1);
+            T alpha_min = blas::dot(j, x_min, 1, w, 1);
+            T s1, c1, s2, c2;
+            s_max = ice_step(true, s_max, alpha_max, R[j + j * ldr], s1, c1);
+            s_min = ice_step(false, s_min, alpha_min, R[j + j * ldr], s2, c2);
+            blas::scal(j, s1, x_max, 1);
+            blas::scal(j, s2, x_min, 1);
+            x_max[j] = c1;
+            x_min[j] = c2;
+            // Blocks from order 3 on; a NaN estimate fails.
+            if (j >= 2) {
+                if (!(s_max <= cond_threshold * s_min))
+                    break;
+                b = j + 1;
+            }
         }
+        delete[] x_max;
     }
-    // The scan cannot cut before i = 2, so for info <= 2 only this cap drops the failed column.
-    return std::min<int64_t>(rank, info - 1);
+    // One column of margin below the largest passing block; the cap drops the failed column for info = 1.
+    return std::min<int64_t>(b - 1, info - 1);
 }
 
 /// Positions columns of A in accordance with the 1-based permutation idx
