@@ -123,3 +123,20 @@ cmake ... -DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_LIB_NAMES=omp \
     "-DOpenMP_C_FLAGS=-Xpreprocessor;-fopenmp" \
     "-DOpenMP_CXX_FLAGS=-Xpreprocessor;-fopenmp"
 ```
+
+## Thread caps in the iterative least-squares solvers
+
+When RandBLAS is built with MKL support (`RandBLAS_HAS_MKL`), the iterative
+least-squares solvers (`lsqr`, `Blendenpik_linops`) cap MKL's thread count
+around their single-vector triangular solves: 8 threads for factors of order
+up to 4000, 16 above, never more than the caller's own width. Two environment
+variables, read once per process, adjust this:
+
+- `RANDLAPACK_BLAS2_THREADS=k` replaces the calibrated cap with `k`; `k <= 0`
+  disables it.
+- `RANDLAPACK_SOLVE_WIDTH_MATCH=0` stops operators applied inside a solver
+  (such as the extras `ToeplitzLinOp`) from narrowing their own threading to
+  the solver's width.
+
+Other BLAS libraries need no cap: OpenBLAS runs these solves on one thread,
+and Accelerate has no per-call thread control.

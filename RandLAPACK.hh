@@ -38,6 +38,7 @@
 #include "RandLAPACK/comps/rl_syrf.hh"
 #include "RandLAPACK/comps/rl_orth.hh"
 #include "RandLAPACK/comps/rl_rpchol.hh"
+#include "RandLAPACK/comps/rl_lsqr.hh"
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"
@@ -45,6 +46,7 @@
 #include "RandLAPACK/drivers/rl_cholqr_linops.hh"
 #include "RandLAPACK/drivers/rl_cqrrt_linops.hh"
 #include "RandLAPACK/drivers/rl_scholqr3_linops.hh"
+#include "RandLAPACK/drivers/rl_blendenpik.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"
 #include "RandLAPACK/drivers/rl_revd2.hh"
