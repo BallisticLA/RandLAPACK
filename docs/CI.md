@@ -1,6 +1,6 @@
 # RandLAPACK's GitHub CI
 
-Five workflows run on every push to `main` and on every pull request,
+Six workflows run on every push to `main` and on every pull request,
 except pull requests into the `cqrrp-gpu-benchmarking` branch:
 
 - **core-linux, core-macos, core-windows** replicate the build recipe by
@@ -8,6 +8,8 @@ except pull requests into the `cqrrp-gpu-benchmarking` branch:
 - **install-script** runs the user-facing installers end to end, so the
   commands we tell users to type are themselves under test.
 - **dependency-pins** checks the BLAS++/LAPACK++ pins that every lane builds.
+- **coverage** measures which lines and branches of the library the core
+  test suite executes.
 
 Each operating system is thus covered by two workflows, a core one and the
 installer one.
@@ -21,6 +23,7 @@ installer one.
 | core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial ("serial" = RandLAPACK's own loops; the BLAS backend is multithreaded in every leg); each leg ends with a stripped-PATH run of a staged test executable | no |
 | core-windows | `windows-spaced-path` | windows-2022 | oneMKL ILP64 copied under `Program Files (x86)\Intel\oneAPI\mkl\latest`, once through `-Backend mkl -MklRoot` and once through `-Backend custom`: fresh BLAS++/LAPACK++ builds whose exported config must name that spaced path, then the test suite | no |
+| coverage | `coverage` | ubuntu-latest | Debug build with `RandLAPACK_ENABLE_COVERAGE=ON` (GCC, OpenBLAS), test run, gcovr report: HTML artifact `coverage-report`, summary on the job page, upload to Codecov | no |
 | dependency-pins | `pins` | ubuntu-latest | `installers/dependency-pins.env`: each commit exists at its URL, a non-empty tag points at its commit, and the pins match the RandBLAS submodule's | no |
 | install-script | `install-linux` | ubuntu-latest | `install.sh`: fresh install, idempotent re-run, dependency-discovery path | **yes** |
 | install-script | `install-linux-openblas64` | ubuntu-latest | `install.sh --blas=openblas` with Debian/Ubuntu's `libopenblas64` as the only OpenBLAS: BLAS++ must come out ILP64 and link `libopenblas64`, then the test suite | no |
@@ -46,6 +49,17 @@ installer one.
 
 - **Linux/macOS core recipe:** follow the steps in the workflow file; they
   are ordinary `cmake` + `make` invocations.
+- **Coverage**, with GCC and `pipx install gcovr==8.8`, from the repository
+  root (add the dependency paths your build needs to the first command):
+
+  ```bash
+  cmake -S . -B coverage-build -DCMAKE_BUILD_TYPE=Debug -DRandLAPACK_ENABLE_COVERAGE=ON -DBUILD_TESTS=OFF
+  cmake --build coverage-build -j 4 && (cd coverage-build && OMP_NUM_THREADS=2 ctest -j 4)
+  mkdir -p coverage-build/coverage
+  gcovr --root . --filter RandLAPACK/ --exclude-throw-branches \
+      --exclude-unreachable-branches --merge-lines \
+      --html-details coverage-build/coverage/index.html coverage-build
+  ```
 - **Installer lanes:** `bash install.sh --yes --no-gpu` from a fresh clone.
 - **Windows**, from an x64 developer prompt in the repository root:
   `powershell -ExecutionPolicy Bypass -File .github\scripts\windows\run-ci.ps1 -Task Core -SetupDependencies`
@@ -90,8 +104,8 @@ installer one.
   process, so test cases that share a file or a directory fail here, as they
   do under a local `ctest -j`; serial runs never caught that.
   `OMP_NUM_THREADS` is set low on those steps so that the parallel tests do
-  not oversubscribe the runner. The other jobs still run their tests
-  serially.
+  not oversubscribe the runner. The coverage job runs its tests the same way;
+  the other jobs still run theirs serially.
 - **The RandBLAS submodule's own tests do not run here**
   (`-DBUILD_TESTS=OFF` in the core recipes). RandBLAS's CI already tests the
   pinned commit, and rebuilding its roughly 480 tests in every RandLAPACK job
@@ -102,6 +116,33 @@ installer one.
   configures with `-DRequireCUDA=ON`, and the GPU drivers compile only in
   CUDA translation units, so a change that breaks GPU code still passes CI.
   Build and run the GPU tests locally when you touch GPU code.
+
+### Coverage
+
+- **Coverage is reported, not enforced.** The job is not a required check,
+  and the Codecov project and patch statuses are informational
+  (`codecov.yml`). A percentage says which lines ran, not whether their
+  results were checked; read the patch report in review instead of chasing
+  the total.
+- **GCC, Debug, `-O0`.** gcov's line counts follow the source only without
+  optimization, and the option uses GCC's gcov flags.
+- **The library is header-only templates, so code counts only once
+  something instantiates it.** An uninstantiated template produces no lines
+  at all; it is invisible, not 0%. `test/misc/test_instantiations.cc`
+  therefore instantiates class templates, and member and function templates
+  that the tests miss, for `float` and `double`. When you add a template
+  that no test instantiates, add it there.
+- **What the numbers count.** Lines are merged across template
+  instantiations (`--merge-lines`): a line counts as covered if any
+  instantiation ran it. Functions are counted per instantiation, and
+  branches merge only where the instantiations' control flow matches, so a
+  `float` version that no test runs can lower both.
+- **GPU code is not in the report.** It compiles only in CUDA translation
+  units, which this job does not build.
+- **The Codecov upload uses OpenID Connect, not a stored token.** It needs
+  the Codecov GitHub App installed for the repository; until then the upload
+  step logs an error and passes, and the HTML artifact and the job summary
+  still carry the report.
 
 ### Windows
 
@@ -228,7 +269,7 @@ a cache-miss run is several minutes slower than a warm one.
 
 | Cache key prefix | Used by | Lives beside |
 |------------------|---------|--------------|
-| `core-deps-<OS>-v<N>` | core-linux, core-macos (both jobs) | `runner.workspace`, the checkout's parent (`*-install`) |
+| `core-deps-<OS>-v<N>` | core-linux, core-macos (both jobs), coverage (shares core-linux's key) | `runner.workspace`, the checkout's parent (`*-install`) |
 | `installer-deps-<OS>-v<N>` | install-linux | `deps-install/` in the workspace |
 | `windows-*-r<N>` (per backend + shared) | core-windows (`build-windows`, `windows-spaced-path`), install-windows | `runner.workspace\windows-deps` |
 

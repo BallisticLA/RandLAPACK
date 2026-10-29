@@ -1,6 +1,20 @@
 message(STATUS "Checking for regression tests ...")
 find_package(GTest)
 
+# The library is header-only, so its code is compiled in the test translation units: instrumenting
+# them measures it. -O0 keeps gcov's line counts faithful to the source. CUDA sources are not instrumented.
+if (RandLAPACK_ENABLE_COVERAGE)
+    if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "RandLAPACK_ENABLE_COVERAGE=ON requires GCC, not ${CMAKE_CXX_COMPILER_ID}.")
+    endif()
+    if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        message(WARNING "RandLAPACK_ENABLE_COVERAGE=ON is meant for Debug builds, "
+            "not CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}.")
+    endif()
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:--coverage;-O0;-g;-fprofile-abs-path;-fprofile-update=prefer-atomic>")
+    add_link_options("$<$<LINK_LANGUAGE:CXX>:--coverage>")
+endif()
+
 set(tmp FALSE)
 if (GTest_FOUND)
     set(tmp TRUE)
@@ -41,6 +55,7 @@ if (GTest_FOUND)
         misc/test_matrix_io.cc
         misc/test_memory_tracker.cc
         linops/test_linop_block_views.cc
+        misc/test_instantiations.cc
     )
     
     # Create non-CUDA test executable
@@ -64,6 +79,7 @@ if (GTest_FOUND)
             comps/test_util_gpu.cu
             drivers/test_cqrrpt_gpu.cu
             drivers/test_bqrrp_gpu.cu
+            drivers/test_instantiations_gpu.cu
         )
 
         # Create CUDA test executables

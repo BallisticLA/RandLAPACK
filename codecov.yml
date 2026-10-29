@@ -1,0 +1,20 @@
+# Coverage is reported, never enforced: both statuses are informational, so they cannot block a merge.
+# The coverage workflow already restricts the report to the library headers; the ignores below keep a
+# report generated some other way to the same scope.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "condensed_header, condensed_files, condensed_footer"
+
+ignore:
+  - "test/**"
+  - "benchmark/**"
+  - "extras/**"
+  - "RandBLAS/**"
