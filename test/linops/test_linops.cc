@@ -6,6 +6,10 @@
 #include <lapack.hh>
 #include <RandBLAS/testing/comparison.hh>
 #include "../test_helpers.hh"
+#include <concepts>
+#include <limits>
+#include <type_traits>
+#include <utility>
 
 
 using std::vector;
@@ -194,6 +198,109 @@ TEST(TestMaterializeCols, operator_with_materialize_cols) {
     EXPECT_THROW(RandLAPACK::materialize(probe, m, n - 1, buf.data(), ldb), RandLAPACK::Error);
     EXPECT_THROW(RandLAPACK::materialize(probe, m, n, buf.data(), m - 1), RandLAPACK::Error);
     EXPECT_EQ(probe.direct_cols, n);
+}
+
+namespace {
+// Forwards every product the borrowed operator has, counting the calls, and with Cols also its
+// materialize_cols, counting the columns, so a test can tell which path a caller took.
+template <typename LinOp, bool Cols>
+struct CountingLinOp {
+    using scalar_t = typename LinOp::scalar_t;
+    const int64_t n_rows;
+    const int64_t n_cols;
+    LinOp& op;
+    int64_t product_calls = 0;
+    int64_t direct_cols = 0;
+    explicit CountingLinOp(LinOp& A) : n_rows(A.n_rows), n_cols(A.n_cols), op(A) {}
+    template <typename... Args>
+        requires std::invocable<LinOp&, Args...>
+    void operator()(Args&&... args) { ++product_calls; op(std::forward<Args>(args)...); }
+    void materialize_cols(int64_t col_start, int64_t col_count, scalar_t* buf, int64_t ldb)
+        requires Cols
+    {
+        direct_cols += col_count;
+        op.materialize_cols(col_start, col_count, buf, ldb);
+    }
+};
+} // namespace
+
+using DenseProductsOnly = RandLAPACK::testing::ProductsOnly<RandLAPACK::linops::DenseLinOp<double>>;
+using ConceptProductsOnly = RandLAPACK::testing::ProductsOnly<test_helpers::ConceptOnlyLinOp<double>>;
+static_assert(RandLAPACK::linops::LinearOperator<DenseProductsOnly>);
+static_assert(!RandLAPACK::linops::HasMaterializeCols<DenseProductsOnly>);
+// ProductsOnly accepts exactly the calls its operator does: DenseLinOp's Side-taking product, but
+// not one on a concept-only operator, so TransposedLinOp's detection of that overload still
+// holds (instantiating it compiles its Side::Right branch, which then throws).
+template <typename F>
+constexpr bool takes_sided_product = std::invocable<F&, blas::Side, Layout, Op, Op, int64_t, int64_t,
+                                                    int64_t, double, const double*, int64_t, double,
+                                                    double*, int64_t>;
+static_assert(takes_sided_product<DenseProductsOnly> && !takes_sided_product<ConceptProductsOnly>);
+template struct RandLAPACK::linops::TransposedLinOp<ConceptProductsOnly>;
+
+// CompositeOperator's blocked sketch (block_size > 0) copies the columns of a right operand that
+// has materialize_cols (DenseLinOp, SparseLinOp): exactly n columns, and the operand is never
+// applied, where an operand without the hook is applied once per column block. Both equal the
+// sketch of the explicit product L * R, and each other to rounding of the sketch alone, for
+// sparse and dense sketches with a partial last block and beta != 0.
+TEST(TestCompositeSketch, blocked_sketch_copies_right_operand_columns) {
+    namespace rl = RandLAPACK::linops;
+    using RandLAPACK::testing::rel_fro_error;
+    const int64_t m = 31, k = 12, n = 10, d = 8, ldc = d + 2, b = 4, n_blocks = 3;
+    const double alpha = 1.5, beta = -0.5;
+    auto L = test_helpers::random_matrix<double>(m, k, 3);
+    auto R = test_helpers::random_matrix<double>(k, n, 4);
+    RNGState<> state(5);
+    auto R_coo = RandLAPACK::gen::gen_sparse_coo<double>(k, n, 0.4, state);
+    auto R_csr = R_coo.as_owning_csr();
+    vector<double> R_sp(k * n, 0.0);
+    RandLAPACK::util::sparse_to_dense(R_csr, Layout::ColMajor, R_sp.data());
+    rl::DenseLinOp<double> L_op(m, k, L.data(), m, Layout::ColMajor);
+    rl::DenseLinOp<double> R_dense_op(k, n, R.data(), k, Layout::ColMajor);
+    rl::SparseLinOp<RandBLAS::sparse_data::CSRMatrix<double>> R_sparse_op(k, n, R_csr);
+    vector<double> C0(ldc * n);
+    RandBLAS::fill_dense(DenseDist(ldc, n), C0.data(), RNGState<>(6));
+
+    auto check = [&](auto& R_op, const vector<double>& R_explicit) {
+        using ROp = std::remove_reference_t<decltype(R_op)>;
+        CountingLinOp<ROp, true> R_cols(R_op);
+        CountingLinOp<ROp, false> R_prod(R_op);
+        static_assert(rl::HasMaterializeCols<decltype(R_cols)> && !rl::HasMaterializeCols<decltype(R_prod)>);
+        rl::CompositeOperator direct(m, n, L_op, R_cols);
+        rl::CompositeOperator products(m, n, L_op, R_prod);
+        static_assert(!rl::HasMaterializeCols<decltype(direct)>);
+        direct.block_size = products.block_size = b;
+        vector<double> LR(m * n);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, L.data(), m,
+                   R_explicit.data(), k, 0.0, LR.data(), m);
+        auto run = [&](auto& S, auto& S_prod, auto& S_ref) {
+            vector<double> C = C0, C_prod = C0, C_ref = C0;
+            R_cols.product_calls = R_cols.direct_cols = R_prod.product_calls = R_prod.direct_cols = 0;
+            direct(blas::Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m,
+                   alpha, S, beta, C.data(), ldc);
+            products(blas::Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m,
+                     alpha, S_prod, beta, C_prod.data(), ldc);
+            EXPECT_EQ(R_cols.direct_cols, n);
+            EXPECT_EQ(R_cols.product_calls, 0);
+            EXPECT_EQ(R_prod.product_calls, n_blocks);
+            RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m,
+                                     alpha, S_ref, LR.data(), m, beta, C_ref.data(), ldc);
+            // Identity columns make the product path's V block exact.
+            const double eps = std::numeric_limits<double>::epsilon();
+            EXPECT_LE(rel_fro_error(C.data(), C_prod.data(), ldc * n), 4 * eps);
+            EXPECT_LE(rel_fro_error(C.data(), C_ref.data(), ldc * n), 1e-12);
+        };
+        RandBLAS::SparseDist SD(d, m, 3);
+        RandBLAS::SparseSkOp<double> S_sp(SD, RNGState<>(7)), S_sp2(SD, RNGState<>(7)),
+                                     S_sp_ref(SD, RNGState<>(7));
+        run(S_sp, S_sp2, S_sp_ref);
+        DenseDist DD(d, m);
+        RandBLAS::DenseSkOp<double> S_de(DD, RNGState<>(8)), S_de2(DD, RNGState<>(8)),
+                                    S_de_ref(DD, RNGState<>(8));
+        run(S_de, S_de2, S_de_ref);
+    };
+    check(R_dense_op, R);
+    check(R_sparse_op, R_sp);
 }
 
 TEST(TestMaterializeComposite, wide_composite_is_exempt_from_identity_cap) {

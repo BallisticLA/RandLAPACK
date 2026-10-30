@@ -1300,36 +1300,88 @@ TEST_F(TestCholQRFamilyDrivers, test_mode_q_failure_installs_no_q) {
 
 namespace {
 
-// With an operator that has materialize_cols, the unpreconditioned first Gram, sCholQR3_basic's
-// first product and the test-mode Q read its columns, so A is applied only in the preconditioned
-// passes (and in sCholQR3_basic's Q = A R1^{-1}): product_cols columns in all, direct_cols read.
-// R and Q equal those of a concept-only operator on the same matrix (products only), whose
-// products with identity columns are exact. Blocks of 8 over n = 20 end with a partial block.
-template <typename T, template <typename> class QR>
-void check_materialize_cols_path(int64_t product_cols, int64_t direct_cols) {
-    const int64_t m = 90, n = 20;
-    auto A_data = random_matrix<T>(m, n, 43);
-    test_helpers::MaterializeColsProbe<T> probe{m, n, A_data.data()};
-    ConceptOnlyLinOp<T> products{m, n, A_data.data()};
+// QR on A, whose columns come from materialize_cols, and on A_prod, the same matrix with products
+// only (exact on identity columns): R and the test-mode Q agree to 10 eps of T. Blocks of 8 over
+// n = 20 end with a partial block.
+template <typename T, typename QR, typename Op1, typename Op2>
+void check_materialize_cols_path(Op1& A, Op2& A_prod) {
+    const int64_t m = A.n_rows, n = A.n_cols;
     std::vector<T> R(n * n, T(0)), R_prod(n * n, T(0));
-    QR<T> qr(false, T(0), /*test_mode=*/true), qr_prod(false, T(0), /*test_mode=*/true);
+    QR qr(false, T(0), /*test_mode=*/true), qr_prod(false, T(0), /*test_mode=*/true);
     if constexpr (requires { qr.block_size; }) qr.block_size = qr_prod.block_size = 8;
-    ASSERT_EQ(qr.call(probe, R.data(), n), 0);
-    ASSERT_EQ(qr_prod.call(products, R_prod.data(), n), 0);
-    EXPECT_EQ(probe.product_cols, product_cols);
-    EXPECT_EQ(probe.direct_cols, direct_cols);
+    if constexpr (std::is_same_v<QR, RandLAPACK::CQRRTO_linops<T>>) {
+        RandBLAS::RNGState<> state(13), state_prod(13);
+        ASSERT_EQ(qr.call(A, R.data(), n, T(2), state), 0);
+        ASSERT_EQ(qr_prod.call(A_prod, R_prod.data(), n, T(2), state_prod), 0);
+    } else {
+        ASSERT_EQ(qr.call(A, R.data(), n), 0);
+        ASSERT_EQ(qr_prod.call(A_prod, R_prod.data(), n), 0);
+    }
     const double tol = 10 * std::numeric_limits<T>::epsilon();
     EXPECT_LE(RandLAPACK::testing::rel_fro_error(R.data(), R_prod.data(), n * n), tol);
     EXPECT_LE(RandLAPACK::testing::rel_fro_error(qr.Q, qr_prod.Q, m * n), tol);
 }
 
+// With an operator that has materialize_cols, the unpreconditioned first Gram, sCholQR3_basic's
+// first product and the test-mode Q read its columns, so A is applied only in the preconditioned
+// passes (and in sCholQR3_basic's Q = A R1^{-1}): product_cols columns in all, direct_cols read.
+template <typename T, template <typename> class QR>
+void check_probe_path(int64_t product_cols, int64_t direct_cols) {
+    const int64_t m = 90, n = 20;
+    auto A_data = random_matrix<T>(m, n, 43);
+    test_helpers::MaterializeColsProbe<T> probe{m, n, A_data.data()};
+    ConceptOnlyLinOp<T> products{m, n, A_data.data()};
+    check_materialize_cols_path<T, QR<T>>(probe, products);
+    EXPECT_EQ(probe.product_cols, product_cols);
+    EXPECT_EQ(probe.direct_cols, direct_cols);
+}
+
 template <typename T>
 void check_materialize_cols_paths() {
     const int64_t n = 20;
-    check_materialize_cols_path<T, RandLAPACK::CholQR_linops>(0, 2 * n);
-    check_materialize_cols_path<T, RandLAPACK::CholQR2_linops>(n, 2 * n);
-    check_materialize_cols_path<T, RandLAPACK::sCholQR3_linops>(2 * n, 2 * n);
-    check_materialize_cols_path<T, RandLAPACK::sCholQR3_linops_basic>(n, n);
+    check_probe_path<T, RandLAPACK::CholQR_linops>(0, 2 * n);
+    check_probe_path<T, RandLAPACK::CholQR2_linops>(n, 2 * n);
+    check_probe_path<T, RandLAPACK::sCholQR3_linops>(2 * n, 2 * n);
+    check_probe_path<T, RandLAPACK::sCholQR3_linops_basic>(n, n);
+}
+
+// The same comparison on sparse operators, each against itself behind ProductsOnly: a CSR
+// SparseLinOp and [SparseLinOp; mu I] for the four CholQR-family drivers, CQRRTO_linops on the
+// stack, and CholQR_linops on a COO SparseLinOp reading the leading 90 x 20 window of a larger
+// matrix.
+template <typename T>
+void check_sparse_materialize_cols_paths() {
+    namespace rll = RandLAPACK::linops;
+    using RandLAPACK::testing::ProductsOnly;
+    using CSROp = rll::SparseLinOp<RandBLAS::sparse_data::CSRMatrix<T>>;
+    using COOOp = rll::SparseLinOp<RandBLAS::sparse_data::COOMatrix<T>>;
+    using Stack = rll::VStackLinOp<CSROp, rll::ScaledIdentityLinOp<T>>;
+    using StackProd = rll::VStackLinOp<ProductsOnly<CSROp>, rll::ScaledIdentityLinOp<T>>;
+    const int64_t m = 90, n = 20;
+    RandBLAS::RNGState<> state(45);
+    auto A_coo = RandLAPACK::gen::gen_sparse_coo<T>(m, n, T(0.3), state);
+    auto A_csr = A_coo.as_owning_csr();
+    auto B_coo = RandLAPACK::gen::gen_sparse_coo<T>(m + 7, n + 3, T(0.3), state);
+    CSROp A(m, n, A_csr);
+    COOOp A_win(m, n, B_coo);
+    ProductsOnly<CSROp> A_prod(A);
+    ProductsOnly<COOOp> A_win_prod(A_win);
+    rll::ScaledIdentityLinOp<T> mu_I(n, T(0.1));
+    Stack A_hat(A, mu_I);
+    StackProd A_hat_prod(A_prod, mu_I);
+    A_hat.block_size = A_hat_prod.block_size = 8;
+    static_assert(rll::HasMaterializeCols<CSROp> && rll::HasMaterializeCols<Stack>);
+    static_assert(!rll::HasMaterializeCols<ProductsOnly<CSROp>> && !rll::HasMaterializeCols<StackProd>);
+    auto cholqr_family = [](auto& op, auto& op_prod) {
+        check_materialize_cols_path<T, RandLAPACK::CholQR_linops<T>>(op, op_prod);
+        check_materialize_cols_path<T, RandLAPACK::CholQR2_linops<T>>(op, op_prod);
+        check_materialize_cols_path<T, RandLAPACK::sCholQR3_linops<T>>(op, op_prod);
+        check_materialize_cols_path<T, RandLAPACK::sCholQR3_linops_basic<T>>(op, op_prod);
+    };
+    cholqr_family(A, A_prod);
+    cholqr_family(A_hat, A_hat_prod);
+    check_materialize_cols_path<T, RandLAPACK::CholQR_linops<T>>(A_win, A_win_prod);
+    check_materialize_cols_path<T, RandLAPACK::CQRRTO_linops<T>>(A_hat, A_hat_prod);
 }
 
 } // namespace
@@ -1340,6 +1392,14 @@ TEST_F(TestCholQRFamilyDrivers, materialize_cols_replaces_identity_products) {
 
 TEST_F(TestCholQRFamilyDrivers, materialize_cols_replaces_identity_products_float) {
     check_materialize_cols_paths<float>();
+}
+
+TEST_F(TestCholQRFamilyDrivers, sparse_operator_columns_replace_identity_products) {
+    check_sparse_materialize_cols_paths<double>();
+}
+
+TEST_F(TestCholQRFamilyDrivers, sparse_operator_columns_replace_identity_products_float) {
+    check_sparse_materialize_cols_paths<float>();
 }
 
 // A RowMajor DenseLinOp has materialize_cols, but the drivers' products are ColMajor: CholQR

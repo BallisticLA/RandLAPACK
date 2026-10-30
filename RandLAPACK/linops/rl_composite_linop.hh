@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: CompositeOperator — implicit product of two linear operators.
+// Public API: CompositeOperator, the implicit product of two linear operators.
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
@@ -53,7 +53,7 @@ private:
     // operands, but doesn't always own them. Who owns what depends on how
     // the CompositeOperator was created:
     //
-    //   Example 1 — User-constructed (both borrowed, shared_ptrs are null):
+    //   Example 1: user-constructed (both borrowed, shared_ptrs are null):
     //
     //       DenseLinOp<double> A(...);
     //       SparseLinOp<double> B(...);
@@ -61,14 +61,14 @@ private:
     //       // comp.left_op and comp.right_op are references to A and B.
     //       // The caller is responsible for keeping A and B alive.
     //
-    //   Example 2 — row_block() (left operand owned, right borrowed):
+    //   Example 2: row_block() (left operand owned, right borrowed):
     //
     //       auto sub = comp.row_block(0, 100);
     //       // sub needs a new LinOp1 for the row-sliced left operand.
     //       // That object is heap-allocated and held by owned_left_.
     //       // sub.right_op still references the original comp.right_op.
     //
-    //   Example 3 — submatrix() (both owned):
+    //   Example 3: submatrix() (both owned):
     //
     //       auto sub = comp.submatrix(0, 0, 100, 50);
     //       // Both operands are new heap-allocated block views,
@@ -109,8 +109,9 @@ public:
     LinOp1 &left_op;         // Reference to the left operator
     LinOp2 &right_op;        // Reference to the right operator
 
-    /// Block size for blocked materialization of the composite operator.
-    /// 0 (default) disables blocking and materializes all columns at once.
+    /// Column-block width of the ColMajor sketch (Side::Right, NoTrans): each block is formed as
+    /// LinOp1 times LinOp2's columns (from materialize_cols when LinOp2 provides it, see
+    /// HasMaterializeCols) and sketched. 0 (default) sketches through the operands unblocked.
     int64_t block_size = 0;
 
     CompositeOperator(
@@ -415,23 +416,19 @@ public:
 
             if (trans_A == Op::NoTrans) {
                 int64_t temp_rows = right_op.n_rows;
-                T* temp = new T[temp_rows * n]();
+                std::unique_ptr<T[]> temp(new T[temp_rows * n]());
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
-                right_op(Side::Left, layout, Op::NoTrans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp, ldt);
-                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp, ldt, beta, C, ldc);
-
-                delete[] temp;
+                right_op(Side::Left, layout, Op::NoTrans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp.get(), ldt);
+                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp.get(), ldt, beta, C, ldc);
 
             } else {  // trans_A == Op::Trans
                 int64_t temp_rows = left_op.n_cols;
-                T* temp = new T[temp_rows * n]();
+                std::unique_ptr<T[]> temp(new T[temp_rows * n]());
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
-                left_op(Side::Left, layout, Op::Trans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp, ldt);
-                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp, ldt, beta, C, ldc);
-
-                delete[] temp;
+                left_op(Side::Left, layout, Op::Trans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp.get(), ldt);
+                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp.get(), ldt, beta, C, ldc);
             }
 
         } else {  // Side::Right
@@ -444,57 +441,56 @@ public:
                     int64_t m_inner = right_op.n_rows;  // = left_op.n_cols
                     int64_t n_rows_left = left_op.n_rows;
                     int64_t b_max = std::min(block_size, n);
+                    // V_block holds columns [j, j + b) of LinOp2: copied by its materialize_cols
+                    // when it has one (then no identity block), else LinOp2 * I_block.
+                    constexpr bool direct = HasMaterializeCols<LinOp2>;
 
-                    T* eye_block = new T[n_cols * b_max];
-                    T* V_block   = new T[m_inner * b_max];
-                    T* W         = new T[n_rows_left * b_max];
+                    std::unique_ptr<T[]> eye_block(direct ? nullptr : new T[n_cols * b_max]);
+                    std::unique_ptr<T[]> V_block(new T[m_inner * b_max]);
+                    std::unique_ptr<T[]> W(new T[n_rows_left * b_max]);
 
                     for (int64_t j = 0; j < n; j += block_size) {
                         int64_t b = std::min(block_size, n - j);
 
-                        std::fill_n(eye_block, n_cols * b, (T)0.0);
-                        for (int64_t i = 0; i < b; ++i)
-                            eye_block[(j + i) + i * n_cols] = (T)1.0;
+                        if constexpr (direct) {
+                            right_op.materialize_cols(j, b, V_block.get(), m_inner);
+                        } else {
+                            std::fill_n(eye_block.get(), n_cols * b, (T)0.0);
+                            for (int64_t i = 0; i < b; ++i)
+                                eye_block[(j + i) + i * n_cols] = (T)1.0;
 
-                        right_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                 m_inner, b, n_cols, (T)1.0, eye_block, n_cols,
-                                 (T)0.0, V_block, m_inner);
+                            right_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                     m_inner, b, n_cols, (T)1.0, eye_block.get(), n_cols,
+                                     (T)0.0, V_block.get(), m_inner);
+                        }
 
                         left_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                n_rows_left, b, m_inner, (T)1.0, V_block, m_inner,
-                                (T)0.0, W, n_rows_left);
+                                n_rows_left, b, m_inner, (T)1.0, V_block.get(), m_inner,
+                                (T)0.0, W.get(), n_rows_left);
 
                         T* C_col = C + j * ldc;
                         RandBLAS::sketch_general(
                             Layout::ColMajor, trans_S, Op::NoTrans,
-                            m, b, n_rows_left, alpha, S, W, n_rows_left,
+                            m, b, n_rows_left, alpha, S, W.get(), n_rows_left,
                             beta, C_col, ldc);
                     }
 
-                    delete[] eye_block;
-                    delete[] V_block;
-                    delete[] W;
-
                 } else {
                     int64_t temp_cols = left_op.n_cols;
-                    T* temp = new T[m * temp_cols]();
+                    std::unique_ptr<T[]> temp(new T[m * temp_cols]());
                     int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
 
-                    left_op(Side::Right, layout, Op::NoTrans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp, ldt);
-                    right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
-
-                    delete[] temp;
+                    left_op(Side::Right, layout, Op::NoTrans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp.get(), ldt);
+                    right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans, m, n, temp_cols, alpha, temp.get(), ldt, beta, C, ldc);
                 }
 
             } else {  // trans_A == Op::Trans
                 int64_t temp_cols = right_op.n_rows;
-                T* temp = new T[m * temp_cols]();
+                std::unique_ptr<T[]> temp(new T[m * temp_cols]());
                 int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
 
-                right_op(Side::Right, layout, Op::Trans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp, ldt);
-                left_op(Side::Right, layout, Op::Trans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
-
-                delete[] temp;
+                right_op(Side::Right, layout, Op::Trans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp.get(), ldt);
+                left_op(Side::Right, layout, Op::Trans, Op::NoTrans, m, n, temp_cols, alpha, temp.get(), ldt, beta, C, ldc);
             }
         }
     }

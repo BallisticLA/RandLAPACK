@@ -25,8 +25,8 @@ namespace RandLAPACK::linops {
 // The headline use is A_hat = [A; mu*I], with Bot a ScaledIdentityLinOp(n, mu): a Cholesky QR
 // of A_hat forms A^T A + mu^2 I with no change to the QR driver. The sketch overload lets
 // sketch-based drivers take A_hat directly. When both blocks provide materialize_cols, so does
-// the stack (as [A; mu*I] with a DenseLinOp A), and the sketch overload reads its column blocks
-// through it.
+// the stack (as [A; mu*I] with a DenseLinOp or SparseLinOp A), and the sketch overload reads its
+// column blocks through it.
 template <LinearOperator TopLinOp, LinearOperator BotLinOp>
 struct VStackLinOp {
     using T = typename TopLinOp::scalar_t;

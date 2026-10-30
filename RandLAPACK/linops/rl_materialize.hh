@@ -5,17 +5,13 @@
 //
 // Generic fallback: multiply by the identity matrix.
 // Overloaded specializations avoid that cost when the operator writes its own
-// columns (materialize_cols, which DenseLinOp provides), the underlying storage is
-// directly accessible (SparseLinOp), or it is reachable through the operands
-// (CompositeOperator).
+// columns (materialize_cols; DenseLinOp and SparseLinOp among its providers) or
+// the columns are reachable through the operands (CompositeOperator).
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
-#include "rl_dense_linop.hh"
-#include "rl_sparse_linop.hh"
 #include "rl_composite_linop.hh"
 #include "rl_blaspp.hh"
-#include "rl_lapackpp.hh"
 #include "rl_util.hh"
 
 #include <cstdint>
@@ -61,37 +57,14 @@ void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, 
       m, n, n, (T)1.0, Eye.get(), n, (T)0.0, buf, ldb);
 }
 
-/// Overload for operators that provide materialize_cols (HasMaterializeCols), DenseLinOp
-/// among them: writes all columns through it, with no identity and no cap.
+/// Overload for operators that provide materialize_cols (HasMaterializeCols), DenseLinOp and
+/// SparseLinOp among them: writes all columns through it, with no identity and no cap.
 template <linops::HasMaterializeCols LinOp>
 void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, int64_t ldb) {
     randlapack_require(m == A.n_rows && n == A.n_cols) << "m=" << m << ", n=" << n
         << " must equal the operator's " << A.n_rows << " x " << A.n_cols;
     randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     A.materialize_cols(0, n, buf, ldb);
-}
-
-/// Specialization for SparseLinOp: zero-init + sparse_to_dense.
-template <RandBLAS::sparse_data::SparseMatrix SpMat>
-void materialize(linops::SparseLinOp<SpMat>& A, int64_t m, int64_t n,
-                 typename SpMat::scalar_t* buf, int64_t ldb) {
-    using T = typename SpMat::scalar_t;
-    randlapack_require(m == A.n_rows) << "m=" << m << " must equal A.n_rows=" << A.n_rows << " for materialize specialization";
-    randlapack_require(n == A.n_cols) << "n=" << n << " must equal A.n_cols=" << A.n_cols << " for materialize specialization";
-    randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
-    // Zero the output buffer.
-    for (int64_t j = 0; j < n; ++j)
-        for (int64_t i = 0; i < m; ++i)
-            buf[i + j * ldb] = (T)0.0;
-    if (ldb == m) {
-        // Contiguous: sparse_to_dense can write directly.
-        RandLAPACK::util::sparse_to_dense(A.A_sp, blas::Layout::ColMajor, buf);
-    } else {
-        // Non-contiguous leading dimension: materialize into temp, then copy.
-        std::unique_ptr<T[]> tmp(new T[m * n]());
-        RandLAPACK::util::sparse_to_dense(A.A_sp, blas::Layout::ColMajor, tmp.get());
-        lapack::lacpy(lapack::MatrixType::General, m, n, tmp.get(), m, buf, ldb);
-    }
 }
 
 /// Specialization for CompositeOperator: materialize each operand, then form
