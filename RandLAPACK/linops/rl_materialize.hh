@@ -4,9 +4,10 @@
 // into a caller-provided buffer.
 //
 // Generic fallback: multiply by the identity matrix.
-// Overloaded specializations avoid that cost when the underlying storage is
-// directly accessible (DenseLinOp, SparseLinOp), reachable through the
-// operands (CompositeOperator), or written by the operator's materialize_cols.
+// Overloaded specializations avoid that cost when the operator writes its own
+// columns (materialize_cols, which DenseLinOp provides), the underlying storage is
+// directly accessible (SparseLinOp), or it is reachable through the operands
+// (CompositeOperator).
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
@@ -60,31 +61,14 @@ void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, 
       m, n, n, (T)1.0, Eye.get(), n, (T)0.0, buf, ldb);
 }
 
-/// Overload for operators that provide materialize_cols (HasMaterializeCols): writes all
-/// columns through it, with no identity and no cap.
+/// Overload for operators that provide materialize_cols (HasMaterializeCols), DenseLinOp
+/// among them: writes all columns through it, with no identity and no cap.
 template <linops::HasMaterializeCols LinOp>
 void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, int64_t ldb) {
     randlapack_require(m == A.n_rows && n == A.n_cols) << "m=" << m << ", n=" << n
         << " must equal the operator's " << A.n_rows << " x " << A.n_cols;
     randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     A.materialize_cols(0, n, buf, ldb);
-}
-
-/// Specialization for DenseLinOp: copy directly via lacpy (ColMajor) or
-/// fall back to the generic path (RowMajor).
-template <typename T>
-void materialize(linops::DenseLinOp<T>& A, int64_t m, int64_t n, T* buf, int64_t ldb) {
-    randlapack_require(m == A.n_rows) << "m=" << m << " must equal A.n_rows=" << A.n_rows << " for materialize specialization";
-    randlapack_require(n == A.n_cols) << "n=" << n << " must equal A.n_cols=" << A.n_cols << " for materialize specialization";
-    randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
-    if (A.buff_layout == blas::Layout::ColMajor) {
-        lapack::lacpy(lapack::MatrixType::General, m, n, A.A_buff, A.lda, buf, ldb);
-    } else {
-        // RowMajor: transpose-copy element by element.
-        for (int64_t j = 0; j < n; ++j)
-            for (int64_t i = 0; i < m; ++i)
-                buf[i + j * ldb] = A.A_buff[i * A.lda + j];
-    }
 }
 
 /// Specialization for SparseLinOp: zero-init + sparse_to_dense.
