@@ -46,7 +46,7 @@ class sCholQR3_linops : public CholQRLinopsBase<T, 3> {
         T    shift_factor_iter1  = T(-1);  ///< pass-1 shift factor; < 0 selects 11 * n * eps, NaN fails
         T    shift_factor_iter23 = T(0);   ///< first-attempt shift factor of passes 2 and 3; no sentinel:
                                            ///< negative or NaN fails with kCholQRInvalidShift
-        bool gram_left_gemm      = false;  ///< passes 2-3: apply R_pre^T by GEMM per block instead of one TRSM
+        bool gram_left_gemm      = false;  ///< passes 2-3: apply R_pre^T by GEMM per block instead of by TRSM
 
         /// @param ep  unused; kept for call-site compatibility with the other QR drivers.
         sCholQR3_linops(bool time_subroutines, T ep, bool enable_test_mode = false)
