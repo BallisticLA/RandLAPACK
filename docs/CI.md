@@ -218,7 +218,9 @@ installer one.
 - **No lane builds the extras against MKL.** The extras `ToeplitzLinOp` and
   its test need MKL's FFT and are built only when RandBLAS has MKL support;
   core-linux's extras build uses OpenBLAS and skips them, and the Windows
-  MKL legs build core only. Run that test locally.
+  MKL legs build core only. The same holds for
+  `benchmark/bench_toeplitz_ls`, which the benchmark builds skip without
+  MKL. Run that test and compile that benchmark locally.
 
 ## Caches
 

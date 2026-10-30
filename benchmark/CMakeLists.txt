@@ -201,6 +201,14 @@ set(
 add_benchmark(NAME CQRRTO_linop_basic        CXX_SOURCES bench_CQRRTO_linops/CQRRTO_linop_basic.cc        LINK_LIBS ${Benchmark_libs_matrix_io})
 add_benchmark(NAME CQRRTO_linop_applications CXX_SOURCES bench_CQRRTO_linops/CQRRTO_linop_applications.cc LINK_LIBS ${Benchmark_libs_matrix_io})
 
+# Toeplitz least squares. ToeplitzLinOp calls MKL's FFT directly; RandBLAS with MKL support
+# exports MKL's include directory, so the target needs nothing more.
+if (RandBLAS_HAS_MKL)
+    add_benchmark(NAME toeplitz_ls_benchmark CXX_SOURCES bench_toeplitz_ls/toeplitz_ls_benchmark.cc LINK_LIBS ${Benchmark_libs})
+else()
+    message(STATUS "RandBLAS has no MKL support; skipping toeplitz_ls_benchmark")
+endif()
+
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs_matrix_io})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
