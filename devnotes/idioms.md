@@ -119,7 +119,7 @@ parameters.
 ```cpp
 // At construction (inside col_block()):
 auto block = std::make_shared<CSRColBlock<T, sint_t>>(...);
-// Stored as shared_ptr<void> — destructor for CSRColBlock is remembered.
+// Stored as shared_ptr<void>; the destructor for CSRColBlock is remembered.
 block_owner_ = block;
 ```
 
@@ -129,16 +129,18 @@ block_owner_ = block;
 **Where**: `linops/rl_sparse_linop.hh`, `misc/rl_util.hh`, RandBLAS `spmm_dispatch.hh`
 
 `if constexpr` evaluates the condition at compile time. The branch not taken
-is discarded entirely — it doesn't even need to be valid code for the given
+is discarded entirely: it doesn't even need to be valid code for the given
 template instantiation. This replaces SFINAE or tag dispatch for choosing
 between sparse formats.
 
 ```cpp
-// SparseLinOp::make_view — create a non-owning view depending on format
+// SparseLinOp::make_view: create a non-owning view, keeping the index base, depending on format
 if constexpr (std::is_same_v<SpMat, CSR>) {
-    return CSR(src.n_rows, src.n_cols, src.nnz, src.vals, src.rowptr, src.colidxs);
+    return CSR(src.n_rows, src.n_cols, src.nnz, src.vals, src.rowptr, src.colidxs, src.index_base);
 } else if constexpr (std::is_same_v<SpMat, CSC>) {
-    return CSC(src.n_rows, src.n_cols, src.nnz, src.vals, src.rowidxs, src.colptr);
+    return CSC(src.n_rows, src.n_cols, src.nnz, src.vals, src.rowidxs, src.colptr, src.index_base);
+} else if constexpr (std::is_same_v<SpMat, COO>) {
+    return COO(src.n_rows, src.n_cols, src.nnz, src.vals, src.rows, src.cols, true, src.index_base);
 } else {
     static_assert(!std::is_same_v<SpMat, SpMat>,
         "make_view only supports CSR, CSC, and COO sparse formats");
@@ -155,7 +157,7 @@ actually instantiated, giving a clear error for unsupported types.
 
 A `requires` expression tests at compile time whether certain operations are
 valid for a type. Combined with `if constexpr`, this enables dispatching based
-on what a type *can do* rather than what it *is* — capability-based rather
+on what a type *can do* rather than what it *is*: capability-based rather
 than identity-based.
 
 ```cpp

@@ -1,6 +1,6 @@
 #pragma once
 
-// Internal header — not part of the public RandLAPACK API.
+// Internal header, not part of the public RandLAPACK API.
 //
 // Sparse block view types and free functions used by SparseLinOp to implement
 // row_block(), col_block(), and submatrix(). Users should interact with these
@@ -31,9 +31,10 @@ struct CSRRowBlockView {
     int64_t n_rows;
     int64_t n_cols;
     int64_t nnz;
+    RandBLAS::sparse_data::IndexBase index_base = RandBLAS::sparse_data::IndexBase::Zero;
     RandBLAS::sparse_data::CSRMatrix<T, sint_t> as_csr() {
         return RandBLAS::sparse_data::CSRMatrix<T, sint_t>(
-            n_rows, n_cols, nnz, vals, rowptr.data(), colidxs);
+            n_rows, n_cols, nnz, vals, rowptr.data(), colidxs, index_base);
     }
 };
 
@@ -44,12 +45,13 @@ CSRRowBlockView<T, sint_t> csr_row_block(
 ) {
     randlapack_require(row_start >= 0 && row_count > 0) << "row_start=" << row_start << " must be >= 0 and row_count=" << row_count << " must be > 0";
     randlapack_require(row_start + row_count <= A.n_rows) << "row_start=" << row_start << " + row_count=" << row_count << " exceeds A.n_rows=" << A.n_rows;
-    sint_t base = A.rowptr[row_start];
-    int64_t block_nnz = A.rowptr[row_start + row_count] - base;
+    sint_t offset = A.rowptr[row_start];
+    int64_t block_nnz = A.rowptr[row_start + row_count] - offset;
     std::vector<sint_t> rebased(row_count + 1);
     for (int64_t i = 0; i <= row_count; ++i)
-        rebased[i] = A.rowptr[row_start + i] - base;
-    return CSRRowBlockView<T, sint_t>{std::move(rebased), A.vals + base, A.colidxs + base, row_count, A.n_cols, block_nnz};
+        rebased[i] = A.rowptr[row_start + i] - offset;
+    return CSRRowBlockView<T, sint_t>{std::move(rebased), A.vals + offset, A.colidxs + offset, row_count, A.n_cols, block_nnz,
+                                      A.index_base};
 }
 
 template <typename T, typename sint_t = int64_t>
@@ -58,8 +60,10 @@ struct CSRColBlock {
     std::vector<sint_t> rowptr;
     std::vector<sint_t> colidxs;
     int64_t n_rows, n_cols, nnz;
+    RandBLAS::sparse_data::IndexBase index_base = RandBLAS::sparse_data::IndexBase::Zero;
     RandBLAS::sparse_data::CSRMatrix<T, sint_t> as_csr() {
-        return RandBLAS::sparse_data::CSRMatrix<T, sint_t>(n_rows, n_cols, nnz, vals.data(), rowptr.data(), colidxs.data());
+        return RandBLAS::sparse_data::CSRMatrix<T, sint_t>(n_rows, n_cols, nnz, vals.data(), rowptr.data(), colidxs.data(),
+                                                           index_base);
     }
 };
 
@@ -69,11 +73,13 @@ CSRColBlock<T, sint_t> csr_col_block(
     int64_t col_start, int64_t col_count
 ) {
     randlapack_require(col_start >= 0 && col_count > 0 && col_start + col_count <= A.n_cols) << "column range must satisfy col_start=" << col_start << " >= 0, col_count=" << col_count << " > 0, col_start+col_count <= A.n_cols=" << A.n_cols;
+    // The range is zero-based; the block keeps A's index base (subtracting col_start preserves it).
+    const int64_t ib = (A.index_base == RandBLAS::sparse_data::IndexBase::One) ? 1 : 0;
     int64_t col_end = col_start + col_count;
     std::vector<sint_t> rowptr(A.n_rows + 1, 0);
     for (int64_t i = 0; i < A.n_rows; ++i)
         for (sint_t k = A.rowptr[i]; k < A.rowptr[i + 1]; ++k)
-            if (A.colidxs[k] >= col_start && A.colidxs[k] < col_end) rowptr[i + 1]++;
+            if (A.colidxs[k] - ib >= col_start && A.colidxs[k] - ib < col_end) rowptr[i + 1]++;
     for (int64_t i = 0; i < A.n_rows; ++i) rowptr[i + 1] += rowptr[i];
     int64_t block_nnz = rowptr[A.n_rows];
     std::vector<T> vals(block_nnz);
@@ -81,13 +87,14 @@ CSRColBlock<T, sint_t> csr_col_block(
     for (int64_t i = 0; i < A.n_rows; ++i) {
         sint_t write_pos = rowptr[i];
         for (sint_t k = A.rowptr[i]; k < A.rowptr[i + 1]; ++k)
-            if (A.colidxs[k] >= col_start && A.colidxs[k] < col_end) {
+            if (A.colidxs[k] - ib >= col_start && A.colidxs[k] - ib < col_end) {
                 vals[write_pos] = A.vals[k];
                 colidxs[write_pos] = A.colidxs[k] - col_start;
                 write_pos++;
             }
     }
-    return CSRColBlock<T, sint_t>{std::move(vals), std::move(rowptr), std::move(colidxs), A.n_rows, col_count, block_nnz};
+    return CSRColBlock<T, sint_t>{std::move(vals), std::move(rowptr), std::move(colidxs), A.n_rows, col_count, block_nnz,
+                                  A.index_base};
 }
 
 template <typename T, typename sint_t = int64_t>
@@ -96,8 +103,9 @@ struct CSCColBlockView {
     T* vals;
     sint_t* rowidxs;
     int64_t n_rows, n_cols, nnz;
+    RandBLAS::sparse_data::IndexBase index_base = RandBLAS::sparse_data::IndexBase::Zero;
     RandBLAS::sparse_data::CSCMatrix<T, sint_t> as_csc() {
-        return RandBLAS::sparse_data::CSCMatrix<T, sint_t>(n_rows, n_cols, nnz, vals, rowidxs, colptr.data());
+        return RandBLAS::sparse_data::CSCMatrix<T, sint_t>(n_rows, n_cols, nnz, vals, rowidxs, colptr.data(), index_base);
     }
 };
 
@@ -107,12 +115,13 @@ CSCColBlockView<T, sint_t> csc_col_block(
     int64_t col_start, int64_t col_count
 ) {
     randlapack_require(col_start >= 0 && col_count > 0 && col_start + col_count <= A.n_cols) << "column range must satisfy col_start=" << col_start << " >= 0, col_count=" << col_count << " > 0, col_start+col_count <= A.n_cols=" << A.n_cols;
-    sint_t base = A.colptr[col_start];
-    int64_t block_nnz = A.colptr[col_start + col_count] - base;
+    sint_t offset = A.colptr[col_start];
+    int64_t block_nnz = A.colptr[col_start + col_count] - offset;
     std::vector<sint_t> rebased(col_count + 1);
     for (int64_t i = 0; i <= col_count; ++i)
-        rebased[i] = A.colptr[col_start + i] - base;
-    return CSCColBlockView<T, sint_t>{std::move(rebased), A.vals + base, A.rowidxs + base, A.n_rows, col_count, block_nnz};
+        rebased[i] = A.colptr[col_start + i] - offset;
+    return CSCColBlockView<T, sint_t>{std::move(rebased), A.vals + offset, A.rowidxs + offset, A.n_rows, col_count, block_nnz,
+                                      A.index_base};
 }
 
 template <typename T, typename sint_t = int64_t>
@@ -121,8 +130,10 @@ struct CSCRowBlock {
     std::vector<sint_t> colptr;
     std::vector<sint_t> rowidxs;
     int64_t n_rows, n_cols, nnz;
+    RandBLAS::sparse_data::IndexBase index_base = RandBLAS::sparse_data::IndexBase::Zero;
     RandBLAS::sparse_data::CSCMatrix<T, sint_t> as_csc() {
-        return RandBLAS::sparse_data::CSCMatrix<T, sint_t>(n_rows, n_cols, nnz, vals.data(), rowidxs.data(), colptr.data());
+        return RandBLAS::sparse_data::CSCMatrix<T, sint_t>(n_rows, n_cols, nnz, vals.data(), rowidxs.data(), colptr.data(),
+                                                           index_base);
     }
 };
 
@@ -132,11 +143,13 @@ CSCRowBlock<T, sint_t> csc_row_block(
     int64_t row_start, int64_t row_count
 ) {
     randlapack_require(row_start >= 0 && row_count > 0 && row_start + row_count <= A.n_rows) << "row range must satisfy row_start=" << row_start << " >= 0, row_count=" << row_count << " > 0, row_start+row_count <= A.n_rows=" << A.n_rows;
+    // The range is zero-based; the block keeps A's index base (subtracting row_start preserves it).
+    const int64_t ib = (A.index_base == RandBLAS::sparse_data::IndexBase::One) ? 1 : 0;
     int64_t row_end = row_start + row_count;
     std::vector<sint_t> colptr(A.n_cols + 1, 0);
     for (int64_t j = 0; j < A.n_cols; ++j)
         for (sint_t k = A.colptr[j]; k < A.colptr[j + 1]; ++k)
-            if (A.rowidxs[k] >= row_start && A.rowidxs[k] < row_end) colptr[j + 1]++;
+            if (A.rowidxs[k] - ib >= row_start && A.rowidxs[k] - ib < row_end) colptr[j + 1]++;
     for (int64_t j = 0; j < A.n_cols; ++j) colptr[j + 1] += colptr[j];
     int64_t block_nnz = colptr[A.n_cols];
     std::vector<T> vals(block_nnz);
@@ -144,13 +157,14 @@ CSCRowBlock<T, sint_t> csc_row_block(
     for (int64_t j = 0; j < A.n_cols; ++j) {
         sint_t write_pos = colptr[j];
         for (sint_t k = A.colptr[j]; k < A.colptr[j + 1]; ++k)
-            if (A.rowidxs[k] >= row_start && A.rowidxs[k] < row_end) {
+            if (A.rowidxs[k] - ib >= row_start && A.rowidxs[k] - ib < row_end) {
                 vals[write_pos] = A.vals[k];
                 rowidxs[write_pos] = A.rowidxs[k] - row_start;
                 write_pos++;
             }
     }
-    return CSCRowBlock<T, sint_t>{std::move(vals), std::move(colptr), std::move(rowidxs), row_count, A.n_cols, block_nnz};
+    return CSCRowBlock<T, sint_t>{std::move(vals), std::move(colptr), std::move(rowidxs), row_count, A.n_cols, block_nnz,
+                                  A.index_base};
 }
 
 /// Split a CSR matrix into num_blocks equal-sized row blocks.
