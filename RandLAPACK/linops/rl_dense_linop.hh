@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: DenseLinOp — linear operator backed by a dense matrix buffer.
+// Public API: DenseLinOp, a linear operator backed by a dense matrix buffer.
 
 #include "rl_exceptions.hh"
 #include "rl_concepts.hh"
@@ -27,6 +27,7 @@ namespace RandLAPACK::linops {
 /// - Both ColMajor and RowMajor memory layouts
 /// - Transpose operations (Op::NoTrans, Op::Trans)
 /// - Dense-dense and dense-sparse multiplications
+/// - Copies of its columns (materialize_cols, see HasMaterializeCols)
 ///
 /// The operator uses optimized BLAS routines (gemm) for dense operations and
 /// RandBLAS sparse BLAS routines (right_spmm, left_spmm) for sparse operations.
@@ -284,6 +285,26 @@ struct DenseLinOp {
 
             // Left sketch in RandBLAS terms: B = alpha * op(S) * op(A) + beta * B
             RandBLAS::sketch_general(layout, trans_S, trans_A, m, n, k, alpha, S, A_buff, lda, beta, C, ldc);
+        }
+    }
+
+    /// @brief Copy columns [col_start, col_start + col_count) of A into the column-major buf
+    /// (ldb >= n_rows) with no product (see HasMaterializeCols): lacpy under ColMajor, a
+    /// layout-converting copy from row-major storage under RowMajor. Rows n_rows..ldb-1 of buf
+    /// are not written.
+    void materialize_cols(int64_t col_start, int64_t col_count, T* buf, int64_t ldb) const {
+        randlapack_require(col_start >= 0 && col_start <= n_cols
+                           && col_count >= 0 && col_count <= n_cols - col_start)
+            << "DenseLinOp::materialize_cols: col_start=" << col_start << ", col_count="
+            << col_count << " must select columns within [0, " << n_cols << ")";
+        randlapack_require(ldb >= n_rows) << "DenseLinOp::materialize_cols: ldb=" << ldb
+                                          << " must be >= n_rows=" << n_rows;
+        if (col_count == 0 || n_rows == 0) return;   // nothing to copy; A_buff may be null
+        if (buff_layout == Layout::ColMajor) {
+            lapack::lacpy(MatrixType::General, n_rows, col_count, A_buff + col_start * lda, lda, buf, ldb);
+        } else {
+            // A(i, j) sits at A_buff[i * lda + j].
+            RandBLAS::util::omatcopy(n_rows, col_count, A_buff + col_start, lda, 1, buf, 1, ldb);
         }
     }
 

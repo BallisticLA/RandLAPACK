@@ -666,28 +666,38 @@ TEST_F(TestCQRRTOLinops, default_sketch_nnz) {
 
 // On [A; mu I] with an A that has materialize_cols, the sketch and the test-mode Q read the
 // stack's columns, so A is applied only in the preconditioned Gram (n columns). R and Q equal
-// those of the same stack with a DenseLinOp top, whose products with identity columns are exact.
-TEST_F(TestCQRRTOLinops, materialize_cols_replaces_identity_products) {
+// those of the same stack with a concept-only top (products only), whose products with identity
+// columns are exact.
+template <typename T>
+static void check_cqrrto_materialize_cols_path() {
     namespace rll = RandLAPACK::linops;
     const int64_t m = 90, n = 20;
-    auto A_data = random_matrix(m, n, 47);
-    test_helpers::MaterializeColsProbe<double> probe{m, n, A_data.data()};
-    rll::DenseLinOp<double> dense(m, n, A_data.data(), m, Layout::ColMajor);
-    rll::ScaledIdentityLinOp<double> mu_I(n, 0.1);
-    rll::VStackLinOp<test_helpers::MaterializeColsProbe<double>, rll::ScaledIdentityLinOp<double>> A_hat(probe, mu_I);
-    rll::VStackLinOp<rll::DenseLinOp<double>, rll::ScaledIdentityLinOp<double>> A_dense(dense, mu_I);
-    A_hat.block_size = A_dense.block_size = 8;
-    std::vector<double> R(n * n, 0.0), R_dense(n * n, 0.0);
-    RandLAPACK::CQRRTO_linops<double> qr(false, 0.0, true), qr_dense(false, 0.0, true);
-    qr.block_size = qr_dense.block_size = 8;
-    RandBLAS::RNGState<> state(13), state_dense(13);
-    ASSERT_EQ(qr.call(A_hat, R.data(), n, 2.0, state), 0);
-    ASSERT_EQ(qr_dense.call(A_dense, R_dense.data(), n, 2.0, state_dense), 0);
+    auto A_data = random_matrix<T>(m, n, 47);
+    test_helpers::MaterializeColsProbe<T> probe{m, n, A_data.data()};
+    ConceptOnlyLinOp<T> products{m, n, A_data.data()};
+    rll::ScaledIdentityLinOp<T> mu_I(n, T(0.1));
+    rll::VStackLinOp<test_helpers::MaterializeColsProbe<T>, rll::ScaledIdentityLinOp<T>> A_hat(probe, mu_I);
+    rll::VStackLinOp<ConceptOnlyLinOp<T>, rll::ScaledIdentityLinOp<T>> A_prod(products, mu_I);
+    A_hat.block_size = A_prod.block_size = 8;
+    std::vector<T> R(n * n, T(0)), R_prod(n * n, T(0));
+    RandLAPACK::CQRRTO_linops<T> qr(false, T(0), true), qr_prod(false, T(0), true);
+    qr.block_size = qr_prod.block_size = 8;
+    RandBLAS::RNGState<> state(13), state_prod(13);
+    ASSERT_EQ(qr.call(A_hat, R.data(), n, T(2), state), 0);
+    ASSERT_EQ(qr_prod.call(A_prod, R_prod.data(), n, T(2), state_prod), 0);
     EXPECT_EQ(probe.product_cols, n);
     EXPECT_EQ(probe.direct_cols, 2 * n);
-    const double tol = 10 * std::numeric_limits<double>::epsilon();
-    EXPECT_LE(RandLAPACK::testing::rel_fro_error(R.data(), R_dense.data(), n * n), tol);
-    EXPECT_LE(RandLAPACK::testing::rel_fro_error(qr.Q, qr_dense.Q, (m + n) * n), tol);
+    const double tol = 10 * std::numeric_limits<T>::epsilon();
+    EXPECT_LE(RandLAPACK::testing::rel_fro_error(R.data(), R_prod.data(), n * n), tol);
+    EXPECT_LE(RandLAPACK::testing::rel_fro_error(qr.Q, qr_prod.Q, (m + n) * n), tol);
+}
+
+TEST_F(TestCQRRTOLinops, materialize_cols_replaces_identity_products) {
+    check_cqrrto_materialize_cols_path<double>();
+}
+
+TEST_F(TestCQRRTOLinops, materialize_cols_replaces_identity_products_float) {
+    check_cqrrto_materialize_cols_path<float>();
 }
 
 // The deprecated alias names the same class.
@@ -1293,32 +1303,60 @@ namespace {
 // With an operator that has materialize_cols, the unpreconditioned first Gram, sCholQR3_basic's
 // first product and the test-mode Q read its columns, so A is applied only in the preconditioned
 // passes (and in sCholQR3_basic's Q = A R1^{-1}): product_cols columns in all, direct_cols read.
-// R and Q equal those of a DenseLinOp on the same matrix, whose products with identity columns
-// are exact. Blocks of 8 over n = 20 end with a partial block.
-template <typename QR>
+// R and Q equal those of a concept-only operator on the same matrix (products only), whose
+// products with identity columns are exact. Blocks of 8 over n = 20 end with a partial block.
+template <typename T, template <typename> class QR>
 void check_materialize_cols_path(int64_t product_cols, int64_t direct_cols) {
     const int64_t m = 90, n = 20;
-    auto A_data = random_matrix(m, n, 43);
-    test_helpers::MaterializeColsProbe<double> probe{m, n, A_data.data()};
-    RandLAPACK::linops::DenseLinOp<double> dense(m, n, A_data.data(), m, Layout::ColMajor);
-    std::vector<double> R(n * n, 0.0), R_dense(n * n, 0.0);
-    QR qr(false, 0.0, /*test_mode=*/true), qr_dense(false, 0.0, /*test_mode=*/true);
-    if constexpr (requires { qr.block_size; }) qr.block_size = qr_dense.block_size = 8;
+    auto A_data = random_matrix<T>(m, n, 43);
+    test_helpers::MaterializeColsProbe<T> probe{m, n, A_data.data()};
+    ConceptOnlyLinOp<T> products{m, n, A_data.data()};
+    std::vector<T> R(n * n, T(0)), R_prod(n * n, T(0));
+    QR<T> qr(false, T(0), /*test_mode=*/true), qr_prod(false, T(0), /*test_mode=*/true);
+    if constexpr (requires { qr.block_size; }) qr.block_size = qr_prod.block_size = 8;
     ASSERT_EQ(qr.call(probe, R.data(), n), 0);
-    ASSERT_EQ(qr_dense.call(dense, R_dense.data(), n), 0);
+    ASSERT_EQ(qr_prod.call(products, R_prod.data(), n), 0);
     EXPECT_EQ(probe.product_cols, product_cols);
     EXPECT_EQ(probe.direct_cols, direct_cols);
-    const double tol = 10 * std::numeric_limits<double>::epsilon();
-    EXPECT_LE(RandLAPACK::testing::rel_fro_error(R.data(), R_dense.data(), n * n), tol);
-    EXPECT_LE(RandLAPACK::testing::rel_fro_error(qr.Q, qr_dense.Q, m * n), tol);
+    const double tol = 10 * std::numeric_limits<T>::epsilon();
+    EXPECT_LE(RandLAPACK::testing::rel_fro_error(R.data(), R_prod.data(), n * n), tol);
+    EXPECT_LE(RandLAPACK::testing::rel_fro_error(qr.Q, qr_prod.Q, m * n), tol);
+}
+
+template <typename T>
+void check_materialize_cols_paths() {
+    const int64_t n = 20;
+    check_materialize_cols_path<T, RandLAPACK::CholQR_linops>(0, 2 * n);
+    check_materialize_cols_path<T, RandLAPACK::CholQR2_linops>(n, 2 * n);
+    check_materialize_cols_path<T, RandLAPACK::sCholQR3_linops>(2 * n, 2 * n);
+    check_materialize_cols_path<T, RandLAPACK::sCholQR3_linops_basic>(n, n);
 }
 
 } // namespace
 
 TEST_F(TestCholQRFamilyDrivers, materialize_cols_replaces_identity_products) {
-    const int64_t n = 20;
-    check_materialize_cols_path<RandLAPACK::CholQR_linops<double>>(0, 2 * n);
-    check_materialize_cols_path<RandLAPACK::CholQR2_linops<double>>(n, 2 * n);
-    check_materialize_cols_path<RandLAPACK::sCholQR3_linops<double>>(2 * n, 2 * n);
-    check_materialize_cols_path<RandLAPACK::sCholQR3_linops_basic<double>>(n, n);
+    check_materialize_cols_paths<double>();
+}
+
+TEST_F(TestCholQRFamilyDrivers, materialize_cols_replaces_identity_products_float) {
+    check_materialize_cols_paths<float>();
+}
+
+// A RowMajor DenseLinOp has materialize_cols, but the drivers' products are ColMajor: CholQR
+// copies its first Gram block and throws at the product that follows, and CQRRTO_linops on
+// [A; mu I] sketches the stack by copies and throws at its Gram.
+TEST_F(TestCholQRFamilyDrivers, rowmajor_dense_operator_throws) {
+    namespace rll = RandLAPACK::linops;
+    const int64_t m = 30, n = 6;
+    auto A_data = random_matrix<double>(m, n, 44);   // read as RowMajor m x n, lda = n
+    rll::DenseLinOp<double> A_row(m, n, A_data.data(), n, Layout::RowMajor);
+    std::vector<double> R(n * n, 0.0);
+    RandLAPACK::CholQR_linops<double> chol(false, 0.0);
+    EXPECT_THROW(chol.call(A_row, R.data(), n), RandLAPACK::Error);
+    rll::ScaledIdentityLinOp<double> mu_I(n, 0.1);
+    rll::VStackLinOp<rll::DenseLinOp<double>, rll::ScaledIdentityLinOp<double>> A_hat(A_row, mu_I);
+    std::vector<double> R_hat(n * n, 0.0);
+    RandLAPACK::CQRRTO_linops<double> cqrrto(false, 0.0);
+    RandBLAS::RNGState<> state(3);
+    EXPECT_THROW(cqrrto.call(A_hat, R_hat.data(), n, 2.0, state), RandLAPACK::Error);
 }
