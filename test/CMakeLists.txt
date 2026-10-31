@@ -25,9 +25,11 @@ if (GTest_FOUND)
         comps/test_qb.cc
         comps/test_preconditioners.cc
         comps/test_rf.cc
+        comps/test_cholqr.cc
         comps/test_syrf.cc
         comps/test_rpchol.cc
         comps/test_bk.cc
+        comps/test_restarted_pcg_ne.cc
         drivers/test_krill.cc
         drivers/test_rsvd.cc
         drivers/test_rsvd_linop.cc
@@ -40,6 +42,8 @@ if (GTest_FOUND)
         drivers/test_abrik_projector.cc
         drivers/test_orth_linop.cc
         drivers/test_lsqr_blendenpik.cc
+        drivers/test_iter_refine_lsq.cc
+        drivers/test_refined_blendenpik.cc
         misc/test_config.cc
         misc/test_util.cc
         misc/test_pdkernels.cc
@@ -54,10 +58,15 @@ if (GTest_FOUND)
         misc/test_gen.cc
         misc/test_matrix_io.cc
         misc/test_memory_tracker.cc
+        misc/test_bench_common.cc
         linops/test_linop_block_views.cc
         misc/test_instantiations.cc
     )
     
+    # Benchmark helpers tested here live in benchmark/, outside the library.
+    set_source_files_properties(drivers/test_refined_blendenpik.cc misc/test_bench_common.cc
+        PROPERTIES INCLUDE_DIRECTORIES "${PROJECT_SOURCE_DIR}/benchmark/bench_CQRRTO_linops")
+
     # Create non-CUDA test executable
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
     target_link_libraries(RandLAPACK_tests RandLAPACK GTest::GTest GTest::Main)

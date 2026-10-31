@@ -127,10 +127,12 @@ cmake ... -DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_LIB_NAMES=omp \
 ## Thread caps in the iterative least-squares solvers
 
 When RandBLAS is built with MKL support (`RandBLAS_HAS_MKL`), the iterative
-least-squares solvers (`lsqr`, `Blendenpik_linops`) cap MKL's thread count
-around their single-vector triangular solves: 8 threads for factors of order
-up to 4000, 16 above, never more than the caller's own width. Two environment
-variables, read once per process, adjust this:
+least-squares solvers (`lsqr`, `Blendenpik_linops`, `restarted_pcg_ne`,
+`IterRefineLSQ`) cap MKL's thread count around their single-vector triangular
+solves: 8 threads for factors of order up to 4000, 16 above, never more than
+the caller's own width. A backward-error oracle passed to `restarted_pcg_ne`
+or `IterRefineLSQ` runs under the same cap. Two environment variables, read
+once per process, adjust this:
 
 - `RANDLAPACK_BLAS2_THREADS=k` replaces the calibrated cap with `k`; `k <= 0`
   disables it.

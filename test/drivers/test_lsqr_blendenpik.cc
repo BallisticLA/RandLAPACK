@@ -6,49 +6,22 @@
 #include <RandLAPACK.hh>
 #include <gtest/gtest.h>
 
+#include "../lsq_test_helpers.hh"
+
 #include <cmath>
 #include <limits>
 #include <vector>
 
 using RandLAPACK::linops::DenseLinOp;
 using blas::Layout;
+using lsq_test::make_problem;
+using lsq_test::gels_reference;
+using lsq_test::rel_err;
 
 
 class TestLSQRBlendenpik : public ::testing::Test {
 protected:
-    using RNG = r123::Philox4x32;
-
-    // Random m x n matrix (column-major) plus a right-hand side, via RandBLAS.
-    template <typename T>
-    static void make_problem(int64_t m, int64_t n, uint32_t seed,
-                             std::vector<T>& A, std::vector<T>& b, std::vector<T>& x_true) {
-        A.resize(m * n); b.resize(m); x_true.resize(n);
-        RandBLAS::RNGState<RNG> state(seed);
-        RandBLAS::DenseDist DA(m, n);
-        auto s2 = RandBLAS::fill_dense(DA, A.data(), state);
-        RandBLAS::DenseDist DX(n, 1);
-        RandBLAS::fill_dense(DX, x_true.data(), s2);
-        // Well-conditioned: push the diagonal up so the columns are not near-dependent.
-        for (int64_t j = 0; j < n; ++j) A[j + j * m] += (T)n;
-        blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                   m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
-    }
-
-    // LAPACK reference solution (gels destroys its inputs, so pass copies).
-    template <typename T>
-    static std::vector<T> gels_reference(const std::vector<T>& A, const std::vector<T>& b,
-                                         int64_t m, int64_t n) {
-        std::vector<T> Ac(A), bc(b);
-        lapack::gels(blas::Op::NoTrans, m, n, 1, Ac.data(), m, bc.data(), m);
-        return std::vector<T>(bc.begin(), bc.begin() + n);
-    }
-
-    template <typename T>
-    static T rel_err(const std::vector<T>& x, const std::vector<T>& ref) {
-        T num = 0;
-        for (size_t i = 0; i < ref.size(); ++i) { T d = x[i] - ref[i]; num += d * d; }
-        return std::sqrt(num) / blas::nrm2((int64_t)ref.size(), ref.data(), 1);
-    }
+    using RNG = lsq_test::RNG;
 };
 
 
@@ -83,10 +56,7 @@ TEST_F(TestLSQRBlendenpik, lsqr_preconditioned_converges_fast) {
     make_problem(m, n, 13, A, b, x_true);
     auto x_ref = gels_reference(A, b, m, n);
 
-    // R = upper-triangular factor of QR(A).
-    std::vector<T> Ac(A), tau(n), R(n * n, 0);
-    lapack::geqrf(m, n, Ac.data(), m, tau.data());
-    lapack::lacpy(lapack::MatrixType::Upper, n, n, Ac.data(), m, R.data(), n);
+    auto R = lsq_test::qr_r_factor(A.data(), m, n);
 
     DenseLinOp<T> Aop(m, n, A.data(), m, Layout::ColMajor);
     std::vector<T> x(n, 0);
