@@ -208,3 +208,6 @@ needed.
 This pattern applies more broadly: whenever a mathematical operation can be
 expressed as a reinterpretation of existing data rather than a transformation,
 prefer the reinterpretation.
+
+The library-wide rules for memory ownership, workspace, configuration and errors are in
+[docs/CONVENTIONS.md](../docs/CONVENTIONS.md).
