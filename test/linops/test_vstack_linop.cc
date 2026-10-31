@@ -175,10 +175,10 @@ TEST_F(TestVStackLinOp, augmented_gram_is_regularized) {
     check_regularized_gram(R, A, m, n, mu, 1e-10);
 }
 
-// CQRRT_linops handed A_hat = [A; mu*I] directly: it sketches A_hat through VStackLinOp's
+// CQRRTO_linops handed A_hat = [A; mu*I] directly: it sketches A_hat through VStackLinOp's
 // blocked sketch overload and forms its Gram, so R^T R = A^T A + mu^2 I.
 // (block_size < n exercises the blocking.)
-TEST_F(TestVStackLinOp, cqrrt_linops_augmented_gram) {
+TEST_F(TestVStackLinOp, cqrrto_linops_augmented_gram) {
     int64_t m = 90, n = 20;
     double mu = 1e-2;
     vector<double> A(m * n);
@@ -191,8 +191,8 @@ TEST_F(TestVStackLinOp, cqrrt_linops_augmented_gram) {
     A_hat.block_size = 8;
 
     vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> qr(/*timing=*/false,
-                                        std::pow(std::numeric_limits<double>::epsilon(), 0.85));
+    RandLAPACK::CQRRTO_linops<double> qr(/*timing=*/false,
+                                         std::pow(std::numeric_limits<double>::epsilon(), 0.85));
     qr.nnz = 4;
     int status = qr.call(A_hat, R.data(), n, /*d_factor=*/2.0, state);
     ASSERT_EQ(status, 0);
@@ -202,17 +202,23 @@ TEST_F(TestVStackLinOp, cqrrt_linops_augmented_gram) {
 
 
 // The blocked sketch overload must equal sketching the explicit stacked matrix, for sparse
-// and dense sketches, with a partial last block and beta != 0.
+// and dense sketches, with a partial last block and beta != 0; the top block is a DenseLinOp
+// stored ColMajor, then RowMajor with a padded lda whose padding (NaN) must not be read.
 TEST_F(TestVStackLinOp, sketch_matches_explicit_stack) {
     int64_t mt = 23, n = 11, d = 9;
     double mu = 0.3, alpha = 1.5, beta = -0.5;
     vector<double> A(mt * n);
     RNGState<> state(99);
     state = RandBLAS::fill_dense(RandBLAS::DenseDist(mt, n), A.data(), state);
+    const int64_t lda_row = n + 3;
+    vector<double> A_row(mt * lda_row, std::numeric_limits<double>::quiet_NaN());
+    for (int64_t i = 0; i < mt; ++i)
+        for (int64_t j = 0; j < n; ++j) A_row[i * lda_row + j] = A[i + j * mt];
     rl::DenseLinOp<double> A_op(mt, n, A.data(), mt, Layout::ColMajor);
+    rl::DenseLinOp<double> A_row_op(mt, n, A_row.data(), lda_row, Layout::RowMajor);
     rl::ScaledIdentityLinOp<double> mu_op(n, mu);
-    rl::VStackLinOp<rl::DenseLinOp<double>, rl::ScaledIdentityLinOp<double>> A_hat(A_op, mu_op);
-    A_hat.block_size = 4;
+    rl::VStackLinOp<rl::DenseLinOp<double>, rl::ScaledIdentityLinOp<double>> A_hat(A_op, mu_op), A_hat_row(A_row_op, mu_op);
+    A_hat.block_size = A_hat_row.block_size = 4;
 
     const int64_t mr = mt + n;
     vector<double> Ahat_explicit(mr * n, 0.0);
@@ -224,19 +230,21 @@ TEST_F(TestVStackLinOp, sketch_matches_explicit_stack) {
     vector<double> C0(ldc * n);
     state = RandBLAS::fill_dense(RandBLAS::DenseDist(ldc, n), C0.data(), state);
 
-    auto check = [&](auto& S, auto& S_ref) {
+    auto check = [&](auto& stack, auto& S, auto& S_ref) {
         vector<double> C = C0, C_ref = C0;
-        A_hat(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, mr, alpha, S, beta, C.data(), ldc);
+        stack(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, mr, alpha, S, beta, C.data(), ldc);
         RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, mr,
                                  alpha, S_ref, Ahat_explicit.data(), mr, beta, C_ref.data(), ldc);
         ASSERT_LE(rel_fro_error(C.data(), C_ref.data(), ldc * n), 1e-12);
     };
-    RandBLAS::SparseDist SD(d, mr, 3);
-    RandBLAS::SparseSkOp<double> S_sp(SD, RNGState<>(5)), S_sp_ref(SD, RNGState<>(5));
-    check(S_sp, S_sp_ref);
-    RandBLAS::DenseDist DD(d, mr);
-    RandBLAS::DenseSkOp<double> S_de(DD, RNGState<>(6)), S_de_ref(DD, RNGState<>(6));
-    check(S_de, S_de_ref);
+    for (auto* stack : {&A_hat, &A_hat_row}) {
+        RandBLAS::SparseDist SD(d, mr, 3);
+        RandBLAS::SparseSkOp<double> S_sp(SD, RNGState<>(5)), S_sp_ref(SD, RNGState<>(5));
+        check(*stack, S_sp, S_sp_ref);
+        RandBLAS::DenseDist DD(d, mr);
+        RandBLAS::DenseSkOp<double> S_de(DD, RNGState<>(6)), S_de_ref(DD, RNGState<>(6));
+        check(*stack, S_de, S_de_ref);
+    }
 }
 
 // materialize_cols of mu*I writes exact columns at any offset and width, leaves the padding
@@ -279,7 +287,7 @@ TEST_F(TestVStackLinOp, materialize_cols_forwards_to_both_blocks) {
     using SI = rl::ScaledIdentityLinOp<double>;
     rl::VStackLinOp<Probe, SI> A_hat(top, bot);
     static_assert(rl::HasMaterializeCols<rl::VStackLinOp<Probe, SI>>);
-    static_assert(!rl::HasMaterializeCols<rl::VStackLinOp<rl::DenseLinOp<double>, SI>>);
+    static_assert(rl::HasMaterializeCols<rl::VStackLinOp<rl::DenseLinOp<double>, SI>>);
     static_assert(!rl::HasMaterializeCols<rl::VStackLinOp<test_helpers::ConceptOnlyLinOp<double>, SI>>);
 
     const int64_t c0 = 3, cnt = 5;

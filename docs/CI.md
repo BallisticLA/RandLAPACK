@@ -19,7 +19,7 @@ installer one.
 | core-linux | `build` | ubuntu-latest | Release build + tests, extras build + tests, benchmark compile (OpenBLAS) | **yes** (`build`) |
 | core-linux | `build-asan` | ubuntu-latest | Debug + AddressSanitizer build and test run | no |
 | core-macos | `build` | macos-latest | same as Linux `build`, on Apple's toolchain (Accelerate new interface, ILP64, no OpenMP) | **yes** (`build`) |
-| core-macos | `build-asan` | macos-latest | Debug + AddressSanitizer build and test run | no |
+| core-macos | `build-asan` | macos-latest | Debug + AddressSanitizer build and test run, with `detect_container_overflow=0` (Homebrew's GoogleTest is not built with ASan, which makes libc++'s container checks report false overflows) | no |
 | core-windows | `windows-toolchain-guards` | windows-2022 | Architecture-guard decision table, plus assertions that `install.ps1` *refuses* a real x86 and a cross-compiled arm64 toolchain, launched exactly as the docs prescribe | no |
 | core-windows | `build-windows` | windows-2022 | MSVC build + tests: oneMKL ILP64 serial, oneMKL ILP64 OpenMP (`/openmp:llvm`), OpenBLAS LP64 serial ("serial" = RandLAPACK's own loops; the BLAS backend is multithreaded in every leg); each leg ends with a stripped-PATH run of a staged test executable | no |
 | core-windows | `windows-spaced-path` | windows-2022 | oneMKL ILP64 copied under `Program Files (x86)\Intel\oneAPI\mkl\latest`, once through `-Backend mkl -MklRoot` and once through `-Backend custom`: fresh BLAS++/LAPACK++ builds whose exported config must name that spaced path, then the test suite | no |
@@ -259,7 +259,9 @@ installer one.
 - **No lane builds the extras against MKL.** The extras `ToeplitzLinOp` and
   its test need MKL's FFT and are built only when RandBLAS has MKL support;
   core-linux's extras build uses OpenBLAS and skips them, and the Windows
-  MKL legs build core only. Run that test locally.
+  MKL legs build core only. The same holds for
+  `benchmark/bench_toeplitz_ls`, which the benchmark builds skip without
+  MKL. Run that test and compile that benchmark locally.
 
 ## Caches
 

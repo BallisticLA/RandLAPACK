@@ -176,13 +176,14 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 // ============================================================================
 
 /// Materialize a linear operator into a dense column-major matrix via
-/// RandLAPACK::materialize, which dispatches on the operator type. DenseLinOp,
-/// SparseLinOp and CompositeOperator materialize directly from their storage;
-/// anything else goes through the generic fallback, A_dense = A_linop * I.
+/// RandLAPACK::materialize, which dispatches on the operator type. SparseLinOp and
+/// CompositeOperator materialize directly from their storage, and an operator that
+/// provides materialize_cols (DenseLinOp among them) through it; anything else goes
+/// through the generic fallback, A_dense = A_linop * I.
 ///
-/// WARNING: the generic fallback materializes through operator(), so for such
-/// types this function cannot be used to test operator() itself (circular
-/// reasoning); use it only where operator() is assumed correct.
+/// WARNING: the generic fallback materializes through operator(), so for the
+/// types that take it this function cannot be used to test operator() itself
+/// (circular reasoning); use it only where operator() is assumed correct.
 template <typename T, typename LinOp>
 void materialize_linop(LinOp& A_linop, T* A_dense) {
     int64_t m = A_linop.n_rows;
@@ -230,7 +231,7 @@ double rel_fro_error(const T* a, const T* b, int64_t n) {
 template <typename T>
 ::std::pair<T, T> verify_qr(const T* A, const T* Q, const T* R,
                               int64_t m, int64_t n, int64_t ldr) {
-    // ||A - Q*R|| / ||A||  — residual = Q*R - A via gemm with beta=-1 on A copy.
+    // ||A - Q*R|| / ||A||: residual = Q*R - A via gemm with beta=-1 on A copy.
     T* residual = new T[m * n];
     ::lapack::lacpy(::lapack::MatrixType::General, m, n, A, m, residual, m);
     ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans,
@@ -272,7 +273,7 @@ template <typename T>
 ///   ||Q^T Q - I||_F / sqrt(n)
 ///
 /// Cost: O(mn^2) via syrk (exploits symmetry of Q^T Q).
-/// This is the same metric reported by verify_qr, but standalone —
+/// This is the same metric reported by verify_qr, but standalone:
 /// no A or R required.
 template <typename T>
 T orthogonality_error(const T* Q, int64_t m, int64_t n) {
@@ -294,7 +295,7 @@ T orthogonality_error(const T* Q, int64_t m, int64_t n) {
 /// Useful for benchmarks that need to characterize partial orthogonality
 /// failure (e.g. when CholQR breaks down partway through).
 ///
-/// Cost: O(mn^2) — computes G = Q^T Q once via syrk, then incrementally
+/// Cost: O(mn^2): computes G = Q^T Q once via syrk, then incrementally
 /// checks ||G[1:k,1:k] - I_k||_F for each prefix k using the identity
 ///   ||G[1:k,1:k] - I_k||^2 = ||G[1:k-1,1:k-1] - I_{k-1}||^2
 ///                            + (G[k,k]-1)^2 + 2*sum_{j<k} G[j,k]^2

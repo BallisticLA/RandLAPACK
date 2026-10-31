@@ -1,5 +1,5 @@
 // Unit tests for block view functionality:
-//   - DenseLinOp::row_block, col_block, submatrix
+//   - DenseLinOp::row_block, col_block, submatrix, materialize_cols
 //   - CSRRowBlockView / csr_row_block / csr_split_row_blocks
 //   - CSCColBlockView / csc_col_block / csc_split_col_blocks
 //   - CSRColBlock / csr_col_block / csr_split_col_blocks (cross-direction)
@@ -15,6 +15,9 @@
 #include <lapack.hh>
 #include <RandBLAS/testing/comparison.hh>
 #include "../../RandLAPACK/testing/rl_test_utils.hh"
+#include <cmath>
+#include <limits>
+#include <utility>
 
 using std::vector;
 using blas::Layout;
@@ -207,7 +210,64 @@ protected:
             __RANDBLAS_PRETTY_FUNCTION__, __FILE__, __LINE__
         ), "");
     }
+
+    /// Test DenseLinOp::materialize_cols (and materialize, which calls it), with padded lda and
+    /// ldb, at several column ranges. On the finite, normal-valued data used here it equals the
+    /// product with identity columns, entry for entry. With -0.0, Inf and NaN stored it reproduces every entry as
+    /// stored, which a product with identity columns need not. The padding rows of buf and its
+    /// columns past col_count stay untouched.
+    template <typename T>
+    void test_materialize_cols(Layout layout, int64_t m, int64_t n) {
+        const bool col = (layout == Layout::ColMajor);
+        const int64_t lda = col ? m + 3 : n + 2;
+        const int64_t ldb = m + 2;
+        const T pad = (T)-42;
+        vector<T> A(col ? lda * n : m * lda);
+        RandBLAS::fill_dense(DenseDist((int64_t)A.size(), 1), A.data(), RNGState(7));
+        auto at = [&](int64_t i, int64_t j) { return col ? i + j * lda : i * lda + j; };
+        RandLAPACK::linops::DenseLinOp<T> A_mut(m, n, A.data(), lda, layout);
+        const auto& A_op = A_mut;
+
+        {   // Finite data: the copy equals A times the identity.
+            vector<T> eye(n * n, (T)0), prod(m * n), buf(ldb * n, pad);
+            for (int64_t j = 0; j < n; ++j) eye[j + j * n] = (T)1;
+            const int64_t ldp = col ? m : n;
+            A_mut(layout, Op::NoTrans, Op::NoTrans, m, n, n, (T)1, eye.data(), n, (T)0, prod.data(), ldp);
+            A_op.materialize_cols(0, n, buf.data(), ldb);
+            for (int64_t j = 0; j < n; ++j)
+                for (int64_t i = 0; i < m; ++i)
+                    ASSERT_EQ(buf[i + j * ldb], prod[col ? i + j * ldp : i * ldp + j]) << i << "," << j;
+        }
+
+        A[at(0, 1)]         = -(T)0;
+        A[at(2, 3)]         = std::numeric_limits<T>::infinity();
+        A[at(m - 1, n - 1)] = std::numeric_limits<T>::quiet_NaN();
+        auto same = [](T x, T y) {
+            return (std::isnan(x) && std::isnan(y)) || (x == y && std::signbit(x) == std::signbit(y));
+        };
+        for (auto [c0, cnt] : {std::pair<int64_t, int64_t>{0, n}, {2, 3}, {n - 2, 2}, {4, 0}, {n, 0}}) {
+            vector<T> buf(ldb * n, pad);
+            A_op.materialize_cols(c0, cnt, buf.data(), ldb);
+            for (int64_t j = 0; j < n; ++j)
+                for (int64_t i = 0; i < ldb; ++i) {
+                    const T got = buf[i + j * ldb];
+                    if (j < cnt && i < m)
+                        ASSERT_TRUE(same(got, A[at(i, c0 + j)])) << "cols " << c0 << "+" << cnt << " at " << i << "," << j;
+                    else
+                        ASSERT_EQ(got, pad) << "cols " << c0 << "+" << cnt << " wrote " << i << "," << j;
+                }
+        }
+
+        vector<T> full(ldb * n, pad);
+        RandLAPACK::materialize(A_mut, m, n, full.data(), ldb);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i < ldb; ++i)
+                ASSERT_TRUE(i < m ? same(full[i + j * ldb], A[at(i, j)]) : full[i + j * ldb] == pad) << i << "," << j;
+    }
 };
+
+static_assert(RandLAPACK::linops::HasMaterializeCols<RandLAPACK::linops::DenseLinOp<double>>);
+static_assert(RandLAPACK::linops::HasMaterializeCols<const RandLAPACK::linops::DenseLinOp<float>>);
 
 // DenseLinOp::row_block tests
 TEST_F(TestDenseBlockViews, row_block_colmajor) {
@@ -254,6 +314,51 @@ TEST_F(TestDenseBlockViews, submatrix_rowmajor) {
 
 TEST_F(TestDenseBlockViews, submatrix_colmajor_corner) {
     test_submatrix<double>(Layout::ColMajor, 20, 18, 0, 0, 10, 9, 5);
+}
+
+// DenseLinOp::materialize_cols tests
+TEST_F(TestDenseBlockViews, materialize_cols_colmajor) {
+    test_materialize_cols<double>(Layout::ColMajor, 11, 7);
+}
+
+TEST_F(TestDenseBlockViews, materialize_cols_rowmajor) {
+    test_materialize_cols<double>(Layout::RowMajor, 11, 7);
+}
+
+TEST_F(TestDenseBlockViews, materialize_cols_rowmajor_float) {
+    test_materialize_cols<float>(Layout::RowMajor, 11, 7);
+}
+
+TEST_F(TestDenseBlockViews, materialize_cols_invalid_arguments) {
+    const int64_t m = 6, n = 4;
+    vector<double> A(m * n, 1.0), buf(m * n, -42.0);
+    const RandLAPACK::linops::DenseLinOp<double> A_col(m, n, A.data(), m, Layout::ColMajor);
+    const RandLAPACK::linops::DenseLinOp<double> A_row(m, n, A.data(), n, Layout::RowMajor);
+    for (const auto* op : {&A_col, &A_row}) {
+        EXPECT_THROW(op->materialize_cols(-1, 2, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op->materialize_cols(0, -1, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op->materialize_cols(n + 1, 0, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op->materialize_cols(n - 1, 2, buf.data(), m), RandLAPACK::Error);
+        // ldb is checked against n_rows in both layouts (buf is column-major), m - 1 >= n here.
+        EXPECT_THROW(op->materialize_cols(0, 1, buf.data(), m - 1), RandLAPACK::Error);
+        // The range check cannot overflow: start + count is never formed.
+        const int64_t big = std::numeric_limits<int64_t>::max();
+        EXPECT_THROW(op->materialize_cols(big, 1, buf.data(), m), RandLAPACK::Error);
+        EXPECT_THROW(op->materialize_cols(1, big, buf.data(), m), RandLAPACK::Error);
+    }
+    for (double v : buf) ASSERT_EQ(v, -42.0);   // every failed call stopped before the copy
+}
+
+TEST_F(TestDenseBlockViews, materialize_cols_zero_rows) {
+    // An operator with no rows needs no storage: a valid range reads and writes nothing.
+    const int64_t n = 4;
+    const RandLAPACK::linops::DenseLinOp<double> E_col(0, n, nullptr, 1, Layout::ColMajor);
+    const RandLAPACK::linops::DenseLinOp<double> E_row(0, n, nullptr, n, Layout::RowMajor);
+    for (const auto* op : {&E_col, &E_row}) {
+        op->materialize_cols(1, 2, nullptr, 0);
+        op->materialize_cols(0, n, nullptr, 0);
+        EXPECT_THROW(op->materialize_cols(n - 1, 2, nullptr, 0), RandLAPACK::Error);
+    }
 }
 
 
@@ -1471,7 +1576,7 @@ protected:
         // L (m x p), R (p x n)
         vector<T> L_data = generate_dense_matrix<T>(m, p, layout, state);
         vector<T> R_data = generate_dense_matrix<T>(p, n, layout, state);
-        // B (col_count x k) — matches submatrix column dimension
+        // B (col_count x k), matching the submatrix column dimension
         vector<T> B(col_count * k);
         { RNGState s2(99); DenseDist D(col_count, k); RandBLAS::fill_dense(D, B.data(), s2); }
 

@@ -36,14 +36,17 @@ FetchContent. Some benchmarks also borrow headers from `extras/`.
 ## Running
 
 - The sources are grouped by driver: `bench_BQRRP/`, `bench_CQRRPT/`,
-  `bench_ABRIK/`, `bench_CQRRT_linops/`, and `bench_general/`. The
-  executables land flat in the build directory.
+  `bench_ABRIK/`, `bench_CQRRTO_linops/` (Q-less QR and least squares on a
+  FEM problem), `bench_toeplitz_ls/` (least squares on a matrix-free Toeplitz
+  operator; built only when RandBLAS has MKL support), and `bench_general/`.
+  The executables land flat in the build directory.
 - The driver benchmarks print their usage when run without arguments. Most
   write their results as text files into an output directory given on the
   command line. Create it first, and end its name with `/` (for example
   `results/`): several drivers append the file name to it directly.
-- The ABRIK drivers copy the environment variable `RANDLAPACK_GIT_COMMIT`
-  into the header of every CSV file they write (`unknown` when it is unset).
+- The ABRIK, `bench_CQRRTO_linops/` and `bench_toeplitz_ls/` drivers copy the
+  environment variable `RANDLAPACK_GIT_COMMIT` into the header of every CSV
+  file they write (`unknown` when it is unset).
   Export the commit you built from, so that each result file names its build.
 - CI compiles the benchmarks on Linux and macOS (in the core build jobs and
   the default installer lanes) but never runs them. Run them on quiet,

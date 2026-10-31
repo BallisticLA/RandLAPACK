@@ -5,6 +5,7 @@
 #include <math.h>
 #include <lapack.hh>
 #include <RandBLAS/testing/comparison.hh>
+#include "../test_helpers.hh"
 
 
 using std::vector;
@@ -116,7 +117,7 @@ TEST_F(TestSpectralPrecondLinearOperator, test_diag_n5_k4) {
 namespace {
 struct IdentityFallbackProbeOp {
     using scalar_t = double;
-    void operator()(blas::Side, Layout, Op, Op,
+    void operator()(Layout, Op, Op,
                     int64_t, int64_t, int64_t, double,
                     const double*, int64_t, double,
                     double*, int64_t) {}
@@ -172,6 +173,27 @@ TEST(TestMaterializeComposite, matches_reference_product) {
         for (int64_t i = m; i < ldb; ++i)
             ASSERT_EQ(buf[i + j * ldb], -42.0) << "materialize wrote past column height";
     }
+}
+
+// An operator with materialize_cols is materialized through it: no product, no identity and no
+// cap (wider than the generic fallback allows), and the padding rows of buf are left alone.
+TEST(TestMaterializeCols, operator_with_materialize_cols) {
+    const int64_t m = 3, n = RandLAPACK::MATERIALIZE_IDENTITY_MAX_DIM + 1, ldb = m + 1;
+    vector<double> A(m * n);
+    for (int64_t i = 0; i < m * n; ++i) A[i] = (double)(i % 13) - 6.0;
+    test_helpers::MaterializeColsProbe<double> probe{m, n, A.data()};
+    vector<double> buf(ldb * n, -42.0);
+    RandLAPACK::materialize(probe, m, n, buf.data(), ldb);
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < ldb; ++i)
+            ASSERT_EQ(buf[i + j * ldb], i < m ? A[i + j * m] : -42.0) << i << "," << j;
+    EXPECT_EQ(probe.product_cols, 0);
+    EXPECT_EQ(probe.direct_cols, n);
+    // Shape and ldb are checked before the hook runs (the probe checks neither).
+    EXPECT_THROW(RandLAPACK::materialize(probe, m + 1, n, buf.data(), ldb), RandLAPACK::Error);
+    EXPECT_THROW(RandLAPACK::materialize(probe, m, n - 1, buf.data(), ldb), RandLAPACK::Error);
+    EXPECT_THROW(RandLAPACK::materialize(probe, m, n, buf.data(), m - 1), RandLAPACK::Error);
+    EXPECT_EQ(probe.direct_cols, n);
 }
 
 TEST(TestMaterializeComposite, wide_composite_is_exempt_from_identity_cap) {

@@ -32,7 +32,7 @@ organized):
 |--------|-------------------|-----------|
 | `BQRRP` | Blocked QR with randomized column pivoting, any aspect ratio | [arXiv:2507.00976](https://arxiv.org/abs/2507.00976) |
 | `CQRRPT` | Sketch-based QR with column pivoting for tall matrices | [arXiv:2311.08316](https://arxiv.org/abs/2311.08316) |
-| `CQRRT` | Unpivoted QR of tall, full-rank matrices by sketch-preconditioned Cholesky QR; `CQRRT_linops` is its Q-less variant for linear operators | [arXiv:2111.11148](https://arxiv.org/abs/2111.11148) |
+| `CQRRT` | Unpivoted QR of tall, full-rank matrices by sketch-preconditioned Cholesky QR; `CQRRTO_linops` is its Q-less variant for linear operators | [arXiv:2111.11148](https://arxiv.org/abs/2111.11148) |
 | `Blendenpik_linops` | Tall least squares by sketch-and-precondition: LSQR preconditioned with the QR of a sparse sketch | [doi:10.1137/090767911](https://doi.org/10.1137/090767911) |
 | `RSVD` | Randomized low-rank SVD via the QB decomposition, of a dense matrix or any linear operator (sparse or implicit) | [arXiv:0909.4061](https://arxiv.org/abs/0909.4061) |
 | `REVD2` | Randomized low-rank eigendecomposition of symmetric positive semidefinite matrices | [arXiv:2110.02820](https://arxiv.org/abs/2110.02820) |
@@ -42,10 +42,14 @@ organized):
 
 - BQRRP and CQRRPT also have CUDA (GPU) implementations, `BQRRP_GPU` and
   `CQRRPT_GPU`.
-- `CholQR_linops` and `sCholQR3_linops` are deterministic Cholesky QR
-  baselines for linear operators, for comparison with `CQRRT_linops`.
-- `Blendenpik_linops` is built on `lsqr` (LSQR with an optional triangular
-  right preconditioner), which you can also call directly.
+- `CholQR_linops`, `CholQR2_linops`, `sCholQR3_linops` and
+  `sCholQR3_linops_basic` are deterministic Cholesky QR baselines for linear
+  operators, for comparison with `CQRRTO_linops`.
+- `IterRefineLSQ` solves tall least-squares problems by restarted conjugate
+  gradients on the normal equations, preconditioned with the triangular factor
+  of a Q-less QR such as `CQRRTO_linops`. It and Blendenpik are built on two
+  routines you can also call directly: `lsqr` (LSQR with an optional
+  triangular right preconditioner) and `restarted_pcg_ne`.
 - The drivers are assembled from smaller randomized building blocks that you
   can also use on their own: rangefinders, QB, block Krylov, row sketching,
   orthogonalization and stabilization routines, and randomly pivoted Cholesky
