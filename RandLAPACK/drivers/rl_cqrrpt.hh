@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rl_exceptions.hh"
+#include "rl_status.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -100,9 +101,14 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///     of the n-by-n block are zero. Not formed in orthogonalization mode.
         ///
         /// @param[out] J
-        ///     Stores k integer type pivot index entries.
+        ///     Stores n integer type pivot index entries. For a nonempty zero A (or a zero sketch of it),
+        ///     J = 1, ..., n and the rank is 0.
         ///
         /// @return = 0: successful exit
+        ///         = 1: the QRCP of a nonzero sketch left a zero on R_sk's diagonal within the estimated rank
+        ///              (BQRRP can, when its own sketch of the sketch underflows or overflows); rank is set to 0
+        ///         = 2: A holds an Inf or a NaN, or the sketch, its R factor or the Gram diagonal overflowed;
+        ///              rank is set to 0, and A, R and J hold intermediate values
         ///
 
         int call(
@@ -219,7 +225,8 @@ int CQRRPT<T, RNG>::call(
         saso_t_start = steady_clock::now();
 
     /// Generating a SASO
-    RandBLAS::SparseDist DS(d, m, this->nnz);
+    // Short-axis major, which the non-finite scan below relies on.
+    RandBLAS::SparseDist DS(d, m, this->nnz, RandBLAS::Axis::Short);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
     state = S.next_state;
 
@@ -228,6 +235,27 @@ int CQRRPT<T, RNG>::call(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
         d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
     );
+
+    // Report an Inf or NaN in A, or overflow in the sketch, before the QRCP, which can stop early, and the zero test
+    // below. For d <= m every column of the short-axis-major S has nonzeros, so every entry of A reaches the sketch;
+    // for d > m a row of A can get no weight, so A is scanned too.
+    if (!RandLAPACK::util::all_finite(d, n, A_hat, d) || (d > m && !RandLAPACK::util::all_finite(m, n, A, lda))) {
+        this->rank = 0;
+        delete[] A_hat;
+        delete[] tau;
+        delete[] J_buf;
+        return 2;
+    }
+
+    // A zero sketch gives rank 0, decided on the sketch itself: BQRRP can leave R_sk zero for a nonzero sketch.
+    if (std::all_of(A_hat, A_hat + d * n, [](T x) { return x == (T) 0; })) {
+        this->rank = 0;
+        std::iota(J, J + n, (int64_t) 1);
+        delete[] A_hat;
+        delete[] tau;
+        delete[] J_buf;
+        return 0;
+    }
 
     if(this -> timing) {
         saso_t_stop = steady_clock::now();
@@ -258,13 +286,23 @@ int CQRRPT<T, RNG>::call(
         rank_reveal_t_start = steady_clock::now();
     }
 
-    // Check if the input is all zeros
+    // The QRCP can leave a non-finite diagonal in R_sk, for example when a column norm of a finite sketch exceeds
+    // the largest T.
+    if (!RandLAPACK::util::all_finite((int64_t) 1, std::min(d, n), A_hat, d + 1)) {
+        this->rank = 0;
+        delete[] A_hat;
+        delete[] tau;
+        delete[] J_buf;
+        return 2;
+    }
+
+    // The sketch is nonzero, so a zero R_sk(0, 0) means the QRCP failed.
     if (!A_hat[0]) {
         this->rank = 0;
         delete[] A_hat;
         delete[] tau;
         delete[] J_buf;
-        return 0;
+        return 1;
     }
 
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
@@ -300,6 +338,7 @@ int CQRRPT<T, RNG>::call(
 
     // A_pre * R_sp = AP
     if (!RandLAPACK::util::diag_is_nonzero(k, R_sp, ldr)) {
+        this->rank = 0;
         delete[] A_hat;
         delete[] tau;
         delete[] J_buf;
@@ -314,6 +353,17 @@ int CQRRPT<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A, lda, (T) 0.0, R_sp, ldr);
+    if (RL_TEST_FAULT("CQRRPT.gram_nan"))
+        R_sp[0] = std::numeric_limits<T>::quiet_NaN();
+    // A non-finite Gram diagonal (the preconditioned A overflowed) would make potrf fail or return a non-finite
+    // factor, and the rank cut below is only for finite, numerically rank-deficient data.
+    if (!RandLAPACK::util::all_finite((int64_t) 1, k, R_sp, ldr + 1)) {
+        this->rank = 0;
+        delete[] A_hat;
+        delete[] tau;
+        delete[] J_buf;
+        return 2;
+    }
     int64_t info = lapack::potrf(Uplo::Upper, k, R_sp, ldr);
     // If CholQR failed, re-estimate the rank a posteriori from the completed columns of R_sp.
     new_rank = util::cholqr_failure_rank(k, R_sp, ldr, info, this->eps);

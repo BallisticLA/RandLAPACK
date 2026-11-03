@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rl_exceptions.hh"
+#include "rl_memory.hh"
 #include "rl_blaspp.hh"
 #include <RandBLAS.hh>
 
@@ -26,8 +27,10 @@ namespace RandLAPACK {
  *     sigma(i) = [the sample standard deviation of X(i,1), ..., X(i, end) ].
  * 
  * This function subtracts off a copy of "mu" from each column of X and 
- * divides each row of X by the corresponding entry of sigma.
- * On exit, each row of X has mean 0.0 and sample standard deviation 1.0.
+ * divides each row of X by the corresponding entry of sigma. With the
+ * computed mu and sigma, each row of X has mean 0.0 and sample standard
+ * deviation 1.0 on exit; with use_input_mu_sigma, the caller's mu and
+ * sigma are applied as given (for example, those of a training set).
  * 
  */
 template <typename T>
@@ -35,24 +38,20 @@ void standardize_dataset(
     int64_t rows_x, int64_t cols_x, T* X, T* mu, T* sigma, bool use_input_mu_sigma = false
 ) {
     randlapack_require(cols_x >= 2) << "cols_x=" << cols_x << " must be >= 2 (need at least 2 samples to compute std deviation)";
+    auto ones = util::make_buffer<T>(cols_x);
+    std::fill(ones.get(), ones.get() + cols_x, (T) 1.0);
     if (! use_input_mu_sigma) {
-        std::fill(mu, mu + rows_x, (T) 0.0);
-        std::fill(sigma, sigma + rows_x, (T) 0.0);
+        // mu = (1/cols_x) X * ones: the mean of each row over the data points.
+        blas::gemv(blas::Layout::ColMajor, blas::Op::NoTrans, rows_x, cols_x, (T) 1.0 / (T) cols_x, X, rows_x, ones.get(), 1, (T) 0.0, mu, 1);
     }
-    T* ones_cols_x = new T[cols_x]{1.0};
-    blas::gemv(blas::Layout::ColMajor, blas::Op::NoTrans, rows_x, cols_x, 1.0/ (T)rows_x, X, rows_x, ones_cols_x, 1, (T) 0.0, mu, 1);
-    // ^ Computes the mean
-    blas::ger(blas::Layout::ColMajor, rows_x, cols_x, -1, mu, 1, ones_cols_x, 1, X, rows_x);
-    // ^ Performs a rank-1 update to subtract off the mean.
-    delete [] ones_cols_x;
-    // Up next: compute the sample standard deviations and rescale each row to have sample stddev = 1.
+    // Subtract mu from every column.
+    blas::ger(blas::Layout::ColMajor, rows_x, cols_x, (T) -1.0, mu, 1, ones.get(), 1, X, rows_x);
     T stddev_scale = std::sqrt((T) (cols_x - 1));
     for (int64_t i = 0; i < rows_x; ++i) {
-        sigma[i] = blas::nrm2(cols_x, X + i, rows_x);
-        sigma[i] /= stddev_scale;
+        if (! use_input_mu_sigma)
+            sigma[i] = blas::nrm2(cols_x, X + i, rows_x) / stddev_scale;
         blas::scal(cols_x, (T) 1.0 / sigma[i], X + i, rows_x);
     }
-    return;
 }
 
 /***

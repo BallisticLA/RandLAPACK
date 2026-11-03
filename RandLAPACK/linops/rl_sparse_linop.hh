@@ -3,6 +3,7 @@
 // Public API: SparseLinOp — linear operator backed by a sparse matrix (CSR, CSC, or COO).
 
 #include "rl_exceptions.hh"
+#include "rl_memory.hh"
 #include "rl_concepts.hh"
 #include "rl_sparse_views.hh"
 #include "rl_blaspp.hh"
@@ -36,8 +37,10 @@ namespace RandLAPACK::linops {
 /// @tparam SpMat Sparse matrix type (CSC, CSR, or COO format)
 ///
 /// @note For sparse-sparse multiplication, uses RandBLAS::spgemm (MKL-accelerated)
-/// when available. Falls back to densifying one operand when MKL is absent or
-/// when transpose configurations are not directly supported by spgemm.
+/// when available. Falls back to densifying one operand when MKL is absent, when
+/// transpose configurations are not directly supported by spgemm, or when a leading
+/// submatrix of A is requested with a sparse B (supported for COO storage only), since
+/// spgemm multiplies whole matrices.
 template <RandBLAS::sparse_data::SparseMatrix SpMat>
 struct SparseLinOp {
     using T = typename SpMat::scalar_t;
@@ -112,7 +115,8 @@ public:
         const int64_t n_cols,
         SpMat &src
     ) : n_rows(n_rows), n_cols(n_cols), block_owner_(), A_sp(make_view(src)) {
-
+        randlapack_require(src.n_rows == n_rows && src.n_cols == n_cols)
+            << "the sparse matrix is " << src.n_rows << " by " << src.n_cols << ", not " << n_rows << " by " << n_cols;
     }
 
     /// @brief Compute the Frobenius norm of the sparse operator matrix
@@ -215,6 +219,8 @@ public:
     /// Side refers to the side on which this operator appears.
     ///   Side::Left:  C = alpha * op(A_sp) * op(B_sp) + beta * C
     ///   Side::Right: C = alpha * op(B_sp) * op(A_sp) + beta * C
+    /// B_sp must have exactly the dimensions of B that (m, n, k, trans_B) give. A leading submatrix of
+    /// A is supported for COO storage only, as in RandBLAS's sparse-dense products.
     template <RandBLAS::sparse_data::SparseMatrix SpMatB>
     void operator()(
         Side side,
@@ -242,20 +248,23 @@ public:
             } else {
                 randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
+            // spgemm takes the dimensions of B_sp itself, and the fallback densifies all of it.
+            randlapack_require(B_sp.n_rows == rows_B && B_sp.n_cols == cols_B)
+                << "B_sp is " << B_sp.n_rows << " by " << B_sp.n_cols << ", but (m, n, k, trans_B) need it to be " << rows_B << " by " << cols_B;
 
             #if defined(RandBLAS_HAS_MKL)
-            if (trans_B == Op::NoTrans) {
+            // spgemm multiplies all of A_sp, so it serves only a request for the whole operator.
+            if (trans_B == Op::NoTrans && rows_submat_A == n_rows && cols_submat_A == n_cols) {
                 RandBLAS::spgemm(layout, trans_A, alpha, A_sp, B_sp, beta, C, ldc);
                 return;
             }
             #endif
 
             // Fallback: densify B_sp and use sparse-dense multiplication.
-            T* B_dense = new T[rows_B * cols_B]();
+            auto B_dense = RandLAPACK::util::make_buffer<T>(RandLAPACK::util::checked_mul(rows_B, cols_B));
             int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
-            RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
-            (*this)(Side::Left, layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
-            delete[] B_dense;
+            RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense.get());
+            (*this)(Side::Left, layout, trans_A, trans_B, m, n, k, alpha, B_dense.get(), ldb, beta, C, ldc);
 
         } else {  // Side::Right
             // C := alpha * op(B_sp) * op(A_sp) + beta * C
@@ -269,20 +278,22 @@ public:
             } else {
                 randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
+            // spgemm takes the dimensions of B_sp itself, and the fallback densifies all of it.
+            randlapack_require(B_sp.n_rows == rows_B && B_sp.n_cols == cols_B)
+                << "B_sp is " << B_sp.n_rows << " by " << B_sp.n_cols << ", but (m, n, k, trans_B) need it to be " << rows_B << " by " << cols_B;
 
             #if defined(RandBLAS_HAS_MKL)
-            if (trans_A == Op::NoTrans) {
+            if (trans_A == Op::NoTrans && rows_submat_A == n_rows && cols_submat_A == n_cols) {
                 RandBLAS::spgemm(layout, trans_B, alpha, B_sp, A_sp, beta, C, ldc);
                 return;
             }
             #endif
 
             // Fallback: densify B_sp and use sparse-dense multiplication.
-            T* B_dense = new T[rows_B * cols_B]();
+            auto B_dense = RandLAPACK::util::make_buffer<T>(RandLAPACK::util::checked_mul(rows_B, cols_B));
             int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
-            RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
-            RandBLAS::sparse_data::right_spmm(layout, trans_B, trans_A, m, n, k, alpha, B_dense, ldb, A_sp, 0, 0, beta, C, ldc);
-            delete[] B_dense;
+            RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense.get());
+            RandBLAS::sparse_data::right_spmm(layout, trans_B, trans_A, m, n, k, alpha, B_dense.get(), ldb, A_sp, 0, 0, beta, C, ldc);
         }
     }
 
@@ -336,6 +347,11 @@ public:
             }
             (*this)(side, layout, trans_A, adjusted_trans, m, n, k, alpha, S.buff, S.dist.dim_major, beta, C, ldc);
         } else {
+            // spgemm and the sketch_general overload below take a sparse sketch only at the requested size.
+            auto [rows_S, cols_S] = (side == Side::Left) ? RandBLAS::dims_before_op(k, n, trans_S) : RandBLAS::dims_before_op(m, k, trans_S);
+            randlapack_require(S.n_rows == rows_S && S.n_cols == cols_S)
+                << "the sparse sketch is " << S.n_rows << " by " << S.n_cols << ", but (m, n, k, side, trans_S) need it to be " << rows_S << " by " << cols_S;
+
             // Sparse sketch operator: use spgemm when available.
             #if defined(RandBLAS_HAS_MKL)
             {
@@ -354,8 +370,8 @@ public:
                 }
                 if (side == Side::Right && trans_A == Op::NoTrans) {
                     auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
-                    randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
-                    randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
+                    randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (k, n, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
+                    randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (k, n, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
                     if (layout == Layout::ColMajor) randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
                     else randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
                     RandBLAS::spgemm(layout, trans_S, alpha, S_coo, A_sp, beta, C, ldc);
@@ -365,27 +381,19 @@ public:
             #endif
 
             // Fallback: densify A_sp and use sketch_general.
-            T* A_dense = new T[n_rows * n_cols]();
+            auto [rows_A, cols_A] = (side == Side::Left) ? RandBLAS::dims_before_op(m, k, trans_A) : RandBLAS::dims_before_op(k, n, trans_A);
+            randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, n, k, side, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
+            randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, n, k, side, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
+            if (layout == Layout::ColMajor) randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
+            else randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
+
+            auto A_dense = RandLAPACK::util::make_buffer<T>(RandLAPACK::util::checked_mul(n_rows, n_cols));
             int64_t lda = (layout == Layout::ColMajor) ? n_rows : n_cols;
-            RandLAPACK::util::sparse_to_dense(A_sp, layout, A_dense);
-
-            if (side == Side::Left) {
-                auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
-                randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
-                randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
-                if (layout == Layout::ColMajor) randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
-                else randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
-                RandBLAS::sketch_general(layout, trans_A, trans_S, m, n, k, alpha, A_dense, lda, S, beta, C, ldc);
-            } else {
-                auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
-                randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
-                randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
-                if (layout == Layout::ColMajor) randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
-                else randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
-                RandBLAS::sketch_general(layout, trans_S, trans_A, m, n, k, alpha, S, A_dense, lda, beta, C, ldc);
-            }
-
-            delete[] A_dense;
+            RandLAPACK::util::sparse_to_dense(A_sp, layout, A_dense.get());
+            if (side == Side::Left)
+                RandBLAS::sketch_general(layout, trans_A, trans_S, m, n, k, alpha, A_dense.get(), lda, S, beta, C, ldc);
+            else
+                RandBLAS::sketch_general(layout, trans_S, trans_A, m, n, k, alpha, S, A_dense.get(), lda, beta, C, ldc);
         }
     }
 

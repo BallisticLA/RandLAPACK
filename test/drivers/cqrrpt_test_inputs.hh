@@ -21,7 +21,7 @@ namespace cqrrpt_test {
 inline std::vector<double> sketch_defeating_input(int64_t m, int64_t n, int64_t nnz, double d_factor, uint32_t seed, double theta) {
     int64_t d = d_factor * n;
     RandBLAS::RNGState<r123::Philox4x32> state(seed);
-    RandBLAS::SparseDist DS(d, m, nnz);
+    RandBLAS::SparseDist DS(d, m, nnz, RandBLAS::Axis::Short);
     RandBLAS::SparseSkOp<double, r123::Philox4x32> S(DS, state);
     RandBLAS::fill_sparse(S);
     // S' (m-by-d). Sketching the identity is exact: each entry of S * I is a single product.
@@ -224,6 +224,42 @@ inline std::vector<double> cholesky_failure_input(int64_t m, int64_t n, int64_t 
         A[r[j] + j * m] = w * sign[r[j]];
     }
     return A;
+}
+
+/// For d > m the rows of CQRRPT's sparse sketch carry its nonzeros, so a row of A can get no weight. Finds
+/// the first seed below 1000 whose sketch, drawn as CQRRPT draws it from RNGState(seed), leaves a row of A
+/// unweighted, and returns that row, or -1 if there is none.
+inline int64_t unweighted_row(int64_t d, int64_t m, int64_t nnz, uint32_t& seed) {
+    for (seed = 0; seed < 1000; ++seed) {
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        RandBLAS::SparseDist DS(d, m, nnz, RandBLAS::Axis::Short);
+        RandBLAS::SparseSkOp<double, r123::Philox4x32> S(DS, state);
+        RandBLAS::fill_sparse(S);
+        std::vector<int64_t> weight(m, 0);
+        for (int64_t e = 0; e < S.nnz; ++e)
+            ++weight[S.cols[e]];
+        for (int64_t row = 0; row < m; ++row)
+            if (weight[row] == 0)
+                return row;
+    }
+    return -1;
+}
+
+/// Finds the first seed below 1000 whose sparse sketch of A, drawn as CQRRPT draws it from RNGState(seed),
+/// overflows (A itself being finite), and returns it, or -1 if there is none.
+inline int64_t overflowing_sketch_seed(int64_t m, int64_t n, int64_t nnz, double d_factor, const std::vector<double>& A) {
+    int64_t d = d_factor * n;
+    std::vector<double> A_hat(d * n);
+    for (uint32_t seed = 0; seed < 1000; ++seed) {
+        RandBLAS::RNGState<r123::Philox4x32> state(seed);
+        RandBLAS::SparseDist DS(d, m, nnz, RandBLAS::Axis::Short);
+        RandBLAS::SparseSkOp<double, r123::Philox4x32> S(DS, state);
+        RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat.data(), d);
+        for (double x : A_hat)
+            if (!std::isfinite(x))
+                return seed;
+    }
+    return -1;
 }
 
 } // namespace cqrrpt_test

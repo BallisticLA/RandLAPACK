@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rl_exceptions.hh"
+#include "rl_status.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -144,6 +145,8 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         ///
         /// @return = 0: successful exit. If the Cholesky factorization fails, the rank
         ///     is re-estimated from the leading part of the factor, as in CQRRPT.
+        ///         = 2: A holds an Inf or a NaN, or the sketch, its R factor or the Gram diagonal overflowed, as in CQRRPT;
+        ///              rank is set to 0, R is zero, and A and J are unchanged
         ///
 
         int call(
@@ -262,15 +265,17 @@ int CQRRPT_GPU<T, RNG>::call(
         T* A_hat = nullptr;
         T* A_hat_sk = nullptr;
         T* R_sp_lead = nullptr;
+        T* diag = nullptr;
         char* work_getrf = nullptr;
         char* work_geqrf = nullptr;
         void release() {
             delete[] A_hat;
             delete[] A_hat_sk;
             delete[] R_sp_lead;
+            delete[] diag;
             delete[] work_getrf;
             delete[] work_geqrf;
-            A_hat = A_hat_sk = R_sp_lead = nullptr;
+            A_hat = A_hat_sk = R_sp_lead = diag = nullptr;
             work_getrf = work_geqrf = nullptr;
         }
         ~HostBuffers() { release(); }
@@ -297,6 +302,7 @@ int CQRRPT_GPU<T, RNG>::call(
         T* A = nullptr;
         T* R = nullptr;
         T* R_sp = nullptr;
+        T* gram_diag = nullptr;
         T* W = nullptr;
         T* A_sk = nullptr;
         T* A_sk_work = nullptr;
@@ -314,7 +320,7 @@ int CQRRPT_GPU<T, RNG>::call(
                 cudaStreamSynchronize(queue.stream());
             synced = true;
             auto free = [](auto*& p) { if (p) cudaFree(p); p = nullptr; };
-            free(A); free(R); free(R_sp); free(W); free(A_sk); free(A_sk_work); free(A_sk_sk); free(tau);
+            free(A); free(R); free(R_sp); free(gram_diag); free(W); free(A_sk); free(A_sk_work); free(A_sk_sk); free(tau);
             free(J); free(J_lu); free(rank); free(zero); free(info); free(work_getrf); free(work_geqrf);
         }
         ~DeviceBuffers() { release(); }
@@ -337,7 +343,8 @@ int CQRRPT_GPU<T, RNG>::call(
 
     // All device memory is allocated here, before any work is queued, and freed after the last sync.
     // A and R keep their leading dimensions on the device. R_sp, sized for k = n, holds the k by k
-    // preconditioner, and then the Cholesky factor, with leading dimension k. W is the gather buffer
+    // preconditioner, and then the Cholesky factor, with leading dimension k; gram_diag keeps the diagonal
+    // of the Gram matrix that potrf overwrites. W is the gather buffer
     // for pivoting A, rb rows at a time: rb keeps each block of rows to one gather, and W within 2^25
     // entries (256 MB in double). A_sk is the d by n sketch, and A_sk_sk the d_sk by n sketch of the
     // sketch. With luqr, A_sk_work holds the n by d_sk transpose of A_sk_sk for the LU, and then the
@@ -347,6 +354,7 @@ int CQRRPT_GPU<T, RNG>::call(
     dev.A         = blas::device_malloc< T >( lda * n, lapack_queue );
     dev.R         = blas::device_malloc< T >( ldr * n, lapack_queue );
     dev.R_sp      = blas::device_malloc< T >( n * n, lapack_queue );
+    dev.gram_diag = blas::device_malloc< T >( n, lapack_queue );
     dev.W         = blas::device_malloc< T >( rb * n, lapack_queue );
     dev.A_sk      = blas::device_malloc< T >( d * n, lapack_queue );
     dev.A_sk_work = blas::device_malloc< T >( d * n, lapack_queue );
@@ -392,7 +400,7 @@ int CQRRPT_GPU<T, RNG>::call(
     // The sketching operators live in this block only: the Gaussian one holds d_sk by d entries.
     {
         /// Generating a SASO
-        RandBLAS::SparseDist DS(d, m, this->nnz);
+        RandBLAS::SparseDist DS(d, m, this->nnz, RandBLAS::Axis::Short);
         RandBLAS::SparseSkOp<T, RNG> S(DS, state);
         RandBLAS::fill_sparse(S);
         state = S.next_state;
@@ -412,6 +420,12 @@ int CQRRPT_GPU<T, RNG>::call(
             Layout::ColMajor, Op::NoTrans, Op::NoTrans,
             d_sk, n, d, (T) 1.0, S_sk, 0, 0, host.A_hat, d, (T) 0.0, host.A_hat_sk, d_sk
         );
+    }
+
+    // An Inf or NaN in A, or overflow in the sketch, found as in CQRRPT. dev waits for the copy of A and frees.
+    if (!RandLAPACK::util::all_finite(d, n, host.A_hat, d) || (d > m && !RandLAPACK::util::all_finite(m, n, A, lda))) {
+        this->rank = 0;
+        return 2;
     }
 
     step.end();
@@ -453,7 +467,7 @@ int CQRRPT_GPU<T, RNG>::call(
     step.begin("rank_est");
 
     // Check if the input is all zeros, as CQRRPT does, on the sketch itself: with LU pivoting,
-    // R_sk(0, 0) = 0 does not imply a zero sketch. A NaN entry counts as nonzero.
+    // R_sk(0, 0) = 0 does not imply a zero sketch.
     RandLAPACK::cuda_kernels::all_of_async(strm, d * n, (T) 0.0, dev.A_sk, dev.zero);
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
     /// The actual rank estimate k will be computed a posteriori.
@@ -463,10 +477,17 @@ int CQRRPT_GPU<T, RNG>::call(
     bool sketch_zero = false;
     blas::device_memcpy(&sketch_zero, dev.zero, 1, lapack_queue);
     blas::device_memcpy(&k, dev.rank, 1, lapack_queue);
+    // The diagonal of R_sk, checked as in CQRRPT; it also holds the Gram diagonal below.
+    host.diag = new T[n];
+    blas::device_copy_vector(std::min(d, n), R_sk, d + 1, host.diag, 1, lapack_queue);
     lapack_queue.sync();
 
     step.end();
     // dev waits for the copy of A and frees.
+    if (!RandLAPACK::util::all_finite(std::min(d, n), (int64_t) 1, host.diag, n)) {
+        this->rank = 0;
+        return 2;
+    }
     if (sketch_zero) {
         this->rank = 0;
         std::iota(J, J + n, (int64_t) 1);
@@ -519,10 +540,22 @@ int CQRRPT_GPU<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, dev.A, lda, (T) 0.0, dev.R_sp, k, lapack_queue);
+    if (RL_TEST_FAULT("CQRRPT_GPU.gram_nan")) {
+        T nan = std::numeric_limits<T>::quiet_NaN();
+        blas::device_memcpy(dev.R_sp, &nan, 1, lapack_queue);
+    }
+    blas::device_copy_vector(k, dev.R_sp, k + 1, dev.gram_diag, 1, lapack_queue);
     lapack::potrf(Uplo::Upper, k, dev.R_sp, k, dev.info, lapack_queue);
     device_info_int info = 0;
+    blas::device_memcpy(host.diag, dev.gram_diag, k, lapack_queue);
     blas::device_memcpy(&info, dev.info, 1, lapack_queue);
     lapack_queue.sync();
+
+    // As in CQRRPT, the rank cut below is only for finite data.
+    if (!RandLAPACK::util::all_finite(k, (int64_t) 1, host.diag, k)) {
+        this->rank = 0;
+        return 2;
+    }
 
     // If CholQR failed, re-estimate the rank a posteriori from the completed columns of R_sp, with CQRRPT's
     // rule; cuSOLVER may leave NaN from the failed column on, which the rule never reads.

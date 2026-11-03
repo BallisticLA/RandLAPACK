@@ -272,3 +272,37 @@ TEST_F(TestPDK_RBFKernelMatrix, reg_apply_to_eye_m257_d5) {
         run(bandwidth, 7.654321, 257, 5, i);
     }
 }
+
+TEST(TestStandardizeDataset, rows_end_with_zero_mean_and_unit_sample_deviation) {
+    // Four data points (columns) in three dimensions (rows), with distinct means and spreads per row.
+    constexpr int64_t rows = 3, cols = 4;
+    std::vector<double> X = {1, 10, -5,   3, 20, -5,   5, 30, -1,   7, 40, -1};
+    std::vector<double> mu(rows), sigma(rows);
+    RandLAPACK::standardize_dataset(rows, cols, X.data(), mu.data(), sigma.data());
+    const double expected_mu[] = {4, 25, -3};
+    const double expected_sigma[] = {std::sqrt(20.0 / 3), std::sqrt(500.0 / 3), std::sqrt(16.0 / 3)};
+    for (int64_t i = 0; i < rows; ++i) {
+        EXPECT_NEAR(mu[i], expected_mu[i], 1e-12);
+        EXPECT_NEAR(sigma[i], expected_sigma[i], 1e-12);
+        double mean = 0, sum_sq = 0;
+        for (int64_t j = 0; j < cols; ++j)
+            mean += X[i + rows * j] / cols;
+        for (int64_t j = 0; j < cols; ++j)
+            sum_sq += (X[i + rows * j] - mean) * (X[i + rows * j] - mean);
+        EXPECT_NEAR(mean, 0.0, 1e-12);
+        EXPECT_NEAR(std::sqrt(sum_sq / (cols - 1)), 1.0, 1e-12);
+    }
+}
+
+TEST(TestStandardizeDataset, applies_the_callers_mu_and_sigma) {
+    constexpr int64_t rows = 2, cols = 3;
+    std::vector<double> X = {1, 4,   2, 6,   3, 8};
+    std::vector<double> mu = {1, 2}, sigma = {2, 4};
+    RandLAPACK::standardize_dataset(rows, cols, X.data(), mu.data(), sigma.data(), true);
+    const double expected[] = {0, 0.5,   0.5, 1,   1, 1.5};
+    for (int64_t i = 0; i < rows * cols; ++i)
+        EXPECT_DOUBLE_EQ(X[i], expected[i]);
+    // The caller's statistics are left as given.
+    EXPECT_EQ(mu[0], 1); EXPECT_EQ(mu[1], 2);
+    EXPECT_EQ(sigma[0], 2); EXPECT_EQ(sigma[1], 4);
+}
