@@ -34,6 +34,27 @@ and against GESDD's triplet:
             the scale of the residual: sval_diff is quadratic in res_err, sval_pyth is linear
             in it. At rounding level it is the square root of a relative error, so its floor
             is about sqrt(2 eps s_1 / s_i): sqrt(2 eps) for the leading triplets.
+  rq_diff   1 - rho_i / s_gesdd_i, signed, with GESDD's whole triplet treated as an exact
+            triplet of A; rho_i = u_i' A v_i of ABRIK's vectors scaled to unit length. With
+            v_i = c_v v_gesdd_i + s_v w and u_i = c_u u_gesdd_i + s_u z (w, z unit, w orthogonal
+            to v_gesdd_i and z to u_gesdd_i, s_u, s_v >= 0), an exact triplet gives
+            u_gesdd_i' A w = 0 = z' A v_gesdd_i, so
+              rq_diff = (1 - c_u c_v) - s_u s_v (z' A w) / s_gesdd_i,
+            with 1 - c_u c_v = s_v^2 / (1 + |c_v|) + |c_v| s_u^2 / (1 + |c_u|) when c_u c_v > 0.
+            Near convergence both terms are small, so there is no difference of two O(1)
+            numbers; forming (s_gesdd_i - u_i' A v_i) / s_gesdd_i directly would restore the
+            sqrt(eps) floor of sval_pyth. c, s and s w come from the QR that svec_diff uses;
+            z' A w is one matvec.
+  sval_rq   sqrt(|rq_diff (2 - rq_diff)|) = sqrt(|s_gesdd_i^2 - rho_i^2|) / s_gesdd_i: sval_pyth
+            with rho_i from this identity in place of s_abrik_i. Its floor is of order
+            res_err_gesdd, below svec_diff's, not sqrt(eps). It measures the Rayleigh quotient
+            of the computed vectors, not s_abrik_i itself; rq_gap is the difference. rq_diff
+            near 2 flags ABRIK vectors aligned with (u_gesdd_i, -v_gesdd_i), rho_i near
+            -s_gesdd_i, which sval_rq hides.
+  rq_gap    |u_i' A v_i / (||u_i|| ||v_i||) - s_abrik_i| / s_abrik_i, the Rayleigh quotient
+            formed directly. s_abrik_i equals it in exact arithmetic, up to the parts BK's rank
+            test drops, so when the rank test rejected no column (no block narrowed or refilled)
+            this reads rounding, of order eps s_1 / s_i.
 
 The GESDD residual columns do not depend on the run; they are a baseline for the metrics
 themselves: for a backward-stable SVD, res_err_gesdd and res_1s_gesdd are of order
@@ -57,7 +78,7 @@ early or its rank criterion narrows a block.
 
 Output CSV: '#' metadata lines, the column header
   run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, res_sw_abrik, res_sw_gesdd,
-  res_1s_abrik, res_1s_gesdd, s_abrik, s_gesdd, sval_pyth
+  res_1s_abrik, res_1s_gesdd, s_abrik, s_gesdd, sval_pyth, rq_diff, sval_rq, rq_gap
 then one row per (run, triplet). The GESDD time and each run's ABRIK time and triplet
 count are '#' lines after the column header.
 
@@ -90,14 +111,16 @@ using std::chrono::microseconds;
 static const char* kUsage =
     "<precision> <output_dir> <input_matrix_path> <m> <n> <b_sz> <num_matmuls> <num_runs>";
 
-// The three residuals of one triplet (u, v, s): returns the two-sided normalized one and
-// writes the two-sided absolute (res_sw) and one-sided normalized (res_1s) ones.
-// scratch_m and scratch_n are work buffers of length m and n.
+// The three residuals of one triplet (u, v, s): returns res_err, writes res_sw and res_1s,
+// and u' A v into *uAv when uAv is not null. scratch_m and scratch_n are work buffers of
+// length m and n.
 template <typename T>
 static T per_triplet_residuals(const T* A, int64_t m, int64_t n, const T* u, const T* v, T s,
-                               T* scratch_m, T* scratch_n, T& res_sw, T& res_1s) {
+                               T* scratch_m, T* scratch_n, T& res_sw, T& res_1s,
+                               T* uAv = nullptr) {
     // scratch_m = A v - s u
     blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, (T) 1, A, m, v, 1, (T) 0, scratch_m, 1);
+    if (uAv) *uAv = blas::dot(m, u, 1, scratch_m, 1);
     blas::axpy(m, -s, u, 1, scratch_m, 1);
     T nrm_left = blas::nrm2(m, scratch_m, 1);
     // scratch_n = A' u - s v
@@ -110,14 +133,26 @@ static T per_triplet_residuals(const T* A, int64_t m, int64_t n, const T* u, con
     return res_sw / s;
 }
 
-// sin(angle(x1, x2)) for unit vectors of length len, as |R(2,2)| of the Householder QR
-// factorization of [x1, x2]. work_buf holds 2*len entries, tau_buf two; both are overwritten.
+// Householder QR of [x, xh], x a unit reference: xh / ||xh|| = c x + s w, w unit and orthogonal
+// to x, s >= 0. Writes c, s and s w (into sw); returns |R(2,2)|, the sine for a unit xh.
+// work_buf holds 2*len entries, tau_buf two; both are overwritten.
 template <typename T>
-static T sin_angle_via_qr(const T* x1, const T* x2, int64_t len, T* work_buf, T* tau_buf) {
-    blas::copy(len, x1, 1, &work_buf[0],   1);
-    blas::copy(len, x2, 1, &work_buf[len], 1);
+static T split_via_qr(const T* x, const T* xh, int64_t len, T* work_buf, T* tau_buf,
+                      T& c, T& s, T* sw) {
+    blas::copy(len, x,  1, &work_buf[0],   1);
+    blas::copy(len, xh, 1, &work_buf[len], 1);
     lapack::geqrf(len, 2, work_buf, len, tau_buf);
-    return std::abs(work_buf[len + 1]);
+    // x = R(1,1) q1 and xh = R(1,2) q1 + R(2,2) q2.
+    T r11 = work_buf[0];
+    T r12 = work_buf[len];
+    T r22 = work_buf[len + 1];
+    T nrm = std::hypot(r12, r22);
+    c = (r11 < 0 ? -r12 : r12) / nrm;
+    s = std::abs(r22) / nrm;
+    lapack::orgqr(len, 2, 2, work_buf, len, tau_buf);
+    blas::copy(len, &work_buf[len], 1, sw, 1);
+    blas::scal(len, r22 / nrm, sw, 1);
+    return std::abs(r22);
 }
 
 template <typename T>
@@ -173,8 +208,11 @@ static int run_analysis(int argc, char* argv[]) {
          << "# res_1s = ||Av-su|| / s (one-sided normalized, Tomas, Quintana-Orti and Anzt Sec. 4.1.1)\n"
          << "# sval_diff = |s_abrik - s_gesdd| / s_gesdd; svec_diff = sqrt((sin^2 u-angle + sin^2 v-angle) / 2), sines via Householder QR\n"
          << "# sval_pyth = sqrt(|s_gesdd^2 - s_abrik^2|) / s_gesdd (singular-value error on the residual's scale; floor about sqrt(2 eps s_1 / s_i))\n"
+         << "# rq_diff = 1 - rho / s_gesdd (signed), rho = u'Av of the unit-scaled ABRIK vectors, with the GESDD triplet (u, v, s_gesdd) taken as exact, formed from small terms of the svec_diff QR\n"
+         << "# sval_rq = sqrt(|rq_diff (2 - rq_diff)|) (sval_pyth with rho for s_abrik; no sqrt(eps) floor); rq_gap = |u'Av / (||u|| ||v||) - s_abrik| / s_abrik\n"
          << "run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, "
-            "res_sw_abrik, res_sw_gesdd, res_1s_abrik, res_1s_gesdd, s_abrik, s_gesdd, sval_pyth\n";
+            "res_sw_abrik, res_sw_gesdd, res_1s_abrik, res_1s_gesdd, s_abrik, s_gesdd, sval_pyth, "
+            "rq_diff, sval_rq, rq_gap\n";
     file.flush();
 
     // GESDD once, on a copy since it destroys its input. Economy shapes: U_g is m x r,
@@ -211,6 +249,8 @@ static int run_analysis(int argc, char* argv[]) {
     T* scratch_n = new T[n];
     T* qr_buf_u  = new T[2 * m];
     T* qr_buf_v  = new T[2 * n];
+    T* sw_u      = new T[m];
+    T* sw_v      = new T[n];
     T  tau_u[2], tau_v[2];
 
     for (int run = 0; run < num_runs; ++run) {
@@ -244,14 +284,26 @@ static int run_analysis(int argc, char* argv[]) {
             const T* u_g = &U_g[m * i];
             const T* v_g = &V_g[n * i];
 
-            T sw_abrik, os_abrik, sw_gesdd, os_gesdd;
-            T res_abrik = per_triplet_residuals(A, m, n, u_a, v_a, S_a[i], scratch_m, scratch_n, sw_abrik, os_abrik);
+            T sw_abrik, os_abrik, sw_gesdd, os_gesdd, uAv_abrik;
+            T res_abrik = per_triplet_residuals(A, m, n, u_a, v_a, S_a[i], scratch_m, scratch_n, sw_abrik, os_abrik, &uAv_abrik);
             T res_gesdd = per_triplet_residuals(A, m, n, u_g, v_g, S_g[i], scratch_m, scratch_n, sw_gesdd, os_gesdd);
             T sval_diff = std::abs(S_a[i] - S_g[i]) / S_g[i];
             T sval_pyth = std::sqrt(sval_diff * (1 + S_a[i] / S_g[i]));
-            T sin_u = sin_angle_via_qr(u_g, u_a, m, qr_buf_u, tau_u);
-            T sin_v = sin_angle_via_qr(v_g, v_a, n, qr_buf_v, tau_v);
+            T c_u, s_u, c_v, s_v;
+            T sin_u = split_via_qr(u_g, u_a, m, qr_buf_u, tau_u, c_u, s_u, sw_u);
+            T sin_v = split_via_qr(v_g, v_a, n, qr_buf_v, tau_v, c_v, s_v, sw_v);
             T svec_diff = std::sqrt((sin_u * sin_u + sin_v * sin_v) / 2);
+
+            // rho = s_gesdd c_u c_v + (s_u z)' A (s_v w); see rq_diff in the header comment.
+            blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, (T) 1, A, m, sw_v, 1, (T) 0, scratch_m, 1);
+            T cross = blas::dot(m, sw_u, 1, scratch_m, 1);
+            T cc = c_u * c_v;
+            T one_minus_cc = (cc <= 0) ? 1 - cc
+                : s_v * s_v / (1 + std::abs(c_v)) + std::abs(c_v) * (s_u * s_u / (1 + std::abs(c_u)));
+            T rq_diff = one_minus_cc - cross / S_g[i];
+            T sval_rq = std::sqrt(std::abs(rq_diff * (2 - rq_diff)));
+            T rho     = uAv_abrik / (blas::nrm2(m, u_a, 1) * blas::nrm2(n, v_a, 1));
+            T rq_gap  = std::abs(rho - S_a[i]) / S_a[i];
 
             file << run << ", " << (i + 1) << ", "
                  << res_abrik << ", " << res_gesdd << ", "
@@ -259,7 +311,8 @@ static int run_analysis(int argc, char* argv[]) {
                  << sw_abrik << ", " << sw_gesdd << ", "
                  << os_abrik << ", " << os_gesdd << ", "
                  << std::setprecision(std::numeric_limits<T>::max_digits10) << S_a[i] << ", " << S_g[i] << ", "
-                 << std::setprecision(15) << sval_pyth << "\n";
+                 << std::setprecision(15) << sval_pyth << ", "
+                 << rq_diff << ", " << sval_rq << ", " << rq_gap << "\n";
             file.flush();
             if ((i + 1) % 50 == 0)
                 printf("  Processed triplet %ld / %ld\n", (long) (i + 1), (long) k_a);
@@ -283,6 +336,8 @@ static int run_analysis(int argc, char* argv[]) {
     delete[] scratch_n;
     delete[] qr_buf_u;
     delete[] qr_buf_v;
+    delete[] sw_u;
+    delete[] sw_v;
     return file.fail() ? 1 : 0;
 }
 
