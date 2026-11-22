@@ -10,6 +10,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(SANITIZE_ADDRESS OFF CACHE BOOL "Add address sanitizer flags to the library")
+option(RandLAPACK_ENABLE_COVERAGE "Instrument the tests for gcov line and branch coverage (GCC only)" OFF)
 
 message(STATUS "Checking for OpenMP ... ")
 

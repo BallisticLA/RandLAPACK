@@ -1,0 +1,138 @@
+name: coverage
+on:
+  pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Coverage of the library by the core test suite, built with RandLAPACK_ENABLE_COVERAGE (GCC, Debug).
+# Reported, never enforced (codecov.yml); docs/CI.md explains the numbers. The Codecov upload uses
+# OpenID Connect, needs the Codecov GitHub App on the repository, and never fails the job.
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: submodule update
+        run: |
+          git submodule update --init --recursive
+
+      - name: configure OS
+        run: |
+          set -x
+          export DEBIAN_FRONTEND="noninteractive"
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
+          pipx install gcovr==8.8
+
+      - name: read dependency pins
+        id: pins
+        run: bash .github/scripts/dependency-pins.sh export installers/dependency-pins.env
+
+      - name: cache dependencies
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.workspace }}/blaspp-install
+            ${{ runner.workspace }}/lapackpp-install
+            ${{ runner.workspace }}/Random123-install
+          key: core-deps-${{ runner.os }}-blaspp-${{ steps.pins.outputs.BLASPP_REF }}-lapackpp-${{ steps.pins.outputs.LAPACKPP_REF }}-v1
+
+      - name: install BLAS++
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          BLASPP_URL: ${{ steps.pins.outputs.BLASPP_URL }}
+          BLASPP_REF: ${{ steps.pins.outputs.BLASPP_REF }}
+        run: |
+          cd ..
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$BLASPP_URL" "$BLASPP_REF" blaspp
+          mkdir blaspp-build
+          cd blaspp-build
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
+          make -j$(nproc) install
+
+      - name: install Random123
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          cd ..
+          git clone https://github.com/DEShawResearch/Random123.git
+          cd Random123/
+          make prefix=`pwd`/../Random123-install install-include
+
+      - name: install LAPACK++
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        env:
+          LAPACKPP_URL: ${{ steps.pins.outputs.LAPACKPP_URL }}
+          LAPACKPP_REF: ${{ steps.pins.outputs.LAPACKPP_REF }}
+        run: |
+          cd ..
+          bash "$GITHUB_WORKSPACE/.github/scripts/dependency-pins.sh" fetch "$LAPACKPP_URL" "$LAPACKPP_REF" lapackpp
+          mkdir lapackpp-build
+          cd lapackpp-build
+          cmake -DCMAKE_BUILD_TYPE=Release \
+              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
+              -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
+              -Dbuild_tests=OFF \
+              `pwd`/../lapackpp
+          make -j$(nproc) install
+
+      - name: build and test RandLAPACK (Debug, coverage)
+        env:
+          OMP_NUM_THREADS: 2
+        run: |
+          cd ..
+          mkdir RandLAPACK-build-cov
+          cd RandLAPACK-build-cov
+          cmake -DCMAKE_BUILD_TYPE=Debug \
+              -DRandLAPACK_ENABLE_COVERAGE=ON \
+              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
+              -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/cmake/lapackpp \
+              -DRandom123_DIR=`pwd`/../Random123-install/include/ \
+              -DBUILD_TESTS=OFF \
+              `pwd`/../RandLAPACK
+          make -j$(nproc)
+          ctest --output-on-failure -j "$(nproc)"
+
+      - name: coverage report
+        run: |
+          cd ../RandLAPACK-build-cov
+          mkdir -p coverage
+          gcovr --root "$GITHUB_WORKSPACE" \
+              --filter "$GITHUB_WORKSPACE/RandLAPACK/" \
+              --exclude-throw-branches \
+              --exclude-unreachable-branches \
+              --merge-lines \
+              -j "$(nproc)" \
+              --html-details coverage/index.html \
+              --cobertura coverage/coverage.xml \
+              --markdown-summary coverage/summary.md \
+              --txt coverage/coverage.txt \
+              .
+          cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload the HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ${{ runner.workspace }}/RandLAPACK-build-cov/coverage/
+
+      - name: upload to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          files: ${{ runner.workspace }}/RandLAPACK-build-cov/coverage/coverage.xml
+          disable_search: true
+          fail_ci_if_error: false

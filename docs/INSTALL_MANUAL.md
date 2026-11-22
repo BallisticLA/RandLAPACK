@@ -174,6 +174,7 @@ Other optional flags:
 |---|---|
 | `-DRandLAPACK_BUILD_TESTS=OFF` | Skips RandLAPACK's own GoogleTest suite, which is built by default when GoogleTest is found. |
 | `-DSANITIZE_ADDRESS=ON` | Adds AddressSanitizer instrumentation (CI uses it with Debug builds). |
+| `-DRandLAPACK_ENABLE_COVERAGE=ON` | Instruments the test suite for gcov line and branch coverage (GCC only; forces `-O0`; see [CI.md](CI.md#coverage)). |
 
 The `extras/` project has a third test switch of its own,
 `-DBUILD_TESTING=OFF`.

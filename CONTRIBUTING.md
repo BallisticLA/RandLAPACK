@@ -87,6 +87,14 @@ and removes it afterwards, never a fixed or `rand()`-named path. `ScratchDir`
 in `extras/test/ext_scratch_dir.hh` does this for the extras tests, and the
 fixture in `test/misc/test_matrix_io.cc` for the core suite.
 
+**Coverage is measured, not required.** The `coverage` workflow builds the
+suite with `-DRandLAPACK_ENABLE_COVERAGE=ON` (GCC, Debug) and reports which
+library lines and branches the tests execute; read its report for the lines
+your PR adds. Template code that nothing instantiates is invisible to it
+rather than counted as uncovered, so a new template that no test instantiates goes into
+`test/misc/test_instantiations.cc` ([docs/CI.md](docs/CI.md#coverage) has the
+details and the local command).
+
 **GPU tests are not run by CI.** CI neither compiles nor runs them
 (`test/**/*.cu`; [#215](https://github.com/BallisticLA/RandLAPACK/issues/215)).
 If your change touches GPU code, build and run them on a machine with CUDA,
