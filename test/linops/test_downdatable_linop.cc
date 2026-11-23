@@ -1,17 +1,23 @@
 #include "rl_downdatable_linop.hh"
 #include "rl_dense_linop.hh"
+#include "rl_sparse_linop.hh"
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 namespace {
 
 using RandLAPACK::linops::DenseLinOp;
 using RandLAPACK::linops::DowndatableLinOp;
+
+// The operator only borrows its factors: it owns no storage that could grow with the rank.
+static_assert(std::is_trivially_destructible_v<DowndatableLinOp<double, DenseLinOp<double>>>);
 
 // Store logical entries in either layout, with one padding entry per row/column.
 struct PaddedMatrix {
@@ -117,8 +123,7 @@ TEST_P(TestDowndatableApplication, MatchesExplicitResidualAndPreservesInputs) {
     DenseLinOp<double> base(base_rows, base_cols, stored_base.values.data(),
                             stored_base.ld, layout);
     DowndatableLinOp<double, decltype(base)> residual(base, 2);
-    residual.update(1, E.data(), F.data());
-    residual.update(1, E.data() + base_rows, F.data() + base_cols);
+    residual.set_factors(E.data(), F.data(), 2);
     residual(layout, trans_a, trans_b, output_rows, nrhs, inner_dim,
              alpha, rhs.values.data(), rhs.ld, beta, output.values.data(), output.ld);
 
@@ -136,25 +141,52 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(Layout::ColMajor, Layout::RowMajor),
         ::testing::Values(Op::NoTrans, Op::Trans),
         ::testing::Values(Op::NoTrans, Op::Trans),
-        // Seven RHS columns exceed both base dimensions and the old scratch capacity.
+        // Seven RHS columns exceed both base dimensions.
         ::testing::Values(int64_t(1), int64_t(7))),
     application_case_name);
 
-TEST(TestDowndatableLinOp, RejectsRankOverflowBeforeUpdating) {
+TEST(TestDowndatableLinOp, RejectsRankAboveTheMaximumAndKeepsTheFactors) {
     const double identity[] = {1, 0, 0, 1};
-    const double first_column[] = {1, 0};
+    const double factors[] = {1, 0, 0, 1};
     DenseLinOp<double> base(2, 2, identity, 2, Layout::ColMajor);
     DowndatableLinOp<double, decltype(base)> residual(base, 1);
-    residual.update(1, first_column, first_column);
+    residual.set_factors(factors, factors, 1);
 
-    EXPECT_THROW(residual.update(1, first_column, first_column), RandLAPACK::Error);
+    EXPECT_THROW(residual.set_factors(factors, factors, 2), RandLAPACK::Error);
+    EXPECT_THROW(residual.set_factors(factors, factors, -1), RandLAPACK::Error);
+    EXPECT_THROW(residual.set_factors(nullptr, factors, 1), RandLAPACK::Error);
 
-    // The rejected update must leave I - e_1 e_1^T unchanged.
+    // The rejected calls must leave I - e_1 e_1^T unchanged.
+    const double e_1[] = {1, 0};
     double output[2];
     residual(Layout::ColMajor, Op::NoTrans, Op::NoTrans, 2, 1, 2,
-             1.0, first_column, 2, 0.0, output, 2);
+             1.0, e_1, 2, 0.0, output, 2);
     EXPECT_DOUBLE_EQ(output[0], 0);
     EXPECT_DOUBLE_EQ(output[1], 0);
+}
+
+TEST(TestDowndatableLinOp, FollowsFactorsWhenTheOwnerMovesThem) {
+    // The owner grows its storage and points the operator at the new copy, as QB does.
+    const double identity[] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    DenseLinOp<double> base(3, 3, identity, 3, Layout::ColMajor);
+    DowndatableLinOp<double, decltype(base)> residual(base, 2);
+    std::vector<double> small = {1, 0, 0};
+    residual.set_factors(small.data(), small.data(), 1);
+
+    std::vector<double> grown(6, 0.0);
+    std::copy(small.begin(), small.end(), grown.begin());
+    grown[4] = 1;  // second column e_2
+    small.assign(3, -100.0);  // the old copy is dead
+    residual.set_factors(grown.data(), grown.data(), 2);
+
+    // (I - e_1 e_1^T - e_2 e_2^T) applied to the all-ones vector leaves only e_3.
+    const double ones[] = {1, 1, 1};
+    double output[3];
+    residual(Layout::ColMajor, Op::NoTrans, Op::NoTrans, 3, 1, 3,
+             1.0, ones, 3, 0.0, output, 3);
+    EXPECT_DOUBLE_EQ(output[0], 0);
+    EXPECT_DOUBLE_EQ(output[1], 0);
+    EXPECT_DOUBLE_EQ(output[2], 1);
 }
 
 TEST(TestDowndatableLinOp, RejectsBufferSizeOverflow) {
@@ -173,7 +205,7 @@ TEST(TestDowndatableLinOp, RejectsScratchOverflowBeforeApplyingBase) {
     double output = 17;
     DenseLinOp<double> base(4, 4, zero_matrix, 4, Layout::ColMajor);
     DowndatableLinOp<double, decltype(base)> residual(base, 2);
-    residual.update(2, zero_factors, zero_factors);
+    residual.set_factors(zero_factors, zero_factors, 2);
 
     // Reject before forwarding this oversized RHS to BLAS with the small buffers.
     constexpr int64_t excessive_nrhs = int64_t(1) << 62;
@@ -181,6 +213,25 @@ TEST(TestDowndatableLinOp, RejectsScratchOverflowBeforeApplyingBase) {
                          4, excessive_nrhs, 4, 1.0, zero_factors, 4, 0.0, &output, 4),
                  RandLAPACK::Error);
     EXPECT_DOUBLE_EQ(output, 17);
+}
+
+TEST(TestDowndatableLinOp, DeflatesASparseBase) {
+    // The 3 x 3 identity as a sparse operator, minus e_1 e_1^T.
+    double identity[] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    RandBLAS::sparse_data::CSCMatrix<double> csc(3, 3);
+    RandBLAS::sparse_data::csc::dense_to_csc<double>(Layout::ColMajor, identity, 0.0, csc);
+    RandLAPACK::linops::SparseLinOp<decltype(csc)> base(3, 3, csc);
+    DowndatableLinOp<double, decltype(base)> residual(base, 1);
+    const double e_1[] = {1, 0, 0};
+    residual.set_factors(e_1, e_1, 1);
+
+    const double ones[] = {1, 1, 1};
+    double output[3];
+    residual(Layout::ColMajor, Op::NoTrans, Op::NoTrans, 3, 1, 3,
+             1.0, ones, 3, 0.0, output, 3);
+    EXPECT_DOUBLE_EQ(output[0], 0);
+    EXPECT_DOUBLE_EQ(output[1], 1);
+    EXPECT_DOUBLE_EQ(output[2], 1);
 }
 
 } // namespace
