@@ -33,6 +33,9 @@ asserting, randomness only through `RandBLAS::RNGState`, and how GPU code is
 guarded. [devnotes/idioms.md](devnotes/idioms.md) explains the C++ idioms we
 use deliberately (templated callables for duck typing, C++20 concepts,
 zero-copy transpose views, and so on).
+[docs/CONVENTIONS.md](docs/CONVENTIONS.md) is the library-wide design for
+memory, workspace, results, configuration (enums versus templates) and
+errors, which new and converted code follows.
 
 ## RandBLAS and the dependency pins
 

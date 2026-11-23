@@ -12,6 +12,8 @@
 #include "RandLAPACK/rl_blaspp.hh"
 #include "RandLAPACK/rl_lapackpp.hh"
 #include "RandLAPACK/rl_exceptions.hh"
+#include "RandLAPACK/rl_memory.hh"
+#include "RandLAPACK/rl_status.hh"
 #include "RandBLAS.hh"
 
 // misc
