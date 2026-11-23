@@ -3,6 +3,7 @@
 // Public API: CompositeOperator — implicit product of two linear operators.
 
 #include "rl_exceptions.hh"
+#include "rl_memory.hh"
 #include "rl_concepts.hh"
 #include "rl_blaspp.hh"
 
@@ -200,31 +201,27 @@ public:
 
             if (trans_comp == Op::NoTrans) {
                 int64_t temp_rows = right_op.n_rows;
-                T* temp_buffer = new T[temp_rows * n]();
+                auto temp_buffer = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, n));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp := LinOp2 * op(B)
-                right_op(Side::Left, layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+                right_op(Side::Left, layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer.get(), ldt);
 
                 // Step 2: C := alpha * LinOp1 * temp + beta * C
-                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
+                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer.get(), ldt, beta, C, ldc);
 
             } else {
                 // trans_comp == Op::Trans
                 // C := alpha * LinOp2^T * LinOp1^T * op(B) + beta * C
                 int64_t temp_rows = left_op.n_cols;
-                T* temp_buffer = new T[temp_rows * n]();
+                auto temp_buffer = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, n));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp := LinOp1^T * op(B)
-                left_op(Side::Left, layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+                left_op(Side::Left, layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer.get(), ldt);
 
                 // Step 2: C := alpha * LinOp2^T * temp + beta * C
-                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
+                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer.get(), ldt, beta, C, ldc);
             }
 
         } else {  // side == Side::Right
@@ -247,34 +244,30 @@ public:
             if (trans_comp == Op::NoTrans) {
                 int64_t temp_cols = left_op.n_cols;
                 int64_t temp_rows = m;
-                T* temp_buffer = new T[temp_rows * temp_cols]();
+                auto temp_buffer = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, temp_cols));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : temp_cols;
 
                 // Step 1: temp := op(B) * LinOp1
                 left_op(Side::Right, layout, Op::NoTrans, trans_B,
-                        temp_rows, temp_cols, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+                        temp_rows, temp_cols, k, (T)1.0, B, ldb, (T)0.0, temp_buffer.get(), ldt);
 
                 // Step 2: C := alpha * temp * LinOp2 + beta * C
                 right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans,
-                         m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
+                         m, n, temp_cols, alpha, temp_buffer.get(), ldt, beta, C, ldc);
 
             } else {  // trans_comp == Op::Trans
                 int64_t temp_cols = right_op.n_rows;
                 int64_t temp_rows = m;
-                T* temp_buffer = new T[temp_rows * temp_cols]();
+                auto temp_buffer = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, temp_cols));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : temp_cols;
 
                 // Step 1: temp := op(B) * LinOp1^T
                 left_op(Side::Right, layout, Op::Trans, trans_B,
-                        temp_rows, temp_cols, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+                        temp_rows, temp_cols, k, (T)1.0, B, ldb, (T)0.0, temp_buffer.get(), ldt);
 
                 // Step 2: C := alpha * temp * LinOp2^T + beta * C
                 right_op(Side::Right, layout, Op::Trans, Op::NoTrans,
-                         m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
+                         m, n, temp_cols, alpha, temp_buffer.get(), ldt, beta, C, ldc);
             }
         }
     }
@@ -310,23 +303,19 @@ public:
 
             if (trans_comp == Op::NoTrans) {
                 int64_t temp_rows = right_op.n_rows;
-                T* temp_buffer = new T[temp_rows * n]();
+                auto temp_buffer = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, n));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
-                right_op(Side::Left, layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
-                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
+                right_op(Side::Left, layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer.get(), ldt);
+                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer.get(), ldt, beta, C, ldc);
 
             } else {
                 int64_t temp_rows = left_op.n_cols;
-                T* temp_buffer = new T[temp_rows * n]();
+                auto temp_buffer = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, n));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
-                left_op(Side::Left, layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
-                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
+                left_op(Side::Left, layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer.get(), ldt);
+                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer.get(), ldt, beta, C, ldc);
             }
 
         } else {  // side == Side::Right
@@ -344,28 +333,24 @@ public:
             if (trans_comp == Op::NoTrans) {
                 int64_t temp_cols = left_op.n_cols;
                 int64_t temp_rows = m;
-                T* temp_buffer = new T[temp_rows * temp_cols]();
+                auto temp_buffer = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, temp_cols));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : temp_cols;
 
                 left_op(Side::Right, layout, Op::NoTrans, trans_B,
-                        temp_rows, temp_cols, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
+                        temp_rows, temp_cols, k, (T)1.0, B_sp, (T)0.0, temp_buffer.get(), ldt);
                 right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans,
-                         m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
+                         m, n, temp_cols, alpha, temp_buffer.get(), ldt, beta, C, ldc);
 
             } else {  // trans_comp == Op::Trans
                 int64_t temp_cols = right_op.n_rows;
                 int64_t temp_rows = m;
-                T* temp_buffer = new T[temp_rows * temp_cols]();
+                auto temp_buffer = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, temp_cols));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : temp_cols;
 
                 left_op(Side::Right, layout, Op::Trans, trans_B,
-                        temp_rows, temp_cols, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
+                        temp_rows, temp_cols, k, (T)1.0, B_sp, (T)0.0, temp_buffer.get(), ldt);
                 right_op(Side::Right, layout, Op::Trans, Op::NoTrans,
-                         m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
+                         m, n, temp_cols, alpha, temp_buffer.get(), ldt, beta, C, ldc);
             }
         }
     }
@@ -415,23 +400,19 @@ public:
 
             if (trans_A == Op::NoTrans) {
                 int64_t temp_rows = right_op.n_rows;
-                T* temp = new T[temp_rows * n]();
+                auto temp = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, n));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
-                right_op(Side::Left, layout, Op::NoTrans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp, ldt);
-                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp, ldt, beta, C, ldc);
-
-                delete[] temp;
+                right_op(Side::Left, layout, Op::NoTrans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp.get(), ldt);
+                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp.get(), ldt, beta, C, ldc);
 
             } else {  // trans_A == Op::Trans
                 int64_t temp_rows = left_op.n_cols;
-                T* temp = new T[temp_rows * n]();
+                auto temp = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(temp_rows, n));
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
-                left_op(Side::Left, layout, Op::Trans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp, ldt);
-                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp, ldt, beta, C, ldc);
-
-                delete[] temp;
+                left_op(Side::Left, layout, Op::Trans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp.get(), ldt);
+                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp.get(), ldt, beta, C, ldc);
             }
 
         } else {  // Side::Right
@@ -445,56 +426,48 @@ public:
                     int64_t n_rows_left = left_op.n_rows;
                     int64_t b_max = std::min(block_size, n);
 
-                    T* eye_block = new T[n_cols * b_max];
-                    T* V_block   = new T[m_inner * b_max];
-                    T* W         = new T[n_rows_left * b_max];
+                    auto eye_block = RandLAPACK::util::make_buffer<T>(RandLAPACK::util::checked_mul(n_cols, b_max));
+                    auto V_block = RandLAPACK::util::make_buffer<T>(RandLAPACK::util::checked_mul(m_inner, b_max));
+                    auto W = RandLAPACK::util::make_buffer<T>(RandLAPACK::util::checked_mul(n_rows_left, b_max));
 
                     for (int64_t j = 0; j < n; j += block_size) {
                         int64_t b = std::min(block_size, n - j);
 
-                        std::fill_n(eye_block, n_cols * b, (T)0.0);
+                        std::fill_n(eye_block.get(), n_cols * b, (T)0.0);
                         for (int64_t i = 0; i < b; ++i)
                             eye_block[(j + i) + i * n_cols] = (T)1.0;
 
                         right_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                 m_inner, b, n_cols, (T)1.0, eye_block, n_cols,
-                                 (T)0.0, V_block, m_inner);
+                                 m_inner, b, n_cols, (T)1.0, eye_block.get(), n_cols,
+                                 (T)0.0, V_block.get(), m_inner);
 
                         left_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                n_rows_left, b, m_inner, (T)1.0, V_block, m_inner,
-                                (T)0.0, W, n_rows_left);
+                                n_rows_left, b, m_inner, (T)1.0, V_block.get(), m_inner,
+                                (T)0.0, W.get(), n_rows_left);
 
                         T* C_col = C + j * ldc;
                         RandBLAS::sketch_general(
                             Layout::ColMajor, trans_S, Op::NoTrans,
-                            m, b, n_rows_left, alpha, S, W, n_rows_left,
+                            m, b, n_rows_left, alpha, S, W.get(), n_rows_left,
                             beta, C_col, ldc);
                     }
 
-                    delete[] eye_block;
-                    delete[] V_block;
-                    delete[] W;
-
                 } else {
                     int64_t temp_cols = left_op.n_cols;
-                    T* temp = new T[m * temp_cols]();
+                    auto temp = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(m, temp_cols));
                     int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
 
-                    left_op(Side::Right, layout, Op::NoTrans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp, ldt);
-                    right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
-
-                    delete[] temp;
+                    left_op(Side::Right, layout, Op::NoTrans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp.get(), ldt);
+                    right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans, m, n, temp_cols, alpha, temp.get(), ldt, beta, C, ldc);
                 }
 
             } else {  // trans_A == Op::Trans
                 int64_t temp_cols = right_op.n_rows;
-                T* temp = new T[m * temp_cols]();
+                auto temp = RandLAPACK::util::make_zeroed_buffer<T>(RandLAPACK::util::checked_mul(m, temp_cols));
                 int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
 
-                right_op(Side::Right, layout, Op::Trans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp, ldt);
-                left_op(Side::Right, layout, Op::Trans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
-
-                delete[] temp;
+                right_op(Side::Right, layout, Op::Trans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp.get(), ldt);
+                left_op(Side::Right, layout, Op::Trans, Op::NoTrans, m, n, temp_cols, alpha, temp.get(), ldt, beta, C, ldc);
             }
         }
     }
